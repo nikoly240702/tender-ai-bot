@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 import time
 from datetime import datetime
 import re
+import os
 
 
 class ZakupkiParser:
@@ -36,6 +37,15 @@ class ZakupkiParser:
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1'
         })
+
+        # Настройка прокси если указан в переменных окружения
+        proxy_url = os.getenv('PROXY_URL', '').strip()
+        if proxy_url:
+            self.session.proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            print(f"🔐 Используется прокси: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
 
     def search_tenders(
         self,
