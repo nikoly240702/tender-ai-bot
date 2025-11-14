@@ -85,9 +85,72 @@ class TextExtractor:
             return 'unknown'
 
     @staticmethod
+    def extract_from_pdf_with_ocr(file_path: str, max_pages: int = 20) -> str:
+        """
+        Извлекает текст из PDF используя OCR (для сканированных документов).
+
+        Args:
+            file_path: Путь к PDF файлу
+            max_pages: Максимальное количество страниц для OCR (чтобы не перегружать систему)
+
+        Returns:
+            Извлеченный текст
+
+        Raises:
+            Exception: При ошибках OCR
+        """
+        try:
+            from pdf2image import convert_from_path
+            import pytesseract
+            from PIL import Image
+
+            print(f"   🔍 Используем OCR для распознавания сканированного PDF...")
+
+            # Конвертируем PDF в изображения
+            try:
+                images = convert_from_path(file_path, first_page=1, last_page=max_pages)
+            except Exception as e:
+                print(f"   ⚠️  Ошибка конвертации PDF в изображения: {e}")
+                raise
+
+            if not images:
+                raise ValueError("Не удалось конвертировать PDF в изображения")
+
+            print(f"   📄 Обработка {len(images)} страниц через OCR...")
+
+            # Применяем OCR к каждому изображению
+            text_content = []
+            for i, image in enumerate(images, 1):
+                try:
+                    # Распознаем текст на русском и английском
+                    text = pytesseract.image_to_string(image, lang='rus+eng')
+                    if text.strip():
+                        text_content.append(text.strip())
+                    print(f"   ✓ Страница {i}/{len(images)} обработана")
+                except Exception as page_error:
+                    print(f"   ⚠️  Ошибка OCR на странице {i}: {page_error}")
+                    continue
+
+            extracted_text = '\n\n'.join(text_content)
+
+            if not extracted_text.strip():
+                raise ValueError("OCR не смог извлечь текст из PDF")
+
+            print(f"   ✅ OCR завершен, извлечено {len(extracted_text)} символов")
+            return extracted_text
+
+        except ImportError as ie:
+            missing_lib = str(ie).split("'")[1] if "'" in str(ie) else "библиотека"
+            raise Exception(f"Для OCR требуется установить {missing_lib}: pip install pdf2image pytesseract pillow")
+        except Exception as e:
+            raise Exception(f"Ошибка OCR: {str(e)}")
+
+    @staticmethod
     def extract_from_pdf(file_path: str) -> str:
         """
         Извлекает текст из PDF файла.
+        Сначала пытается извлечь обычным способом (PyPDF2),
+        если не удается - использует OCR для сканированных документов.
 
         Args:
             file_path: Путь к PDF файлу
@@ -117,11 +180,27 @@ class TextExtractor:
             extracted_text = '\n\n'.join(text_content)
 
             if not extracted_text.strip():
-                raise ValueError("PDF файл не содержит извлекаемого текста")
+                # PDF не содержит текста - вероятно это скан
+                # Пробуем OCR
+                print(f"   ⚠️  PDF не содержит текстового слоя, пробуем OCR...")
+                try:
+                    return TextExtractor.extract_from_pdf_with_ocr(file_path)
+                except Exception as ocr_error:
+                    print(f"   ❌ OCR также не удался: {ocr_error}")
+                    raise ValueError("PDF файл не содержит извлекаемого текста и OCR не помог")
 
             return extracted_text
 
         except Exception as e:
+            # Если это не ошибка "нет текста", просто пробрасываем исключение
+            if "не содержит извлекаемого текста" in str(e) or "EOF marker not found" in str(e):
+                # Пробуем OCR как последнюю попытку
+                try:
+                    print(f"   ⚠️  Ошибка извлечения текста ({str(e)}), пробуем OCR...")
+                    return TextExtractor.extract_from_pdf_with_ocr(file_path)
+                except Exception as ocr_error:
+                    print(f"   ❌ OCR также не удался: {ocr_error}")
+
             raise Exception(f"Ошибка при извлечении текста из PDF: {str(e)}")
 
     @staticmethod
