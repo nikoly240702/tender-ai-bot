@@ -7,6 +7,7 @@ import re
 from bs4 import BeautifulSoup
 import requests
 import warnings
+import os
 
 try:
     from .zakupki_rss_parser import ZakupkiRSSParser
@@ -45,8 +46,22 @@ class ZakupkiEnhancedParser:
 
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (compatible; TenderBot/1.0)'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
         })
+
+        # Настройка прокси если указан в переменных окружения
+        proxy_url = os.getenv('PROXY_URL', '').strip()
+        if proxy_url:
+            self.session.proxies = {
+                'http': proxy_url,
+                'https': proxy_url
+            }
+            print(f"🔐 Enhanced парсер использует прокси: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
 
     def search_with_details(
         self,
