@@ -1263,12 +1263,15 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
 
         # Отправляем HTML отчет пользователю
         html_sent = False
+        logger.info(f"Проверка HTML отчета: html_path = {html_path}")
         if html_path:
             try:
                 import os
                 from aiogram.types import FSInputFile
 
+                logger.info(f"HTML путь задан: {html_path}")
                 if os.path.exists(html_path):
+                    logger.info(f"HTML файл существует, отправляем пользователю...")
                     # Создаем объект файла для отправки
                     document = FSInputFile(html_path)
 
@@ -1279,9 +1282,13 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
                         parse_mode="HTML"
                     )
                     html_sent = True
-                    logger.info(f"HTML отчет отправлен пользователю: {html_path}")
+                    logger.info(f"✅ HTML отчет успешно отправлен пользователю: {html_path}")
+                else:
+                    logger.warning(f"⚠️ HTML файл не найден по пути: {html_path}")
             except Exception as e:
-                logger.error(f"Не удалось отправить HTML отчет: {e}")
+                logger.error(f"❌ Не удалось отправить HTML отчет: {e}", exc_info=True)
+        else:
+            logger.warning("⚠️ HTML путь не задан (html_path is None or empty)")
 
         # Формируем сообщение с результатами
         results_text = "✅ <b>AI-АНАЛИЗ ЗАВЕРШЕН</b>\n\n"

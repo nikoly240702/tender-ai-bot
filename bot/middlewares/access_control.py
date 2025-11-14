@@ -2,9 +2,9 @@
 Middleware для контроля доступа к боту.
 """
 
-from typing import Callable, Dict, Any, Awaitable
+from typing import Callable, Dict, Any, Awaitable, Union
 from aiogram import BaseMiddleware
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, TelegramObject
 from bot.config import BotConfig
 from bot.database.access_manager import AccessManager
 import logging
@@ -20,8 +20,8 @@ class AccessControlMiddleware(BaseMiddleware):
 
     async def __call__(
         self,
-        handler: Callable[[Message, Dict[str, Any]], Awaitable[Any]],
-        event: Message,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: Union[Message, CallbackQuery],
         data: Dict[str, Any]
     ) -> Any:
         """
@@ -29,7 +29,7 @@ class AccessControlMiddleware(BaseMiddleware):
 
         Args:
             handler: Следующий обработчик
-            event: Событие (сообщение)
+            event: Событие (сообщение или callback)
             data: Данные middleware
 
         Returns:
@@ -39,11 +39,13 @@ class AccessControlMiddleware(BaseMiddleware):
 
         # Администратор всегда имеет доступ
         if BotConfig.ADMIN_USER_ID and user_id == BotConfig.ADMIN_USER_ID:
-            logger.info(f"Доступ разрешен для администратора {user_id}")
+            logger.info(f"✅ Доступ разрешен для администратора {user_id}")
             return await handler(event, data)
 
-        # Если белый список не настроен - доступ всем
+        # Если белый список не настроен (None) - доступ всем
+        # Если это пустой set() - закрытый доступ
         if BotConfig.ALLOWED_USERS is None:
+            logger.info(f"✅ Открытый режим: доступ разрешен для {user_id}")
             return await handler(event, data)
 
         # Проверяем доступ через базу данных
@@ -63,10 +65,18 @@ class AccessControlMiddleware(BaseMiddleware):
         else:
             # Доступ запрещен
             logger.warning(f"Доступ запрещен для пользователя {user_id} (@{event.from_user.username})")
-            await event.answer(
+
+            error_message = (
                 "Извините, у вас нет доступа к этому боту.\n\n"
                 f"Ваш User ID: `{user_id}`\n\n"
-                "Обратитесь к администратору для получения доступа.",
-                parse_mode="Markdown"
+                "Обратитесь к администратору для получения доступа."
             )
+
+            # Для сообщений используем answer, для callback - answer + message
+            if isinstance(event, Message):
+                await event.answer(error_message, parse_mode="Markdown")
+            elif isinstance(event, CallbackQuery):
+                await event.answer("Доступ запрещен", show_alert=True)
+                await event.message.answer(error_message, parse_mode="Markdown")
+
             return

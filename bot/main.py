@@ -68,7 +68,9 @@ async def main():
     dp = Dispatcher(storage=storage)
 
     # Подключаем middleware для контроля доступа
-    dp.message.middleware(AccessControlMiddleware())
+    access_middleware = AccessControlMiddleware()
+    dp.message.middleware(access_middleware)
+    dp.callback_query.middleware(access_middleware)
 
     # Логируем информацию о контроле доступа
     if BotConfig.ALLOWED_USERS:
