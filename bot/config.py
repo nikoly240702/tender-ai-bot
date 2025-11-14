@@ -29,6 +29,12 @@ class BotConfig:
     ALLOWED_USERS_STR = os.getenv('ALLOWED_USERS', '')
     ALLOWED_USERS = set(int(uid.strip()) for uid in ALLOWED_USERS_STR.split(',') if uid.strip()) if ALLOWED_USERS_STR else None
 
+    # Администратор бота (может управлять доступом)
+    # Формат: единственный Telegram User ID
+    # Пример: ADMIN_USER_ID=123456789
+    ADMIN_USER_ID_STR = os.getenv('ADMIN_USER_ID', '')
+    ADMIN_USER_ID = int(ADMIN_USER_ID_STR) if ADMIN_USER_ID_STR.strip() else None
+
     # Настройки базы данных
     DB_PATH = Path(__file__).parent / 'database' / 'bot.db'
 

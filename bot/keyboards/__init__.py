@@ -496,3 +496,39 @@ def get_federal_districts_keyboard(selected_districts: list = None) -> InlineKey
     )
 
     return builder.as_markup()
+
+
+def get_admin_panel_keyboard() -> InlineKeyboardMarkup:
+    """Главное меню админ-панели."""
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(text="👥 Список пользователей", callback_data="admin_list_users")
+    )
+    builder.row(
+        InlineKeyboardButton(text="➕ Добавить пользователя", callback_data="admin_add_user")
+    )
+    builder.row(
+        InlineKeyboardButton(text="➖ Удалить пользователя", callback_data="admin_remove_user")
+    )
+
+    return builder.as_markup()
+
+
+def get_user_management_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """
+    Клавиатура управления конкретным пользователем.
+
+    Args:
+        user_id: Telegram User ID пользователя
+    """
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(text="❌ Удалить доступ", callback_data=f"admin_remove_{user_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="admin_back")
+    )
+
+    return builder.as_markup()

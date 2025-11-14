@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BotConfig
-from bot.handlers import start, search, history
+from bot.handlers import start, search, history, admin
 from bot.database import get_database
 from bot.middlewares import AccessControlMiddleware
 
@@ -55,6 +55,13 @@ async def main():
     logger.info("🗄️  Инициализация базы данных...")
     await get_database()
 
+    # Синхронизируем пользователей из переменной окружения ALLOWED_USERS в базу данных
+    if BotConfig.ALLOWED_USERS:
+        from bot.database.access_manager import AccessManager
+        access_manager = AccessManager()
+        access_manager.sync_from_env()
+        logger.info("✅ Пользователи из ALLOWED_USERS синхронизированы с базой данных")
+
     # Инициализируем бота и диспетчер
     bot = Bot(token=BotConfig.BOT_TOKEN)
     storage = MemoryStorage()
@@ -70,6 +77,7 @@ async def main():
         logger.info("⚠️ Контроль доступа: выключен (бот доступен всем)")
 
     # Регистрируем роутеры
+    dp.include_router(admin.router)  # Админ-панель регистрируем первой
     dp.include_router(start.router)
     dp.include_router(search.router)
     dp.include_router(history.router)

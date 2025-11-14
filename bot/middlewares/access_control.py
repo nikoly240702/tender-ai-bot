@@ -6,9 +6,13 @@ from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 from bot.config import BotConfig
+from bot.database.access_manager import AccessManager
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Инициализируем менеджер доступа
+access_manager = AccessManager()
 
 
 class AccessControlMiddleware(BaseMiddleware):
@@ -31,16 +35,30 @@ class AccessControlMiddleware(BaseMiddleware):
         Returns:
             Результат выполнения handler или None если доступ запрещен
         """
+        user_id = event.from_user.id
+
+        # Администратор всегда имеет доступ
+        if BotConfig.ADMIN_USER_ID and user_id == BotConfig.ADMIN_USER_ID:
+            logger.info(f"Доступ разрешен для администратора {user_id}")
+            return await handler(event, data)
+
         # Если белый список не настроен - доступ всем
         if BotConfig.ALLOWED_USERS is None:
             return await handler(event, data)
 
-        # Проверяем, есть ли пользователь в белом списке
-        user_id = event.from_user.id
-
-        if user_id in BotConfig.ALLOWED_USERS:
+        # Проверяем доступ через базу данных
+        if access_manager.is_user_allowed(user_id):
             # Доступ разрешен
             logger.info(f"Доступ разрешен для пользователя {user_id} (@{event.from_user.username})")
+
+            # Обновляем информацию о пользователе в БД
+            access_manager.update_user_info(
+                user_id=user_id,
+                username=event.from_user.username,
+                first_name=event.from_user.first_name,
+                last_name=event.from_user.last_name
+            )
+
             return await handler(event, data)
         else:
             # Доступ запрещен
