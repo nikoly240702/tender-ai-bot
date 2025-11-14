@@ -1,0 +1,25 @@
+{
+  "test_date": "2025-11-12T15:44:31.766220",
+  "search_query": "компьютерное оборудование",
+  "tenders_found": 3,
+  "tenders_processed": 2,
+  "total_documents": 2,
+  "results": [
+    {
+      "tender_number": "0851100001925000573",
+      "tender_name": "Запрос котировок в электронной форме №0851100001925000573",
+      "documents_found": 1,
+      "document_types": [
+        "other"
+      ]
+    },
+    {
+      "tender_number": "0134200000125005450",
+      "tender_name": "Электронный аукцион №0134200000125005450",
+      "documents_found": 1,
+      "document_types": [
+        "other"
+      ]
+    }
+  ]
+}

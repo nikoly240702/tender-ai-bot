@@ -152,6 +152,8 @@ async def execute_search(
         await message.answer(params_text, parse_mode="HTML")
 
     try:
+        logger.info(f"Начинаем поиск тендеров: query={query}, price_min={price_min}, price_max={price_max}, count={count}, regions={regions}")
+
         # Запускаем поиск в отдельном потоке (чтобы не блокировать бот)
         system = get_tender_system()
 
@@ -169,6 +171,8 @@ async def execute_search(
                 download_documents=False  # Пока не скачиваем
             )
         )
+
+        logger.info(f"Поиск завершен успешно, найдено тендеров: {result.get('tenders_found', 0)}")
 
         # Сохраняем результаты в состояние
         await state.update_data(search_results=result)

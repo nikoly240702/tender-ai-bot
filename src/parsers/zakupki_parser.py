@@ -85,7 +85,9 @@ class ZakupkiParser:
             print(f"✓ Найдено тендеров: {len(tenders)}")
 
         except Exception as e:
+            import traceback
             print(f"✗ Ошибка поиска: {e}")
+            print(f"   Traceback: {traceback.format_exc()}")
             # Возвращаем mock данные для демонстрации
             return self._get_mock_tenders()
 
