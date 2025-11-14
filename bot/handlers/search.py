@@ -1475,8 +1475,22 @@ async def open_html_report(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
 
+        from aiogram.utils.keyboard import InlineKeyboardBuilder
+        from aiogram.types import InlineKeyboardButton
+
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(
+            text="🔍 Новый поиск",
+            callback_data="main_menu"
+        ))
+        builder.row(InlineKeyboardButton(
+            text="🏠 Главное меню",
+            callback_data="main_menu"
+        ))
+
         await callback.message.answer(
             "✅ HTML отчет отправлен! Откройте файл для просмотра подробной информации.",
+            reply_markup=builder.as_markup(),
             parse_mode="HTML"
         )
 
