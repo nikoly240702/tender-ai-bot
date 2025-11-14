@@ -1,0 +1,50 @@
+# Core dependencies
+PyPDF2==3.0.1
+python-docx==1.1.0
+pyyaml==6.0.1
+jinja2==3.1.2
+
+# Progress bar for better UX
+tqdm==4.66.1
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Additional utilities
+colorama==0.4.6
+
+# LLM Providers (установите только нужные)
+# Anthropic Claude (оригинальный вариант)
+anthropic==0.40.0
+
+# OpenAI GPT (дешевая альтернатива)
+openai>=1.0.0
+
+# Groq (БЕСПЛАТНЫЙ!)
+groq>=0.4.0
+
+# Google Gemini (бесплатный tier)
+google-generativeai>=0.3.0
+
+# Requests для Ollama
+requests>=2.31.0
+
+# Web scraping and parsing
+beautifulsoup4>=4.12.0
+feedparser>=6.0.10  # RSS/Atom парсинг для zakupki.gov.ru
+
+# Selenium для браузерной автоматизации (опционально)
+# Раскомментируйте если планируете использовать Selenium парсер
+# selenium>=4.15.0
+# webdriver-manager>=4.0.0
+
+# Telegram Bot
+aiogram>=3.15.0
+aiosqlite>=0.19.0
+
+# Level 2 Analysis Dependencies
+pydantic>=2.5.0  # Структурированные модели
+pydantic-settings>=2.1.0
+tenacity>=8.2.3  # Retry логика
+loguru>=0.7.0  # Продвинутое логирование
+jsonschema>=4.20.0  # JSON валидация

@@ -1,0 +1,66 @@
+# Системные настройки ИИ-агента
+
+# Настройки LLM API
+llm:
+  # Провайдер: anthropic, openai, groq, gemini, ollama
+  provider: "openai"  # Используем OpenAI
+
+  # Гибридная система: разные модели для разных задач
+  # ИЗМЕНЕНО: используем gpt-4o-mini для всех задач (лимит 200K токенов вместо 30K)
+  model_premium: "gpt-4o"  # Высокое качество для Level 2 верификации
+
+  # Основная модель - gpt-4o-mini (большой контекст, низкая цена)
+  model_fast: "gpt-4o-mini"  # $0.15/1M входных, $0.60/1M выходных токенов, лимит 200K токенов
+
+  # Для обратной совместимости - используем mini для больших документов
+  model: "gpt-4o-mini"
+
+  # Общие параметры
+  max_tokens: 4096
+  temperature: 0.3
+  timeout: 120  # секунды
+  max_retries: 3
+  retry_delay: 2  # секунды
+
+  # Для Ollama (локальный)
+  ollama_base_url: "http://localhost:11434"
+
+# Старая конфигурация Claude (для обратной совместимости)
+claude:
+  model: "claude-sonnet-4-20250514"
+  max_tokens: 4096
+  temperature: 0.3
+  timeout: 120
+  max_retries: 3
+  retry_delay: 2
+
+# Настройки обработки документов
+document_processing:
+  max_file_size_mb: 50
+  supported_formats:
+    - "pdf"
+    - "docx"
+  encoding: "utf-8"
+
+# Настройки отчетов
+reporting:
+  output_formats:
+    - "html"
+    - "json"
+    - "markdown"
+  auto_open_html: true
+  report_naming: "tender_report_{timestamp}"
+
+# Логирование
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  console_output: true
+  file_output: false
+  log_file: "logs/tender_agent.log"
+
+# Пути
+paths:
+  data_folder: "data/tenders"
+  output_folder: "output/reports"
+  prompts_folder: "prompts"
+  config_folder: "config"

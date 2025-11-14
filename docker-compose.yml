@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  tender-bot:
+    build: .
+    container_name: tender-ai-bot
+    restart: unless-stopped
+
+    # Переменные окружения из .env файла
+    env_file:
+      - .env
+
+    # Монтируем директории для персистентности данных
+    volumes:
+      - ./bot/database:/app/bot/database
+      - ./output:/app/output
+
+    # Логирование
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Настройки для автоперезапуска
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'python3 bot/main.py' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
