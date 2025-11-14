@@ -1,6 +1,6 @@
 """
 Модуль для извлечения текста из документов тендерной документации.
-Поддерживает форматы: PDF, DOCX, ZIP.
+Поддерживает форматы: PDF, DOCX, XLSX, ZIP.
 """
 
 import os
@@ -12,6 +12,7 @@ import subprocess
 import zipfile
 import tempfile
 import shutil
+from openpyxl import load_workbook
 
 
 class TextExtractor:
@@ -27,7 +28,7 @@ class TextExtractor:
             file_path: Путь к файлу
 
         Returns:
-            Тип файла: 'pdf', 'docx', 'doc', или 'unknown'
+            Тип файла: 'pdf', 'docx', 'doc', 'xlsx', или 'unknown'
         """
         try:
             # Используем системную команду 'file' для определения типа
@@ -44,6 +45,9 @@ class TextExtractor:
                 # Определяем тип по MIME
                 if 'pdf' in mime_type:
                     return 'pdf'
+                elif 'spreadsheetml' in mime_type or 'ms-excel' in mime_type:
+                    # Excel файлы (XLSX, XLS)
+                    return 'xlsx'
                 elif 'wordprocessingml' in mime_type or 'vnd.openxmlformats' in mime_type:
                     return 'docx'
                 elif 'msword' in mime_type or 'ms-word' in mime_type:
@@ -67,6 +71,8 @@ class TextExtractor:
 
                 if 'pdf' in file_desc:
                     return 'pdf'
+                elif 'microsoft excel' in file_desc or 'excel' in file_desc:
+                    return 'xlsx'
                 elif 'microsoft word 2007' in file_desc or 'microsoft ooxml' in file_desc:
                     return 'docx'
                 elif 'microsoft office document' in file_desc or 'composite document' in file_desc:
@@ -80,6 +86,8 @@ class TextExtractor:
             ext = Path(file_path).suffix.lower()
             if ext == '.pdf':
                 return 'pdf'
+            elif ext in ['.xlsx', '.xls']:
+                return 'xlsx'
             elif ext in ['.docx', '.doc']:
                 return 'docx'
             return 'unknown'
@@ -282,6 +290,59 @@ class TextExtractor:
             raise Exception(f"Ошибка при извлечении текста из DOCX: {str(e)}")
 
     @staticmethod
+    def extract_from_xlsx(file_path: str) -> str:
+        """
+        Извлекает текст из XLSX/XLS файла (Excel).
+
+        Args:
+            file_path: Путь к XLSX/XLS файлу
+
+        Returns:
+            Извлеченный текст
+
+        Raises:
+            FileNotFoundError: Если файл не найден
+            Exception: При ошибках чтения XLSX
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+
+        try:
+            # Загружаем книгу Excel
+            workbook = load_workbook(file_path, data_only=True)
+            text_content = []
+
+            # Обрабатываем каждый лист
+            for sheet_name in workbook.sheetnames:
+                sheet = workbook[sheet_name]
+
+                # Добавляем заголовок с именем листа
+                text_content.append(f"=== Лист: {sheet_name} ===")
+
+                # Извлекаем данные из всех ячеек
+                sheet_rows = []
+                for row in sheet.iter_rows(values_only=True):
+                    # Фильтруем пустые ячейки и конвертируем в строку
+                    row_values = [str(cell) if cell is not None else '' for cell in row]
+                    # Убираем полностью пустые строки
+                    if any(val.strip() for val in row_values):
+                        sheet_rows.append(' | '.join(row_values))
+
+                if sheet_rows:
+                    text_content.append('\n'.join(sheet_rows))
+
+            extracted_text = '\n\n'.join(text_content)
+
+            if not extracted_text.strip():
+                raise ValueError("XLSX файл не содержит текста")
+
+            return extracted_text
+
+        except Exception as e:
+            print(f"   ❌ Ошибка извлечения текста из XLSX: {e}")
+            raise Exception(f"Ошибка при извлечении текста из XLSX: {str(e)}")
+
+    @staticmethod
     def extract_from_zip(file_path: str) -> str:
         """
         Извлекает текст из ZIP-архива, распаковывая его содержимое.
@@ -425,6 +486,9 @@ class TextExtractor:
             elif actual_type in ['docx', 'doc']:
                 text = TextExtractor.extract_from_docx(file_path)
                 file_type = 'DOCX/DOC'
+            elif actual_type == 'xlsx':
+                text = TextExtractor.extract_from_xlsx(file_path)
+                file_type = 'XLSX/XLS'
             elif actual_type == 'zip':
                 text = TextExtractor.extract_from_zip(file_path)
                 file_type = 'ZIP'
