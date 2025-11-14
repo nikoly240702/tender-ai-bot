@@ -209,7 +209,11 @@ class TenderAnalysisAgent:
             # Шаг 7: Генерация отчетов
             pbar.set_description(f"{Fore.YELLOW}{steps[6]}{Style.RESET_ALL}")
             try:
-                tender_name = results['tender_info'].get('name', 'tender')
+                tender_info = results.get('tender_info')
+                if tender_info and isinstance(tender_info, dict):
+                    tender_name = tender_info.get('name', 'tender')
+                else:
+                    tender_name = 'tender'
                 report_paths = self.report_generator.generate_all_reports(results, tender_name)
                 results['report_paths'] = report_paths
                 pbar.update(1)
