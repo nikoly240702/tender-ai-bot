@@ -15,7 +15,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BotConfig
 from bot.handlers import start, search, history, admin
-from bot.database import get_database
+from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware
 
 # Настройка логирования
