@@ -1261,14 +1261,27 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
         search_results['results'] = results
         await state.update_data(search_results=search_results)
 
-        # Открываем HTML отчет в браузере
+        # Отправляем HTML отчет пользователю
+        html_sent = False
         if html_path:
             try:
-                import webbrowser
                 import os
-                webbrowser.open(f'file://{os.path.abspath(html_path)}')
+                from aiogram.types import FSInputFile
+
+                if os.path.exists(html_path):
+                    # Создаем объект файла для отправки
+                    document = FSInputFile(html_path)
+
+                    # Отправляем файл пользователю
+                    await callback.message.answer_document(
+                        document=document,
+                        caption=f"📊 <b>Подробный AI-анализ тендера {tender.get('number', 'N/A')}</b>\n\nОткройте файл в браузере для просмотра полного анализа",
+                        parse_mode="HTML"
+                    )
+                    html_sent = True
+                    logger.info(f"HTML отчет отправлен пользователю: {html_path}")
             except Exception as e:
-                print(f"Не удалось открыть HTML отчет: {e}")
+                logger.error(f"Не удалось отправить HTML отчет: {e}")
 
         # Формируем сообщение с результатами
         results_text = "✅ <b>AI-АНАЛИЗ ЗАВЕРШЕН</b>\n\n"
@@ -1388,10 +1401,12 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
             results_text += "\n⚠️ <i>Анализ не вернул детальных данных.</i>\n"
             results_text += "<i>Возможно, документы были в нестандартном формате.</i>\n\n"
 
-        if html_path:
-            results_text += "<i>💡 Полный HTML отчет открыт в браузере</i>"
+        if html_sent:
+            results_text += "<i>💡 Полный HTML отчет отправлен вам в файле</i>"
+        elif html_path:
+            results_text += "<i>💡 HTML отчет доступен</i>"
         else:
-            results_text += "<i>💡 Полный отчет сохранен на сервере</i>"
+            results_text += "<i>💡 Анализ завершен</i>"
 
         await callback.message.edit_text(
             results_text,
