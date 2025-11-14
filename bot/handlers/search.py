@@ -266,6 +266,32 @@ async def execute_search(
         if not success:
             logger.error("Не удалось отправить результаты поиска пользователю")
 
+        # Отправляем общий HTML отчет, если он был создан
+        report_path = result.get('report_path')
+        if report_path:
+            import os
+            from aiogram.types import FSInputFile
+
+            try:
+                if os.path.exists(report_path):
+                    # Создаем объект файла для отправки
+                    document = FSInputFile(report_path)
+
+                    # Отправляем файл пользователю
+                    await message.answer_document(
+                        document=document,
+                        caption=f"📊 <b>Общий отчет по поиску</b>\n\n"
+                                f"🔍 Запрос: <b>{query}</b>\n"
+                                f"📋 Найдено тендеров: <b>{tenders_found}</b>\n\n"
+                                f"<i>Откройте файл в браузере для просмотра подробной информации по всем тендерам</i>",
+                        parse_mode="HTML"
+                    )
+                    logger.info(f"Общий HTML отчет отправлен пользователю: {report_path}")
+                else:
+                    logger.warning(f"Файл общего отчета не найден: {report_path}")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке общего HTML отчета: {e}", exc_info=True)
+
     except Exception as e:
         logger.error(f"Ошибка при поиске: {e}", exc_info=True)
 
