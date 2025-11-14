@@ -148,8 +148,16 @@ class TenderAnalysisAgent:
             # Шаг 3: Анализ через Claude
             pbar.set_description(f"{Fore.YELLOW}{steps[2]}{Style.RESET_ALL}")
             try:
+                # Ограничиваем размер текста для предотвращения превышения лимита токенов
+                # Примерно 1 токен ≈ 4 символа, 20000 токенов ≈ 80000 символов
+                max_chars = 80000
+                extracted_text = results['extracted_text']
+                if len(extracted_text) > max_chars:
+                    print(f"\n{Fore.YELLOW}⚠️  Текст слишком большой ({len(extracted_text)} символов), обрезаем до {max_chars}{Style.RESET_ALL}")
+                    extracted_text = extracted_text[:max_chars] + "\n\n[... текст обрезан из-за ограничений API ...]"
+
                 analysis = self.tender_analyzer.analyze_documentation(
-                    results['extracted_text'],
+                    extracted_text,
                     self.company_profile
                 )
                 results['tender_info'] = analysis.get('tender_info', {})
