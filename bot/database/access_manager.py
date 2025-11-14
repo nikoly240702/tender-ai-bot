@@ -7,10 +7,18 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from datetime import datetime
 import logging
+from enum import Enum
 
 from bot.config import BotConfig
 
 logger = logging.getLogger(__name__)
+
+
+class AccessRequestStatus(Enum):
+    """Статусы запроса на доступ."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class AccessManager:
