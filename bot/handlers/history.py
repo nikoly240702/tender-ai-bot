@@ -9,7 +9,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from datetime import datetime
 import asyncio
 
-from bot.database import get_database
+from bot.db import get_database
 from bot.states import SearchStates, HistoryStates
 from bot.keyboards import get_main_menu_keyboard, get_tenders_list_keyboard
 

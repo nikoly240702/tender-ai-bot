@@ -33,7 +33,7 @@ from bot.keyboards import (
 )
 from bot.states import SearchStates
 from bot.config import BotConfig
-from bot.database import get_database
+from bot.db import get_database
 from typing import Union
 import logging
 
