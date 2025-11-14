@@ -22,6 +22,13 @@ class BotConfig:
     # OpenAI API Key (используется из основной системы)
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
+    # Система приватности (белый список пользователей)
+    # Формат: список Telegram User ID через запятую
+    # Пример: ALLOWED_USERS=123456789,987654321
+    # Если не задано - бот доступен всем
+    ALLOWED_USERS_STR = os.getenv('ALLOWED_USERS', '')
+    ALLOWED_USERS = set(int(uid.strip()) for uid in ALLOWED_USERS_STR.split(',') if uid.strip()) if ALLOWED_USERS_STR else None
+
     # Настройки базы данных
     DB_PATH = Path(__file__).parent / 'database' / 'bot.db'
 

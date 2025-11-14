@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 import asyncio
@@ -1425,17 +1425,38 @@ async def open_html_report(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        import webbrowser
         import os
-        webbrowser.open(f'file://{os.path.abspath(html_report_path)}')
 
-        await callback.message.answer(
-            "✅ Отчет открыт в браузере!",
+        # Проверяем, что файл существует
+        if not os.path.exists(html_report_path):
+            await callback.message.answer(
+                "❌ Файл HTML отчета не найден",
+                parse_mode="HTML"
+            )
+            return
+
+        # Получаем информацию о тендере для названия файла
+        tender = results[tender_index]
+        tender_number = tender.get('number', 'unknown')
+
+        # Создаем объект файла для отправки
+        document = FSInputFile(html_report_path)
+
+        # Отправляем файл пользователю
+        await callback.message.answer_document(
+            document=document,
+            caption=f"📊 Подробный отчет по тендеру {tender_number}\n\nОткройте файл в браузере для просмотра",
             parse_mode="HTML"
         )
+
+        await callback.message.answer(
+            "✅ HTML отчет отправлен! Откройте файл для просмотра подробной информации.",
+            parse_mode="HTML"
+        )
+
     except Exception as e:
         await callback.message.answer(
-            f"❌ Не удалось открыть отчет в браузере:\n\n<code>{str(e)}</code>",
+            f"❌ Не удалось отправить HTML отчет:\n\n<code>{str(e)}</code>",
             parse_mode="HTML"
         )
 

@@ -16,6 +16,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from bot.config import BotConfig
 from bot.handlers import start, search, history
 from bot.database import get_database
+from bot.middlewares import AccessControlMiddleware
 
 # Настройка логирования
 logging.basicConfig(
@@ -58,6 +59,15 @@ async def main():
     bot = Bot(token=BotConfig.BOT_TOKEN)
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
+
+    # Подключаем middleware для контроля доступа
+    dp.message.middleware(AccessControlMiddleware())
+
+    # Логируем информацию о контроле доступа
+    if BotConfig.ALLOWED_USERS:
+        logger.info(f"🔐 Контроль доступа: включен ({len(BotConfig.ALLOWED_USERS)} пользователей)")
+    else:
+        logger.info("⚠️ Контроль доступа: выключен (бот доступен всем)")
 
     # Регистрируем роутеры
     dp.include_router(start.router)
