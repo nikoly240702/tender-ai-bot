@@ -6,9 +6,11 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Загружаем переменные окружения
+# Загружаем переменные окружения из .env (только для локального запуска)
+# В Railway переменные окружения уже установлены в системе
 env_path = Path(__file__).parent.parent / '.env'
-load_dotenv(env_path)
+if env_path.exists():
+    load_dotenv(env_path)
 
 
 class BotConfig:
@@ -48,10 +50,10 @@ class BotConfig:
         errors = []
 
         if not cls.BOT_TOKEN:
-            errors.append("TELEGRAM_BOT_TOKEN не задан в .env")
+            errors.append("TELEGRAM_BOT_TOKEN не задан")
 
         if not cls.OPENAI_API_KEY:
-            errors.append("OPENAI_API_KEY не задан в .env")
+            errors.append("OPENAI_API_KEY не задан")
 
         if errors:
             raise ValueError("Ошибки конфигурации:\n" + "\n".join(f"  - {e}" for e in errors))
