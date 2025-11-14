@@ -228,7 +228,8 @@ class TenderAnalyzer:
 
 Верни ТОЛЬКО JSON без комментариев."""
 
-        response_text = self._make_api_call(system_prompt, user_prompt, response_format="json")
+        # Используем fast модель (gpt-4o-mini) вместо premium (gpt-4o) чтобы избежать rate limit
+        response_text = self._make_api_call(system_prompt, user_prompt, response_format="json", use_premium=False)
 
         try:
             return json.loads(response_text)
@@ -681,7 +682,8 @@ class TenderAnalyzer:
 - Даты в формате YYYY-MM-DD
 - Если информация не найдена, укажи null или пустой массив []"""
 
-        response_text = self._make_api_call(system_prompt, user_prompt, response_format="json")
+        # Используем fast модель (gpt-4o-mini) вместо premium (gpt-4o) чтобы избежать rate limit
+        response_text = self._make_api_call(system_prompt, user_prompt, response_format="json", use_premium=False)
 
         try:
             return json.loads(response_text)
