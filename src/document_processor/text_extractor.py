@@ -1,6 +1,6 @@
 """
 Модуль для извлечения текста из документов тендерной документации.
-Поддерживает форматы: PDF, DOCX, XLSX, ZIP.
+Поддерживает форматы: PDF, DOCX, XLSX, RTF, TXT, CSV, ZIP и любые текстовые файлы.
 """
 
 import os
@@ -12,6 +12,8 @@ import subprocess
 import zipfile
 import tempfile
 import shutil
+import csv
+import chardet
 from openpyxl import load_workbook
 
 
@@ -28,7 +30,7 @@ class TextExtractor:
             file_path: Путь к файлу
 
         Returns:
-            Тип файла: 'pdf', 'docx', 'doc', 'xlsx', или 'unknown'
+            Тип файла: 'pdf', 'docx', 'doc', 'xlsx', 'rtf', 'txt', 'csv', 'text' или 'unknown'
         """
         try:
             # Используем системную команду 'file' для определения типа
@@ -52,6 +54,12 @@ class TextExtractor:
                     return 'docx'
                 elif 'msword' in mime_type or 'ms-word' in mime_type:
                     return 'doc'
+                elif 'rtf' in mime_type or 'richtext' in mime_type:
+                    return 'rtf'
+                elif 'csv' in mime_type or 'comma-separated' in mime_type:
+                    return 'csv'
+                elif 'text/plain' in mime_type or 'text/' in mime_type:
+                    return 'txt'
                 elif 'composite' in mime_type or 'ole' in mime_type:
                     # Старые .doc файлы (OLE Compound Document)
                     return 'doc'
@@ -77,6 +85,12 @@ class TextExtractor:
                     return 'docx'
                 elif 'microsoft office document' in file_desc or 'composite document' in file_desc:
                     return 'doc'
+                elif 'rich text' in file_desc or 'rtf' in file_desc:
+                    return 'rtf'
+                elif 'csv' in file_desc or 'comma-separated' in file_desc:
+                    return 'csv'
+                elif 'text' in file_desc or 'ascii' in file_desc or 'utf-8' in file_desc:
+                    return 'txt'
 
             return 'unknown'
 
@@ -90,6 +104,12 @@ class TextExtractor:
                 return 'xlsx'
             elif ext in ['.docx', '.doc']:
                 return 'docx'
+            elif ext == '.rtf':
+                return 'rtf'
+            elif ext == '.csv':
+                return 'csv'
+            elif ext in ['.txt', '.text', '.log']:
+                return 'txt'
             return 'unknown'
 
     @staticmethod
@@ -343,6 +363,219 @@ class TextExtractor:
             raise Exception(f"Ошибка при извлечении текста из XLSX: {str(e)}")
 
     @staticmethod
+    def extract_from_text_file(file_path: str) -> str:
+        """
+        Извлекает текст из простого текстового файла (TXT, LOG и т.д.).
+        Автоматически определяет кодировку.
+
+        Args:
+            file_path: Путь к текстовому файлу
+
+        Returns:
+            Извлеченный текст
+
+        Raises:
+            FileNotFoundError: Если файл не найден
+            Exception: При ошибках чтения файла
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+
+        try:
+            # Определяем кодировку файла
+            with open(file_path, 'rb') as file:
+                raw_data = file.read()
+                detected = chardet.detect(raw_data)
+                encoding = detected['encoding'] or 'utf-8'
+
+            # Читаем файл с определенной кодировкой
+            with open(file_path, 'r', encoding=encoding, errors='ignore') as file:
+                text = file.read()
+
+            if not text.strip():
+                raise ValueError("Текстовый файл пустой")
+
+            return text
+
+        except Exception as e:
+            print(f"   ❌ Ошибка извлечения текста из TXT: {e}")
+            raise Exception(f"Ошибка при извлечении текста из текстового файла: {str(e)}")
+
+    @staticmethod
+    def extract_from_csv(file_path: str) -> str:
+        """
+        Извлекает текст из CSV файла.
+
+        Args:
+            file_path: Путь к CSV файлу
+
+        Returns:
+            Извлеченный текст в табличном формате
+
+        Raises:
+            FileNotFoundError: Если файл не найден
+            Exception: При ошибках чтения CSV
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+
+        try:
+            # Определяем кодировку файла
+            with open(file_path, 'rb') as file:
+                raw_data = file.read()
+                detected = chardet.detect(raw_data)
+                encoding = detected['encoding'] or 'utf-8'
+
+            # Читаем CSV
+            text_content = []
+            with open(file_path, 'r', encoding=encoding, errors='ignore') as file:
+                csv_reader = csv.reader(file)
+                for row_num, row in enumerate(csv_reader, 1):
+                    # Фильтруем пустые строки
+                    if any(cell.strip() for cell in row):
+                        text_content.append(' | '.join(row))
+
+            extracted_text = '\n'.join(text_content)
+
+            if not extracted_text.strip():
+                raise ValueError("CSV файл пустой")
+
+            return extracted_text
+
+        except Exception as e:
+            print(f"   ❌ Ошибка извлечения текста из CSV: {e}")
+            raise Exception(f"Ошибка при извлечении текста из CSV: {str(e)}")
+
+    @staticmethod
+    def extract_from_rtf(file_path: str) -> str:
+        """
+        Извлекает текст из RTF файла.
+        Использует striprtf если доступен, иначе простое чтение.
+
+        Args:
+            file_path: Путь к RTF файлу
+
+        Returns:
+            Извлеченный текст
+
+        Raises:
+            FileNotFoundError: Если файл не найден
+            Exception: При ошибках чтения RTF
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+
+        try:
+            # Пробуем использовать striprtf для качественного извлечения
+            try:
+                from striprtf.striprtf import rtf_to_text
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                    rtf_content = file.read()
+                    text = rtf_to_text(rtf_content)
+                    if text and text.strip():
+                        return text
+            except ImportError:
+                print(f"   ⚠️  striprtf не установлен, используем базовое извлечение")
+            except Exception as e:
+                print(f"   ⚠️  Ошибка striprtf ({e}), используем базовое извлечение")
+
+            # Fallback: используем unrtf через subprocess
+            try:
+                result = subprocess.run(
+                    ['unrtf', '--text', file_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip()
+            except Exception as e:
+                print(f"   ⚠️  unrtf не доступен: {e}")
+
+            # Последний fallback: просто читаем как текст (будет с RTF разметкой)
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                text = file.read()
+                if text.strip():
+                    print(f"   ⚠️  Используем сырое чтение RTF (может содержать разметку)")
+                    return text
+
+            raise ValueError("Не удалось извлечь текст из RTF файла")
+
+        except Exception as e:
+            print(f"   ❌ Ошибка извлечения текста из RTF: {e}")
+            raise Exception(f"Ошибка при извлечении текста из RTF: {str(e)}")
+
+    @staticmethod
+    def extract_from_unknown(file_path: str) -> str:
+        """
+        Универсальный fallback для неизвестных типов файлов.
+        Пытается извлечь текст любыми доступными способами.
+
+        Args:
+            file_path: Путь к файлу
+
+        Returns:
+            Извлеченный текст или сообщение о невозможности извлечения
+
+        Raises:
+            Exception: При критических ошибках
+        """
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Файл не найден: {file_path}")
+
+        print(f"   🔧 Попытка универсального извлечения текста...")
+
+        # 1. Пробуем прочитать как текст с автоопределением кодировки
+        try:
+            with open(file_path, 'rb') as file:
+                raw_data = file.read(10000)  # Читаем первые 10KB для определения кодировки
+                detected = chardet.detect(raw_data)
+                encoding = detected['encoding'] or 'utf-8'
+                confidence = detected['confidence']
+
+            if confidence > 0.7:  # Достаточная уверенность в кодировке
+                with open(file_path, 'r', encoding=encoding, errors='ignore') as file:
+                    text = file.read()
+                    # Проверяем, что текст содержит хотя бы некоторые читаемые символы
+                    readable_chars = sum(1 for c in text if c.isprintable() or c.isspace())
+                    if readable_chars > len(text) * 0.5:  # >50% читаемых символов
+                        print(f"   ✅ Текст извлечен как {encoding} (уверенность: {confidence:.0%})")
+                        return text
+        except Exception as e:
+            print(f"   ⚠️  Попытка чтения как текст не удалась: {e}")
+
+        # 2. Пробуем strings (извлечение текстовых строк из бинарного файла)
+        try:
+            result = subprocess.run(
+                ['strings', file_path],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                extracted = result.stdout.strip()
+                if len(extracted) > 50:  # Хотя бы 50 символов
+                    print(f"   ✅ Извлечены текстовые строки из бинарного файла")
+                    return extracted
+        except Exception as e:
+            print(f"   ⚠️  Команда strings не доступна: {e}")
+
+        # 3. Последняя попытка: читаем как UTF-8 с игнорированием ошибок
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
+                text = file.read()
+                if text.strip():
+                    print(f"   ⚠️  Использовано принудительное чтение как UTF-8")
+                    return text
+        except Exception as e:
+            print(f"   ❌ Все попытки извлечения не удались: {e}")
+
+        # Если ничего не помогло, возвращаем информативное сообщение
+        file_size = os.path.getsize(file_path)
+        ext = Path(file_path).suffix
+        return f"[Не удалось автоматически извлечь текст из файла {ext} размером {file_size} байт. Возможно, это бинарный файл или неподдерживаемый формат.]"
+
+    @staticmethod
     def extract_from_zip(file_path: str) -> str:
         """
         Извлекает текст из ZIP-архива, распаковывая его содержимое.
@@ -489,20 +722,35 @@ class TextExtractor:
             elif actual_type == 'xlsx':
                 text = TextExtractor.extract_from_xlsx(file_path)
                 file_type = 'XLSX/XLS'
+            elif actual_type == 'txt':
+                text = TextExtractor.extract_from_text_file(file_path)
+                file_type = 'TXT'
+            elif actual_type == 'csv':
+                text = TextExtractor.extract_from_csv(file_path)
+                file_type = 'CSV'
+            elif actual_type == 'rtf':
+                text = TextExtractor.extract_from_rtf(file_path)
+                file_type = 'RTF'
             elif actual_type == 'zip':
                 text = TextExtractor.extract_from_zip(file_path)
                 file_type = 'ZIP'
             else:
+                # Используем универсальный fallback для неизвестных типов
                 file_extension = Path(file_path).suffix.lower()
-                print(f"   ⚠️  Неподдерживаемый формат: {actual_type}")
-                # Возвращаем пустой результат вместо исключения
-                text = f"[Не удалось извлечь текст: неподдерживаемый формат {actual_type}]"
-                file_type = 'UNKNOWN'
+                print(f"   ⚠️  Неизвестный формат: {actual_type}, пробуем универсальное извлечение")
+                text = TextExtractor.extract_from_unknown(file_path)
+                file_type = f'UNKNOWN ({file_extension})'
         except Exception as extract_error:
-            # Если не удалось извлечь текст, возвращаем информацию об ошибке
+            # Если не удалось извлечь текст стандартными методами, пробуем универсальный fallback
             print(f"   ❌ Ошибка извлечения текста: {extract_error}")
-            text = f"[Не удалось извлечь текст из файла: {str(extract_error)[:200]}]"
-            file_type = actual_type.upper()
+            try:
+                print(f"   🔄 Пробуем универсальный метод извлечения...")
+                text = TextExtractor.extract_from_unknown(file_path)
+                file_type = f'{actual_type.upper()} (fallback)'
+            except Exception as fallback_error:
+                print(f"   ❌ Универсальное извлечение также не удалось: {fallback_error}")
+                text = f"[Не удалось извлечь текст из файла: {str(extract_error)[:200]}]"
+                file_type = actual_type.upper()
 
         # Подсчитываем статистику
         char_count = len(text)
