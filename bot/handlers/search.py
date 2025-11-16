@@ -220,7 +220,7 @@ async def execute_search(
                 name = name[:77] + "..."
 
             results_text += f"{i}. <b>№ {number}</b>\n"
-            results_text += f"   {name}\n"
+            results_text += f"   <b>📦 Объект закупки:</b> {name}\n"
             results_text += f"   💰 {price}\n\n"
 
         results_text += "<i>💡 Выберите тендер для просмотра деталей:</i>"
@@ -1101,7 +1101,7 @@ async def back_to_results(callback: CallbackQuery, state: FSMContext):
             name = name[:77] + "..."
 
         results_text += f"{i}. <b>№ {number}</b>\n"
-        results_text += f"   {name}\n"
+        results_text += f"   <b>📦 Объект закупки:</b> {name}\n"
         results_text += f"   💰 {price}\n\n"
 
     results_text += "<i>💡 Выберите тендер для просмотра деталей:</i>"

@@ -71,7 +71,8 @@ class TenderAnalysisAgent:
             temperature=self.llm_config.get('temperature', 0.3),
             max_retries=self.llm_config.get('max_retries', 3),
             retry_delay=self.llm_config.get('retry_delay', 2),
-            ollama_base_url=self.llm_config.get('ollama_base_url')
+            ollama_base_url=self.llm_config.get('ollama_base_url'),
+            use_multi_stage=True  # ⭐ Активация нового многоэтапного анализа
         )
         self.contact_extractor = ContactExtractor()
         self.template_generator = TemplateGenerator()
