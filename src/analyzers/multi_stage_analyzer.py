@@ -66,7 +66,8 @@ class MultiStageAnalyzer:
         print("\n📍 Этап 1/6: Извлечение базовой информации...")
         basic_info = self._extract_basic_info(truncated_doc)
         print(f"   ✅ Название: {basic_info.get('name', 'Не найдено')[:60]}...")
-        print(f"   ✅ НМЦК: {basic_info.get('nmck', 0):,.0f} ₽")
+        nmck = basic_info.get('nmck') or 0
+        print(f"   ✅ НМЦК: {nmck:,.0f} ₽")
 
         # ЭТАП 2: Товары и услуги
         print("\n📦 Этап 2/6: Детальный анализ товаров/услуг...")
@@ -472,15 +473,19 @@ class MultiStageAnalyzer:
         Используется: premium модель
         Цель: Автоматическая оценка 0-100 баллов и рекомендация
         """
+        nmck_value = basic_info.get('nmck') or 0
+        guarantee_app = financial.get('guarantee_application') or 'не указано'
+        guarantee_contract = financial.get('guarantee_contract') or 'не указано'
+
         prompt = f"""Оцени соответствие тендера профилю компании по 5 критериям.
 
 ТЕНДЕР:
-Название: {basic_info.get('name')}
-НМЦК: {basic_info.get('nmck', 0):,.0f} ₽
-Тип: {basic_info.get('tender_type')}
+Название: {basic_info.get('name', 'Не указано')}
+НМЦК: {nmck_value:,.0f} ₽
+Тип: {basic_info.get('tender_type', 'Не указано')}
 Товаров/услуг: {len(products)} позиций
-Обеспечение заявки: {financial.get('guarantee_application', 'не указано')}
-Обеспечение контракта: {financial.get('guarantee_contract', 'не указано')}
+Обеспечение заявки: {guarantee_app}
+Обеспечение контракта: {guarantee_contract}
 
 ТРЕБОВАНИЯ:
 Технических: {len(requirements.get('technical', []))}
@@ -600,13 +605,20 @@ class MultiStageAnalyzer:
         Используется: fast модель
         Цель: Выявить потенциальные риски участия
         """
+        nmck_value = basic_info.get('nmck') or 0
+        deadline_exec = basic_info.get('deadline_execution') or 'не указан'
+        guarantee_contract = financial.get('guarantee_contract') or 'не указано'
+        payment_schedule = financial.get('payment_terms', {}).get('payment_schedule') if isinstance(financial.get('payment_terms'), dict) else 'не указаны'
+        if not payment_schedule:
+            payment_schedule = 'не указаны'
+
         prompt = f"""Выяви риски участия в тендере для компании.
 
 ТЕНДЕР:
-НМЦК: {basic_info.get('nmck', 0):,.0f} ₽
-Срок исполнения: {basic_info.get('deadline_execution', 'не указан')}
-Обеспечение контракта: {financial.get('guarantee_contract', 'не указано')}
-Условия оплаты: {financial.get('payment_terms', {}).get('payment_schedule', 'не указаны')}
+НМЦК: {nmck_value:,.0f} ₽
+Срок исполнения: {deadline_exec}
+Обеспечение контракта: {guarantee_contract}
+Условия оплаты: {payment_schedule}
 
 ПРОФИЛЬ КОМПАНИИ:
 {json.dumps(company_profile, ensure_ascii=False, indent=2)}
