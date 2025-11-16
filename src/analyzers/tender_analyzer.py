@@ -139,6 +139,28 @@ class TenderAnalyzer:
                 print("   Убедитесь что установлены зависимости: pydantic, tenacity, loguru, jsonschema")
                 self.use_level2 = False
 
+        # ⭐ НОВОЕ: Многоэтапный анализ с улучшенными компонентами
+        self.use_multi_stage = kwargs.get('use_multi_stage', False)
+        self.multi_stage_analyzer = None
+        self.result_validator = None
+
+        if self.use_multi_stage:
+            try:
+                from .multi_stage_analyzer import MultiStageAnalyzer
+                from .result_validator import ResultValidator
+
+                self.multi_stage_analyzer = MultiStageAnalyzer(
+                    llm_premium=self.llm_premium,
+                    llm_fast=self.llm_fast
+                )
+                self.result_validator = ResultValidator(llm=self.llm_premium)
+
+                print("✅ Многоэтапный анализ активирован (6 этапов + scoring + валидация)")
+
+            except ImportError as e:
+                print(f"⚠️  Не удалось загрузить модули многоэтапного анализа: {e}")
+                self.use_multi_stage = False
+
     def detect_tender_type(self, documentation_text: str) -> str:
         """
         Определяет тип закупки: товары, работы или услуги.
@@ -976,6 +998,63 @@ class TenderAnalyzer:
             if json_start >= 0 and json_end > json_start:
                 return json.loads(response_text[json_start:json_end])
             return {"critical": [], "important": [], "optional": []}
+
+    def analyze_tender_multi_stage(
+        self,
+        documentation: str,
+        company_profile: dict
+    ) -> dict:
+        """
+        ⭐ НОВЫЙ МЕТОД: Многоэтапный анализ тендера с валидацией.
+
+        Преимущества перед analyze_documentation():
+        1. Умная обрезка документов - сохраняет важные разделы
+        2. 6 фокусированных этапов вместо одного перегруженного промпта
+        3. Scoring system - автоматическая оценка соответствия 0-100
+        4. Валидация результатов с автоматическим исправлением
+        5. Chain-of-Thought промпты для критичных этапов
+
+        Args:
+            documentation: Полный текст тендерной документации
+            company_profile: Профиль компании
+
+        Returns:
+            Результат анализа с полями:
+            - tender_info: вся информация о тендере + товары
+            - requirements: требования по категориям
+            - suitability: ⭐ НОВОЕ - оценка соответствия (0-100)
+            - risks: выявленные риски
+            - validation: результаты валидации
+            - analysis_metadata: метаданные анализа
+
+        Example:
+            >>> analyzer = TenderAnalyzer(
+            ...     provider="openai",
+            ...     model_premium="gpt-4o",
+            ...     model_fast="gpt-4o-mini",
+            ...     use_multi_stage=True
+            ... )
+            >>> result = analyzer.analyze_tender_multi_stage(doc, profile)
+            >>> print(f"Оценка: {result['suitability']['total_score']}/100")
+            >>> print(f"Рекомендация: {result['suitability']['recommendation']}")
+        """
+        if not self.use_multi_stage or not self.multi_stage_analyzer:
+            raise ValueError(
+                "Многоэтапный анализ не активирован. "
+                "Создайте анализатор с use_multi_stage=True"
+            )
+
+        # Этап 1-6: Многоэтапный анализ
+        result = self.multi_stage_analyzer.analyze_tender(
+            documentation=documentation,
+            company_profile=company_profile
+        )
+
+        # Этап 7: Валидация результатов
+        if self.result_validator:
+            result = self.result_validator.validate_analysis(result, documentation)
+
+        return result
 
 
 def main():
