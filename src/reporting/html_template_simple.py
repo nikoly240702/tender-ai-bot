@@ -210,6 +210,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 <span class="badge-ai">AI-Powered</span>
             </div>
             <div class="tender-info-box">
+                <div style="font-size: 14px; font-weight: 600; color: var(--color-text-secondary); margin-bottom: 8px; text-transform: uppercase;">📦 Объект закупки</div>
                 <div class="tender-name">{{ tender_info.name or 'Анализируемый тендер' }}</div>
                 {% if tender_info.customer and tender_info.customer != 'N/A' %}
                 <div class="tender-customer">🏢 {{ tender_info.customer }}</div>

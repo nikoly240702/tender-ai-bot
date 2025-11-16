@@ -1332,10 +1332,18 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
         if confidence:
             results_text += f"<b>Уверенность:</b> {confidence:.0f}%\n\n"
 
+        # Объект закупки (название тендера)
+        if tender_info and tender_info != {}:
+            tender_name = tender_info.get('name', '')
+            if tender_name and tender_name != 'N/A':
+                if len(tender_name) > 150:
+                    tender_name = tender_name[:147] + "..."
+                results_text += f"<b>📦 Объект закупки:</b>\n{tender_name}\n\n"
+
         # Краткое резюме
         summary_text = (summary.get('summary_text') or
                        summary.get('summary') or
-                       tender_info.get('name', ''))
+                       '')
         if summary_text and summary_text != 'N/A':
             if len(summary_text) > 500:
                 summary_text = summary_text[:497] + "..."
