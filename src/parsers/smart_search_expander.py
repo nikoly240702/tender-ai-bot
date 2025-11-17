@@ -5,6 +5,29 @@
 
 from typing import List, Dict, Any
 import json
+import sys
+from pathlib import Path
+
+# Добавляем путь к корневой директории
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from utils.transliterator import Transliterator
+except ImportError:
+    # Fallback если не можем импортировать
+    class Transliterator:
+        @classmethod
+        def has_latin(cls, text):
+            import re
+            return bool(re.search(r'[a-zA-Z]', text))
+
+        @classmethod
+        def transliterate(cls, text):
+            return text
+
+        @classmethod
+        def generate_variants(cls, text):
+            return [text]
 
 
 class SmartSearchExpander:
@@ -18,6 +41,7 @@ class SmartSearchExpander:
             llm_adapter: Адаптер для работы с LLM
         """
         self.llm = llm_adapter
+        self.transliterator = Transliterator()
 
     def expand_search_query(self, original_query: str, max_variants: int = 5) -> List[str]:
         """
@@ -30,11 +54,39 @@ class SmartSearchExpander:
         Returns:
             Список поисковых запросов (включая оригинал)
         """
+        # Проверяем наличие латиницы
+        has_latin = self.transliterator.has_latin(original_query)
+
+        # Дополнительные инструкции для латинских запросов
+        latin_instructions = ""
+        if has_latin:
+            transliterated = self.transliterator.transliterate(original_query)
+            latin_instructions = f"""
+⚠️ ВАЖНО: Запрос содержит латинские символы (названия брендов).
+Zakupki.gov.ru RSS API НЕ ПОДДЕРЖИВАЕТ латиницу, поэтому:
+1. ОБЯЗАТЕЛЬНО включи кириллическую версию: "{transliterated}"
+2. Генерируй варианты БЕЗ названия бренда (только категория товара)
+3. Используй ТОЛЬКО кириллицу в вариантах
+4. НЕ включай латинские символы в расширенные варианты
+
+Примеры ПРАВИЛЬНЫХ вариантов для "Atlas Copco":
+✅ "Атлас Копко"
+✅ "компрессоры винтовые"
+✅ "пневматическое оборудование"
+✅ "компрессорное оборудование"
+✅ "воздушные компрессоры"
+
+Примеры НЕПРАВИЛЬНЫХ вариантов:
+❌ "компрессоры Atlas Copco" (содержит латиницу!)
+❌ "Atlas Copco оборудование" (содержит латиницу!)
+"""
+
         prompt = f"""Ты - эксперт по государственным закупкам в России.
 
 ЗАДАЧА: Сгенерируй список связанных поисковых запросов для поиска тендеров на zakupki.gov.ru.
 
 ОРИГИНАЛЬНЫЙ ЗАПРОС: "{original_query}"
+{latin_instructions}
 
 ТРЕБОВАНИЯ:
 1. Включи синонимы и близкие термины
@@ -42,6 +94,7 @@ class SmartSearchExpander:
 3. Включи распространенные формулировки из реальных тендеров
 4. Используй терминологию госзакупок
 5. Верни {max_variants} наиболее релевантных вариантов
+6. ИСПОЛЬЗУЙ ТОЛЬКО КИРИЛЛИЦУ в вариантах (без латинских символов!)
 
 ПРИМЕРЫ:
 - Для "компьютерное оборудование": видеокарты, процессоры, комплектующие для компьютеров, периферийные устройства, системные блоки
@@ -72,15 +125,43 @@ class SmartSearchExpander:
                 result = json.loads(json_str)
 
                 # Формируем список запросов
-                queries = [original_query]  # Всегда включаем оригинал
+                queries = []
+
+                # Добавляем транслитерированную версию если есть латиница
+                if has_latin:
+                    transliterated = self.transliterator.transliterate(original_query)
+                    queries.append(transliterated)
+                    print(f"\n💡 Расширение запроса '{original_query}':")
+                    print(f"   🔄 Транслитерация: '{transliterated}'")
+                else:
+                    queries.append(original_query)
+                    print(f"\n💡 Расширение запроса '{original_query}':")
 
                 if 'expanded' in result and isinstance(result['expanded'], list):
-                    queries.extend(result['expanded'][:max_variants - 1])
+                    # Фильтруем варианты, убираем те что содержат латиницу
+                    filtered_variants = []
+                    skipped_variants = []
 
-                print(f"\n💡 Расширение запроса '{original_query}':")
-                print(f"   📋 Сгенерировано вариантов: {len(queries) - 1}")
-                for i, q in enumerate(queries[1:], 1):
-                    print(f"      {i}. {q}")
+                    for variant in result['expanded'][:max_variants * 2]:  # Берем с запасом
+                        if self.transliterator.has_latin(variant):
+                            skipped_variants.append(variant)
+                        else:
+                            filtered_variants.append(variant)
+
+                        # Останавливаемся когда набрали нужное количество
+                        if len(filtered_variants) >= max_variants - 1:
+                            break
+
+                    queries.extend(filtered_variants[:max_variants - 1])
+
+                    print(f"   📋 Сгенерировано вариантов: {len(queries) - 1}")
+                    for i, q in enumerate(queries[1:], 1):
+                        print(f"      {i}. {q}")
+
+                    if skipped_variants:
+                        print(f"   ⚠️  Пропущено вариантов с латиницей: {len(skipped_variants)}")
+                        for variant in skipped_variants[:3]:
+                            print(f"      ❌ {variant}")
 
                 if 'reasoning' in result:
                     print(f"   🤔 Обоснование: {result['reasoning']}")
@@ -90,7 +171,11 @@ class SmartSearchExpander:
         except Exception as e:
             print(f"⚠️  Ошибка расширения запроса через LLM: {e}")
 
-        # Возвращаем оригинал если LLM не сработал
+        # Возвращаем транслитерированную версию если есть латиница
+        if has_latin:
+            transliterated = self.transliterator.transliterate(original_query)
+            return [transliterated]
+
         return [original_query]
 
     def generate_okpd_categories(self, query: str) -> List[str]:
