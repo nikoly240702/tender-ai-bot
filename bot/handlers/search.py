@@ -1335,7 +1335,14 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
 
         # Получаем пути к отчетам
         report_paths = analysis_result.get('report_paths', {})
-        html_path = report_paths.get('html')
+        logger.info(f"Report paths получены из analysis_result: {report_paths}")
+        html_path = report_paths.get('html') if report_paths else None
+        logger.info(f"HTML path извлечен: {html_path}")
+
+        # Проверяем наличие ошибок при генерации отчета
+        report_error = analysis_result.get('report_generation_error')
+        if report_error:
+            logger.error(f"Ошибка генерации отчета: {report_error}")
 
         # Обновляем данные в состоянии
         results[tender_index]['documents_downloaded'] = download_result.get('files', [])
@@ -1380,7 +1387,17 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
         # Формируем сообщение с результатами
         results_text = "✅ <b>AI-АНАЛИЗ ЗАВЕРШЕН</b>\n\n"
         results_text += f"📄 <b>Тендер:</b> {tender.get('number', 'N/A')}\n"
-        results_text += f"📥 <b>Документов:</b> {download_result['downloaded']}\n\n"
+        results_text += f"📥 <b>Документов:</b> {download_result['downloaded']}\n"
+
+        # Добавляем информацию о HTML отчете
+        if html_sent:
+            results_text += "📊 <b>HTML отчет:</b> отправлен\n"
+        elif report_error:
+            results_text += f"⚠️ <b>HTML отчет:</b> ошибка генерации\n"
+        else:
+            results_text += "⚠️ <b>HTML отчет:</b> не создан\n"
+
+        results_text += "\n"
 
         # Получаем summary - может быть на разных уровнях вложенности
         summary = analysis_result.get('analysis_summary') if analysis_result else {}

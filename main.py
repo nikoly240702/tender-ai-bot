@@ -225,10 +225,15 @@ class TenderAnalysisAgent:
                     tender_name = 'tender'
                 report_paths = self.report_generator.generate_all_reports(results, tender_name)
                 results['report_paths'] = report_paths
+                print(f"{Fore.GREEN}✓ Отчеты созданы: {report_paths}{Style.RESET_ALL}")
                 pbar.update(1)
             except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
                 print(f"\n{Fore.RED}✗ Ошибка генерации отчетов: {e}{Style.RESET_ALL}")
+                print(f"{Fore.RED}Детали ошибки:\n{error_details}{Style.RESET_ALL}")
                 results['report_paths'] = {}
+                results['report_generation_error'] = str(e)
 
         return results
 
