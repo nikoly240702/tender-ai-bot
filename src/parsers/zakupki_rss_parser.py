@@ -123,15 +123,37 @@ class ZakupkiRSSParser:
                 response.raise_for_status()
                 rss_content = response.content
             except Exception as e:
+                error_msg = str(e)
                 print(f"⚠️  Ошибка загрузки RSS через requests: {e}")
-                # Пробуем через feedparser напрямую
-                rss_content = rss_url
+
+                # Диагностика проблемы
+                if "SSLEOFError" in error_msg or "SSL" in error_msg:
+                    print(f"❌ SSL Ошибка: Не удается установить безопасное соединение")
+                    print(f"   Возможные причины:")
+                    print(f"   1. Прокси сервер не отвечает или недоступен")
+                    print(f"   2. zakupki.gov.ru блокирует соединение")
+                    print(f"   3. Проблемы с SSL/TLS конфигурацией")
+                elif "Proxy" in error_msg:
+                    print(f"❌ Прокси Ошибка: Прокси сервер не работает корректно")
+                    print(f"   Проверьте PROXY_URL в .env файле")
+                elif "timeout" in error_msg.lower():
+                    print(f"❌ Timeout: Сервер не отвечает в течение {self.timeout} секунд")
+
+                print(f"\n💡 Рекомендации:")
+                print(f"   • Проверьте доступность zakupki.gov.ru")
+                print(f"   • Убедитесь, что прокси сервер работает")
+                print(f"   • Попробуйте временно отключить прокси (закомментируйте PROXY_URL в .env)")
+                print(f"   • Используйте VPN если zakupki.gov.ru заблокирован\n")
+
+                # Возвращаем пустой список вместо краша
+                return []
 
             # Парсим RSS
             feed = feedparser.parse(rss_content)
 
             if feed.bozo and not feed.entries:
                 print(f"⚠️  Ошибка парсинга RSS: {feed.bozo_exception}")
+                return []
 
             tenders = []
             for entry in feed.entries[:max_results]:
