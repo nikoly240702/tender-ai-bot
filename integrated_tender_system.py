@@ -76,7 +76,8 @@ class IntegratedTenderSystem:
         max_tenders: int = 5,
         regions: Optional[List[str]] = None,
         analyze_documents: bool = True,
-        download_documents: bool = True
+        download_documents: bool = True,
+        tender_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Полный цикл: поиск → скачивание → анализ.
@@ -89,6 +90,7 @@ class IntegratedTenderSystem:
             regions: Список регионов (опционально)
             analyze_documents: Анализировать ли документы через AI
             download_documents: Скачивать ли документы
+            tender_type: Тип закупки ("товары", "услуги", "работы", None для всех)
 
         Returns:
             Словарь с результатами работы системы
@@ -103,10 +105,16 @@ class IntegratedTenderSystem:
         print(f"💰 Цена: {price_min:,} - {price_max:,} руб")
         if regions:
             print(f"📍 Регионы: {', '.join(regions)}")
+        if tender_type:
+            print(f"🎯 Тип закупки: {tender_type}")
 
         # Расширяем поисковый запрос через AI
         print("\n🧠 Расширение запроса через AI...")
-        expanded_queries = self.search_expander.expand_search_query(search_query, max_variants=4)
+        expanded_queries = self.search_expander.expand_search_query(
+            search_query,
+            max_variants=4,
+            tender_type_filter=tender_type
+        )
 
         # Вычисляем, сколько тендеров искать на каждый запрос
         # Добавляем 50% запас для дедупликации

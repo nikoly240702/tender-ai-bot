@@ -98,6 +98,29 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
+def get_tender_type_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа закупки."""
+    builder = InlineKeyboardBuilder()
+
+    builder.row(
+        InlineKeyboardButton(text="📦 Товары (поставка)", callback_data="type_товары")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔧 Услуги (обслуживание)", callback_data="type_услуги")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏗️ Работы (строительство/монтаж)", callback_data="type_работы")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔍 Все типы", callback_data="type_все")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_query")
+    )
+
+    return builder.as_markup()
+
+
 def get_price_range_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура выбора ценового диапазона."""
     builder = InlineKeyboardBuilder()
@@ -118,7 +141,7 @@ def get_price_range_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="💰 Свой вариант", callback_data="price_custom")
     )
     builder.row(
-        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_query")
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_tender_type")
     )
 
     return builder.as_markup()

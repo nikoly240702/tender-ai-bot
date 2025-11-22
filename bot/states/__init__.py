@@ -10,6 +10,7 @@ class SearchStates(StatesGroup):
 
     # Ввод параметров поиска
     waiting_for_query = State()           # Ожидание поискового запроса
+    waiting_for_tender_type = State()     # Ожидание выбора типа закупки
     waiting_for_price_range = State()     # Ожидание выбора ценового диапазона
     waiting_for_price_min = State()       # Ожидание минимальной цены (если выбран "Свой вариант")
     waiting_for_price_max = State()       # Ожидание максимальной цены

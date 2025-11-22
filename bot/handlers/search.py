@@ -19,6 +19,7 @@ from aiogram.exceptions import TelegramNetworkError, TelegramRetryAfter
 import asyncio
 
 from bot.keyboards import (
+    get_tender_type_keyboard,
     get_price_range_keyboard,
     get_tender_count_keyboard,
     get_cancel_keyboard,
@@ -114,6 +115,7 @@ async def execute_search(
     # Получаем все параметры поиска
     data = await state.get_data()
     query = data.get('query', '')
+    tender_type = data.get('tender_type')  # Тип закупки (товары/услуги/работы/None)
     price_min = data.get('price_min', 0)
     price_max = data.get('price_max', 50000000)
     regions = data.get('regions')  # Это теперь список или None
@@ -134,10 +136,20 @@ async def execute_search(
     else:
         region_text = f"{regions[0]}, {regions[1]} и еще {len(regions) - 2}"
 
+    # Форматируем тип закупки для отображения
+    type_display = {
+        "товары": "📦 Товары (поставка)",
+        "услуги": "🔧 Услуги (обслуживание)",
+        "работы": "🏗️ Работы (строительство/монтаж)",
+        None: "🔍 Все типы"
+    }
+    type_text = type_display.get(tender_type, "🔍 Все типы")
+
     # Показываем сводку параметров
     params_text = (
         "📋 <b>Параметры поиска:</b>\n\n"
         f"🔍 Запрос: <b>{query}</b>\n"
+        f"🎯 Тип: <b>{type_text}</b>\n"
         f"💰 Цена: <b>{price_min_str} - {price_max_str} ₽</b>\n"
         f"📍 Регион: <b>{region_text}</b>\n"
         f"🔢 Количество: <b>{count} тендеров</b>\n\n"
@@ -168,7 +180,8 @@ async def execute_search(
                 max_tenders=count,
                 regions=regions,  # Передаем регион
                 analyze_documents=False,  # Пока не анализируем
-                download_documents=False  # Пока не скачиваем
+                download_documents=False,  # Пока не скачиваем
+                tender_type=tender_type  # Передаем тип закупки
             )
         )
 
@@ -337,14 +350,88 @@ async def process_search_query(message: Message, state: FSMContext):
     # Сохраняем запрос в состояние
     await state.update_data(query=query)
 
-    # Переходим к выбору ценового диапазона
-    await state.set_state(SearchStates.waiting_for_price_range)
+    # Переходим к выбору типа закупки
+    await state.set_state(SearchStates.waiting_for_tender_type)
 
     await message.answer(
         f"✅ Запрос принят: <b>{query}</b>\n\n"
-        f"💰 <b>Шаг 2 из 3: Ценовой диапазон</b>\n\n"
+        f"🎯 <b>Шаг 2 из 4: Тип закупки</b>\n\n"
+        f"Выберите тип закупки для фильтрации результатов:",
+        reply_markup=get_tender_type_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(SearchStates.waiting_for_tender_type, F.data.startswith("type_"))
+async def process_tender_type(callback: CallbackQuery, state: FSMContext):
+    """
+    Обработка выбора типа закупки.
+    """
+    await callback.answer()
+
+    tender_type_raw = callback.data.replace("type_", "")
+
+    # Маппинг для сохранения в состояние
+    tender_type_mapping = {
+        "товары": "товары",
+        "услуги": "услуги",
+        "работы": "работы",
+        "все": None  # None означает все типы
+    }
+
+    tender_type = tender_type_mapping.get(tender_type_raw)
+
+    # Сохраняем тип закупки
+    await state.update_data(tender_type=tender_type)
+
+    # Текст для отображения
+    type_display = {
+        "товары": "📦 Товары (поставка)",
+        "услуги": "🔧 Услуги (обслуживание)",
+        "работы": "🏗️ Работы (строительство/монтаж)",
+        None: "🔍 Все типы"
+    }
+
+    # Переходим к выбору ценового диапазона
+    await state.set_state(SearchStates.waiting_for_price_range)
+
+    await callback.message.edit_text(
+        f"✅ Выбран тип: <b>{type_display[tender_type]}</b>\n\n"
+        f"💰 <b>Шаг 3 из 4: Ценовой диапазон</b>\n\n"
         f"Выберите диапазон цены контракта:",
         reply_markup=get_price_range_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(SearchStates.waiting_for_tender_type, F.data == "back_to_query")
+async def back_to_query_from_type(callback: CallbackQuery, state: FSMContext):
+    """Возврат к вводу поискового запроса."""
+    await callback.answer()
+    await state.set_state(SearchStates.waiting_for_query)
+
+    await callback.message.edit_text(
+        "🔍 <b>Шаг 1 из 4: Поисковый запрос</b>\n\n"
+        "Введите ключевые слова для поиска тендеров.\n\n"
+        "<i>Например: компьютерное оборудование, офисная мебель, канцтовары</i>",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(SearchStates.waiting_for_price_range, F.data == "back_to_tender_type")
+async def back_to_tender_type(callback: CallbackQuery, state: FSMContext):
+    """Возврат к выбору типа закупки."""
+    await callback.answer()
+    await state.set_state(SearchStates.waiting_for_tender_type)
+
+    data = await state.get_data()
+    query = data.get('query', '')
+
+    await callback.message.edit_text(
+        f"✅ Запрос: <b>{query}</b>\n\n"
+        f"🎯 <b>Шаг 2 из 4: Тип закупки</b>\n\n"
+        f"Выберите тип закупки для фильтрации результатов:",
+        reply_markup=get_tender_type_keyboard(),
         parse_mode="HTML"
     )
 
