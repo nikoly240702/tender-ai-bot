@@ -63,20 +63,32 @@ class ZakupkiEnhancedParser:
             }
             print(f"🔐 Enhanced парсер использует прокси: {proxy_url.split('@')[-1] if '@' in proxy_url else proxy_url}")
 
-        # Отключаем SSL verify для прокси
+        # Полное отключение SSL verify для прокси
         self.session.verify = False
 
-        # Настройка адаптера для обработки SSL ошибок
+        # Настройка SSL контекста для игнорирования ошибок
+        import ssl
         from requests.adapters import HTTPAdapter
+        from urllib3.util.ssl_ import create_urllib3_context
         from urllib3.util.retry import Retry
+
+        class SSLAdapter(HTTPAdapter):
+            """HTTPAdapter с отключенной проверкой SSL."""
+            def init_poolmanager(self, *args, **kwargs):
+                context = create_urllib3_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                context.options |= 0x4  # OP_LEGACY_SERVER_CONNECT
+                kwargs['ssl_context'] = context
+                return super().init_poolmanager(*args, **kwargs)
 
         retry_strategy = Retry(
             total=3,
-            backoff_factor=1,
+            backoff_factor=2,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS"]
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
+        adapter = SSLAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
