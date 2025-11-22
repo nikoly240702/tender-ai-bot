@@ -186,6 +186,12 @@ class ReportGenerator:
             gaps=data.get('gaps', []),
             questions=data.get('questions', {}),
             contacts=data.get('contacts', {}),
+            requirements=data.get('requirements', {}),
+            score=data.get('score', {}),
+            financial_analysis=data.get('financial_analysis', {}),
+            contract_analysis=data.get('contract_analysis', {}),
+            risk_assessment=data.get('risk_assessment', {}),
+            analysis_summary=data.get('analysis_summary', {}),
             current_date=datetime.now().strftime('%d.%m.%Y %H:%M')
         )
 

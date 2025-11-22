@@ -287,6 +287,148 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
+        {% if score and score.scores %}
+        <div class="section">
+            <div class="section-title"><span>📊</span><span>Оценка тендера</span></div>
+            <div class="contact-info">
+                {% if score.scores.total_score %}
+                <div class="contact-item">
+                    <span class="contact-label">🎯 Общая оценка:</span>
+                    <span style="font-weight: 600; color: {% if score.scores.total_score >= 70 %}#10B981{% elif score.scores.total_score >= 50 %}#F59E0B{% else %}#EF4444{% endif %};">{{ score.scores.total_score }}/100</span>
+                </div>
+                {% endif %}
+                {% if score.recommendation %}
+                <div class="contact-item">
+                    <span class="contact-label">💡 Рекомендация:</span>
+                    <span style="font-weight: 600;">{{ score.recommendation }}</span>
+                </div>
+                {% endif %}
+                {% if score.recommendation_details %}
+                <div style="margin-top: 12px; padding: 12px; background: var(--color-bg-alt); border-radius: 6px;">
+                    {{ score.recommendation_details }}
+                </div>
+                {% endif %}
+                {% if score.readiness_percent %}
+                <div class="contact-item">
+                    <span class="contact-label">✅ Готовность к участию:</span>
+                    <span>{{ score.readiness_percent }}%</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if requirements %}
+        <div class="section">
+            <div class="section-title"><span>📋</span><span>Техническое задание и спецификация</span></div>
+            {% if requirements.items and requirements.items|length > 0 %}
+            <div style="margin-top: 12px;">
+                <strong>📦 Товары/услуги:</strong>
+                {% for item in requirements.items %}
+                <div style="padding: 12px; margin-top: 8px; background: var(--color-bg-alt); border-radius: 6px; border-left: 3px solid var(--color-primary);">
+                    <div style="font-weight: 600; color: var(--color-text-heading);">{{ item.name or 'Позиция ' ~ loop.index }}</div>
+                    {% if item.quantity %}<div style="margin-top: 4px;">Количество: {{ item.quantity }} {% if item.unit %}{{ item.unit }}{% endif %}</div>{% endif %}
+                    {% if item.price %}<div style="margin-top: 4px;">Цена: {{ "{:,.0f}".format(item.price) }} ₽</div>{% endif %}
+                    {% if item.specifications %}
+                    <div style="margin-top: 8px; font-size: 14px;">
+                        <strong>Характеристики:</strong>
+                        <ul style="margin-top: 4px; margin-left: 20px;">
+                        {% for spec in item.specifications %}
+                            <li>{{ spec }}</li>
+                        {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if requirements.delivery_terms %}
+            <div style="margin-top: 12px; padding: 12px; background: #EEF3F9; border-radius: 6px;">
+                <strong>🚚 Условия поставки:</strong>
+                <div style="margin-top: 6px;">{{ requirements.delivery_terms }}</div>
+            </div>
+            {% endif %}
+            {% if requirements.quality_requirements %}
+            <div style="margin-top: 12px; padding: 12px; background: #EEF3F9; border-radius: 6px;">
+                <strong>✅ Требования к качеству:</strong>
+                <div style="margin-top: 6px;">{{ requirements.quality_requirements }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if financial_analysis %}
+        <div class="section">
+            <div class="section-title"><span>💰</span><span>Финансовый анализ</span></div>
+            <div class="contact-info">
+                {% if financial_analysis.cost_estimate and financial_analysis.cost_estimate.total_cost %}
+                <div class="contact-item">
+                    <span class="contact-label">💵 Наша оценка стоимости:</span>
+                    <span style="font-weight: 600; color: var(--color-primary);">{{ "{:,.0f}".format(financial_analysis.cost_estimate.total_cost) }} ₽</span>
+                </div>
+                {% endif %}
+                {% if financial_analysis.margin %}
+                <div class="contact-item">
+                    <span class="contact-label">📈 Планируемая маржа:</span>
+                    <span>{{ financial_analysis.margin.margin_percent or 'N/A' }}% ({{ "{:,.0f}".format(financial_analysis.margin.margin_amount) if financial_analysis.margin.margin_amount else 'N/A' }} ₽)</span>
+                </div>
+                {% endif %}
+                {% if financial_analysis.guarantees %}
+                <div class="contact-item">
+                    <span class="contact-label">🔒 Обеспечение заявки:</span>
+                    <span>{{ "{:,.0f}".format(financial_analysis.guarantees.application_guarantee) if financial_analysis.guarantees.application_guarantee else 'Не требуется' }} ₽</span>
+                </div>
+                <div class="contact-item">
+                    <span class="contact-label">🔐 Обеспечение контракта:</span>
+                    <span>{{ "{:,.0f}".format(financial_analysis.guarantees.contract_guarantee) if financial_analysis.guarantees.contract_guarantee else 'Не требуется' }} ₽</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if contract_analysis %}
+        <div class="section">
+            <div class="section-title"><span>📄</span><span>Анализ контракта</span></div>
+            {% if contract_analysis.payment_terms %}
+            <div style="margin-top: 12px; padding: 12px; background: var(--color-bg-alt); border-radius: 6px;">
+                <strong>💳 Условия оплаты:</strong>
+                <div style="margin-top: 6px;">{{ contract_analysis.payment_terms }}</div>
+            </div>
+            {% endif %}
+            {% if contract_analysis.penalties %}
+            <div style="margin-top: 12px; padding: 12px; background: #FEE2E2; border-radius: 6px; border-left: 3px solid #EF4444;">
+                <strong>⚠️ Штрафы и пени:</strong>
+                <div style="margin-top: 6px;">{{ contract_analysis.penalties }}</div>
+            </div>
+            {% endif %}
+            {% if contract_analysis.warranty_terms %}
+            <div style="margin-top: 12px; padding: 12px; background: var(--color-bg-alt); border-radius: 6px;">
+                <strong>🛡️ Гарантийные обязательства:</strong>
+                <div style="margin-top: 6px;">{{ contract_analysis.warranty_terms }}</div>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if risk_assessment and risk_assessment.risks and risk_assessment.risks|length > 0 %}
+        <div class="section">
+            <div class="section-title"><span>⚠️</span><span>Оценка рисков</span></div>
+            {% for risk in risk_assessment.risks %}
+            <div style="padding: 12px; margin-top: 8px; background: {% if risk.severity == 'HIGH' %}#FEE2E2{% elif risk.severity == 'MEDIUM' %}#FEF3C7{% else %}#E0E7FF{% endif %}; border-radius: 6px; border-left: 3px solid {% if risk.severity == 'HIGH' %}#EF4444{% elif risk.severity == 'MEDIUM' %}#F59E0B{% else %}#6366F1{% endif %};">
+                <div style="font-weight: 600;">{{ risk.risk_type or 'Риск' }}</div>
+                <div style="margin-top: 4px; color: var(--color-text-secondary);">{{ risk.description }}</div>
+                {% if risk.mitigation %}
+                <div style="margin-top: 8px; padding: 8px; background: white; border-radius: 4px;">
+                    <strong>✅ Меры снижения:</strong> {{ risk.mitigation }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
         {% if gaps and gaps|length > 0 %}
         <div class="section">
             <div class="section-title"><span>⚠️</span><span>Выявленные пробелы ({{ gaps|length }})</span></div>
