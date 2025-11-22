@@ -97,10 +97,35 @@ class ZakupkiDocumentDownloader:
         print(f"\n📄 Извлечение документов из тендера {tender_number}...")
         print(f"   🔗 URL документов: {docs_url}")
 
+        # Retry логика для обработки Connection reset
+        max_retries = 3
+        retry_delay = 2
+
+        for attempt in range(max_retries):
+            try:
+                # Загружаем страницу с документами
+                response = self.session.get(docs_url, timeout=30, verify=False)
+                response.raise_for_status()
+                break  # Успешно загрузили, выходим из цикла
+
+            except (requests.exceptions.ConnectionError, ConnectionResetError) as e:
+                if attempt < max_retries - 1:
+                    print(f"   ⚠️  Ошибка соединения (попытка {attempt + 1}/{max_retries}): {type(e).__name__}")
+                    print(f"   ⏳ Повтор через {retry_delay} сек...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Экспоненциальная задержка
+                else:
+                    raise  # Последняя попытка - пробрасываем исключение
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    print(f"   ⏱️  Таймаут (попытка {attempt + 1}/{max_retries})")
+                    print(f"   ⏳ Повтор через {retry_delay} сек...")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    raise
+
         try:
-            # Загружаем страницу с документами
-            response = self.session.get(docs_url, timeout=30, verify=False)
-            response.raise_for_status()
 
             soup = BeautifulSoup(response.content, 'html.parser')
 
