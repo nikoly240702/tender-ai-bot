@@ -239,7 +239,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 {% if tender_info.deadline_submission %}
                 <div style="font-size: 14px; color: var(--color-text-primary); margin-top: 8px;">
                     ⏰ Окончание подачи заявок: {{ tender_info.deadline_submission }}
-                    {% if tender_info.days_until_deadline is not none %}
+                    {% if tender_info.days_until_deadline is defined and tender_info.days_until_deadline is not none %}
                         {% if tender_info.days_until_deadline == 0 %}
                         <span style="color: #DC2626; font-weight: 600;">(сегодня!)</span>
                         {% elif tender_info.days_until_deadline > 0 %}
