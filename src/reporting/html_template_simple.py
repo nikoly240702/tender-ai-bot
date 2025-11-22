@@ -369,10 +369,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         {% if requirements %}
         <div class="section">
             <div class="section-title"><span>📋</span><span>Техническое задание и спецификация</span></div>
-            {% if requirements.items and requirements.items|length > 0 %}
+            {% if tender_info.products_or_services and tender_info.products_or_services|length > 0 %}
             <div style="margin-top: 12px;">
                 <strong>📦 Товары/услуги:</strong>
-                {% for item in requirements.items %}
+                {% for item in tender_info.products_or_services %}
                 <div style="padding: 12px; margin-top: 8px; background: var(--color-bg-alt); border-radius: 6px; border-left: 3px solid var(--color-primary);">
                     <div style="font-weight: 600; color: var(--color-text-heading);">{{ item.name or 'Позиция ' ~ loop.index }}</div>
                     {% if item.quantity %}<div style="margin-top: 4px;">Количество: {{ item.quantity }} {% if item.unit %}{{ item.unit }}{% endif %}</div>{% endif %}
