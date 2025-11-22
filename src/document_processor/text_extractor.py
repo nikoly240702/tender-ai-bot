@@ -24,7 +24,7 @@ class TextExtractor:
     def detect_file_type(file_path: str) -> str:
         """
         Определяет реальный тип файла по содержимому (magic bytes), а не по расширению.
-        Использует системную команду 'file' для определения типа.
+        КРИТИЧНО для zakupki.gov.ru которые часто называют DOCX файлы как .pdf
 
         Args:
             file_path: Путь к файлу
@@ -33,70 +33,94 @@ class TextExtractor:
             Тип файла: 'pdf', 'docx', 'doc', 'xlsx', 'rtf', 'txt', 'csv', 'text' или 'unknown'
         """
         try:
-            # Используем системную команду 'file' для определения типа
-            result = subprocess.run(
-                ['file', '--brief', '--mime-type', file_path],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            # МЕТОД 1: Читаем magic bytes напрямую (самый надежный)
+            with open(file_path, 'rb') as f:
+                magic = f.read(8)
 
-            if result.returncode == 0:
-                mime_type = result.stdout.strip().lower()
-
-                # Определяем тип по MIME
-                if 'pdf' in mime_type:
-                    return 'pdf'
-                elif 'spreadsheetml' in mime_type or 'ms-excel' in mime_type:
-                    # Excel файлы (XLSX, XLS)
-                    return 'xlsx'
-                elif 'wordprocessingml' in mime_type or 'vnd.openxmlformats' in mime_type:
-                    return 'docx'
-                elif 'msword' in mime_type or 'ms-word' in mime_type:
-                    return 'doc'
-                elif 'rtf' in mime_type or 'richtext' in mime_type:
-                    return 'rtf'
-                elif 'csv' in mime_type or 'comma-separated' in mime_type:
-                    return 'csv'
-                elif 'text/plain' in mime_type or 'text/' in mime_type:
-                    return 'txt'
-                elif 'composite' in mime_type or 'ole' in mime_type:
-                    # Старые .doc файлы (OLE Compound Document)
-                    return 'doc'
-                elif 'zip' in mime_type or 'x-zip' in mime_type:
+            # ZIP-based форматы (DOCX, XLSX) начинаются с PK (50 4B)
+            if magic[:2] == b'PK':
+                # Это ZIP архив - может быть DOCX или XLSX
+                # Читаем дальше чтобы определить точный тип
+                try:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        namelist = zip_ref.namelist()
+                        # DOCX содержит word/document.xml
+                        if any('word/' in name for name in namelist):
+                            return 'docx'
+                        # XLSX содержит xl/
+                        elif any('xl/' in name for name in namelist):
+                            return 'xlsx'
+                        else:
+                            return 'zip'
+                except:
                     return 'zip'
 
-            # Если не удалось определить через file, пробуем альтернативный метод
-            result2 = subprocess.run(
-                ['file', '--brief', file_path],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            # PDF начинается с %PDF (25 50 44 46)
+            elif magic[:4] == b'%PDF':
+                return 'pdf'
 
-            if result2.returncode == 0:
-                file_desc = result2.stdout.strip().lower()
+            # RTF начинается с {\rtf
+            elif magic[:5] == b'{\\rtf':
+                return 'rtf'
 
-                if 'pdf' in file_desc:
-                    return 'pdf'
-                elif 'microsoft excel' in file_desc or 'excel' in file_desc:
-                    return 'xlsx'
-                elif 'microsoft word 2007' in file_desc or 'microsoft ooxml' in file_desc:
-                    return 'docx'
-                elif 'microsoft office document' in file_desc or 'composite document' in file_desc:
-                    return 'doc'
-                elif 'rich text' in file_desc or 'rtf' in file_desc:
-                    return 'rtf'
-                elif 'csv' in file_desc or 'comma-separated' in file_desc:
-                    return 'csv'
-                elif 'text' in file_desc or 'ascii' in file_desc or 'utf-8' in file_desc:
-                    return 'txt'
+            # Старые DOC файлы (OLE Compound Document) начинаются с D0 CF 11 E0
+            elif magic[:4] == b'\xD0\xCF\x11\xE0':
+                return 'doc'
+
+            # МЕТОД 2: Пробуем системную команду 'file' (если доступна)
+            try:
+                result = subprocess.run(
+                    ['file', '--brief', '--mime-type', file_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0:
+                    mime_type = result.stdout.strip().lower()
+
+                    # Определяем тип по MIME
+                    if 'pdf' in mime_type:
+                        return 'pdf'
+                    elif 'spreadsheetml' in mime_type or 'ms-excel' in mime_type:
+                        return 'xlsx'
+                    elif 'wordprocessingml' in mime_type or 'vnd.openxmlformats' in mime_type:
+                        return 'docx'
+                    elif 'msword' in mime_type or 'ms-word' in mime_type:
+                        return 'doc'
+                    elif 'rtf' in mime_type or 'richtext' in mime_type:
+                        return 'rtf'
+                    elif 'csv' in mime_type or 'comma-separated' in mime_type:
+                        return 'csv'
+                    elif 'text/plain' in mime_type or 'text/' in mime_type:
+                        return 'txt'
+                    elif 'composite' in mime_type or 'ole' in mime_type:
+                        return 'doc'
+                    elif 'zip' in mime_type or 'x-zip' in mime_type:
+                        return 'zip'
+            except:
+                pass  # Команда file может быть недоступна
+
+            # МЕТОД 3: Fallback - по расширению (наименее надежный)
+            ext = Path(file_path).suffix.lower()
+            if ext == '.pdf':
+                return 'pdf'
+            elif ext in ['.xlsx', '.xls']:
+                return 'xlsx'
+            elif ext in ['.docx', '.doc']:
+                return 'docx'
+            elif ext == '.rtf':
+                return 'rtf'
+            elif ext == '.csv':
+                return 'csv'
+            elif ext in ['.txt', '.text', '.log']:
+                return 'txt'
 
             return 'unknown'
 
         except Exception as e:
-            print(f"⚠️  Не удалось определить тип файла {file_path}: {e}")
-            # Fallback: используем расширение
+            print(f"⚠️  Ошибка определения типа файла {file_path}: {e}")
+            # Последний fallback: используем расширение
             ext = Path(file_path).suffix.lower()
             if ext == '.pdf':
                 return 'pdf'
@@ -220,11 +244,28 @@ class TextExtractor:
             return extracted_text
 
         except Exception as e:
-            # Если это не ошибка "нет текста", просто пробрасываем исключение
+            # Если это не ошибка "нет текста", пробуем альтернативные методы
             if "не содержит извлекаемого текста" in str(e) or "EOF marker not found" in str(e):
-                # Пробуем OCR как последнюю попытку
+                # СНАЧАЛА пробуем pdftotext (более надежный для битых PDF)
                 try:
-                    print(f"   ⚠️  Ошибка извлечения текста ({str(e)}), пробуем OCR...")
+                    print(f"   ⚠️  PyPDF2 не смог извлечь текст ({str(e)}), пробуем pdftotext...")
+                    result = subprocess.run(
+                        ['pdftotext', '-layout', file_path, '-'],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        extracted_text = result.stdout.strip()
+                        if len(extracted_text) > 100:  # Минимум 100 символов
+                            print(f"   ✅ pdftotext успешно извлек {len(extracted_text)} символов")
+                            return extracted_text
+                except Exception as pdftotext_error:
+                    print(f"   ⚠️  pdftotext также не помог: {pdftotext_error}")
+
+                # Только если pdftotext не помог - пробуем OCR
+                try:
+                    print(f"   🔍 Пробуем OCR как последнюю попытку...")
                     return TextExtractor.extract_from_pdf_with_ocr(file_path)
                 except Exception as ocr_error:
                     print(f"   ❌ OCR также не удался: {ocr_error}")
@@ -545,6 +586,7 @@ class TextExtractor:
             print(f"   ⚠️  Попытка чтения как текст не удалась: {e}")
 
         # 2. Пробуем strings (извлечение текстовых строк из бинарного файла)
+        # ТОЛЬКО для неповрежденных документов
         try:
             result = subprocess.run(
                 ['strings', file_path],
@@ -554,9 +596,18 @@ class TextExtractor:
             )
             if result.returncode == 0 and result.stdout.strip():
                 extracted = result.stdout.strip()
-                if len(extracted) > 50:  # Хотя бы 50 символов
+
+                # Валидация: проверяем что это не мусор
+                # Считаем процент русских/английских букв от всех символов
+                letters = sum(1 for c in extracted if c.isalpha())
+                total_printable = sum(1 for c in extracted if c.isprintable())
+
+                if total_printable > 100 and letters / total_printable > 0.4:
+                    # Хотя бы 40% букв - вероятно это текст
                     print(f"   ✅ Извлечены текстовые строки из бинарного файла")
                     return extracted
+                else:
+                    print(f"   ⚠️  Извлеченные строки не похожи на текст (букв: {letters}/{total_printable})")
         except Exception as e:
             print(f"   ⚠️  Команда strings не доступна: {e}")
 

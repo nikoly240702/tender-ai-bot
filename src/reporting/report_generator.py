@@ -192,6 +192,7 @@ class ReportGenerator:
             contract_analysis=data.get('contract_analysis', {}),
             risk_assessment=data.get('risk_assessment', {}),
             analysis_summary=data.get('analysis_summary', {}),
+            files_info=data.get('files_info', []),  # Информация о документах
             current_date=datetime.now().strftime('%d.%m.%Y %H:%M')
         )
 

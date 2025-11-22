@@ -287,6 +287,54 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- Секция: Документы тендера -->
+        {% if files_info and files_info|length > 0 %}
+        <div class="section">
+            <div class="section-title"><span>📄</span><span>Проанализированные документы ({{ files_info|length }})</span></div>
+            <div style="display: grid; gap: 12px;">
+                {% for file in files_info %}
+                <div style="background: var(--color-bg-alt); padding: 16px; border-radius: 8px; border-left: 3px solid {% if file.word_count and file.word_count > 100 %}#10B981{% elif file.word_count and file.word_count > 10 %}#F59E0B{% else %}#EF4444{% endif %};">
+                    <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px; flex-wrap: wrap;">
+                        <div style="flex: 1; min-width: 200px;">
+                            <div style="font-weight: 600; color: var(--color-text-heading); margin-bottom: 4px;">
+                                📎 {{ file.file_name }}
+                            </div>
+                            <div style="font-size: 13px; color: var(--color-text-secondary);">
+                                {% if file.file_type %}
+                                <span style="background: var(--color-bg-card); padding: 2px 8px; border-radius: 4px; text-transform: uppercase; font-weight: 500;">{{ file.file_type }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 16px; align-items: center;">
+                            {% if file.char_count %}
+                            <div style="text-align: right;">
+                                <div style="font-size: 20px; font-weight: 600; color: var(--color-text-heading);">
+                                    {{ "{:,}".format(file.char_count) }}
+                                </div>
+                                <div style="font-size: 12px; color: var(--color-text-meta);">символов</div>
+                            </div>
+                            {% endif %}
+                            {% if file.word_count %}
+                            <div style="text-align: right;">
+                                <div style="font-size: 20px; font-weight: 600; color: {% if file.word_count > 100 %}#10B981{% elif file.word_count > 10 %}#F59E0B{% else %}#EF4444{% endif %};">
+                                    {{ "{:,}".format(file.word_count) }}
+                                </div>
+                                <div style="font-size: 12px; color: var(--color-text-meta);">слов</div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% if file.word_count and file.word_count < 10 %}
+                    <div style="margin-top: 8px; padding: 8px; background: #FEE2E2; border-radius: 6px; font-size: 12px; color: #DC2626;">
+                        ⚠️ Очень мало текста - возможно файл поврежден или не удалось извлечь содержимое
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
         {% if score and score.scores %}
         <div class="section">
             <div class="section-title"><span>📊</span><span>Оценка тендера</span></div>

@@ -11,6 +11,11 @@ RUN apt-get update && apt-get install -y \
     libxml2-dev \
     libxslt1-dev \
     zlib1g-dev \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    tesseract-ocr-eng \
+    file \
     && rm -rf /var/lib/apt/lists/*
 
 # Копируем requirements.txt
