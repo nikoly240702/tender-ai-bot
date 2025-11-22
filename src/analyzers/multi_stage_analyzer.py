@@ -7,6 +7,19 @@ import json
 import time
 from typing import Dict, Any, List, Optional
 from .smart_document_processor import SmartDocumentTruncator
+import sys
+from pathlib import Path
+
+# Добавляем путь к утилитам
+sys.path.insert(0, str(Path(__file__).parent.parent / 'utils'))
+
+try:
+    from date_utils import DateUtils
+    from rusprofile_checker import RusProfileChecker
+except ImportError:
+    # Fallback если импорт не сработал
+    DateUtils = None
+    RusProfileChecker = None
 
 
 class MultiStageAnalyzer:
@@ -26,6 +39,8 @@ class MultiStageAnalyzer:
         self.llm_premium = llm_premium
         self.llm_fast = llm_fast
         self.truncator = SmartDocumentTruncator()
+        self.date_utils = DateUtils() if DateUtils else None
+        self.rusprofile_checker = RusProfileChecker() if RusProfileChecker else None
         self.token_usage = {
             'stage_1': 0,
             'stage_2': 0,
@@ -112,6 +127,26 @@ class MultiStageAnalyzer:
         risks = self._analyze_risks(basic_info, financial, requirements, company_profile)
         print(f"   ✅ Выявлено рисков: {len(risks)}")
 
+        # POST-PROCESSING: Обогащение данных
+        print("\n🔧 Post-processing: обогащение данных...")
+
+        # Добавляем количество дней до дедлайна
+        deadline_submission = basic_info.get('deadline_submission')
+        if self.date_utils and deadline_submission:
+            days_until = self.date_utils.calculate_days_until_deadline(deadline_submission)
+            basic_info['days_until_deadline'] = days_until
+            if days_until is not None:
+                print(f"   ✅ Дней до дедлайна: {days_until}")
+
+        # Проверяем арбитражные дела заказчика (опционально)
+        customer_name = basic_info.get('customer')
+        arbitration_info = None
+        if self.rusprofile_checker and customer_name:
+            print(f"   🔍 Проверка арбитражных дел...")
+            arbitration_info = self.rusprofile_checker.check_arbitration(customer_name)
+            if arbitration_info:
+                basic_info['arbitration'] = arbitration_info
+
         # Формируем итоговый результат
         result = {
             "tender_info": {
@@ -151,23 +186,39 @@ class MultiStageAnalyzer:
 {documentation[:20000]}
 
 ЗАДАЧА: Извлечь следующие поля:
-- name: Точное название тендера/закупки
+- name: Точное название тендера/закупки (объект закупки)
 - customer: Наименование заказчика
+- customer_type: Тип заказчика ("федеральный", "региональный", "муниципальный", "коммерческий")
+- customer_location: Полный адрес местоположения заказчика
+- customer_email: Email заказчика (если указан)
+- customer_phone: Телефон заказчика (если указан)
 - nmck: Начальная максимальная цена контракта (число)
 - deadline_submission: Срок подачи заявок (дата и время)
 - deadline_execution: Срок исполнения контракта
 - tender_type: Тип закупки ("товары", "работы", "услуги" или "товары и услуги")
 - region: Регион поставки/выполнения работ
+- delivery_address: Адрес(а) поставки (может быть несколько, указать списком)
+- contract_guarantee: Обеспечение исполнения контракта (% или сумма в рублях)
+- document_count: Количество документов в тендере (если указано)
+- ktru_code: Код КТРУ (если указан)
 
 ФОРМАТ ОТВЕТА (только JSON, без комментариев):
 {{
   "name": "Полное название",
   "customer": "Наименование заказчика",
+  "customer_type": "федеральный|региональный|муниципальный|коммерческий",
+  "customer_location": "Полный адрес заказчика",
+  "customer_email": "email@example.com",
+  "customer_phone": "+7-xxx-xxx-xx-xx",
   "nmck": число,
-  "deadline_submission": "YYYY-MM-DD",
+  "deadline_submission": "YYYY-MM-DD HH:MM",
   "deadline_execution": "YYYY-MM-DD",
   "tender_type": "товары|работы|услуги",
-  "region": "Регион"
+  "region": "Регион",
+  "delivery_address": ["Адрес 1", "Адрес 2"],
+  "contract_guarantee": "5% или число в рублях",
+  "document_count": число,
+  "ktru_code": "XX.XX.XX.XXX-XXXXXXXX"
 }}
 
 Если какое-то поле не найдено - укажи null.
@@ -197,11 +248,19 @@ class MultiStageAnalyzer:
             return {
                 "name": None,
                 "customer": None,
+                "customer_type": None,
+                "customer_location": None,
+                "customer_email": None,
+                "customer_phone": None,
                 "nmck": None,
                 "deadline_submission": None,
                 "deadline_execution": None,
                 "tender_type": None,
-                "region": None
+                "region": None,
+                "delivery_address": None,
+                "contract_guarantee": None,
+                "document_count": None,
+                "ktru_code": None
             }
 
     def _extract_products_detailed(
@@ -233,16 +292,20 @@ class MultiStageAnalyzer:
 {spec_section}
 
 ЗАДАЧА: Для КАЖДОЙ позиции извлечь:
-- name: точное наименование
+- name: точное наименование товара/услуги
 - quantity: количество (число)
-- unit: единица измерения (штука, метр, литр и т.д.)
-- specifications: все технические характеристики в виде словаря
+- unit: единица измерения (штука, пачка, метр, литр и т.д.)
+- ktru_code: код КТРУ если указан (формат XX.XX.XX.XXX-XXXXXXXX)
+- specifications: все технические характеристики в виде словаря (формат, размер, ГОСТ, масса и т.д.)
+- required_documents: список необходимых документов для товара (сертификаты, декларации соответствия, гарантии и т.д.)
 - raw_description: полное описание из документа
 
 ВАЖНО:
 - Извлекай ВСЕ позиции, даже если их много
-- Включай все упомянутые характеристики
+- Включай все упомянутые характеристики (ГОСТ, формат, размеры, вес, цвет и т.д.)
+- Включай ВСЕ упомянутые требования к документам
 - Если характеристик нет - specifications должен быть пустым объектом {{}}
+- Если документов не требуется - required_documents должен быть пустым массивом []
 
 ФОРМАТ (только JSON массив):
 [
@@ -250,10 +313,17 @@ class MultiStageAnalyzer:
     "name": "Точное наименование товара/услуги",
     "quantity": число,
     "unit": "штука",
+    "ktru_code": "XX.XX.XX.XXX-XXXXXXXX",
     "specifications": {{
-      "параметр1": "значение1",
-      "параметр2": "значение2"
+      "формат": "A4",
+      "ГОСТ": "ГОСТ Р 57641-2017",
+      "масса": "80-90 г/м2",
+      "листов в пачке": "не менее 500"
     }},
+    "required_documents": [
+      "Документ об оценке соответствия",
+      "Гарантия производителя на товар не менее 12 месяцев"
+    ],
     "raw_description": "Полный текст из документа"
   }}
 ]

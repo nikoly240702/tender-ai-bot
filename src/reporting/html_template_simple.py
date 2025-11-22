@@ -215,6 +215,74 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 {% if tender_info.customer and tender_info.customer != 'N/A' %}
                 <div class="tender-customer">🏢 {{ tender_info.customer }}</div>
                 {% endif %}
+                {% if tender_info.customer_type %}
+                <div style="font-size: 14px; color: var(--color-text-secondary); margin-top: 4px;">
+                    Тип заказчика: {{ tender_info.customer_type }}
+                </div>
+                {% endif %}
+                {% if tender_info.customer_location %}
+                <div style="font-size: 13px; color: var(--color-text-meta); margin-top: 4px;">
+                    📍 {{ tender_info.customer_location }}
+                </div>
+                {% endif %}
+                {% if tender_info.customer_email or tender_info.customer_phone %}
+                <div style="font-size: 13px; color: var(--color-text-secondary); margin-top: 8px;">
+                    {% if tender_info.customer_email %}📧 {{ tender_info.customer_email }}{% endif %}
+                    {% if tender_info.customer_phone %} • 📱 {{ tender_info.customer_phone }}{% endif %}
+                </div>
+                {% endif %}
+                {% if tender_info.nmck %}
+                <div style="font-size: 16px; font-weight: 600; color: var(--color-primary); margin-top: 12px;">
+                    💰 Начальная цена: {{ "{:,.0f}".format(tender_info.nmck) }} ₽
+                </div>
+                {% endif %}
+                {% if tender_info.deadline_submission %}
+                <div style="font-size: 14px; color: var(--color-text-primary); margin-top: 8px;">
+                    ⏰ Окончание подачи заявок: {{ tender_info.deadline_submission }}
+                    {% if tender_info.days_until_deadline is not none %}
+                        {% if tender_info.days_until_deadline == 0 %}
+                        <span style="color: #DC2626; font-weight: 600;">(сегодня!)</span>
+                        {% elif tender_info.days_until_deadline > 0 %}
+                        <span style="color: {% if tender_info.days_until_deadline <= 3 %}#DC2626{% elif tender_info.days_until_deadline <= 7 %}#F59E0B{% else %}#10B981{% endif %}; font-weight: 600;">({{ tender_info.days_until_deadline }} дней)</span>
+                        {% else %}
+                        <span style="color: #6B7280;">(истек)</span>
+                        {% endif %}
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if tender_info.contract_guarantee %}
+                <div style="font-size: 13px; color: var(--color-text-secondary); margin-top: 6px;">
+                    🔒 Обеспечение исполнения контракта: {{ tender_info.contract_guarantee }}
+                </div>
+                {% endif %}
+                {% if tender_info.delivery_address %}
+                <div style="font-size: 13px; color: var(--color-text-secondary); margin-top: 6px;">
+                    🚚 Адрес поставки:
+                    {% if tender_info.delivery_address is string %}
+                        {{ tender_info.delivery_address }}
+                    {% elif tender_info.delivery_address is iterable %}
+                        {% for addr in tender_info.delivery_address %}
+                            <br>• {{ addr }}
+                        {% endfor %}
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% if tender_info.document_count %}
+                <div style="font-size: 13px; color: var(--color-text-meta); margin-top: 6px;">
+                    📄 Кол-во документации: {{ tender_info.document_count }} шт.
+                </div>
+                {% endif %}
+                {% if tender_info.arbitration %}
+                <div style="font-size: 13px; color: #F59E0B; margin-top: 8px; padding: 8px; background: #FFFBEB; border-radius: 6px;">
+                    ⚠️ Арбитражные дела: {{ tender_info.arbitration.arbitration_count or 'проверка не выполнена' }}
+                    {% if tender_info.arbitration.total_amount %}
+                    на сумму {{ tender_info.arbitration.total_amount }}
+                    {% endif %}
+                    {% if tender_info.arbitration.note %}
+                    <br><small>{{ tender_info.arbitration.note }}</small>
+                    {% endif %}
+                </div>
+                {% endif %}
                 <div class="date">📅 {{ current_date }}</div>
             </div>
         </div>
