@@ -112,13 +112,13 @@ class IntegratedTenderSystem:
         print("\n🧠 Расширение запроса через AI...")
         expanded_queries = self.search_expander.expand_search_query(
             search_query,
-            max_variants=4,
+            max_variants=8,  # Было: 4 - увеличено для лучшего покрытия
             tender_type_filter=tender_type
         )
 
         # Вычисляем, сколько тендеров искать на каждый запрос
-        # Добавляем 50% запас для дедупликации
-        results_per_query = max(3, int(max_tenders / len(expanded_queries) * 1.5))
+        # Добавляем 100% запас для дедупликации (было 50%)
+        results_per_query = max(5, int(max_tenders / len(expanded_queries) * 2.0))
 
         # Ищем тендеры по всем расширенным запросам
         all_tenders = []
@@ -133,7 +133,8 @@ class IntegratedTenderSystem:
                 price_max=price_max,
                 max_results=results_per_query,  # Динамическое значение
                 regions=regions,  # Передаем регионы
-                extract_details=False  # Отключаем LLM для скорости
+                extract_details=False,  # Отключаем LLM для скорости
+                tender_type=tender_type  # Передаем тип закупки
             )
 
             # Дедупликация

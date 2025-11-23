@@ -37,6 +37,10 @@ class TextExtractor:
             with open(file_path, 'rb') as f:
                 magic = f.read(8)
 
+            # Логируем magic bytes для отладки
+            magic_hex = ' '.join(f'{b:02X}' for b in magic[:4])
+            print(f"   🔬 Magic bytes: {magic_hex}")
+
             # ZIP-based форматы (DOCX, XLSX) начинаются с PK (50 4B)
             if magic[:2] == b'PK':
                 # Это ZIP архив - может быть DOCX или XLSX
@@ -46,25 +50,32 @@ class TextExtractor:
                         namelist = zip_ref.namelist()
                         # DOCX содержит word/document.xml
                         if any('word/' in name for name in namelist):
+                            print(f"   ✅ Определен как DOCX (найдено word/ в архиве)")
                             return 'docx'
                         # XLSX содержит xl/
                         elif any('xl/' in name for name in namelist):
+                            print(f"   ✅ Определен как XLSX (найдено xl/ в архиве)")
                             return 'xlsx'
                         else:
+                            print(f"   ⚠️  ZIP архив неизвестного типа")
                             return 'zip'
-                except:
+                except Exception as e:
+                    print(f"   ⚠️  Ошибка чтения ZIP: {e}")
                     return 'zip'
 
             # PDF начинается с %PDF (25 50 44 46)
             elif magic[:4] == b'%PDF':
+                print(f"   ✅ Определен как PDF (magic bytes: %PDF)")
                 return 'pdf'
 
             # RTF начинается с {\rtf
             elif magic[:5] == b'{\\rtf':
+                print(f"   ✅ Определен как RTF")
                 return 'rtf'
 
             # Старые DOC файлы (OLE Compound Document) начинаются с D0 CF 11 E0
             elif magic[:4] == b'\xD0\xCF\x11\xE0':
+                print(f"   ✅ Определен как старый DOC (OLE Compound)")
                 return 'doc'
 
             # МЕТОД 2: Пробуем системную команду 'file' (если доступна)

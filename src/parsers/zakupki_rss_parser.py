@@ -89,7 +89,8 @@ class ZakupkiRSSParser:
         price_min: Optional[int] = None,
         price_max: Optional[int] = None,
         max_results: int = 50,
-        regions: Optional[List[str]] = None
+        regions: Optional[List[str]] = None,
+        tender_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Ищет тендеры через RSS-фид zakupki.gov.ru.
@@ -100,11 +101,14 @@ class ZakupkiRSSParser:
             price_max: Максимальная цена контракта (руб)
             max_results: Максимальное количество результатов
             regions: Список регионов для фильтрации
+            tender_type: Тип закупки ("товары", "услуги", "работы", None для всех)
 
         Returns:
             Список найденных тендеров
         """
         print(f"📡 Получение RSS-фида от zakupki.gov.ru...")
+        if tender_type:
+            print(f"   🎯 Фильтр по типу: {tender_type}")
 
         try:
             # Формируем URL RSS-фида с параметрами
@@ -112,7 +116,8 @@ class ZakupkiRSSParser:
                 keywords=keywords,
                 price_min=price_min,
                 price_max=price_max,
-                regions=regions
+                regions=regions,
+                tender_type=tender_type
             )
 
             print(f"   RSS URL: {rss_url[:100]}...")
@@ -173,7 +178,8 @@ class ZakupkiRSSParser:
         keywords: Optional[str],
         price_min: Optional[int],
         price_max: Optional[int],
-        regions: Optional[List[str]] = None
+        regions: Optional[List[str]] = None,
+        tender_type: Optional[str] = None
     ) -> str:
         """Формирует URL для RSS-фида с параметрами поиска."""
         params = {
@@ -197,6 +203,19 @@ class ZakupkiRSSParser:
             params['priceFromGeneral'] = str(price_min)
         if price_max:
             params['priceToGeneral'] = str(price_max)
+
+        # Тип закупки через purchaseObjectTypeCode
+        # КРИТИЧНО: Это основной параметр фильтрации товары/услуги/работы
+        if tender_type:
+            type_code_map = {
+                "товары": "1",      # Поставка товаров
+                "работы": "2",      # Выполнение работ
+                "услуги": "3"       # Оказание услуг
+            }
+            type_code = type_code_map.get(tender_type.lower())
+            if type_code:
+                params['purchaseObjectTypeCode'] = type_code
+                print(f"   ✅ Применен фильтр: purchaseObjectTypeCode={type_code} ({tender_type})")
 
         # Формируем query string с правильным кодированием
         query_string = urlencode(params, quote_via=quote_plus)

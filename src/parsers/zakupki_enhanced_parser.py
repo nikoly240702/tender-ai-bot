@@ -99,7 +99,8 @@ class ZakupkiEnhancedParser:
         price_max: Optional[int] = None,
         max_results: int = 10,
         regions: Optional[List[str]] = None,
-        extract_details: bool = True
+        extract_details: bool = True,
+        tender_type: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Поиск тендеров с извлечением детальной информации.
@@ -111,6 +112,7 @@ class ZakupkiEnhancedParser:
             max_results: Максимум результатов
             regions: Список регионов для фильтрации
             extract_details: Извлекать ли детальную информацию через LLM
+            tender_type: Тип закупки ("товары", "услуги", "работы", None для всех)
 
         Returns:
             Список тендеров с детальной информацией
@@ -125,9 +127,9 @@ class ZakupkiEnhancedParser:
         enhanced_tenders = []
         seen_numbers = set()  # Для дедупликации
 
-        # Начальный множитель для запросов (увеличиваем при фильтрации)
-        multiplier = 10 if need_post_filtering else 1
-        max_attempts = 5  # Максимум попыток (увеличили для надежности)
+        # Начальный множитель для запросов (УВЕЛИЧЕН для лучшего покрытия)
+        multiplier = 15 if need_post_filtering else 3  # Было: 10 и 1
+        max_attempts = 8  # Было: 5 - увеличено для получения всех запрошенных тендеров
         attempt = 0
 
         while len(enhanced_tenders) < max_results and attempt < max_attempts:
@@ -146,7 +148,8 @@ class ZakupkiEnhancedParser:
                 price_min=price_min,
                 price_max=price_max,
                 max_results=rss_max_results,
-                regions=regions
+                regions=regions,
+                tender_type=tender_type  # Передаем тип закупки
             )
 
             if not tenders:
