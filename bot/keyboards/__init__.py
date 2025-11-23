@@ -393,8 +393,9 @@ def get_tenders_list_keyboard(tenders_count: int) -> InlineKeyboardMarkup:
             )
         )
 
-    # Кнопка возврата в главное меню
+    # Кнопки действий
     builder.row(
+        InlineKeyboardButton(text="🔄 Новый поиск", callback_data="new_search"),
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
     )
 

@@ -1653,3 +1653,22 @@ async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
         reply_markup=get_main_menu_keyboard(),
         parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data == "new_search")
+async def start_new_search(callback: CallbackQuery, state: FSMContext):
+    """
+    Начать новый поиск - очищает состояние и возвращает к вводу запроса.
+    """
+    await callback.answer("🔄 Начинаем новый поиск...")
+    await state.clear()
+
+    await callback.message.edit_text(
+        "🔍 <b>Новый поиск тендеров</b>\n\n"
+        "Введите поисковый запрос (название товаров/услуг):\n\n"
+        "<i>Например: «компьютеры и оргтехника», «строительные материалы», «канцелярские товары»</i>",
+        parse_mode="HTML",
+        reply_markup=get_inline_cancel_keyboard()
+    )
+
+    await state.set_state(SearchStates.waiting_for_query)
