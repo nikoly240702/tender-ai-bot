@@ -2056,6 +2056,11 @@ async def show_batch_results(message, state: FSMContext, results: list):
             )
         )
 
+    # Кнопка экспорта в Excel
+    builder.row(
+        InlineKeyboardButton(text="📊 Экспорт в Excel", callback_data="export_excel")
+    )
+
     builder.row(
         InlineKeyboardButton(text="🔄 Новый поиск", callback_data="new_search"),
         InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
@@ -2066,3 +2071,174 @@ async def show_batch_results(message, state: FSMContext, results: list):
         parse_mode="HTML",
         reply_markup=builder.as_markup()
     )
+
+
+@router.callback_query(SearchStates.viewing_search_results, F.data == "export_excel")
+async def export_to_excel(callback: CallbackQuery, state: FSMContext):
+    """
+    Экспорт результатов пакетного анализа в Excel.
+    """
+    await callback.answer("📊 Формирую Excel файл...")
+
+    # Получаем результаты из state
+    data = await state.get_data()
+    batch_results = data.get('batch_analysis_results', [])
+
+    if not batch_results:
+        await callback.message.answer(
+            "❌ Нет данных для экспорта. Сначала выполните пакетный анализ.",
+            parse_mode="HTML"
+        )
+        return
+
+    try:
+        # Создаем Excel файл
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from datetime import datetime
+        import os
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Анализ тендеров"
+
+        # Заголовок
+        headers = [
+            "№ п/п",
+            "Номер тендера",
+            "Объект закупки",
+            "НМЦК (руб.)",
+            "Аванс (%)",
+            "Обеспечение заявки (руб.)",
+            "Обеспечение контракта (руб.)",
+            "Критичные пробелы",
+            "Важные пробелы",
+            "Средние пробелы",
+            "Низкие пробелы",
+            "Срок подачи",
+            "Статус анализа"
+        ]
+
+        # Стиль заголовка
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF", size=11)
+        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # Записываем заголовки
+        for col_num, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_num)
+            cell.value = header
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_alignment
+
+        # Записываем данные
+        for row_num, result in enumerate(batch_results, 2):
+            tender = result['tender']
+            analysis = result.get('analysis')
+            error = result.get('error')
+
+            # № п/п
+            ws.cell(row=row_num, column=1).value = row_num - 1
+
+            # Номер тендера
+            ws.cell(row=row_num, column=2).value = tender.get('number', 'N/A')
+
+            # Объект закупки
+            ws.cell(row=row_num, column=3).value = tender.get('name', 'Без названия')
+
+            if error:
+                ws.cell(row=row_num, column=13).value = f"Ошибка: {error}"
+                continue
+
+            if analysis:
+                tender_info = analysis.get('tender_info', {})
+                financial = analysis.get('financial_analysis', {})
+                gaps = analysis.get('gaps', [])
+
+                # НМЦК
+                nmck = tender_info.get('nmck', 0)
+                ws.cell(row=row_num, column=4).value = nmck
+                ws.cell(row=row_num, column=4).number_format = '#,##0'
+
+                # Аванс
+                prepayment = tender_info.get('prepayment_percent', 0)
+                ws.cell(row=row_num, column=5).value = prepayment
+
+                # Обеспечение заявки
+                guarantees = financial.get('guarantees', {})
+                app_guarantee = guarantees.get('application_guarantee', 0)
+                ws.cell(row=row_num, column=6).value = app_guarantee
+                ws.cell(row=row_num, column=6).number_format = '#,##0'
+
+                # Обеспечение контракта
+                contract_guarantee = guarantees.get('contract_guarantee', 0)
+                ws.cell(row=row_num, column=7).value = contract_guarantee
+                ws.cell(row=row_num, column=7).number_format = '#,##0'
+
+                # Пробелы по критичности
+                critical = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'CRITICAL')
+                high = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'HIGH')
+                medium = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'MEDIUM')
+                low = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'LOW')
+
+                ws.cell(row=row_num, column=8).value = critical
+                ws.cell(row=row_num, column=9).value = high
+                ws.cell(row=row_num, column=10).value = medium
+                ws.cell(row=row_num, column=11).value = low
+
+                # Срок подачи
+                deadline = tender_info.get('deadline_submission', 'N/A')
+                ws.cell(row=row_num, column=12).value = deadline
+
+                # Статус
+                ws.cell(row=row_num, column=13).value = "✅ Проанализирован"
+            else:
+                ws.cell(row=row_num, column=13).value = "⏳ Не проанализирован"
+
+        # Автоширина колонок
+        for column in ws.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
+
+        # Сохраняем файл
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"tender_analysis_{timestamp}.xlsx"
+        filepath = f"/tmp/{filename}"
+
+        wb.save(filepath)
+
+        # Отправляем файл пользователю
+        from aiogram.types import FSInputFile
+
+        document = FSInputFile(filepath, filename=filename)
+
+        await callback.message.answer_document(
+            document=document,
+            caption=f"📊 <b>Excel отчет готов</b>\n\n"
+                   f"📋 Тендеров: {len(batch_results)}\n"
+                   f"✅ Проанализировано: {len([r for r in batch_results if r.get('analysis')])}\n"
+                   f"❌ Ошибок: {len([r for r in batch_results if r.get('error')])}\n\n"
+                   f"<i>Файл содержит детальную информацию по каждому тендеру</i>",
+            parse_mode="HTML"
+        )
+
+        # Удаляем временный файл
+        try:
+            os.remove(filepath)
+        except:
+            pass
+
+        await callback.answer("✅ Excel файл отправлен")
+
+    except Exception as e:
+        print(f"Ошибка экспорта в Excel: {e}")
+        await callback.answer("❌ Ошибка при создании Excel файла", show_alert=True)
