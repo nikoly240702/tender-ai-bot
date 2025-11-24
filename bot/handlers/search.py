@@ -1915,6 +1915,14 @@ async def batch_analyze_all_tenders(callback: CallbackQuery, state: FSMContext):
     from_cache = 0
     new_analysis = 0
 
+    # Импортируем агента для анализа
+    from main import TenderAnalysisAgent
+    from bot.db import get_database
+
+    # Создаем агента один раз для всех тендеров
+    agent = TenderAnalysisAgent()
+    agent.db = await get_database()
+
     # Анализируем тендеры с прогресс-баром
     for i, tender_data in enumerate(results):
         tender = tender_data['tender_info']
@@ -1939,11 +1947,33 @@ async def batch_analyze_all_tenders(callback: CallbackQuery, state: FSMContext):
         )
 
         try:
-            # Анализируем тендер
-            analysis_result = await loop.run_in_executor(
+            # Шаг 1: Скачиваем документы
+            download_result = await loop.run_in_executor(
                 None,
-                system.analyze_tender,
-                tender_url
+                lambda url=tender_url, num=tender.get('number', 'unknown'): system.document_downloader.download_documents(
+                    tender_url=url,
+                    tender_number=num,
+                    doc_types=None
+                )
+            )
+
+            if download_result['downloaded'] == 0:
+                analyzed_results.append({
+                    'tender': tender,
+                    'analysis': None,
+                    'error': 'Не удалось скачать документы',
+                    'index': i
+                })
+                continue
+
+            # Шаг 2: Анализируем документы
+            file_paths = [doc['path'] for doc in download_result.get('files', [])]
+            tender_num = tender.get('number', 'unknown')
+
+            analysis_result = await agent.analyze_tender(
+                file_paths,
+                tender_number=tender_num,
+                use_cache=True
             )
 
             # Проверяем был ли взят из кэша
@@ -1960,6 +1990,8 @@ async def batch_analyze_all_tenders(callback: CallbackQuery, state: FSMContext):
 
         except Exception as e:
             print(f"Ошибка анализа тендера {i}: {e}")
+            import traceback
+            traceback.print_exc()
             analyzed_results.append({
                 'tender': tender,
                 'analysis': None,
