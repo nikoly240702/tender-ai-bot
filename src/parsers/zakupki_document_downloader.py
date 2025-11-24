@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 import warnings
 import os
+import zipfile
 
 # Отключаем предупреждения SSL
 warnings.filterwarnings('ignore')
@@ -277,7 +278,7 @@ class ZakupkiDocumentDownloader:
                 response = self.session.get(doc['url'], timeout=60, verify=False)
                 response.raise_for_status()
 
-                # Сохраняем файл
+                # Сохраняем файл (сначала с оригинальным именем)
                 file_path = tender_dir / doc['filename']
 
                 with open(file_path, 'wb') as f:
@@ -285,15 +286,32 @@ class ZakupkiDocumentDownloader:
 
                 file_size = len(response.content) / 1024  # KB
 
+                # Определяем реальный тип файла по magic bytes
+                real_type = self._detect_file_type(file_path)
+
+                # Если реальный тип отличается от расширения в имени файла, переименовываем
+                current_ext = file_path.suffix.lower()
+                if real_type and real_type != current_ext.lstrip('.'):
+                    # Создаем новое имя файла с правильным расширением
+                    new_filename = file_path.stem + '.' + real_type
+                    new_file_path = tender_dir / new_filename
+
+                    # Переименовываем файл
+                    file_path.rename(new_file_path)
+                    file_path = new_file_path
+
+                    print(f"      🔄 Переименован: .{current_ext} → .{real_type}")
+
                 downloaded_files.append({
-                    'filename': doc['filename'],
+                    'filename': file_path.name,  # Используем финальное имя
                     'path': str(file_path),
                     'title': doc['title'],
                     'type': doc['type'],
-                    'size_kb': round(file_size, 2)
+                    'size_kb': round(file_size, 2),
+                    'real_type': real_type  # Сохраняем реальный тип
                 })
 
-                print(f"      ✅ Сохранено: {doc['filename']} ({file_size:.1f} KB)")
+                print(f"      ✅ Сохранено: {file_path.name} ({file_size:.1f} KB)")
 
                 # Небольшая задержка между запросами
                 time.sleep(0.5)
@@ -375,6 +393,48 @@ class ZakupkiDocumentDownloader:
         # Убираем множественные подчеркивания
         filename = re.sub(r'_+', '_', filename)
         return filename.strip('_')
+
+    def _detect_file_type(self, file_path: Path) -> Optional[str]:
+        """
+        Определяет реальный тип файла по magic bytes.
+
+        Args:
+            file_path: Путь к файлу
+
+        Returns:
+            Тип файла: 'pdf', 'docx', 'doc', 'xlsx' или None
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                magic = f.read(8)
+
+            # ZIP-based форматы (DOCX, XLSX) начинаются с PK (50 4B)
+            if magic[:2] == b'PK':
+                try:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        namelist = zip_ref.namelist()
+                        # DOCX содержит word/document.xml
+                        if any('word/' in name for name in namelist):
+                            return 'docx'
+                        # XLSX содержит xl/
+                        elif any('xl/' in name for name in namelist):
+                            return 'xlsx'
+                except:
+                    pass
+
+            # PDF начинается с %PDF (25 50 44 46)
+            elif magic[:4] == b'%PDF':
+                return 'pdf'
+
+            # Старые DOC файлы (OLE Compound Document) начинаются с D0 CF 11 E0
+            elif magic[:4] == b'\xD0\xCF\x11\xE0':
+                return 'doc'
+
+            return None
+
+        except Exception as e:
+            print(f"      ⚠️  Ошибка определения типа: {e}")
+            return None
 
     def _extract_filename_from_text(self, text: str, doc_type: str) -> str:
         """Создает имя файла из текста описания документа."""
