@@ -1560,6 +1560,192 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
         )
 
 
+@router.callback_query(SearchStates.viewing_tender_details, F.data.startswith("reanalyze_"))
+async def reanalyze_tender(callback: CallbackQuery, state: FSMContext):
+    """
+    Повторный анализ тендера (для тестирования кэша V2.0).
+    """
+    await callback.answer()
+
+    # Получаем индекс тендера
+    tender_index = int(callback.data.replace("reanalyze_", ""))
+
+    # Получаем результаты поиска из состояния
+    data = await state.get_data()
+    search_results = data.get('search_results', {})
+    results = search_results.get('results', [])
+
+    if tender_index >= len(results):
+        await callback.message.answer(
+            "❌ Тендер не найден",
+            parse_mode="HTML"
+        )
+        return
+
+    tender_data = results[tender_index]
+    tender = tender_data['tender_info']
+
+    # Получаем и нормализуем URL
+    tender_url = tender.get('url', '')
+    if tender_url and not tender_url.startswith('http'):
+        tender_url = f"https://zakupki.gov.ru{tender_url}"
+
+    # Показываем сообщение о начале повторного анализа
+    await callback.message.edit_text(
+        "🔄 <b>Повторный анализ (тестирование кэша V2.0)...</b>\n\n"
+        f"📄 Тендер: {tender.get('number', 'N/A')}\n\n"
+        "⏳ Проверяю кэш...\n\n"
+        "<i>Если тендер уже анализировался, результат должен загрузиться мгновенно из кэша</i>",
+        parse_mode="HTML"
+    )
+
+    try:
+        # Получаем систему
+        system = get_tender_system()
+
+        # Оборачиваем в асинхронный вызов
+        loop = asyncio.get_event_loop()
+
+        # Проверяем, были ли уже скачаны документы
+        file_paths = None
+        tender_dir = results[tender_index].get('tender_dir')
+
+        if tender_dir and results[tender_index].get('documents_downloaded'):
+            # Используем уже скачанные документы
+            file_paths = [doc['path'] for doc in results[tender_index]['documents_downloaded']]
+
+        # Если документов нет, скачиваем заново
+        if not file_paths:
+            download_result = await loop.run_in_executor(
+                None,
+                lambda: system.document_downloader.download_documents(
+                    tender_url=tender_url,
+                    tender_number=tender.get('number', 'unknown'),
+                    doc_types=None
+                )
+            )
+
+            if download_result['downloaded'] == 0:
+                await callback.message.edit_text(
+                    "⚠️ <b>Не удалось скачать документы</b>\n\n"
+                    f"📄 Тендер: {tender.get('number', 'N/A')}\n\n"
+                    "Возможные причины:\n"
+                    "• Документы не опубликованы\n"
+                    "• Проблема с доступом к сайту\n"
+                    "• Неверный URL",
+                    reply_markup=get_tender_actions_keyboard(
+                        tender_index,
+                        tender_url=tender_url,
+                        has_analysis=True,
+                        html_report_path=results[tender_index].get('html_report_path')
+                    ),
+                    parse_mode="HTML"
+                )
+                return
+
+            file_paths = [doc['path'] for doc in download_result.get('files', [])]
+
+        # Импортируем агента для анализа
+        from main import TenderAnalysisAgent
+        from bot.db import get_database
+        import time
+
+        # Создаем агента и анализируем
+        agent = TenderAnalysisAgent()
+
+        # Инициализируем БД для кэширования
+        agent.db = await get_database()
+
+        # Запоминаем время начала
+        start_time = time.time()
+
+        # Анализируем с кэшированием (теперь метод async)
+        tender_num = tender.get('number', 'unknown')
+        analysis_result = await agent.analyze_tender(
+            file_paths,
+            tender_number=tender_num,
+            use_cache=True  # ВАЖНО: включаем кэш
+        )
+
+        # Засекаем время выполнения
+        elapsed_time = time.time() - start_time
+
+        # Проверяем, что анализ вернул результаты
+        if not analysis_result or not isinstance(analysis_result, dict):
+            await callback.message.edit_text(
+                "⚠️ <b>Анализ не удался</b>\n\n"
+                f"📄 Тендер: {tender.get('number', 'N/A')}\n\n"
+                "Возможные причины:\n"
+                "• Документы в формате ZIP (не поддерживается)\n"
+                "• Не удалось извлечь текст из PDF\n"
+                "• Документы защищены паролем\n\n"
+                "<i>Попробуйте другой тендер или скачайте документы вручную</i>",
+                reply_markup=get_tender_actions_keyboard(
+                    tender_index,
+                    tender_url=tender_url,
+                    has_analysis=True,
+                    html_report_path=results[tender_index].get('html_report_path')
+                ),
+                parse_mode="HTML"
+            )
+            return
+
+        # Получаем пути к отчетам
+        report_paths = analysis_result.get('report_paths', {})
+        html_path = report_paths.get('html') if report_paths else None
+
+        # Обновляем данные в состоянии
+        results[tender_index]['analysis_result'] = analysis_result
+        results[tender_index]['analysis_success'] = True
+        results[tender_index]['html_report_path'] = html_path or results[tender_index].get('html_report_path')
+
+        search_results['results'] = results
+        await state.update_data(search_results=search_results)
+
+        # Проверяем, был ли использован кэш
+        from_cache = analysis_result.get('from_cache', False)
+
+        # Формируем сообщение с результатами
+        results_text = "🔄 <b>ПОВТОРНЫЙ АНАЛИЗ ЗАВЕРШЕН</b>\n\n"
+        results_text += f"📄 <b>Тендер:</b> {tender.get('number', 'N/A')}\n"
+        results_text += f"⏱ <b>Время:</b> {elapsed_time:.2f} сек\n"
+
+        if from_cache:
+            results_text += f"💾 <b>Источник:</b> ✅ Кэш (V2.0)\n\n"
+            results_text += "<i>🎉 Кэш работает! Анализ загружен мгновенно из базы данных.</i>\n"
+        else:
+            results_text += f"💾 <b>Источник:</b> 🔄 Новый анализ\n\n"
+            results_text += "<i>Тендер проанализирован заново (кэш не найден или устарел).</i>\n"
+
+        results_text += "\n<i>💡 Детальный отчет доступен по кнопке ниже</i>"
+
+        await callback.message.edit_text(
+            results_text,
+            parse_mode="HTML",
+            reply_markup=get_tender_actions_keyboard(
+                tender_index,
+                tender_url=tender_url,
+                has_analysis=True,
+                html_report_path=results[tender_index].get('html_report_path')
+            )
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при повторном анализе: {e}", exc_info=True)
+        await callback.message.edit_text(
+            f"❌ <b>Ошибка при повторном анализе:</b>\n\n"
+            f"<code>{str(e)}</code>\n\n"
+            f"Попробуйте еще раз позже.",
+            reply_markup=get_tender_actions_keyboard(
+                tender_index,
+                tender_url=tender_url,
+                has_analysis=True,
+                html_report_path=results[tender_index].get('html_report_path')
+            ),
+            parse_mode="HTML"
+        )
+
+
 @router.callback_query(F.data.startswith("open_report_"))
 async def open_html_report(callback: CallbackQuery, state: FSMContext):
     """

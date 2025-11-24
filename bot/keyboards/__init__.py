@@ -188,6 +188,10 @@ def get_tender_actions_keyboard(tender_index: int, tender_url: str = None, has_a
             builder.row(
                 InlineKeyboardButton(text="📊 Открыть отчет в браузере", callback_data=f"open_report_{tender_index}")
             )
+        # Кнопка для повторного анализа (тестирование кэша V2.0)
+        builder.row(
+            InlineKeyboardButton(text="🔄 Повторить анализ", callback_data=f"reanalyze_{tender_index}")
+        )
 
     if tender_url:
         builder.row(
