@@ -161,12 +161,33 @@ class ZakupkiRSSParser:
                 return []
 
             tenders = []
-            for entry in feed.entries[:max_results]:
+            filtered_count = 0
+
+            # Парсим больше записей, чтобы компенсировать фильтрацию
+            entries_to_check = feed.entries[:max_results * 3] if tender_type else feed.entries[:max_results]
+
+            for entry in entries_to_check:
                 tender = self._parse_rss_entry(entry)
-                if tender:
-                    tenders.append(tender)
+                if not tender:
+                    continue
+
+                # Client-side фильтрация по типу закупки (если указан)
+                if tender_type:
+                    detected_type = tender.get('tender_type')
+                    if detected_type and detected_type != tender_type:
+                        filtered_count += 1
+                        print(f"   ⚠️ Отфильтрован: {detected_type} != {tender_type}")
+                        continue
+
+                tenders.append(tender)
+
+                # Останавливаемся когда набрали нужное количество
+                if len(tenders) >= max_results:
+                    break
 
             print(f"✓ Получено тендеров из RSS: {len(tenders)}")
+            if filtered_count > 0:
+                print(f"   📊 Отфильтровано по типу: {filtered_count}")
             return tenders
 
         except Exception as e:
@@ -241,6 +262,11 @@ class ZakupkiRSSParser:
             if purchase_object:
                 tender['name'] = purchase_object
 
+            # Извлекаем тип закупки из summary для client-side фильтрации
+            tender_type = self._extract_tender_type(summary)
+            if tender_type:
+                tender['tender_type'] = tender_type
+
             # Извлекаем цену из описания (если есть)
             price = self._extract_price_from_summary(summary)
             if price:
@@ -273,6 +299,31 @@ class ZakupkiRSSParser:
             # Убираем лишние пробелы
             purchase_object = re.sub(r'\s+', ' ', purchase_object)
             return purchase_object
+        return None
+
+    def _extract_tender_type(self, summary: str) -> Optional[str]:
+        """
+        Извлекает тип закупки из summary RSS.
+        Возвращает: 'товары', 'работы', 'услуги' или None
+        """
+        # Ищем различные варианты указания типа в summary
+        patterns = [
+            r'<strong>Размещение заказа:\s*</strong>([^<]+)',
+            r'Поставка товаров',
+            r'Выполнение работ',
+            r'Оказание услуг',
+        ]
+
+        summary_lower = summary.lower()
+
+        # Проверяем явные указания типа
+        if 'поставка товар' in summary_lower or 'поставк[ауеи] товар' in summary_lower:
+            return 'товары'
+        if 'выполнение работ' in summary_lower or 'выполнени[ея] работ' in summary_lower:
+            return 'работы'
+        if 'оказание услуг' in summary_lower or 'оказани[ея] услуг' in summary_lower:
+            return 'услуги'
+
         return None
 
     def _extract_price_from_summary(self, summary: str) -> Optional[float]:
