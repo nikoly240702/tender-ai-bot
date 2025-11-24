@@ -1872,7 +1872,7 @@ async def start_new_search(callback: CallbackQuery, state: FSMContext):
     await state.set_state(SearchStates.waiting_for_query)
 
 
-@router.callback_query(SearchStates.viewing_search_results, F.data == "batch_analyze_all")
+@router.callback_query(SearchStates.viewing_results, F.data == "batch_analyze_all")
 async def batch_analyze_all_tenders(callback: CallbackQuery, state: FSMContext):
     """
     Пакетный анализ всех найденных тендеров.
@@ -2073,7 +2073,7 @@ async def show_batch_results(message, state: FSMContext, results: list):
     )
 
 
-@router.callback_query(SearchStates.viewing_search_results, F.data == "export_excel")
+@router.callback_query(SearchStates.viewing_results, F.data == "export_excel")
 async def export_to_excel(callback: CallbackQuery, state: FSMContext):
     """
     Экспорт результатов пакетного анализа в Excel.
