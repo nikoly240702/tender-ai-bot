@@ -224,18 +224,25 @@ class ZakupkiRSSParser:
     def _parse_rss_entry(self, entry) -> Optional[Dict[str, Any]]:
         """Парсит одну запись из RSS-фида."""
         try:
+            summary = entry.get('summary', '')
+
             tender = {
                 'name': entry.get('title', ''),
                 'url': entry.get('link', ''),
                 'published': entry.get('published', ''),
-                'summary': entry.get('summary', ''),
+                'summary': summary,
             }
 
             # Извлекаем номер из URL или заголовка
             tender['number'] = self._extract_number(entry.get('link', ''))
 
+            # Извлекаем объект закупки из summary (приоритет)
+            purchase_object = self._extract_purchase_object(summary)
+            if purchase_object:
+                tender['name'] = purchase_object
+
             # Извлекаем цену из описания (если есть)
-            price = self._extract_price_from_summary(entry.get('summary', ''))
+            price = self._extract_price_from_summary(summary)
             if price:
                 tender['price'] = price
                 tender['price_formatted'] = f"{price:,.2f} ₽"
@@ -256,6 +263,17 @@ class ZakupkiRSSParser:
         if match:
             return match.group(1)
         return ""
+
+    def _extract_purchase_object(self, summary: str) -> Optional[str]:
+        """Извлекает объект закупки из summary."""
+        # Ищем "Наименование объекта закупки:" в HTML
+        match = re.search(r'<strong>Наименование объекта закупки:\s*</strong>([^<]+)', summary)
+        if match:
+            purchase_object = match.group(1).strip()
+            # Убираем лишние пробелы
+            purchase_object = re.sub(r'\s+', ' ', purchase_object)
+            return purchase_object
+        return None
 
     def _extract_price_from_summary(self, summary: str) -> Optional[float]:
         """Извлекает цену из описания RSS."""
