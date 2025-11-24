@@ -2088,9 +2088,10 @@ async def show_batch_results(message, state: FSMContext, results: list):
             )
         )
 
-    # Кнопка экспорта в Excel
+    # Кнопки экспорта
     builder.row(
-        InlineKeyboardButton(text="📊 Экспорт в Excel", callback_data="export_excel")
+        InlineKeyboardButton(text="📊 Экспорт в Excel", callback_data="export_excel"),
+        InlineKeyboardButton(text="📄 HTML отчет", callback_data="export_html_batch")
     )
 
     builder.row(
@@ -2280,3 +2281,467 @@ async def export_to_excel(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         print(f"Ошибка экспорта в Excel: {e}")
         await callback.answer("❌ Ошибка при создании Excel файла", show_alert=True)
+
+
+@router.callback_query(SearchStates.viewing_results, F.data == "export_html_batch")
+async def export_batch_to_html(callback: CallbackQuery, state: FSMContext):
+    """
+    Экспортирует результаты пакетного анализа в HTML отчет с навигацией.
+    """
+    await callback.answer("📄 Создаю HTML отчет...")
+
+    try:
+        # Получаем результаты
+        data = await state.get_data()
+        batch_results = data.get('batch_analysis_results', [])
+
+        if not batch_results:
+            await callback.answer("❌ Нет данных для экспорта", show_alert=True)
+            return
+
+        # Генерируем HTML
+        html_content = _generate_batch_html_report(batch_results)
+
+        # Сохраняем во временный файл
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"tender_batch_report_{timestamp}.html"
+        filepath = f"/tmp/{filename}"
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        # Отправляем файл
+        document = FSInputFile(filepath, filename=filename)
+
+        await callback.message.answer_document(
+            document=document,
+            caption=f"📄 <b>HTML отчет готов</b>\n\n"
+                   f"📋 Тендеров: {len(batch_results)}\n"
+                   f"✅ Проанализировано: {len([r for r in batch_results if r.get('analysis')])}\n\n"
+                   f"<i>Откройте файл в браузере для просмотра</i>",
+            parse_mode="HTML"
+        )
+
+        # Удаляем временный файл
+        try:
+            os.remove(filepath)
+        except:
+            pass
+
+        await callback.answer("✅ HTML отчет отправлен")
+
+    except Exception as e:
+        print(f"Ошибка экспорта в HTML: {e}")
+        import traceback
+        traceback.print_exc()
+        await callback.answer("❌ Ошибка при создании HTML отчета", show_alert=True)
+
+
+def _generate_batch_html_report(results: list) -> str:
+    """
+    Генерирует HTML отчет с навигацией для пакетного анализа.
+    """
+    # Считаем статистику
+    total = len(results)
+    analyzed = len([r for r in results if r.get('analysis')])
+    errors = len([r for r in results if r.get('error')])
+
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Пакетный анализ тендеров - {total} тендеров</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            line-height: 1.6;
+        }}
+
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }}
+
+        .header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }}
+
+        .header h1 {{
+            font-size: 32px;
+            margin-bottom: 10px;
+        }}
+
+        .stats {{
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+        }}
+
+        .stat {{
+            text-align: center;
+        }}
+
+        .stat-value {{
+            font-size: 36px;
+            font-weight: bold;
+        }}
+
+        .stat-label {{
+            font-size: 14px;
+            opacity: 0.9;
+        }}
+
+        .navigation {{
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #e0e0e0;
+        }}
+
+        .nav-title {{
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }}
+
+        .nav-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 10px;
+        }}
+
+        .nav-item {{
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: #333;
+            display: block;
+        }}
+
+        .nav-item:hover {{
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }}
+
+        .nav-item-number {{
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 5px;
+        }}
+
+        .nav-item-name {{
+            font-size: 13px;
+            color: #666;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }}
+
+        .nav-item.error {{
+            border-color: #ff6b6b;
+            opacity: 0.7;
+        }}
+
+        .content {{
+            padding: 40px;
+        }}
+
+        .tender-card {{
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            scroll-margin-top: 20px;
+        }}
+
+        .tender-header {{
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 20px;
+            margin-bottom: 20px;
+        }}
+
+        .tender-number {{
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }}
+
+        .tender-name {{
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+            margin-top: 10px;
+        }}
+
+        .info-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }}
+
+        .info-item {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+        }}
+
+        .info-label {{
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }}
+
+        .info-value {{
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+        }}
+
+        .gaps-section {{
+            margin-top: 20px;
+        }}
+
+        .gaps-title {{
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #333;
+        }}
+
+        .gap-item {{
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }}
+
+        .gap-item.critical {{
+            background: #f8d7da;
+            border-left-color: #dc3545;
+        }}
+
+        .gap-item.high {{
+            background: #ffe5d0;
+            border-left-color: #fd7e14;
+        }}
+
+        .gap-severity {{
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }}
+
+        .error-card {{
+            background: #f8d7da;
+            border: 2px solid #dc3545;
+            border-radius: 12px;
+            padding: 20px;
+            color: #721c24;
+        }}
+
+        @media print {{
+            body {{
+                background: white;
+            }}
+            .navigation {{
+                display: none;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Пакетный анализ тендеров</h1>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value">{total}</div>
+                    <div class="stat-label">Всего тендеров</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{analyzed}</div>
+                    <div class="stat-label">Проанализировано</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">{errors}</div>
+                    <div class="stat-label">Ошибок</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="navigation">
+            <div class="nav-title">Навигация по тендерам:</div>
+            <div class="nav-grid">
+"""
+
+    # Добавляем навигационные элементы
+    for result in results:
+        tender = result['tender']
+        index = result['index']
+        number = tender.get('number', 'N/A')
+        name = tender.get('name', 'Без названия')
+        error = result.get('error')
+
+        error_class = ' error' if error else ''
+        html += f"""
+                <a href="#tender-{index}" class="nav-item{error_class}">
+                    <div class="nav-item-number">№ {number}</div>
+                    <div class="nav-item-name">{name[:50]}</div>
+                </a>
+"""
+
+    html += """
+            </div>
+        </div>
+
+        <div class="content">
+"""
+
+    # Добавляем карточки тендеров
+    for result in results:
+        tender = result['tender']
+        analysis = result.get('analysis')
+        error = result.get('error')
+        index = result['index']
+
+        number = tender.get('number', 'N/A')
+        name = tender.get('name', 'Без названия')
+
+        html += f"""
+            <div id="tender-{index}" class="tender-card">
+                <div class="tender-header">
+                    <div class="tender-number">Тендер #{index + 1} • № {number}</div>
+                    <div class="tender-name">{name}</div>
+                </div>
+"""
+
+        if error:
+            html += f"""
+                <div class="error-card">
+                    <strong>❌ Ошибка анализа:</strong><br>
+                    {error}
+                </div>
+"""
+        elif analysis:
+            tender_info = analysis.get('tender_info', {})
+            financial = analysis.get('financial_analysis', {})
+            gaps = analysis.get('gaps', [])
+
+            nmck = tender_info.get('nmck', 0)
+            prepayment = tender_info.get('prepayment_percent', 0)
+            deadline = tender_info.get('deadline_submission', 'N/A')
+
+            guarantees = financial.get('guarantees', {})
+            app_guarantee = guarantees.get('application_guarantee', 0)
+            contract_guarantee = guarantees.get('contract_guarantee', 0)
+
+            html += f"""
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">💰 НМЦК</div>
+                        <div class="info-value">{nmck:,.0f} руб.</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">💳 Аванс</div>
+                        <div class="info-value">{prepayment if prepayment else 0}%</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">📋 Обеспечение заявки</div>
+                        <div class="info-value">{app_guarantee if app_guarantee else '-'}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">🔒 Обеспечение контракта</div>
+                        <div class="info-value">{contract_guarantee if contract_guarantee else '-'}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">📅 Срок подачи</div>
+                        <div class="info-value">{deadline}</div>
+                    </div>
+                </div>
+"""
+
+            # Добавляем пробелы
+            if gaps:
+                html += """
+                <div class="gaps-section">
+                    <div class="gaps-title">⚠️ Риски и пробелы:</div>
+"""
+                for gap in gaps:
+                    if not isinstance(gap, dict):
+                        continue
+
+                    severity = gap.get('severity', 'MEDIUM').lower()
+                    description = gap.get('description', '')
+
+                    html += f"""
+                    <div class="gap-item {severity}">
+                        <div class="gap-severity">{severity.upper()}</div>
+                        {description}
+                    </div>
+"""
+                html += """
+                </div>
+"""
+        else:
+            html += """
+                <div class="error-card">
+                    ⏳ Тендер не был проанализирован
+                </div>
+"""
+
+        html += """
+            </div>
+"""
+
+    html += """
+        </div>
+    </div>
+
+    <script>
+        // Smooth scroll для навигации
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+    </script>
+</body>
+</html>
+"""
+
+    return html
