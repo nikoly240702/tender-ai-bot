@@ -83,29 +83,11 @@ class ReportGenerator:
 - **НМЦК:** {(tender_info.get('nmck') or 0):,.0f} руб.
 - **Срок подачи заявок:** {tender_info.get('deadline_submission', 'Н/Д')}
 
-## Оценка тендера
+## Финансовая информация
 
-**Итоговый балл:** {(score.get('scores', {}).get('total_score') or 0):.0f}/100
-
-**Готовность к участию:** {(score.get('readiness_percent') or 0):.0f}%
-
-**Рекомендация:** {score.get('recommendation', 'Н/Д')}
-
-### Детальная оценка
-
-| Критерий | Балл |
-|----------|------|
-| Техническое соответствие | {(score.get('scores', {}).get('technical_fit') or 0):.0f}/100 |
-| Финансовая привлекательность | {(score.get('scores', {}).get('financial_attractiveness') or 0):.0f}/100 |
-| Полнота информации | {(score.get('scores', {}).get('information_completeness') or 0):.0f}/100 |
-| Соответствие компетенциям | {(score.get('scores', {}).get('competence_match') or 0):.0f}/100 |
-
-## Финансовый анализ
-
-- **Расчетная себестоимость:** {(financial.get('cost_estimate', {}).get('total_cost') or 0):,.0f} руб.
-- **Маржа:** {(financial.get('margin', {}).get('margin_amount') or 0):,.0f} руб. ({(financial.get('margin', {}).get('margin_percent') or 0):.1f}%)
-- **ROI:** {(financial.get('margin', {}).get('roi') or 0):.1f}%
+- **НМЦК:** {(tender_info.get('nmck') or 0):,.0f} руб.
 - **Обеспечение заявки:** {(financial.get('guarantees', {}).get('application_guarantee') or 0):,.0f} руб.
+- **Обеспечение контракта:** {(financial.get('guarantees', {}).get('contract_guarantee') or 0):,.0f} руб.
 
 ## Выявленные пробелы
 
@@ -405,14 +387,6 @@ class ReportGenerator:
             <div class="date">Дата: {{ current_date }}</div>
         </div>
 
-        <div class="score-card">
-            <h2 style="color: white; border: none; margin: 0;">Итоговая оценка</h2>
-            <div class="score-value">{{ score.scores.total_score|round(0) }}/100</div>
-            <div>Готовность к участию: {{ score.readiness_percent|round(0) }}%</div>
-            <div class="recommendation {{ score.recommendation }}">{{ score.recommendation }}</div>
-            <div style="margin-top: 15px; font-size: 14px;">{{ score.recommendation_details }}</div>
-        </div>
-
         <h2>Информация о тендере</h2>
         <div class="info-grid">
             <div class="info-item">
@@ -433,75 +407,12 @@ class ReportGenerator:
             </div>
         </div>
 
-        <h2>Детальные оценки</h2>
-        <div>
-            <div><strong>Техническое соответствие</strong></div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: {{ score.scores.technical_fit }}%">
-                    {{ score.scores.technical_fit|round(0) }}
-                </div>
-            </div>
-
-            <div><strong>Финансовая привлекательность</strong></div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: {{ score.scores.financial_attractiveness }}%">
-                    {{ score.scores.financial_attractiveness|round(0) }}
-                </div>
-            </div>
-
-            <div><strong>Полнота информации</strong></div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: {{ score.scores.information_completeness }}%">
-                    {{ score.scores.information_completeness|round(0) }}
-                </div>
-            </div>
-
-            <div><strong>Соответствие компетенциям</strong></div>
-            <div class="progress-bar">
-                <div class="progress-fill" style="width: {{ score.scores.competence_match }}%">
-                    {{ score.scores.competence_match|round(0) }}
-                </div>
-            </div>
-        </div>
-
-        <h2>Финансовый анализ</h2>
+        <h2>Финансовая информация</h2>
         <table>
             <tr>
                 <th>Показатель</th>
                 <th>Значение</th>
             </tr>
-            {% if financial.cost_estimate %}
-            <tr>
-                <td>Расчетная себестоимость</td>
-                <td>{{ "{:,.0f}".format(financial.cost_estimate.total_cost) }} ₽</td>
-            </tr>
-            {% elif financial.product_analysis %}
-            <tr>
-                <td>Расчетная себестоимость</td>
-                <td>{{ "{:,.0f}".format(financial.product_analysis.estimated_cost) }} ₽</td>
-            </tr>
-            {% endif %}
-
-            {% if financial.margin %}
-            <tr>
-                <td>Маржа</td>
-                <td>{{ "{:,.0f}".format(financial.margin.margin_amount) }} ₽ ({{ financial.margin.margin_percent|round(1) }}%)</td>
-            </tr>
-            <tr>
-                <td>ROI</td>
-                <td>{{ financial.margin.roi|round(1) }}%</td>
-            </tr>
-            {% elif financial.product_analysis %}
-            <tr>
-                <td>Маржа</td>
-                <td>{{ "{:,.0f}".format(financial.product_analysis.margin_amount) }} ₽ ({{ financial.product_analysis.margin_percent|round(1) }}%)</td>
-            </tr>
-            <tr>
-                <td>ROI</td>
-                <td>{{ ((financial.product_analysis.margin_amount / financial.product_analysis.estimated_cost) * 100)|round(1) }}%</td>
-            </tr>
-            {% endif %}
-
             {% if financial.guarantees %}
             <tr>
                 <td>Обеспечение заявки</td>
