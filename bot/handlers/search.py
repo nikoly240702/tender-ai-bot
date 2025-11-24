@@ -232,8 +232,8 @@ async def execute_search(
             if len(name) > 100:
                 name = name[:97] + "..."
 
-            results_text += f"{i}. <b>📦 {name}</b>\n"
-            results_text += f"   № {number}\n"
+            results_text += f"{i}. <b>№ {number}</b>\n"
+            results_text += f"   <b>📦 Объект закупки:</b> {name}\n"
             results_text += f"   💰 {price}\n\n"
 
         results_text += "<i>💡 Выберите тендер для просмотра деталей:</i>"
@@ -1187,8 +1187,8 @@ async def back_to_results(callback: CallbackQuery, state: FSMContext):
         if len(name) > 100:
             name = name[:97] + "..."
 
-        results_text += f"{i}. <b>📦 {name}</b>\n"
-        results_text += f"   № {number}\n"
+        results_text += f"{i}. <b>№ {number}</b>\n"
+        results_text += f"   <b>📦 Объект закупки:</b> {name}\n"
         results_text += f"   💰 {price}\n\n"
 
     results_text += "<i>💡 Выберите тендер для просмотра деталей:</i>"
@@ -1434,12 +1434,12 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
 
         results_text += "\n"
 
-        # Название объекта закупки
+        # Объект закупки
         tender_name = tender_info.get('name', '')
         if tender_name and tender_name != 'N/A':
-            if len(tender_name) > 120:
-                tender_name = tender_name[:117] + "..."
-            results_text += f"📋 {tender_name}\n\n"
+            if len(tender_name) > 150:
+                tender_name = tender_name[:147] + "..."
+            results_text += f"<b>📦 Объект закупки:</b>\n{tender_name}\n\n"
 
         # Финансы
         nmck = tender_info.get('nmck', 0)

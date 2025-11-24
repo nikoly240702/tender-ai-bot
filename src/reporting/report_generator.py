@@ -288,13 +288,6 @@ class ReportGenerator:
             text-align: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        .tender-name-highlight h2 {
-            margin: 0;
-            font-size: 32px;
-            color: white;
-            font-weight: 600;
-            line-height: 1.4;
-        }
         .contact-box {
             background: #e8f5e9;
             padding: 20px;
@@ -390,7 +383,8 @@ class ReportGenerator:
         </div>
 
         <div class="tender-name-highlight">
-            <h2>📦 {{ tender_info.name }}</h2>
+            <div style="font-size: 16px; font-weight: 600; opacity: 0.9; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px;">📦 Объект закупки</div>
+            <h2 style="margin: 0; font-size: 32px; color: white; font-weight: 600; line-height: 1.4;">{{ tender_info.name }}</h2>
         </div>
 
         <h2>Информация о тендере</h2>
