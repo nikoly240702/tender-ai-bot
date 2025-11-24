@@ -2212,7 +2212,7 @@ async def export_to_excel(callback: CallbackQuery, state: FSMContext):
                 # Пробелы - формируем текстовые списки
                 critical_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'CRITICAL']
                 high_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'HIGH']
-                medium_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'MEDIUM')
+                medium_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'MEDIUM']
                 low_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'LOW']
 
                 # Записываем как текст (с переносами строк между пунктами)
