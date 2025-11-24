@@ -2208,16 +2208,22 @@ async def export_to_excel(callback: CallbackQuery, state: FSMContext):
                 ws.cell(row=row_num, column=7).value = contract_guarantee
                 ws.cell(row=row_num, column=7).number_format = '#,##0'
 
-                # Пробелы по критичности
-                critical = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'CRITICAL')
-                high = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'HIGH')
-                medium = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'MEDIUM')
-                low = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'LOW')
+                # Пробелы - формируем текстовые списки
+                critical_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'CRITICAL']
+                high_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'HIGH']
+                medium_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'MEDIUM')
+                low_list = [g.get('description', '') for g in gaps if isinstance(g, dict) and g.get('severity') == 'LOW']
 
-                ws.cell(row=row_num, column=8).value = critical
-                ws.cell(row=row_num, column=9).value = high
-                ws.cell(row=row_num, column=10).value = medium
-                ws.cell(row=row_num, column=11).value = low
+                # Записываем как текст (с переносами строк между пунктами)
+                ws.cell(row=row_num, column=8).value = '\n'.join(critical_list) if critical_list else '-'
+                ws.cell(row=row_num, column=9).value = '\n'.join(high_list) if high_list else '-'
+                ws.cell(row=row_num, column=10).value = '\n'.join(medium_list) if medium_list else '-'
+                ws.cell(row=row_num, column=11).value = '\n'.join(low_list) if low_list else '-'
+
+                # Устанавливаем перенос текста для ячеек с пробелами
+                from openpyxl.styles import Alignment
+                for col in [8, 9, 10, 11]:
+                    ws.cell(row=row_num, column=col).alignment = Alignment(wrap_text=True, vertical='top')
 
                 # Срок подачи
                 deadline = tender_info.get('deadline_submission', 'N/A')
