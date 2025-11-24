@@ -397,6 +397,15 @@ def get_tenders_list_keyboard(tenders_count: int) -> InlineKeyboardMarkup:
             )
         )
 
+    # Кнопка пакетного анализа
+    if tenders_count > 1:
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📦 Анализировать все ({tenders_count})",
+                callback_data="batch_analyze_all"
+            )
+        )
+
     # Кнопки действий
     builder.row(
         InlineKeyboardButton(text="🔄 Новый поиск", callback_data="new_search"),

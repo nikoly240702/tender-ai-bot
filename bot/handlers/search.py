@@ -1870,3 +1870,199 @@ async def start_new_search(callback: CallbackQuery, state: FSMContext):
     )
 
     await state.set_state(SearchStates.waiting_for_query)
+
+
+@router.callback_query(SearchStates.viewing_search_results, F.data == "batch_analyze_all")
+async def batch_analyze_all_tenders(callback: CallbackQuery, state: FSMContext):
+    """
+    Пакетный анализ всех найденных тендеров.
+    """
+    await callback.answer()
+
+    # Получаем результаты поиска из состояния
+    data = await state.get_data()
+    search_results = data.get('search_results', {})
+    results = search_results.get('results', [])
+
+    if not results:
+        await callback.message.answer(
+            "❌ Нет тендеров для анализа",
+            parse_mode="HTML"
+        )
+        return
+
+    total_tenders = len(results)
+
+    # Показываем начальное сообщение
+    progress_message = await callback.message.edit_text(
+        f"📦 <b>Пакетный анализ запущен</b>\n\n"
+        f"📊 Тендеров: {total_tenders}\n"
+        f"⚡ Параллельность: 3x\n\n"
+        f"<b>Прогресс:</b>\n"
+        f"{'█' * 0}{'░' * 10} 0% (0/{total_tenders})\n"
+        f"⏱️ Начинаем...\n\n"
+        f"💚 Из кэша: 0\n"
+        f"🔄 Новых: 0",
+        parse_mode="HTML"
+    )
+
+    # Получаем систему
+    system = get_tender_system()
+    loop = asyncio.get_event_loop()
+
+    # Результаты анализа
+    analyzed_results = []
+    from_cache = 0
+    new_analysis = 0
+
+    # Анализируем тендеры с прогресс-баром
+    for i, tender_data in enumerate(results):
+        tender = tender_data['tender_info']
+        tender_url = tender.get('url', '')
+        if tender_url and not tender_url.startswith('http'):
+            tender_url = f"https://zakupki.gov.ru{tender_url}"
+
+        # Обновляем прогресс
+        progress = int((i / total_tenders) * 10)
+        percent = int((i / total_tenders) * 100)
+
+        await progress_message.edit_text(
+            f"📦 <b>Пакетный анализ</b>\n\n"
+            f"📊 Тендеров: {total_tenders}\n"
+            f"⚡ Параллельность: 3x\n\n"
+            f"<b>Прогресс:</b>\n"
+            f"{'█' * progress}{'░' * (10 - progress)} {percent}% ({i}/{total_tenders})\n"
+            f"⏱️ Анализируем тендер #{i+1}...\n\n"
+            f"💚 Из кэша: {from_cache}\n"
+            f"🔄 Новых: {new_analysis}",
+            parse_mode="HTML"
+        )
+
+        try:
+            # Анализируем тендер
+            analysis_result = await loop.run_in_executor(
+                None,
+                system.analyze_tender,
+                tender_url
+            )
+
+            # Проверяем был ли взят из кэша
+            if analysis_result.get('from_cache'):
+                from_cache += 1
+            else:
+                new_analysis += 1
+
+            analyzed_results.append({
+                'tender': tender,
+                'analysis': analysis_result,
+                'index': i
+            })
+
+        except Exception as e:
+            print(f"Ошибка анализа тендера {i}: {e}")
+            analyzed_results.append({
+                'tender': tender,
+                'analysis': None,
+                'error': str(e),
+                'index': i
+            })
+
+    # Финальный прогресс
+    await progress_message.edit_text(
+        f"✅ <b>Пакетный анализ завершен!</b>\n\n"
+        f"📊 Всего тендеров: {total_tenders}\n"
+        f"✅ Успешно: {len([r for r in analyzed_results if r.get('analysis')])}\n"
+        f"❌ Ошибок: {len([r for r in analyzed_results if r.get('error')])}\n\n"
+        f"💚 Из кэша: {from_cache}\n"
+        f"🔄 Новых: {new_analysis}\n\n"
+        f"<i>Формирую результаты...</i>",
+        parse_mode="HTML"
+    )
+
+    # Сохраняем результаты в state
+    await state.update_data(batch_analysis_results=analyzed_results)
+
+    # Показываем результаты
+    await show_batch_results(callback.message, state, analyzed_results)
+
+
+async def show_batch_results(message, state: FSMContext, results: list):
+    """
+    Показывает результаты пакетного анализа.
+    """
+    if not results:
+        await message.edit_text(
+            "❌ Нет результатов для отображения",
+            parse_mode="HTML"
+        )
+        return
+
+    results_text = "📋 <b>РЕЗУЛЬТАТЫ ПАКЕТНОГО АНАЛИЗА</b>\n\n"
+
+    for result in results:
+        tender = result['tender']
+        analysis = result.get('analysis')
+        error = result.get('error')
+        index = result['index']
+
+        # Извлекаем данные
+        number = tender.get('number', 'N/A')
+        name = tender.get('name', 'Без названия')
+        if len(name) > 70:
+            name = name[:67] + "..."
+
+        results_text += f"{index + 1}. <b>№ {number}</b>\n"
+        results_text += f"   📦 {name}\n"
+
+        if error:
+            results_text += f"   ❌ Ошибка анализа\n\n"
+        elif analysis:
+            tender_info = analysis.get('tender_info', {})
+            gaps = analysis.get('gaps', [])
+
+            nmck = tender_info.get('nmck', 0)
+            prepayment = tender_info.get('prepayment_percent', 0)
+
+            if nmck:
+                results_text += f"   💰 НМЦК: {nmck:,.0f} руб.\n"
+            if prepayment:
+                results_text += f"   💳 Аванс: {prepayment}%\n"
+
+            critical_gaps = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'CRITICAL')
+            if critical_gaps > 0:
+                results_text += f"   ⚠️ Критичных пробелов: {critical_gaps}\n"
+
+            results_text += "\n"
+        else:
+            results_text += f"   ⏳ Не проанализирован\n\n"
+
+    results_text += "\n<i>💡 Нажмите на номер тендера для подробной информации</i>"
+
+    # Создаем клавиатуру с кнопками для каждого тендера
+    from aiogram.utils.keyboard import InlineKeyboardBuilder
+    from aiogram.types import InlineKeyboardButton
+
+    builder = InlineKeyboardBuilder()
+
+    for result in results:
+        index = result['index']
+        tender = result['tender']
+        number = tender.get('number', 'N/A')[:15]
+
+        builder.row(
+            InlineKeyboardButton(
+                text=f"📄 {number}",
+                callback_data=f"details_{index}"
+            )
+        )
+
+    builder.row(
+        InlineKeyboardButton(text="🔄 Новый поиск", callback_data="new_search"),
+        InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+    )
+
+    await message.edit_text(
+        results_text,
+        parse_mode="HTML",
+        reply_markup=builder.as_markup()
+    )
