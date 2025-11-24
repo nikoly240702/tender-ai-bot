@@ -1496,33 +1496,6 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
                 results_text += f"<i>... и еще {len(gaps) - 3}</i>\n"
             results_text += "\n"
 
-        # Вопросы для заказчика
-        all_questions = []
-        if isinstance(questions_data, dict):
-            all_questions = (questions_data.get('clarification_questions', []) +
-                           questions_data.get('risk_mitigation_questions', []))
-        elif isinstance(questions_data, list):
-            all_questions = questions_data
-
-        if all_questions and len(all_questions) > 0:
-            results_text += f"<b>❓ Вопросов для заказчика: {len(all_questions)}</b>\n"
-            for i, q in enumerate(all_questions[:3], 1):
-                # Вопрос может быть строкой или словарем
-                if isinstance(q, dict):
-                    q_text = (q.get('question') or
-                             q.get('text') or
-                             q.get('content') or
-                             'Вопрос для уточнения')
-                else:
-                    q_text = str(q)
-
-                if len(q_text) > 120:
-                    q_text = q_text[:117] + "..."
-                results_text += f"{i}. {q_text}\n"
-            if len(all_questions) > 3:
-                results_text += f"<i>... и еще {len(all_questions) - 3}</i>\n"
-            results_text += "\n"
-
         # Если данных нет или мало, предупреждаем
         if not has_data:
             results_text += "\n⚠️ <i>Анализ не вернул детальных данных.</i>\n"

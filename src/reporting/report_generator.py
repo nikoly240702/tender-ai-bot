@@ -103,19 +103,6 @@ class ReportGenerator:
                     md += f"{i}. **{gap.get('category', 'Н/Д')}:** {gap.get('issue', 'Н/Д')}\n"
                     md += f"   - *Влияние:* {gap.get('impact', 'Н/Д')}\n\n"
 
-        # Добавляем вопросы
-        md += "\n## Вопросы для заказчика\n\n"
-
-        if questions.get('critical'):
-            md += "### Критичные\n\n"
-            for i, q in enumerate(questions['critical'], 1):
-                md += f"{i}. {q}\n\n"
-
-        if questions.get('important'):
-            md += "### Важные\n\n"
-            for i, q in enumerate(questions['important'], 1):
-                md += f"{i}. {q}\n\n"
-
         # Контакты
         md += "\n## Контакты заказчика\n\n"
         if contacts.get('emails'):
@@ -565,29 +552,6 @@ class ReportGenerator:
             </li>
         {% endfor %}
         </ul>
-
-        <h2>Вопросы для заказчика</h2>
-
-        {% if questions.critical %}
-        <h3>Критичные вопросы</h3>
-        {% for q in questions.critical %}
-        <div class="question-block">{{ loop.index }}. {{ q }}</div>
-        {% endfor %}
-        {% endif %}
-
-        {% if questions.important %}
-        <h3>Важные вопросы</h3>
-        {% for q in questions.important %}
-        <div class="question-block">{{ loop.index }}. {{ q }}</div>
-        {% endfor %}
-        {% endif %}
-
-        {% if questions.optional %}
-        <h3>Дополнительные вопросы</h3>
-        {% for q in questions.optional %}
-        <div class="question-block">{{ loop.index }}. {{ q }}</div>
-        {% endfor %}
-        {% endif %}
 
         <h2>Контакты заказчика</h2>
         <div class="contact-box">

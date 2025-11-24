@@ -235,18 +235,20 @@ class TenderAnalysisAgent:
                 print(f"\n{Fore.RED}✗ Ошибка детекции пробелов: {e}{Style.RESET_ALL}")
                 results['gaps'] = []
 
-            # Шаг 5: Генерация вопросов
-            pbar.set_description(f"{Fore.YELLOW}{steps[4]}{Style.RESET_ALL}")
-            try:
-                questions = self.tender_analyzer.generate_questions(
-                    results['gaps'],
-                    results['extracted_text']
-                )
-                results['questions'] = questions
-                pbar.update(1)
-            except Exception as e:
-                print(f"\n{Fore.RED}✗ Ошибка генерации вопросов: {e}{Style.RESET_ALL}")
-                results['questions'] = {'critical': [], 'important': [], 'optional': []}
+            # Шаг 5: Генерация вопросов (УБРАНО - не нужно)
+            # pbar.set_description(f"{Fore.YELLOW}{steps[4]}{Style.RESET_ALL}")
+            # try:
+            #     questions = self.tender_analyzer.generate_questions(
+            #         results['gaps'],
+            #         results['extracted_text']
+            #     )
+            #     results['questions'] = questions
+            #     pbar.update(1)
+            # except Exception as e:
+            #     print(f"\n{Fore.RED}✗ Ошибка генерации вопросов: {e}{Style.RESET_ALL}")
+            #     results['questions'] = {'critical': [], 'important': [], 'optional': []}
+            results['questions'] = {}  # Пустой словарь вместо генерации
+            pbar.update(1)  # Пропускаем шаг
 
             # Шаг 6: Извлечение контактов
             pbar.set_description(f"{Fore.YELLOW}{steps[5]}{Style.RESET_ALL}")
