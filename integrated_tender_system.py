@@ -236,12 +236,24 @@ class IntegratedTenderSystem:
 
                         # Импортируем главный класс для полного анализа
                         from main import TenderAnalysisAgent
+                        from bot.db import get_database
+                        import asyncio
 
                         # Создаем агента (он уже имеет все компоненты)
                         agent = TenderAnalysisAgent()
 
-                        # Выполняем полный анализ
-                        analysis = agent.analyze_tender(file_paths)
+                        # Инициализируем БД для кэширования
+                        agent.db = asyncio.run(get_database())
+
+                        # Выполняем полный анализ с кэшированием
+                        tender_num = tender.get('number', 'unknown')
+                        analysis = asyncio.run(
+                            agent.analyze_tender(
+                                file_paths,
+                                tender_number=tender_num,
+                                use_cache=True
+                            )
+                        )
 
                         tender_result['analysis_result'] = analysis
                         tender_result['analysis_success'] = True

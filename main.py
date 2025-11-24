@@ -43,6 +43,9 @@ class TenderAnalysisAgent:
         print(f"{Fore.YELLOW}Загрузка конфигурации...{Style.RESET_ALL}")
         self.config_loader = ConfigLoader()
 
+        # База данных для кэширования (будет инициализирована асинхронно)
+        self.db = None
+
         try:
             self.company_profile = self.config_loader.load_company_profile()
             self.settings = self.config_loader.load_settings()
@@ -79,17 +82,57 @@ class TenderAnalysisAgent:
         self.report_generator = ReportGenerator(str(self.paths['output']))
         self.tender_searcher = TenderSearcher(self.tender_analyzer)
 
-    def analyze_tender(self, file_paths: List[str]) -> Dict[str, Any]:
+    async def analyze_tender(
+        self,
+        file_paths: List[str],
+        tender_number: str = None,
+        use_cache: bool = True
+    ) -> Dict[str, Any]:
         """
-        Выполняет полный анализ тендера.
+        Выполняет полный анализ тендера с поддержкой кэширования.
 
         Args:
             file_paths: Список путей к файлам тендерной документации
+            tender_number: Номер тендера для кэширования (опционально)
+            use_cache: Использовать ли кэш (по умолчанию True)
 
         Returns:
             Полный словарь с результатами анализа
         """
         print(f"{Fore.CYAN}\nНачинаем анализ тендера...{Style.RESET_ALL}\n")
+
+        # ============================================================
+        # ПРОВЕРКА КЭША (V2.0)
+        # ============================================================
+        if use_cache and tender_number and self.db:
+            try:
+                # Извлекаем документацию для вычисления хэша
+                extracted = self.text_extractor.extract_from_multiple_files(file_paths)
+                documentation = [
+                    {'filename': f['file_name'], 'content': f.get('text', '')}
+                    for f in extracted['files']
+                ]
+
+                # Вычисляем хэш документации
+                from bot.db import Database
+                doc_hash = Database.compute_documentation_hash(documentation)
+
+                # Пробуем получить из кэша
+                cached = await self.db.get_cached_analysis(tender_number, doc_hash)
+
+                if cached:
+                    print(f"{Fore.GREEN}✅ НАЙДЕН КЭШИРОВАННЫЙ АНАЛИЗ!{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN}   Сохранено ~70% токенов LLM{Style.RESET_ALL}\n")
+
+                    # Восстанавливаем результаты из кэша
+                    results = cached['analysis_result']
+                    results['from_cache'] = True
+                    results['cache_created_at'] = cached['created_at']
+                    return results
+
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  Ошибка проверки кэша: {e}{Style.RESET_ALL}")
+                # Продолжаем обычный анализ при ошибке кэширования
 
         # Создаем прогресс-бар
         steps = [
@@ -234,6 +277,53 @@ class TenderAnalysisAgent:
                 print(f"{Fore.RED}Детали ошибки:\n{error_details}{Style.RESET_ALL}")
                 results['report_paths'] = {}
                 results['report_generation_error'] = str(e)
+
+        # ============================================================
+        # СОХРАНЕНИЕ В КЭШ (V2.0)
+        # ============================================================
+        if use_cache and tender_number and self.db:
+            try:
+                # Вычисляем хэш для сохранения
+                from bot.db import Database
+                documentation = [
+                    {'filename': f['file_name'], 'content': f.get('text', '')}
+                    for f in results.get('files_info', [])
+                ]
+                doc_hash = Database.compute_documentation_hash(documentation)
+
+                # Извлекаем метаданные для индексации
+                tender_info = results.get('tender_info', {})
+                nmck = tender_info.get('nmck')
+
+                # Извлекаем score и recommendation если есть
+                score = None
+                recommendation = None
+                if 'analysis_summary' in results:
+                    summary = results['analysis_summary']
+                    if isinstance(summary.get('confidence_score'), (int, float)):
+                        score = int(summary['confidence_score'])
+                    # Определяем рекомендацию на основе is_suitable
+                    if summary.get('is_suitable'):
+                        recommendation = 'participate' if score and score > 80 else 'consider'
+                    else:
+                        recommendation = 'skip'
+
+                # Сохраняем в кэш с TTL 14 дней
+                await self.db.save_analysis(
+                    tender_number=tender_number,
+                    doc_hash=doc_hash,
+                    analysis_result=results,
+                    score=score,
+                    recommendation=recommendation,
+                    nmck=nmck,
+                    ttl_days=14
+                )
+
+                print(f"{Fore.GREEN}💾 Результаты сохранены в кэш (TTL: 14 дней){Style.RESET_ALL}")
+
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  Ошибка сохранения в кэш: {e}{Style.RESET_ALL}")
+                # Не прерываем выполнение при ошибке кэширования
 
         return results
 
@@ -449,8 +539,13 @@ def main():
         print(f"  - {fp}")
 
     try:
-        # Запускаем анализ
-        results = agent.analyze_tender(valid_files)
+        # Инициализируем БД для кэширования
+        import asyncio
+        from bot.db import get_database
+        agent.db = asyncio.run(get_database())
+
+        # Запускаем анализ (теперь асинхронный)
+        results = asyncio.run(agent.analyze_tender(valid_files))
 
         # Отображаем сводку
         agent.display_summary(results)

@@ -95,6 +95,89 @@ class FinancialCalculator:
             'total_guarantee_needed': nmck * (guarantee_app_rate + guarantee_contract_rate)
         }
 
+    def analyze_prepayment(
+        self,
+        nmck: float,
+        prepayment_percent: Optional[float] = None,
+        payment_terms_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Анализ условий предоплаты (V2.0).
+
+        Args:
+            nmck: НМЦК
+            prepayment_percent: Процент аванса (если известен)
+            payment_terms_text: Текст условий оплаты для парсинга
+
+        Returns:
+            Словарь с анализом аванса
+        """
+        # Если процент не передан, пытаемся извлечь из текста
+        if prepayment_percent is None and payment_terms_text:
+            prepayment_percent = self._extract_prepayment_from_text(payment_terms_text)
+
+        if prepayment_percent is None:
+            prepayment_percent = 0  # По умолчанию без аванса
+
+        prepayment_amount = nmck * (prepayment_percent / 100)
+
+        # Оценка привлекательности аванса
+        attractiveness_score = 0
+        if prepayment_percent >= 50:
+            attractiveness_score = 30  # Отличный аванс
+            attractiveness_comment = "Отличные условия - аванс 50%+"
+        elif prepayment_percent >= 30:
+            attractiveness_score = 25  # Хороший аванс
+            attractiveness_comment = "Хорошие условия - аванс 30-50%"
+        elif prepayment_percent >= 10:
+            attractiveness_score = 15  # Средний аванс
+            attractiveness_comment = "Средние условия - аванс 10-30%"
+        elif prepayment_percent > 0:
+            attractiveness_score = 5  # Минимальный аванс
+            attractiveness_comment = "Низкий аванс < 10%"
+        else:
+            attractiveness_score = 0  # Без аванса
+            attractiveness_comment = "Без аванса - требуется предфинансирование"
+
+        # Рассчитываем потребность в оборотных средствах
+        working_capital_needed = nmck - prepayment_amount
+
+        return {
+            'prepayment_percent': prepayment_percent,
+            'prepayment_amount': prepayment_amount,
+            'working_capital_needed': working_capital_needed,
+            'attractiveness_score': attractiveness_score,
+            'comment': attractiveness_comment,
+            'has_prepayment': prepayment_percent > 0
+        }
+
+    def _extract_prepayment_from_text(self, text: str) -> Optional[float]:
+        """
+        Извлекает процент аванса из текста условий оплаты.
+
+        Args:
+            text: Текст условий оплаты
+
+        Returns:
+            Процент аванса или None
+        """
+        import re
+
+        # Паттерны для поиска аванса
+        patterns = [
+            r'аванс[^\d]*(\d+)\s*%',
+            r'предоплат[^\d]*(\d+)\s*%',
+            r'(\d+)\s*%[^\n]*аванс',
+            r'(\d+)\s*%[^\n]*предоплат'
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text.lower())
+            if match:
+                return float(match.group(1))
+
+        return None
+
     def check_financial_limits(self, nmck: float) -> Dict[str, Any]:
         """
         Проверка соответствия финансовым лимитам компании.
@@ -129,10 +212,18 @@ class FinancialCalculator:
     def calculate_full_financial_analysis(
         self,
         nmck: float,
-        labor_hours: Optional[int] = None
+        labor_hours: Optional[int] = None,
+        prepayment_percent: Optional[float] = None,
+        payment_terms_text: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Полный финансовый анализ тендера.
+        Полный финансовый анализ тендера (V2.0 с аналзом аванса).
+
+        Args:
+            nmck: НМЦК
+            labor_hours: Трудозатраты в часах
+            prepayment_percent: Процент аванса
+            payment_terms_text: Текст условий оплаты
 
         Returns:
             Полный словарь с финансовым анализом
@@ -141,31 +232,36 @@ class FinancialCalculator:
         margin = self.calculate_margin(nmck, cost_estimate['total_cost'])
         guarantees = self.calculate_guarantees(nmck)
         limits_check = self.check_financial_limits(nmck)
+        prepayment = self.analyze_prepayment(nmck, prepayment_percent, payment_terms_text)
 
         # Общая оценка финансовой привлекательности (0-100)
+        # V2.0: Новая формула с учетом аванса
         attractiveness_score = 0
 
-        # Маржа (40 баллов)
+        # Маржа (30 баллов) - снижено с 40
         if margin['margin_percent'] >= 30:
-            attractiveness_score += 40
+            attractiveness_score += 30
         elif margin['margin_percent'] >= 20:
-            attractiveness_score += 30
+            attractiveness_score += 22
         elif margin['margin_percent'] >= 15:
-            attractiveness_score += 20
+            attractiveness_score += 15
         elif margin['margin_percent'] >= 10:
-            attractiveness_score += 10
+            attractiveness_score += 8
 
-        # Соответствие лимитам (30 баллов)
+        # Соответствие лимитам (20 баллов) - снижено с 30
         if limits_check['within_limits']:
-            attractiveness_score += 30
-
-        # ROI (30 баллов)
-        if margin['roi'] >= 50:
-            attractiveness_score += 30
-        elif margin['roi'] >= 30:
             attractiveness_score += 20
+
+        # ROI (20 баллов) - снижено с 30
+        if margin['roi'] >= 50:
+            attractiveness_score += 20
+        elif margin['roi'] >= 30:
+            attractiveness_score += 15
         elif margin['roi'] >= 15:
-            attractiveness_score += 10
+            attractiveness_score += 8
+
+        # Аванс (30 баллов) - НОВОЕ в V2.0
+        attractiveness_score += prepayment['attractiveness_score']
 
         return {
             'nmck': nmck,
@@ -173,6 +269,7 @@ class FinancialCalculator:
             'margin': margin,
             'guarantees': guarantees,
             'limits_check': limits_check,
+            'prepayment': prepayment,  # Новое поле
             'financial_attractiveness_score': attractiveness_score,
             'is_profitable': margin['margin_percent'] >= self.config.get('cost_structure', {}).get('profit_margin_target', 0.15) * 100
         }

@@ -1306,12 +1306,20 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
 
         # Импортируем агента для анализа
         from main import TenderAnalysisAgent
+        from bot.db import get_database
 
         # Создаем агента и анализируем
         agent = TenderAnalysisAgent()
-        analysis_result = await loop.run_in_executor(
-            None,
-            lambda: agent.analyze_tender(file_paths)
+
+        # Инициализируем БД для кэширования
+        agent.db = await get_database()
+
+        # Анализируем с кэшированием (теперь метод async)
+        tender_num = tender.get('number', 'unknown')
+        analysis_result = await agent.analyze_tender(
+            file_paths,
+            tender_number=tender_num,
+            use_cache=True
         )
 
         # Проверяем, что анализ вернул результаты

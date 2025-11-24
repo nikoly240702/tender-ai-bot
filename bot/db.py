@@ -5,7 +5,8 @@
 
 import aiosqlite
 import json
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import logging
@@ -67,6 +68,38 @@ class Database:
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_searches_timestamp
                 ON searches(timestamp DESC)
+            """)
+
+            # Таблица кэшированных анализов тендеров (V2.0)
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS tender_analyses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tender_number TEXT UNIQUE NOT NULL,
+                    documentation_hash TEXT NOT NULL,
+                    analysis_result TEXT NOT NULL,
+                    score INTEGER,
+                    recommendation TEXT,
+                    nmck REAL,
+                    created_at TEXT NOT NULL,
+                    ttl_days INTEGER DEFAULT 14,
+                    expires_at TEXT NOT NULL
+                )
+            """)
+
+            # Индексы для кэша анализов
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tender_hash
+                ON tender_analyses(documentation_hash)
+            """)
+
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tender_score
+                ON tender_analyses(score DESC)
+            """)
+
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_tender_expires
+                ON tender_analyses(expires_at)
             """)
 
             await db.commit()
@@ -302,7 +335,6 @@ class Database:
             Количество удаленных записей
         """
         async with aiosqlite.connect(self.db_path) as db:
-            from datetime import timedelta
             cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
 
             cursor = await db.execute(
@@ -312,6 +344,223 @@ class Database:
 
             await db.commit()
             return cursor.rowcount
+
+    # ============================================================
+    # МЕТОДЫ ДЛЯ КЭШИРОВАНИЯ АНАЛИЗОВ ТЕНДЕРОВ (V2.0)
+    # ============================================================
+
+    @staticmethod
+    def compute_documentation_hash(documentation: List[Dict[str, Any]]) -> str:
+        """
+        Вычисление MD5 хэша от документации тендера.
+
+        Args:
+            documentation: Список документов с полями filename, content
+
+        Returns:
+            MD5 хэш в виде строки
+        """
+        # Сортируем документы по имени для стабильного хэша
+        sorted_docs = sorted(documentation, key=lambda d: d.get('filename', ''))
+
+        # Создаем строку из имен файлов и их контента
+        content_str = ""
+        for doc in sorted_docs:
+            filename = doc.get('filename', '')
+            content = doc.get('content', '')[:10000]  # Берем первые 10K символов
+            content_str += f"{filename}|{content}\n"
+
+        # Вычисляем MD5
+        return hashlib.md5(content_str.encode('utf-8')).hexdigest()
+
+    async def get_cached_analysis(
+        self,
+        tender_number: str,
+        doc_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Получение закэшированного анализа тендера.
+
+        Args:
+            tender_number: Номер тендера (regNumber)
+            doc_hash: MD5 хэш документации
+
+        Returns:
+            Словарь с результатами анализа или None если кэш невалиден
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            now = datetime.now().isoformat()
+
+            async with db.execute("""
+                SELECT id, tender_number, documentation_hash, analysis_result,
+                       score, recommendation, nmck, created_at, expires_at
+                FROM tender_analyses
+                WHERE tender_number = ? AND expires_at > ?
+            """, (tender_number, now)) as cursor:
+                row = await cursor.fetchone()
+
+                if not row:
+                    logger.info(f"❌ CACHE MISS: {tender_number} (не найден или истек)")
+                    return None
+
+                # Проверяем хэш документации
+                if row['documentation_hash'] != doc_hash:
+                    logger.info(f"❌ CACHE MISS: {tender_number} (документация изменилась)")
+                    # Удаляем устаревший кэш
+                    await db.execute(
+                        "DELETE FROM tender_analyses WHERE id = ?",
+                        (row['id'],)
+                    )
+                    await db.commit()
+                    return None
+
+                # Кэш валиден!
+                logger.info(f"✅ CACHE HIT: {tender_number} (score={row['score']}, "
+                           f"expires={row['expires_at']})")
+
+                result = {
+                    'tender_number': row['tender_number'],
+                    'analysis_result': json.loads(row['analysis_result']),
+                    'score': row['score'],
+                    'recommendation': row['recommendation'],
+                    'nmck': row['nmck'],
+                    'created_at': row['created_at'],
+                    'expires_at': row['expires_at'],
+                    'from_cache': True
+                }
+
+                return result
+
+    async def save_analysis(
+        self,
+        tender_number: str,
+        doc_hash: str,
+        analysis_result: Dict[str, Any],
+        score: Optional[int] = None,
+        recommendation: Optional[str] = None,
+        nmck: Optional[float] = None,
+        ttl_days: int = 14
+    ) -> int:
+        """
+        Сохранение результатов анализа в кэш.
+
+        Args:
+            tender_number: Номер тендера
+            doc_hash: MD5 хэш документации
+            analysis_result: Полные результаты анализа (будет сериализован в JSON)
+            score: Итоговый балл (0-100)
+            recommendation: Рекомендация (participate/consider/skip)
+            nmck: Начальная максимальная цена контракта
+            ttl_days: Время жизни кэша в днях (по умолчанию 14)
+
+        Returns:
+            ID созданной записи
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now()
+            created_at = now.isoformat()
+            expires_at = (now + timedelta(days=ttl_days)).isoformat()
+
+            # Сериализуем результаты анализа
+            analysis_json = json.dumps(analysis_result, ensure_ascii=False)
+
+            # UPSERT: обновляем если существует, иначе вставляем
+            cursor = await db.execute("""
+                INSERT INTO tender_analyses
+                (tender_number, documentation_hash, analysis_result, score,
+                 recommendation, nmck, created_at, ttl_days, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tender_number) DO UPDATE SET
+                    documentation_hash = excluded.documentation_hash,
+                    analysis_result = excluded.analysis_result,
+                    score = excluded.score,
+                    recommendation = excluded.recommendation,
+                    nmck = excluded.nmck,
+                    created_at = excluded.created_at,
+                    ttl_days = excluded.ttl_days,
+                    expires_at = excluded.expires_at
+            """, (tender_number, doc_hash, analysis_json, score,
+                  recommendation, nmck, created_at, ttl_days, expires_at))
+
+            await db.commit()
+
+            logger.info(f"💾 CACHE SAVED: {tender_number} (score={score}, TTL={ttl_days} days)")
+            return cursor.lastrowid
+
+    async def cleanup_expired_cache(self) -> int:
+        """
+        Очистка истекших записей кэша.
+
+        Returns:
+            Количество удаленных записей
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now().isoformat()
+
+            cursor = await db.execute(
+                "DELETE FROM tender_analyses WHERE expires_at < ?",
+                (now,)
+            )
+
+            await db.commit()
+            count = cursor.rowcount
+
+            if count > 0:
+                logger.info(f"🗑️ Очищено {count} истекших записей кэша")
+
+            return count
+
+    async def get_cache_stats(self) -> Dict[str, Any]:
+        """
+        Получение статистики по кэшу анализов.
+
+        Returns:
+            Словарь со статистикой
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now().isoformat()
+
+            # Всего записей в кэше
+            async with db.execute(
+                "SELECT COUNT(*) FROM tender_analyses"
+            ) as cursor:
+                row = await cursor.fetchone()
+                total = row[0]
+
+            # Валидных (не истекших) записей
+            async with db.execute(
+                "SELECT COUNT(*) FROM tender_analyses WHERE expires_at > ?",
+                (now,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                valid = row[0]
+
+            # Средний балл закэшированных анализов
+            async with db.execute(
+                "SELECT AVG(score) FROM tender_analyses WHERE expires_at > ? AND score IS NOT NULL",
+                (now,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                avg_score = round(row[0], 1) if row[0] else 0
+
+            # Распределение рекомендаций
+            recommendations = {}
+            async with db.execute(
+                "SELECT recommendation, COUNT(*) as count FROM tender_analyses WHERE expires_at > ? GROUP BY recommendation",
+                (now,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                for row in rows:
+                    recommendations[row[0] or 'unknown'] = row[1]
+
+            return {
+                'total_cached': total,
+                'valid_cached': valid,
+                'expired_cached': total - valid,
+                'average_score': avg_score,
+                'recommendations': recommendations
+            }
 
 
 # Глобальный экземпляр базы данных
