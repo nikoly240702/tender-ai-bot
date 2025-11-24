@@ -280,6 +280,21 @@ class ReportGenerator:
             border-radius: 5px;
             margin: 10px 0;
         }
+        .tender-name-highlight {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 30px;
+            margin: 20px 0;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .tender-name-highlight h2 {
+            margin: 0;
+            font-size: 32px;
+            color: white;
+            font-weight: 600;
+            line-height: 1.4;
+        }
         .contact-box {
             background: #e8f5e9;
             padding: 20px;
@@ -372,6 +387,10 @@ class ReportGenerator:
         <div class="header">
             <h1>Отчет по анализу тендера</h1>
             <div class="date">Дата: {{ current_date }}</div>
+        </div>
+
+        <div class="tender-name-highlight">
+            <h2>📦 {{ tender_info.name }}</h2>
         </div>
 
         <h2>Информация о тендере</h2>

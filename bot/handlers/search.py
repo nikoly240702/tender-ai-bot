@@ -229,11 +229,11 @@ async def execute_search(
             price = tender.get('price_formatted', 'N/A')
 
             # Обрезаем название, если слишком длинное
-            if len(name) > 80:
-                name = name[:77] + "..."
+            if len(name) > 100:
+                name = name[:97] + "..."
 
-            results_text += f"{i}. <b>№ {number}</b>\n"
-            results_text += f"   <b>📦 Объект закупки:</b> {name}\n"
+            results_text += f"{i}. <b>📦 {name}</b>\n"
+            results_text += f"   № {number}\n"
             results_text += f"   💰 {price}\n\n"
 
         results_text += "<i>💡 Выберите тендер для просмотра деталей:</i>"
@@ -1184,11 +1184,11 @@ async def back_to_results(callback: CallbackQuery, state: FSMContext):
         name = tender.get('name', 'Без названия')
         price = tender.get('price_formatted', 'N/A')
 
-        if len(name) > 80:
-            name = name[:77] + "..."
+        if len(name) > 100:
+            name = name[:97] + "..."
 
-        results_text += f"{i}. <b>№ {number}</b>\n"
-        results_text += f"   <b>📦 Объект закупки:</b> {name}\n"
+        results_text += f"{i}. <b>📦 {name}</b>\n"
+        results_text += f"   № {number}\n"
         results_text += f"   💰 {price}\n\n"
 
     results_text += "<i>💡 Выберите тендер для просмотра деталей:</i>"
@@ -1405,8 +1405,6 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
         else:
             results_text += "⚠️ <b>HTML отчет:</b> не создан\n"
 
-        results_text += "\n"
-
         # Получаем summary - может быть на разных уровнях вложенности
         summary = analysis_result.get('analysis_summary') if analysis_result else {}
         if not summary:
@@ -1434,67 +1432,100 @@ async def analyze_tender(callback: CallbackQuery, state: FSMContext):
         # Проверяем, есть ли вообще данные для отображения
         has_data = bool(summary or tender_info or gaps or questions_data)
 
-        # Общая оценка
-        is_suitable = summary.get('is_suitable')
-        if is_suitable is not None:
-            suitability = "✅ Подходит" if is_suitable else "❌ Не подходит"
-            results_text += f"<b>Оценка:</b> {suitability}\n"
+        results_text += "\n"
 
-        confidence = summary.get('confidence_score') or summary.get('confidence')
-        if confidence:
-            results_text += f"<b>Уверенность:</b> {confidence:.0f}%\n\n"
+        # Название объекта закупки
+        tender_name = tender_info.get('name', '')
+        if tender_name and tender_name != 'N/A':
+            if len(tender_name) > 120:
+                tender_name = tender_name[:117] + "..."
+            results_text += f"📋 {tender_name}\n\n"
 
-        # Объект закупки (название тендера)
-        if tender_info and tender_info != {}:
-            tender_name = tender_info.get('name', '')
-            if tender_name and tender_name != 'N/A':
-                if len(tender_name) > 150:
-                    tender_name = tender_name[:147] + "..."
-                results_text += f"<b>📦 Объект закупки:</b>\n{tender_name}\n\n"
+        # Финансы
+        nmck = tender_info.get('nmck', 0)
+        prepayment = tender_info.get('prepayment_percent', 0)
 
-        # Краткое резюме
+        if nmck or prepayment:
+            results_text += "<b>💰 ФИНАНСЫ</b>\n"
+
+            if nmck:
+                results_text += f"├─ НМЦК: {nmck:,.0f} руб.\n"
+
+            if prepayment:
+                prepayment_amount = nmck * prepayment / 100 if nmck else 0
+                results_text += f"├─ Аванс: {prepayment}% ({prepayment_amount:,.0f} руб.)\n"
+
+            # Получаем данные об обеспечении из финансов
+            financial = analysis_result.get('financial_analysis') if analysis_result else None
+            if financial and isinstance(financial, dict):
+                guarantees = financial.get('guarantees', {})
+                app_guarantee = guarantees.get('application_guarantee', 0)
+                contract_guarantee = guarantees.get('contract_guarantee', 0)
+
+                if app_guarantee:
+                    results_text += f"├─ Обеспечение заявки: {app_guarantee:,.0f} руб.\n"
+                if contract_guarantee:
+                    results_text += f"└─ Обеспечение контракта: {contract_guarantee:,.0f} руб.\n"
+            else:
+                # Если нет данных из financial, закрываем последнюю строку
+                results_text = results_text.replace("├─ Аванс:", "└─ Аванс:")
+
+            results_text += "\n"
+
+        # Риски и пробелы
+        if gaps and len(gaps) > 0:
+            # Считаем пробелы по уровню критичности
+            critical_count = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'CRITICAL')
+            high_count = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'HIGH')
+            medium_count = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'MEDIUM')
+            low_count = sum(1 for g in gaps if isinstance(g, dict) and g.get('severity') == 'LOW')
+
+            results_text += "<b>⚠️ РИСКИ И ПРОБЕЛЫ</b>\n"
+            severity_lines = []
+            if critical_count > 0:
+                severity_lines.append(f"Критические: {critical_count}")
+            if high_count > 0:
+                severity_lines.append(f"Важные: {high_count}")
+            if medium_count > 0:
+                severity_lines.append(f"Средние: {medium_count}")
+            if low_count > 0:
+                severity_lines.append(f"Низкие: {low_count}")
+
+            # Форматируем с правильными префиксами
+            for i, line in enumerate(severity_lines):
+                if i == len(severity_lines) - 1:
+                    results_text += f"└─ {line}\n"
+                else:
+                    results_text += f"├─ {line}\n"
+
+            results_text += "\n"
+
+        # Сроки
+        deadline_submission = tender_info.get('deadline_submission', '')
+        contract_duration = tender_info.get('contract_duration', '')
+
+        if deadline_submission or contract_duration:
+            results_text += "<b>📅 СРОКИ</b>\n"
+
+            if deadline_submission and deadline_submission != 'N/A':
+                if contract_duration and contract_duration != 'N/A':
+                    results_text += f"├─ Подача заявок: до {deadline_submission}\n"
+                    results_text += f"└─ Срок контракта: {contract_duration}\n"
+                else:
+                    results_text += f"└─ Подача заявок: до {deadline_submission}\n"
+            elif contract_duration and contract_duration != 'N/A':
+                results_text += f"└─ Срок контракта: {contract_duration}\n"
+
+            results_text += "\n"
+
+        # Краткое резюме (опционально, в конце)
         summary_text = (summary.get('summary_text') or
                        summary.get('summary') or
                        '')
         if summary_text and summary_text != 'N/A':
-            if len(summary_text) > 500:
-                summary_text = summary_text[:497] + "..."
+            if len(summary_text) > 300:
+                summary_text = summary_text[:297] + "..."
             results_text += f"<b>📊 Резюме:</b>\n{summary_text}\n\n"
-
-        # Информация о тендере
-        if tender_info and tender_info != {}:
-            customer = tender_info.get('customer', '')
-            if customer and customer != 'N/A':
-                if len(customer) > 100:
-                    customer = customer[:97] + "..."
-                results_text += f"<b>🏢 Заказчик:</b> {customer}\n\n"
-
-        # Ключевые моменты и пробелы
-        if gaps and len(gaps) > 0:
-            results_text += f"<b>⚠️ Пробелы в документации ({len(gaps)}):</b>\n"
-            for i, gap in enumerate(gaps[:3], 1):
-                # gap может быть словарем или строкой
-                if isinstance(gap, dict):
-                    # Пытаемся извлечь читаемый текст из разных возможных полей
-                    gap_text = (gap.get('issue') or
-                               gap.get('description') or
-                               gap.get('gap') or
-                               gap.get('text') or
-                               'Пробел в документации')
-
-                    # Добавляем категорию если есть
-                    category = gap.get('category', '')
-                    if category:
-                        gap_text = f"[{category.capitalize()}] {gap_text}"
-                else:
-                    gap_text = str(gap)
-
-                if len(gap_text) > 150:
-                    gap_text = gap_text[:147] + "..."
-                results_text += f"{i}. {gap_text}\n"
-            if len(gaps) > 3:
-                results_text += f"<i>... и еще {len(gaps) - 3}</i>\n"
-            results_text += "\n"
 
         # Если данных нет или мало, предупреждаем
         if not has_data:
