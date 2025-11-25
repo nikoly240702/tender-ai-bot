@@ -227,16 +227,31 @@ class ZakupkiRSSParser:
 
         # Тип закупки через purchaseObjectTypeCode
         # КРИТИЧНО: Это основной параметр фильтрации товары/услуги/работы
-        if tender_type:
-            type_code_map = {
-                "товары": "1",      # Поставка товаров
-                "работы": "2",      # Выполнение работ
-                "услуги": "3"       # Оказание услуг
-            }
-            type_code = type_code_map.get(tender_type.lower())
-            if type_code:
-                params['purchaseObjectTypeCode'] = type_code
-                print(f"   ✅ Применен фильтр: purchaseObjectTypeCode={type_code} ({tender_type})")
+        # ВРЕМЕННО ОТКЛЮЧАЕМ для медицинских товаров - они часто неправильно классифицированы
+        if tender_type and keywords:
+            # Список ключевых слов медицинских товаров, для которых НЕ применяем фильтр
+            medical_keywords = [
+                'костыл', 'трост', 'медицинск', 'ортопед',
+                'реабилитац', 'инвалид', 'протез', 'коляск',
+                'ходунк', 'опор', 'фиксатор', 'бандаж'
+            ]
+
+            # Проверяем, является ли это медицинский запрос
+            is_medical = any(med_kw in keywords.lower() for med_kw in medical_keywords)
+
+            if is_medical:
+                print(f"   ⚠️  Медицинский запрос '{keywords}' - фильтр по типу ОТКЛЮЧЕН")
+                print(f"      (медтовары часто неправильно классифицированы на zakupki.gov.ru)")
+            else:
+                type_code_map = {
+                    "товары": "1",      # Поставка товаров
+                    "работы": "2",      # Выполнение работ
+                    "услуги": "3"       # Оказание услуг
+                }
+                type_code = type_code_map.get(tender_type.lower())
+                if type_code:
+                    params['purchaseObjectTypeCode'] = type_code
+                    print(f"   ✅ Применен фильтр: purchaseObjectTypeCode={type_code} ({tender_type})")
 
         # Формируем query string с правильным кодированием
         query_string = urlencode(params, quote_via=quote_plus)
