@@ -74,8 +74,24 @@ class TextExtractor:
                 return 'rtf'
 
             # Старые DOC файлы (OLE Compound Document) начинаются с D0 CF 11 E0
+            # НО! Это также может быть DOCX или XLSX, сохранённый в старом формате
+            # Проверим через zipfile - если это ZIP, значит это современный Office
             elif magic[:4] == b'\xD0\xCF\x11\xE0':
-                print(f"   ✅ Определен как старый DOC (OLE Compound)")
+                print(f"   🔍 OLE Compound Document обнаружен")
+                # Пытаемся открыть как ZIP (для DOCX/XLSX)
+                try:
+                    with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                        namelist = zip_ref.namelist()
+                        if any('word/' in name for name in namelist):
+                            print(f"   ✅ Определен как DOCX (в OLE контейнере)")
+                            return 'docx'
+                        elif any('xl/' in name for name in namelist):
+                            print(f"   ✅ Определен как XLSX (в OLE контейнере)")
+                            return 'xlsx'
+                except:
+                    pass  # Не ZIP, значит реально старый DOC
+
+                print(f"   ✅ Определен как старый DOC")
                 return 'doc'
 
             # МЕТОД 2: Пробуем системную команду 'file' (если доступна)
