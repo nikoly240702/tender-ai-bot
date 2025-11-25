@@ -151,9 +151,36 @@ class TenderAnalysisAgent:
             # Шаг 1: Извлечение текста
             pbar.set_description(f"{Fore.YELLOW}{steps[0]}{Style.RESET_ALL}")
             try:
+                print(f"\n{Fore.CYAN}📂 Обработка {len(file_paths)} файл(ов):{Style.RESET_ALL}")
+                for fp in file_paths:
+                    print(f"   • {os.path.basename(fp)}")
+                print()
+
                 extracted = self.text_extractor.extract_from_multiple_files(file_paths)
                 results['extracted_text'] = extracted['combined_text']
                 results['files_info'] = extracted['files']
+
+                # Итоговая статистика извлечения
+                print(f"\n{Fore.GREEN}{'='*70}{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}📊 ИТОГОВАЯ СТАТИСТИКА ИЗВЛЕЧЕНИЯ ТЕКСТА:{Style.RESET_ALL}")
+                print(f"{Fore.GREEN}{'='*70}{Style.RESET_ALL}")
+                print(f"   • Обработано файлов: {len(extracted['files'])}")
+                print(f"   • Общее количество символов: {extracted['total_char_count']:,}")
+                print(f"   • Общее количество слов: {extracted['total_word_count']:,}")
+
+                # Детализация по файлам
+                print(f"\n{Fore.CYAN}   Детализация по файлам:{Style.RESET_ALL}")
+                for file_info in extracted['files']:
+                    if 'error' in file_info:
+                        print(f"   ❌ {file_info['file_name']}: {file_info['error']}")
+                    else:
+                        print(f"   ✅ {file_info['file_name']}:")
+                        print(f"      → Тип: {file_info['file_type']}")
+                        print(f"      → Символов: {file_info['char_count']:,}")
+                        print(f"      → Слов: {file_info['word_count']:,}")
+
+                print(f"{Fore.GREEN}{'='*70}{Style.RESET_ALL}\n")
+
                 pbar.update(1)
             except Exception as e:
                 print(f"\n{Fore.RED}✗ Ошибка извлечения текста: {e}{Style.RESET_ALL}")

@@ -258,6 +258,13 @@ class TextExtractor:
 
             extracted_text = '\n\n'.join(text_content)
 
+            # Детальное логирование
+            print(f"   📊 PDF Statistics:")
+            print(f"      • Total pages: {total_pages}")
+            print(f"      • Pages with text: {len(text_content)}")
+            print(f"      • Total characters: {len(extracted_text):,}")
+            print(f"      • Total words: {len(extracted_text.split()):,}")
+
             if not extracted_text.strip():
                 # PDF не содержит текста - вероятно это скан
                 # Пробуем OCR
@@ -323,12 +330,17 @@ class TextExtractor:
             text_content = []
 
             # Извлекаем текст из параграфов
+            paragraph_count = 0
             for paragraph in doc.paragraphs:
                 if paragraph.text.strip():
                     text_content.append(paragraph.text)
+                    paragraph_count += 1
 
             # Извлекаем текст из таблиц
+            table_count = 0
+            table_rows_count = 0
             for table in doc.tables:
+                table_count += 1
                 for row in table.rows:
                     row_text = []
                     for cell in row.cells:
@@ -336,8 +348,17 @@ class TextExtractor:
                             row_text.append(cell.text.strip())
                     if row_text:
                         text_content.append(' | '.join(row_text))
+                        table_rows_count += 1
 
             extracted_text = '\n\n'.join(text_content)
+
+            # Детальное логирование
+            print(f"   📊 DOCX Statistics:")
+            print(f"      • Paragraphs extracted: {paragraph_count}")
+            print(f"      • Tables found: {table_count}")
+            print(f"      • Table rows extracted: {table_rows_count}")
+            print(f"      • Total characters: {len(extracted_text):,}")
+            print(f"      • Total words: {len(extracted_text.split()):,}")
 
             if not extracted_text.strip():
                 raise ValueError("DOCX файл не содержит текста")
@@ -399,10 +420,13 @@ class TextExtractor:
             # Загружаем книгу Excel
             workbook = load_workbook(file_path, data_only=True)
             text_content = []
+            total_sheets = 0
+            total_rows = 0
 
             # Обрабатываем каждый лист
             for sheet_name in workbook.sheetnames:
                 sheet = workbook[sheet_name]
+                total_sheets += 1
 
                 # Добавляем заголовок с именем листа
                 text_content.append(f"=== Лист: {sheet_name} ===")
@@ -418,8 +442,16 @@ class TextExtractor:
 
                 if sheet_rows:
                     text_content.append('\n'.join(sheet_rows))
+                    total_rows += len(sheet_rows)
 
             extracted_text = '\n\n'.join(text_content)
+
+            # Детальное логирование
+            print(f"   📊 XLSX Statistics:")
+            print(f"      • Sheets processed: {total_sheets}")
+            print(f"      • Rows extracted: {total_rows}")
+            print(f"      • Total characters: {len(extracted_text):,}")
+            print(f"      • Total words: {len(extracted_text.split()):,}")
 
             if not extracted_text.strip():
                 raise ValueError("XLSX файл не содержит текста")
@@ -833,6 +865,17 @@ class TextExtractor:
         # Подсчитываем статистику
         char_count = len(text)
         word_count = len(text.split())
+
+        # Итоговое логирование результата
+        print(f"   ✅ Extraction completed:")
+        print(f"      • File: {os.path.basename(file_path)}")
+        print(f"      • Type: {file_type}")
+        print(f"      • Characters: {char_count:,}")
+        print(f"      • Words: {word_count:,}")
+        if char_count > 0:
+            # Показываем первые 200 символов для проверки
+            preview = text[:200].replace('\n', ' ')
+            print(f"      • Preview: {preview}...")
 
         return {
             'text': text,
