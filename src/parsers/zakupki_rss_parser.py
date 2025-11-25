@@ -164,7 +164,9 @@ class ZakupkiRSSParser:
             filtered_count = 0
 
             # Парсим больше записей, чтобы компенсировать фильтрацию
-            entries_to_check = feed.entries[:max_results * 3] if tender_type else feed.entries[:max_results]
+            # Для товаров берем в 5 раз больше, так как многие будут отфильтрованы
+            multiplier = 5 if tender_type == "товары" else 3
+            entries_to_check = feed.entries[:max_results * multiplier] if tender_type else feed.entries[:max_results]
 
             for entry in entries_to_check:
                 tender = self._parse_rss_entry(entry)
@@ -172,7 +174,38 @@ class ZakupkiRSSParser:
                     continue
 
                 # Client-side фильтрация по типу закупки (если указан)
-                if tender_type:
+                if tender_type == "товары":
+                    # Для товаров используем более умную фильтрацию
+                    # Проверяем наличие ключевых слов в названии и описании
+                    name_lower = tender.get('name', '').lower()
+                    summary_lower = tender.get('summary', '').lower()
+
+                    # Индикаторы товаров
+                    goods_indicators = [
+                        'поставка', 'закупка', 'приобретение', 'покупка',
+                        'товар', 'оборудовани', 'материал', 'изделие',
+                        'продукция', 'комплект', 'партия'
+                    ]
+
+                    # Индикаторы НЕ товаров (услуги/работы)
+                    service_indicators = [
+                        'оказание услуг', 'выполнение работ', 'проведение работ',
+                        'ремонт', 'монтаж', 'установка', 'обслуживание',
+                        'консультирование', 'разработка', 'проектирование'
+                    ]
+
+                    # Проверяем индикаторы
+                    has_goods_indicator = any(ind in name_lower or ind in summary_lower for ind in goods_indicators)
+                    has_service_indicator = any(ind in name_lower or ind in summary_lower for ind in service_indicators)
+
+                    # Фильтруем только явные услуги/работы
+                    if has_service_indicator and not has_goods_indicator:
+                        filtered_count += 1
+                        print(f"   ⚠️ Отфильтрован (услуга/работа): {tender.get('name', '')[:50]}...")
+                        continue
+
+                elif tender_type:
+                    # Для других типов используем старую логику
                     detected_type = tender.get('tender_type')
                     if detected_type and detected_type != tender_type:
                         filtered_count += 1
@@ -226,25 +259,17 @@ class ZakupkiRSSParser:
             params['priceToGeneral'] = str(price_max)
 
         # Тип закупки через purchaseObjectTypeCode
-        # КРИТИЧНО: Это основной параметр фильтрации товары/услуги/работы
-        # ВРЕМЕННО ОТКЛЮЧАЕМ для медицинских товаров - они часто неправильно классифицированы
-        if tender_type and keywords:
-            # Список ключевых слов медицинских товаров, для которых НЕ применяем фильтр
-            medical_keywords = [
-                'костыл', 'трост', 'медицинск', 'ортопед',
-                'реабилитац', 'инвалид', 'протез', 'коляск',
-                'ходунк', 'опор', 'фиксатор', 'бандаж'
-            ]
-
-            # Проверяем, является ли это медицинский запрос
-            is_medical = any(med_kw in keywords.lower() for med_kw in medical_keywords)
-
-            if is_medical:
-                print(f"   ⚠️  Медицинский запрос '{keywords}' - фильтр по типу ОТКЛЮЧЕН")
-                print(f"      (медтовары часто неправильно классифицированы на zakupki.gov.ru)")
+        # ВАЖНО: Фильтр по типу ОТКЛЮЧЕН для товаров из-за проблем классификации на zakupki.gov.ru
+        # Многие товары неправильно помечены как услуги или работы
+        if tender_type:
+            if tender_type.lower() == "товары":
+                # НЕ применяем фильтр для товаров - будем фильтровать на клиенте
+                print(f"   ⚠️  Фильтр по типу ОТКЛЮЧЕН для '{tender_type}'")
+                print(f"      (zakupki.gov.ru часто неправильно классифицирует товары)")
+                print(f"      Будет применена клиентская фильтрация после получения результатов")
             else:
+                # Для услуг и работ фильтр работает нормально
                 type_code_map = {
-                    "товары": "1",      # Поставка товаров
                     "работы": "2",      # Выполнение работ
                     "услуги": "3"       # Оказание услуг
                 }
