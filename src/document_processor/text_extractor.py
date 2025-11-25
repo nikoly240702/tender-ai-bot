@@ -339,13 +339,42 @@ class TextExtractor:
             # Извлекаем текст из таблиц
             table_count = 0
             table_rows_count = 0
+            cells_extracted = 0
+
             for table in doc.tables:
                 table_count += 1
+                # Добавляем маркер начала таблицы для улучшения структуры
+                text_content.append(f"\n=== ТАБЛИЦА {table_count} ===")
+
                 for row in table.rows:
                     row_text = []
                     for cell in row.cells:
-                        if cell.text.strip():
-                            row_text.append(cell.text.strip())
+                        # УЛУЧШЕНИЕ 1: Извлекаем текст из всех параграфов внутри ячейки
+                        # python-docx иногда не видит cell.text если там есть форматирование
+                        cell_content = []
+                        for paragraph in cell.paragraphs:
+                            para_text = paragraph.text.strip()
+                            if para_text:
+                                cell_content.append(para_text)
+
+                        # УЛУЧШЕНИЕ 2: Извлекаем текст из вложенных таблиц внутри ячейки
+                        # Некоторые DOCX используют таблицы внутри таблиц для форматирования
+                        for nested_table in cell.tables:
+                            for nested_row in nested_table.rows:
+                                nested_row_text = []
+                                for nested_cell in nested_row.cells:
+                                    nested_text = nested_cell.text.strip()
+                                    if nested_text:
+                                        nested_row_text.append(nested_text)
+                                if nested_row_text:
+                                    cell_content.append(' '.join(nested_row_text))
+
+                        if cell_content:
+                            # Объединяем параграфы внутри ячейки через пробел
+                            combined = ' '.join(cell_content)
+                            row_text.append(combined)
+                            cells_extracted += 1
+
                     if row_text:
                         text_content.append(' | '.join(row_text))
                         table_rows_count += 1
@@ -357,8 +386,21 @@ class TextExtractor:
             print(f"      • Paragraphs extracted: {paragraph_count}")
             print(f"      • Tables found: {table_count}")
             print(f"      • Table rows extracted: {table_rows_count}")
+            print(f"      • Table cells extracted: {cells_extracted}")
             print(f"      • Total characters: {len(extracted_text):,}")
             print(f"      • Total words: {len(extracted_text.split()):,}")
+
+            # ДИАГНОСТИКА: Показываем первые 1000 символов из таблиц
+            if table_count > 0:
+                # Ищем текст после первого маркера таблицы
+                table_start = extracted_text.find("=== ТАБЛИЦА 1 ===")
+                if table_start != -1:
+                    table_preview = extracted_text[table_start:table_start + 1000]
+                    print(f"      • Table preview (first 1000 chars):")
+                    # Показываем построчно для читаемости
+                    for line in table_preview.split('\n')[:10]:
+                        if line.strip():
+                            print(f"        {line[:100]}")
 
             if not extracted_text.strip():
                 raise ValueError("DOCX файл не содержит текста")
