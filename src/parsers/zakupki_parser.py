@@ -166,6 +166,19 @@ class ZakupkiParser:
             # Ищем карточки тендеров
             tender_cards = soup.find_all('div', class_='search-registry-entry-block')
 
+            print(f"   🔍 Найдено карточек на странице: {len(tender_cards)}")
+
+            # Дополнительное логирование для отладки
+            if len(tender_cards) == 0:
+                print(f"   ⚠️ Карточки не найдены. Проверяем альтернативные селекторы...")
+                # Попробуем другие возможные классы
+                alt_cards = soup.find_all('div', class_='search-registry-entry')
+                print(f"   🔍 Альтернативный поиск: {len(alt_cards)} карточек")
+
+                # Если нашли по альтернативному селектору
+                if alt_cards:
+                    tender_cards = alt_cards
+
             tenders = []
             for card in tender_cards:
                 tender = self._parse_tender_card(card)
@@ -175,7 +188,9 @@ class ZakupkiParser:
             return tenders
 
         except Exception as e:
-            print(f"   Ошибка загрузки страницы: {e}")
+            import traceback
+            print(f"   ❌ Ошибка загрузки страницы: {e}")
+            print(f"   Traceback: {traceback.format_exc()}")
             return []
 
     def _parse_tender_card(self, card) -> Optional[Dict[str, Any]]:
