@@ -13,7 +13,7 @@ import logging
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.parsers.zakupki_parser import ZakupkiParser
+from src.parsers.zakupki_rss_parser import ZakupkiRSSParser
 from tender_sniper.matching import SmartMatcher
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class InstantSearch:
 
     def __init__(self):
         """Инициализация компонентов поиска."""
-        self.parser = ZakupkiParser()
+        self.parser = ZakupkiRSSParser()
         self.matcher = SmartMatcher()
 
     async def search_by_filter(
@@ -70,21 +70,20 @@ class InstantSearch:
         logger.info(f"   📍 Регионы: {regions if regions else 'Все'}")
 
         try:
-            # Выполняем поиск через ZakupkiParser (синхронный метод)
-            search_results = self.parser.search_tenders(
+            # Выполняем поиск через RSS feed (синхронный метод)
+            search_results = self.parser.search_tenders_rss(
                 keywords=search_query,
                 price_min=price_min,
                 price_max=price_max,
                 regions=regions,
-                page_limit=max(1, max_tenders // 10)  # ~10 тендеров на страницу
+                max_results=max_tenders  # RSS может вернуть столько, сколько нужно
             )
 
             logger.info(f"   ✅ Найдено тендеров: {len(search_results)}")
 
-            # ZakupkiParser теперь сам возвращает mock данные при ошибках
-            # Проверяем что получили результаты
+            # Если RSS не вернул результатов - возвращаем пустой ответ
             if not search_results:
-                logger.warning("⚠️ Парсер не вернул результаты")
+                logger.warning("⚠️ RSS feed не вернул результаты")
                 return {
                     'tenders': [],
                     'total_found': 0,
