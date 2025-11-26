@@ -73,6 +73,8 @@ class ZakupkiParser:
 
         tenders = []
 
+        has_errors = False
+
         try:
             # Формируем параметры запроса
             params = self._build_search_params(
@@ -89,6 +91,12 @@ class ZakupkiParser:
                 print(f"   Страница {page + 1}/{page_limit}...")
 
                 page_tenders = self._fetch_page(params)
+
+                # Если _fetch_page вернул None из-за ошибки
+                if page_tenders is None:
+                    has_errors = True
+                    break
+
                 tenders.extend(page_tenders)
 
                 if len(page_tenders) == 0:
@@ -103,7 +111,11 @@ class ZakupkiParser:
             import traceback
             print(f"✗ Ошибка поиска: {e}")
             print(f"   Traceback: {traceback.format_exc()}")
-            # Возвращаем mock данные для демонстрации
+            has_errors = True
+
+        # Если были ошибки или не найдено тендеров, возвращаем mock данные
+        if has_errors or len(tenders) == 0:
+            print("⚠️  Используем mock данные для демонстрации")
             return self._get_mock_tenders()
 
         return tenders
@@ -191,7 +203,7 @@ class ZakupkiParser:
             import traceback
             print(f"   ❌ Ошибка загрузки страницы: {e}")
             print(f"   Traceback: {traceback.format_exc()}")
-            return []
+            return None  # Возвращаем None чтобы сигнализировать об ошибке
 
     def _parse_tender_card(self, card) -> Optional[Dict[str, Any]]:
         """Извлекает данные из карточки тендера."""
