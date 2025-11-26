@@ -53,7 +53,7 @@ async def cmd_sniper_menu(message: Message):
         return
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+        [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
         [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="sniper_stats")],
         [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
@@ -61,15 +61,49 @@ async def cmd_sniper_menu(message: Message):
     ])
 
     await message.answer(
-        "🎯 <b>Tender Sniper - Автоматический мониторинг</b>\n\n"
-        "Я буду автоматически отслеживать новые тендеры и уведомлять вас "
-        "о совпадениях с вашими критериями.\n\n"
-        "<b>Ваши возможности:</b>\n"
-        "• Создать фильтры поиска\n"
-        "• Получать мгновенные уведомления\n"
-        "• Автоматический AI-анализ (Premium)\n"
-        "• API доступ (Premium)\n\n"
-        "Выберите действие:",
+        "🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+        "<b>Новый workflow:</b>\n"
+        "1️⃣ Создаете фильтр с критериями\n"
+        "2️⃣ AI расширяет ваш запрос\n"
+        "3️⃣ Получаете HTML отчет с тендерами\n"
+        "4️⃣ Включаете автомониторинг (опционально)\n\n"
+        "<b>Возможности:</b>\n"
+        "• 🤖 AI расширение критериев поиска\n"
+        "• 📊 Мгновенный поиск до 25 тендеров\n"
+        "• 📄 Красивые HTML отчеты\n"
+        "• 🔔 Автоматические уведомления\n\n"
+        "Начните с создания фильтра!",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "sniper_menu")
+async def show_sniper_menu(callback: CallbackQuery):
+    """Callback для возврата в главное меню Sniper."""
+    await callback.answer()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+        [InlineKeyboardButton(text="📊 Статистика", callback_data="sniper_stats")],
+        [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+    ])
+
+    await callback.message.edit_text(
+        "🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+        "<b>Новый workflow:</b>\n"
+        "1️⃣ Создаете фильтр с критериями\n"
+        "2️⃣ AI расширяет ваш запрос\n"
+        "3️⃣ Получаете HTML отчет с тендерами\n"
+        "4️⃣ Включаете автомониторинг (опционально)\n\n"
+        "<b>Возможности:</b>\n"
+        "• 🤖 AI расширение критериев поиска\n"
+        "• 📊 Мгновенный поиск до 25 тендеров\n"
+        "• 📄 Красивые HTML отчеты\n"
+        "• 🔔 Автоматические уведомления\n\n"
+        "Начните с создания фильтра!",
         reply_markup=keyboard,
         parse_mode="HTML"
     )

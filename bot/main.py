@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import BotConfig
-from bot.handlers import start, search, history, admin, access_requests, sniper
+from bot.handlers import start, search, history, admin, access_requests, sniper, sniper_search
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware
 
@@ -81,6 +81,7 @@ async def main():
     # Регистрируем роутеры
     dp.include_router(access_requests.router)  # Запросы доступа регистрируем первыми
     dp.include_router(admin.router)  # Админ-панель
+    dp.include_router(sniper_search.router)  # Tender Sniper Search (новый workflow)
     dp.include_router(sniper.router)  # Tender Sniper (приоритет)
     dp.include_router(start.router)
     # Старые handlers временно отключены

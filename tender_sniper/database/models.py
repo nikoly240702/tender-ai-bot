@@ -14,6 +14,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def serialize_for_json(obj: Any) -> Any:
+    """
+    Рекурсивная сериализация объектов для JSON.
+    Конвертирует datetime в ISO формат строки.
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, dict):
+        return {k: serialize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [serialize_for_json(item) for item in obj]
+    return obj
+
+
 class TenderSniperDB:
     """База данных Tender Sniper."""
 
@@ -446,7 +460,7 @@ class TenderSniperDB:
             """, (
                 tender_number, name, customer_name, nmck, published_date, end_date,
                 url, region, tender_type, now, now,
-                json.dumps(raw_data, ensure_ascii=False) if raw_data else None
+                json.dumps(serialize_for_json(raw_data), ensure_ascii=False) if raw_data else None
             ))
 
             await db.commit()

@@ -1,0 +1,475 @@
+"""
+Instant Search - мгновенный поиск тендеров по критериям фильтра.
+
+Выполняет поиск, ранжирование и генерацию HTML отчета.
+"""
+
+import sys
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import logging
+
+# Добавляем корень проекта в путь
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from parsers.zakupki_parser import ZakupkiParser
+from tender_sniper.matching import SmartMatcher
+from report_generator.html_generator import HTMLReportGenerator
+
+logger = logging.getLogger(__name__)
+
+
+class InstantSearch:
+    """Мгновенный поиск тендеров по фильтру."""
+
+    def __init__(self):
+        """Инициализация компонентов поиска."""
+        self.parser = ZakupkiParser()
+        self.matcher = SmartMatcher()
+
+    async def search_by_filter(
+        self,
+        filter_data: Dict[str, Any],
+        max_tenders: int = 25,
+        expanded_keywords: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Поиск тендеров по критериям фильтра.
+
+        Args:
+            filter_data: Данные фильтра из БД
+            max_tenders: Максимальное количество тендеров
+            expanded_keywords: Расширенные ключевые слова (если были сгенерированы AI)
+
+        Returns:
+            Dict с результатами поиска:
+            {
+                'tenders': [...],
+                'total_found': int,
+                'matches': [...],  # Тендеры с хорошим скором
+                'stats': {...}
+            }
+        """
+        import json
+
+        logger.info(f"🔍 Запуск мгновенного поиска по фильтру: {filter_data['name']}")
+
+        # Парсим критерии
+        original_keywords = json.loads(filter_data.get('keywords', '[]'))
+        keywords_to_search = expanded_keywords or original_keywords
+
+        price_min = filter_data.get('price_min')
+        price_max = filter_data.get('price_max')
+        regions = json.loads(filter_data.get('regions', '[]'))
+
+        # Формируем поисковый запрос
+        search_query = ' '.join(keywords_to_search[:5])  # Топ-5 ключевых слов
+
+        logger.info(f"   🔑 Поисковый запрос: {search_query}")
+        logger.info(f"   💰 Цена: {price_min} - {price_max}")
+        logger.info(f"   📍 Регионы: {regions if regions else 'Все'}")
+
+        try:
+            # Выполняем поиск через ZakupkiParser
+            search_results = await self.parser.search_tenders(
+                query=search_query,
+                price_min=price_min,
+                price_max=price_max,
+                regions=regions,
+                max_results=max_tenders
+            )
+
+            logger.info(f"   ✅ Найдено тендеров: {len(search_results)}")
+
+            if not search_results:
+                return {
+                    'tenders': [],
+                    'total_found': 0,
+                    'matches': [],
+                    'stats': {
+                        'search_query': search_query,
+                        'expanded_keywords': expanded_keywords or [],
+                        'original_keywords': original_keywords
+                    }
+                }
+
+            # Ранжируем результаты через SmartMatcher
+            # Создаем временный фильтр для матчинга
+            temp_filter = {
+                'id': filter_data['id'],
+                'name': filter_data['name'],
+                'keywords': keywords_to_search,
+                'price_min': price_min,
+                'price_max': price_max,
+                'regions': regions
+            }
+
+            matches = []
+            for tender in search_results:
+                match_result = self.matcher.match_tender(tender, temp_filter)
+
+                if match_result['score'] >= 40:  # Минимальный порог
+                    tender_with_score = tender.copy()
+                    tender_with_score['match_score'] = match_result['score']
+                    tender_with_score['match_reasons'] = match_result['reasons']
+                    matches.append(tender_with_score)
+
+            # Сортируем по скору
+            matches.sort(key=lambda x: x['match_score'], reverse=True)
+
+            logger.info(f"   🎯 Совпадений (score ≥ 40): {len(matches)}")
+
+            return {
+                'tenders': search_results,
+                'total_found': len(search_results),
+                'matches': matches,
+                'stats': {
+                    'search_query': search_query,
+                    'expanded_keywords': expanded_keywords or [],
+                    'original_keywords': original_keywords,
+                    'high_score_count': len([m for m in matches if m['match_score'] >= 70]),
+                    'medium_score_count': len([m for m in matches if 40 <= m['match_score'] < 70])
+                }
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка поиска: {e}", exc_info=True)
+            return {
+                'tenders': [],
+                'total_found': 0,
+                'matches': [],
+                'stats': {
+                    'error': str(e)
+                },
+                'error': str(e)
+            }
+
+    async def generate_html_report(
+        self,
+        search_results: Dict[str, Any],
+        filter_data: Dict[str, Any],
+        output_path: Path = None
+    ) -> Path:
+        """
+        Генерирует HTML отчет с результатами поиска.
+
+        Args:
+            search_results: Результаты от search_by_filter()
+            filter_data: Данные фильтра
+            output_path: Путь для сохранения отчета
+
+        Returns:
+            Path к созданному HTML файлу
+        """
+        logger.info(f"📄 Генерация HTML отчета...")
+
+        if output_path is None:
+            output_dir = Path(__file__).parent.parent / 'output' / 'reports'
+            output_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_path = output_dir / f"filter_{filter_data['id']}_{timestamp}.html"
+
+        try:
+            # Используем существующий HTMLReportGenerator
+            generator = HTMLReportGenerator()
+
+            # Формируем данные для отчета
+            report_data = {
+                'filter_name': filter_data['name'],
+                'search_query': search_results['stats'].get('search_query', ''),
+                'original_keywords': search_results['stats'].get('original_keywords', []),
+                'expanded_keywords': search_results['stats'].get('expanded_keywords', []),
+                'total_found': search_results['total_found'],
+                'matches': search_results['matches'],
+                'high_score_count': search_results['stats'].get('high_score_count', 0),
+                'medium_score_count': search_results['stats'].get('medium_score_count', 0),
+                'generated_at': datetime.now().isoformat()
+            }
+
+            # Генерируем HTML (используем шаблон от существующего генератора)
+            html_content = self._build_html_content(report_data)
+
+            # Сохраняем
+            output_path.write_text(html_content, encoding='utf-8')
+
+            logger.info(f"   ✅ Отчет сохранен: {output_path}")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка генерации отчета: {e}", exc_info=True)
+            raise
+
+    def _build_html_content(self, data: Dict[str, Any]) -> str:
+        """Формирует HTML контент отчета."""
+
+        # Формируем список тендеров
+        tenders_html = ""
+        for i, tender in enumerate(data['matches'], 1):
+            score = tender.get('match_score', 0)
+            score_class = self._get_score_class(score)
+            score_emoji = self._get_score_emoji(score)
+
+            reasons_html = "<br>".join([
+                f"• {reason}" for reason in tender.get('match_reasons', [])
+            ])
+
+            tenders_html += f"""
+            <div class="tender-card">
+                <div class="tender-header">
+                    <span class="tender-number">{i}. №{tender.get('number', 'Н/Д')}</span>
+                    <span class="score-badge {score_class}">{score_emoji} {score}/100</span>
+                </div>
+                <h3 class="tender-title">{tender.get('name', 'Без названия')}</h3>
+                <div class="tender-details">
+                    <p><strong>Заказчик:</strong> {tender.get('customer_name', 'Н/Д')}</p>
+                    <p><strong>НМЦК:</strong> {tender.get('price', 'Не указана')} ₽</p>
+                    <p><strong>Размещено:</strong> {tender.get('published_date', 'Н/Д')}</p>
+                    {f'<p><strong>Регион:</strong> {tender.get("region", "Н/Д")}</p>' if tender.get('region') else ''}
+                </div>
+                <div class="match-reasons">
+                    <strong>Причины совпадения:</strong><br>
+                    {reasons_html}
+                </div>
+                <div class="tender-actions">
+                    <a href="{tender.get('url', '#')}" target="_blank" class="btn-primary">Открыть на zakupki.gov.ru</a>
+                </div>
+            </div>
+            """
+
+        # Формируем расширенные ключевые слова
+        expanded_keywords_html = ""
+        if data.get('expanded_keywords'):
+            expanded_keywords_html = f"""
+            <div class="info-block">
+                <h3>🤖 AI расширение запроса</h3>
+                <p><strong>Исходные критерии:</strong> {', '.join(data['original_keywords'])}</p>
+                <p><strong>Расширенные термины:</strong> {', '.join(data['expanded_keywords'][:15])}</p>
+                <p class="hint">AI добавил {len(data['expanded_keywords'])} связанных терминов для более точного поиска</p>
+            </div>
+            """
+
+        # Полный HTML
+        html = f"""
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Результаты поиска: {data['filter_name']}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f7fa;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 2px 20px rgba(0,0,0,0.1);
+        }}
+        .header {{
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }}
+        h1 {{
+            color: #2c3e50;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }}
+        .summary {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 30px 0;
+        }}
+        .summary-card {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }}
+        .summary-card h3 {{
+            font-size: 36px;
+            margin-bottom: 5px;
+        }}
+        .summary-card p {{
+            opacity: 0.9;
+            font-size: 14px;
+        }}
+        .info-block {{
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #4CAF50;
+        }}
+        .info-block h3 {{
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }}
+        .hint {{
+            color: #6c757d;
+            font-size: 14px;
+            font-style: italic;
+        }}
+        .tender-card {{
+            background: white;
+            border: 1px solid #e1e8ed;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 20px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }}
+        .tender-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }}
+        .tender-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }}
+        .tender-number {{
+            font-size: 14px;
+            color: #6c757d;
+            font-family: 'Courier New', monospace;
+        }}
+        .score-badge {{
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }}
+        .score-high {{
+            background: #d4edda;
+            color: #155724;
+        }}
+        .score-medium {{
+            background: #fff3cd;
+            color: #856404;
+        }}
+        .score-low {{
+            background: #f8d7da;
+            color: #721c24;
+        }}
+        .tender-title {{
+            color: #2c3e50;
+            font-size: 20px;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }}
+        .tender-details {{
+            color: #555;
+            margin-bottom: 15px;
+        }}
+        .tender-details p {{
+            margin: 8px 0;
+        }}
+        .match-reasons {{
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            font-size: 14px;
+        }}
+        .match-reasons strong {{
+            color: #2c3e50;
+        }}
+        .tender-actions {{
+            margin-top: 15px;
+        }}
+        .btn-primary {{
+            display: inline-block;
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+            transition: background 0.3s;
+        }}
+        .btn-primary:hover {{
+            background: #45a049;
+        }}
+        .footer {{
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #e1e8ed;
+            text-align: center;
+            color: #6c757d;
+            font-size: 14px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 {data['filter_name']}</h1>
+            <p>Поисковый запрос: <strong>{data['search_query']}</strong></p>
+            <p>Сгенерировано: {datetime.fromisoformat(data['generated_at']).strftime('%d.%m.%Y %H:%M')}</p>
+        </div>
+
+        <div class="summary">
+            <div class="summary-card">
+                <h3>{data['total_found']}</h3>
+                <p>Всего найдено</p>
+            </div>
+            <div class="summary-card">
+                <h3>{data['high_score_count']}</h3>
+                <p>Отличные совпадения (≥70)</p>
+            </div>
+            <div class="summary-card">
+                <h3>{data['medium_score_count']}</h3>
+                <p>Хорошие совпадения (40-69)</p>
+            </div>
+        </div>
+
+        {expanded_keywords_html}
+
+        <h2 style="margin: 30px 0 20px; color: #2c3e50;">📋 Найденные тендеры</h2>
+        {tenders_html if tenders_html else '<p class="hint">Тендеров с достаточным уровнем совпадения не найдено. Попробуйте изменить критерии поиска.</p>'}
+
+        <div class="footer">
+            <p>🤖 Сгенерировано Tender Sniper AI Bot</p>
+            <p>Данные актуальны на момент генерации отчета</p>
+        </div>
+    </div>
+</body>
+</html>
+        """
+
+        return html
+
+    def _get_score_class(self, score: int) -> str:
+        """Возвращает CSS класс для скора."""
+        if score >= 70:
+            return "score-high"
+        elif score >= 40:
+            return "score-medium"
+        else:
+            return "score-low"
+
+    def _get_score_emoji(self, score: int) -> str:
+        """Возвращает эмодзи для скора."""
+        if score >= 80:
+            return "🔥"
+        elif score >= 70:
+            return "✨"
+        elif score >= 50:
+            return "📌"
+        else:
+            return "ℹ️"
