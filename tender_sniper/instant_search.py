@@ -56,14 +56,27 @@ class InstantSearch:
 
         # Парсим критерии
         original_keywords = json.loads(filter_data.get('keywords', '[]'))
-        keywords_to_search = expanded_keywords or original_keywords
+
+        # Комбинируем оригинальные и расширенные ключевые слова
+        # Приоритет: оригинальные ключевые слова ВСЕГДА используются
+        if expanded_keywords:
+            # Используем оригинальные + топ расширенных (избегаем дубликатов)
+            keywords_to_search = original_keywords + [
+                kw for kw in expanded_keywords
+                if kw not in original_keywords
+            ]
+        else:
+            keywords_to_search = original_keywords
 
         price_min = filter_data.get('price_min')
         price_max = filter_data.get('price_max')
         regions = json.loads(filter_data.get('regions', '[]'))
 
-        # Формируем поисковый запрос
-        search_query = ' '.join(keywords_to_search[:5])  # Топ-5 ключевых слов
+        # Формируем поисковый запрос - используем ВСЕ оригинальные + топ-3 расширенных
+        original_count = len(original_keywords)
+        expanded_count = min(3, len(keywords_to_search) - original_count)
+        search_keywords = keywords_to_search[:original_count + expanded_count]
+        search_query = ' '.join(search_keywords)
 
         logger.info(f"   🔑 Поисковый запрос: {search_query}")
         logger.info(f"   💰 Цена: {price_min} - {price_max}")
