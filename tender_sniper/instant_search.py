@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from parsers.zakupki_parser import ZakupkiParser
 from tender_sniper.matching import SmartMatcher
-from report_generator.html_generator import HTMLReportGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -171,9 +170,6 @@ class InstantSearch:
             output_path = output_dir / f"filter_{filter_data['id']}_{timestamp}.html"
 
         try:
-            # Используем существующий HTMLReportGenerator
-            generator = HTMLReportGenerator()
-
             # Формируем данные для отчета
             report_data = {
                 'filter_name': filter_data['name'],
@@ -187,7 +183,7 @@ class InstantSearch:
                 'generated_at': datetime.now().isoformat()
             }
 
-            # Генерируем HTML (используем шаблон от существующего генератора)
+            # Генерируем HTML встроенной функцией
             html_content = self._build_html_content(report_data)
 
             # Сохраняем
