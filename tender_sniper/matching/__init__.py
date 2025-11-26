@@ -1,25 +1,22 @@
 """
-Smart Matching Engine
+Smart Matching Engine for tender-filter matching.
 
-Status: PLACEHOLDER - Not implemented yet
-Phase: 2 (Week 1-2)
+Example usage:
+    from tender_sniper.matching import SmartMatcher
 
-This module will contain:
-- Criteria matching algorithms
-- Fuzzy matching for keywords
-- OKPD2/KTRU code matching
-- Region and price range filters
-- Scoring and ranking system
+    # Create matcher
+    matcher = SmartMatcher()
 
-Enable via: config/features.yaml → tender_sniper.components.smart_matching: true
+    # Match tender against filter
+    result = matcher.match_tender(tender, filter_config)
 
-Matching criteria:
-- Keywords (with synonyms and stemming)
-- Price range (min/max with percentage tolerance)
-- Regions (with nearby regions option)
-- Customer blacklist/whitelist
-- Document requirements matching
+    if result:
+        print(f"Match score: {result['score']}/100")
+
+    # Batch matching
+    results = matcher.batch_match(tenders, filters, min_score=50)
 """
 
-# Will be implemented in Phase 2
-pass
+from .smart_matcher import SmartMatcher
+
+__all__ = ['SmartMatcher']

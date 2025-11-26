@@ -1,23 +1,26 @@
 """
-Real-time Parser Module
+Real-time Parser for zakupki.gov.ru monitoring.
 
-Status: PLACEHOLDER - Not implemented yet
-Phase: 2 (Week 1)
+Example usage:
+    from tender_sniper.parser import RealtimeParser
 
-This module will contain:
-- WebSocket/polling connection to zakupki.gov.ru
-- RSS feed monitoring with diff detection
-- Queue management for new tenders
-- Rate limiting and retry logic
+    # Create parser
+    parser = RealtimeParser(poll_interval=300)  # 5 minutes
 
-Enable via: config/features.yaml → tender_sniper.components.realtime_parser: true
+    # Add callback
+    async def on_new_tenders(tenders):
+        print(f"Found {len(tenders)} new tenders!")
 
-Architecture:
-- parser.py - Main parser class
-- monitor.py - Continuous monitoring service
-- queue.py - Redis/RabbitMQ queue integration
-- filters.py - Pre-filtering logic
+    parser.add_callback(on_new_tenders)
+
+    # Start monitoring
+    await parser.start(
+        keywords="компьютеры",
+        price_min=100_000,
+        price_max=5_000_000
+    )
 """
 
-# Will be implemented in Phase 2
-pass
+from .realtime_parser import RealtimeParser
+
+__all__ = ['RealtimeParser']

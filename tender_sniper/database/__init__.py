@@ -1,25 +1,35 @@
 """
-Database Models and Migrations
+Database models and migrations for Tender Sniper.
 
-Status: PLACEHOLDER - Not implemented yet
-Phase: 2 (Week 1)
+Example usage:
+    from tender_sniper.database import get_sniper_db
 
-This module will contain:
-- SQLAlchemy/Tortoise ORM models
-- Alembic migrations
-- Redis caching layer
-- Connection pooling
+    # Get database instance
+    db = await get_sniper_db()
 
-Enable via: config/features.yaml → tender_sniper.enabled: true
+    # Create user
+    user_id = await db.create_or_update_user(
+        telegram_id=123456789,
+        username='user',
+        subscription_tier='basic'
+    )
 
-Models:
-- User (telegram_id, subscription, settings)
-- Subscription (tier, expires_at, payment_id)
-- Filter (user_id, criteria, active)
-- Tender (parsed data, matched_users)
-- Notification (user_id, tender_id, sent_at)
-- Payment (user_id, amount, status)
+    # Create filter
+    filter_id = await db.create_filter(
+        user_id=user_id,
+        name='IT оборудование',
+        keywords=['компьютеры', 'ноутбуки'],
+        price_min=100_000,
+        price_max=5_000_000
+    )
 """
 
-# Will be implemented in Phase 2
-pass
+from .models import TenderSniperDB, get_sniper_db
+from .init_plans import init_subscription_plans, get_plan_limits
+
+__all__ = [
+    'TenderSniperDB',
+    'get_sniper_db',
+    'init_subscription_plans',
+    'get_plan_limits'
+]

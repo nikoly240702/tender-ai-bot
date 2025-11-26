@@ -1,24 +1,41 @@
 """
 Tender Sniper - Real-time Tender Monitoring System
 
-Status: PLACEHOLDER - Implementation pending
-Phase: 2 (Target: Week 1-2 of development)
+Status: ✅ IMPLEMENTED (Phase 2 - Week 1)
 
-This package will contain the real-time tender monitoring and notification system.
+Enable via config/features.yaml:
+    tender_sniper:
+      enabled: true
+      components:
+        realtime_parser: true
+        smart_matching: true
+        instant_notifications: true
 
-Enable via: config/features.yaml → tender_sniper.enabled: true
+This package contains the real-time tender monitoring and notification system.
 
-Modules:
-- bot/           - Enhanced Telegram bot with subscription logic
-- parser/        - Real-time parser for zakupki.gov.ru
-- matching/      - Smart matching engine for tender criteria
-- notifications/ - Instant notification system
-- payments/      - Payment processing and subscription management
-- database/      - Database models and migrations
-- admin/         - Admin dashboard (web interface)
-- api/           - REST API for external integrations
+Components:
+- ✅ database/      - SQLite schema, subscription plans, filters
+- ✅ parser/        - Real-time RSS parser with callback system
+- ✅ matching/      - Smart matching engine with scoring (0-100)
+- ✅ notifications/ - Telegram notifier with quota management
+- ✅ service.py     - Main coordinator service
+- 🚧 payments/      - Payment processing (YooKassa) - TODO
+- 🚧 bot/           - Enhanced Telegram bot handlers - TODO
+- 📋 admin/         - Admin dashboard - Planned
+- 📋 api/           - REST API - Planned
 
-Copyright (c) 2024
+Quick Start:
+    from tender_sniper.service import TenderSniperService
+    import asyncio
+
+    async def main():
+        service = TenderSniperService(bot_token="YOUR_TOKEN")
+        await service.initialize()
+        await service.start()
+
+    asyncio.run(main())
+
+See tender_sniper/README.md for full documentation.
 """
 
 from pathlib import Path
@@ -39,5 +56,7 @@ def is_enabled() -> bool:
         return False
 
 # Version info
-__version__ = '0.1.0-placeholder'
+__version__ = '0.1.0-mvp'
 __author__ = 'Tender AI Bot Team'
+
+__all__ = ['is_enabled', '__version__']
