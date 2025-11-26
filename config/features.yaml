@@ -1,0 +1,169 @@
+# Feature Flags Configuration
+# Управление включением/отключением функциональности системы
+# true - функция включена, false - функция отключена
+
+# ============================================
+# PHASE 1: Существующая функциональность (CLI Analyzer)
+# ============================================
+
+features:
+  # Основной анализатор тендерной документации
+  cli_analyzer: true
+
+  # Обработка документов (PDF, DOCX, XLSX)
+  document_processor: true
+
+  # AI анализ через LLM (Claude/OpenAI)
+  ai_analysis: true
+
+  # Финансовый скоринг и оценка рисков
+  financial_scoring: true
+
+  # Генерация HTML/JSON/Markdown отчетов
+  html_reports: true
+
+  # Извлечение контактной информации
+  contact_extraction: true
+
+  # Парсинг zakupki.gov.ru
+  zakupki_parser: true
+
+  # Telegram бот (существующий)
+  telegram_bot_v1: true
+
+  # Пакетная обработка тендеров
+  batch_processing: true
+
+  # Кэширование результатов анализа
+  analysis_caching: true
+
+# ============================================
+# PHASE 2: Tender Sniper (новая функциональность)
+# ============================================
+
+tender_sniper:
+  # Основной переключатель Tender Sniper
+  enabled: false
+
+  # Компоненты Tender Sniper
+  components:
+    # Real-time парсер новых тендеров
+    realtime_parser: false
+
+    # Система матчинга по критериям
+    smart_matching: false
+
+    # Мгновенные уведомления в Telegram
+    instant_notifications: false
+
+    # Автоматический pre-анализ
+    auto_preanalysis: false
+
+    # Система подписок и тарифов
+    subscription_system: false
+
+    # Платежная система
+    payment_integration: false
+
+    # Веб-интерфейс админки
+    admin_dashboard: false
+
+    # API для внешних интеграций
+    external_api: false
+
+# ============================================
+# PHASE 3: Enterprise Features (будущее)
+# ============================================
+
+enterprise:
+  enabled: false
+
+  components:
+    # Интеграция с 1C
+    integration_1c: false
+
+    # Интеграция с CRM системами
+    crm_integration: false
+
+    # Анализ конкурентов
+    competitor_analysis: false
+
+    # Генерация документов для участия
+    document_generation: false
+
+    # Multi-tenant архитектура
+    multi_tenancy: false
+
+    # Белый лейбл решение
+    white_label: false
+
+# ============================================
+# Настройки режимов работы
+# ============================================
+
+modes:
+  # Режим разработки (debug логи, тестовые данные)
+  development: true
+
+  # Продакшн режим
+  production: false
+
+  # Режим обслуживания (только чтение)
+  maintenance: false
+
+  # Демо режим (ограниченная функциональность)
+  demo: false
+
+# ============================================
+# Экспериментальные функции
+# ============================================
+
+experimental:
+  # GPT-4 Vision для анализа сканов
+  ocr_with_gpt4v: false
+
+  # Голосовой интерфейс в Telegram
+  voice_interface: false
+
+  # Автоматическое заполнение заявок
+  auto_bidding: false
+
+  # ML прогнозирование цен
+  price_prediction: false
+
+# ============================================
+# Лимиты и ограничения
+# ============================================
+
+limits:
+  # Максимальный размер файла для анализа (MB)
+  max_file_size: 50
+
+  # Максимальное количество файлов в тендере
+  max_files_per_tender: 20
+
+  # Максимальное время анализа (секунды)
+  max_analysis_time: 300
+
+  # Максимальное количество тендеров в пакете
+  max_batch_size: 10
+
+  # TTL кэша анализа (дни)
+  cache_ttl_days: 14
+
+# ============================================
+# Уведомления и логирование
+# ============================================
+
+monitoring:
+  # Отправка ошибок в Telegram админу
+  error_notifications: false
+
+  # Сбор метрик использования
+  usage_metrics: false
+
+  # Логирование всех API запросов
+  api_logging: true
+
+  # Сохранение истории анализов
+  history_tracking: true
