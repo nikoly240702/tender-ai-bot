@@ -287,6 +287,9 @@ async def process_tender_count(message: Message, state: FSMContext):
             filter_data=filter_data
         )
 
+        # Получаем лимиты тарифа для отображения
+        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+
         # Отправляем результаты
         await progress_msg.edit_text(
             "✅ <b>Готово!</b>\n\n"

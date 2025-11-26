@@ -13,7 +13,7 @@ import logging
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from parsers.zakupki_parser import ZakupkiParser
+from src.parsers.zakupki_parser import ZakupkiParser
 from tender_sniper.matching import SmartMatcher
 
 logger = logging.getLogger(__name__)
@@ -70,13 +70,13 @@ class InstantSearch:
         logger.info(f"   📍 Регионы: {regions if regions else 'Все'}")
 
         try:
-            # Выполняем поиск через ZakupkiParser
-            search_results = await self.parser.search_tenders(
-                query=search_query,
+            # Выполняем поиск через ZakupkiParser (синхронный метод)
+            search_results = self.parser.search_tenders(
+                keywords=search_query,
                 price_min=price_min,
                 price_max=price_max,
                 regions=regions,
-                max_results=max_tenders
+                page_limit=max(1, max_tenders // 10)  # ~10 тендеров на страницу
             )
 
             logger.info(f"   ✅ Найдено тендеров: {len(search_results)}")
