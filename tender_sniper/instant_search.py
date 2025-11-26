@@ -110,10 +110,11 @@ class InstantSearch:
             for tender in search_results:
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
-                if match_result['score'] >= 40:  # Минимальный порог
+                # Проверяем что match_result не None
+                if match_result and match_result.get('score', 0) >= 40:  # Минимальный порог
                     tender_with_score = tender.copy()
                     tender_with_score['match_score'] = match_result['score']
-                    tender_with_score['match_reasons'] = match_result['reasons']
+                    tender_with_score['match_reasons'] = match_result.get('reasons', [])
                     matches.append(tender_with_score)
 
             # Сортируем по скору
