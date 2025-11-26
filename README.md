@@ -1,8 +1,16 @@
 # Tender AI Bot
 
-**Telegram бот для анализа государственных тендеров с использованием искусственного интеллекта**
+**Intelligent tender analysis and real-time monitoring system for zakupki.gov.ru**
 
-Бот автоматизирует поиск и анализ тендеров с zakupki.gov.ru, предоставляя детальные AI-отчеты о релевантности, рисках и возможностях.
+Automated tender search and AI-powered analysis with instant Telegram notifications.
+
+## 🎯 Project Status
+
+- ✅ **CLI Analyzer** - Production ready (Phase 1)
+- ✅ **Telegram Bot v1** - Production ready (Phase 1)
+- 🚧 **Tender Sniper** - Placeholder (Phase 2 pending)
+
+See [CHANGELOG.md](CHANGELOG.md) for recent updates.
 
 ## Возможности
 
@@ -323,12 +331,86 @@ financial:
 - Многопользовательский режим
 - Расширенная аналитика
 
+## 🎛️ Feature Flags
+
+The system uses feature flags to enable/disable components. See [config/features.yaml](config/features.yaml).
+
+**Current configuration:**
+- ✅ CLI Analyzer - Enabled
+- ✅ Document Processor - Enabled
+- ✅ AI Analysis - Enabled
+- ✅ Telegram Bot v1 - Enabled
+- ⏸️ Tender Sniper - Disabled (placeholder)
+
+To toggle features, edit `config/features.yaml`:
+```yaml
+features:
+  cli_analyzer: true
+  telegram_bot_v1: true
+
+tender_sniper:
+  enabled: false  # Enable when Phase 2 is implemented
+```
+
+## 📦 Project Structure
+
+```
+tender-ai-bot/
+├── src/                  # Core analysis modules (Phase 1)
+│   ├── analyzers/        # AI analysis engines
+│   ├── document_processor/ # PDF/DOCX extraction
+│   ├── parsers/          # zakupki.gov.ru parser
+│   ├── reporting/        # Report generation
+│   └── utils/            # Utilities
+├── bot/                  # Telegram bot v1 (Phase 1)
+├── tender_sniper/        # Phase 2 modules (placeholder)
+│   ├── bot/              # Enhanced Telegram bot
+│   ├── parser/           # Real-time parser
+│   ├── matching/         # Smart matching engine
+│   ├── notifications/    # Instant notifications
+│   ├── payments/         # Subscription system
+│   ├── database/         # Database models
+│   ├── admin/            # Admin dashboard
+│   └── api/              # REST API
+├── config/
+│   ├── features.yaml     # Feature flags
+│   ├── settings.yaml     # App settings
+│   └── company_profile.yaml
+└── main.py               # CLI entry point
+```
+
+See [tender_sniper/README.md](tender_sniper/README.md) for Phase 2 roadmap.
+
+## 🚀 Development Roadmap
+
+### Phase 1: CLI Analyzer ✅ (Completed)
+- AI-powered tender analysis
+- Document processing (PDF, DOCX)
+- Telegram bot interface
+- Database caching
+
+### Phase 2: Tender Sniper 🚧 (Weeks 1-2)
+- Real-time tender monitoring
+- Smart matching algorithms
+- Instant notifications
+- Subscription system
+
+### Phase 3: Enterprise Features 📋 (Weeks 3-4)
+- Advanced analytics
+- API integrations
+- Admin dashboard
+- Multi-tenancy
+
 ## Требования
 
-- Python 3.10+
-- API ключ Anthropic Claude
+- Python 3.11+
+- OpenAI API key (GPT-4o-mini/GPT-4o)
 - ~100 МБ свободного места
 - Интернет-соединение
+
+## 📝 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
 
 ## Лицензия
 
@@ -340,4 +422,4 @@ MIT
 
 ---
 
-**Разработано с использованием Claude Sonnet 4**
+**Developed with Claude Sonnet 4.5** 🤖
