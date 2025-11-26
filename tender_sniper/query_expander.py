@@ -1,13 +1,13 @@
 """
 Query Expander - AI расширение пользовательских критериев поиска.
 
-Использует LLM для генерации синонимов, связанных терминов и вариаций
+Использует OpenAI для генерации синонимов, связанных терминов и вариаций
 пользовательских ключевых слов.
 """
 
 import os
 from typing import List, Dict, Any
-from anthropic import Anthropic
+from openai import OpenAI
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,10 +21,10 @@ class QueryExpander:
         Инициализация расширителя.
 
         Args:
-            api_key: Claude API ключ (опционально, читает из env)
+            api_key: OpenAI API ключ (опционально, читает из env)
         """
-        self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
-        self.client = Anthropic(api_key=self.api_key)
+        self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+        self.client = OpenAI(api_key=self.api_key)
 
     async def expand_keywords(
         self,
@@ -50,23 +50,23 @@ class QueryExpander:
         """
         logger.info(f"🔍 Расширение запроса: {keywords}")
 
-        # Формируем промпт для Claude
+        # Формируем промпт для OpenAI
         prompt = self._build_expansion_prompt(keywords, context)
 
         try:
-            # Запрос к Claude
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1000,
-                temperature=0.3,
+            # Запрос к OpenAI
+            response = self.client.chat.completions.create(
+                model="gpt-4o-mini",  # Быстрая и дешевая модель
                 messages=[{
                     "role": "user",
                     "content": prompt
-                }]
+                }],
+                temperature=0.3,
+                max_tokens=1000
             )
 
             # Парсим ответ
-            expanded = self._parse_expansion_response(response.content[0].text)
+            expanded = self._parse_expansion_response(response.choices[0].message.content)
             expanded['original_keywords'] = keywords
 
             logger.info(f"✅ Запрос расширен: {len(expanded['expanded_keywords'])} терминов")
