@@ -43,18 +43,18 @@ features:
 
 tender_sniper:
   # Основной переключатель Tender Sniper
-  enabled: false
+  enabled: true
 
   # Компоненты Tender Sniper
   components:
     # Real-time парсер новых тендеров
-    realtime_parser: false
+    realtime_parser: true
 
     # Система матчинга по критериям
-    smart_matching: false
+    smart_matching: true
 
     # Мгновенные уведомления в Telegram
-    instant_notifications: false
+    instant_notifications: true
 
     # Автоматический pre-анализ
     auto_preanalysis: false
