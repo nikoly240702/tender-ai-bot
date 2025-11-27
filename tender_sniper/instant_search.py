@@ -195,6 +195,21 @@ class InstantSearch:
             search_results = all_results[:max_tenders]
             logger.info(f"   ✅ Итого найдено тендеров: {len(search_results)}")
 
+            # === Обогащаем тендеры данными со страниц ===
+            if search_results:
+                logger.info(f"   📥 Загрузка полных данных тендеров...")
+                enriched_results = []
+                for i, tender in enumerate(search_results):
+                    try:
+                        logger.debug(f"      [{i+1}/{len(search_results)}] Обогащение: {tender.get('number', 'N/A')}")
+                        enriched = self.rss_parser.enrich_tender_from_page(tender)
+                        enriched_results.append(enriched)
+                    except Exception as e:
+                        logger.debug(f"      ⚠️ Ошибка обогащения: {e}")
+                        enriched_results.append(tender)
+                search_results = enriched_results
+                logger.info(f"   ✅ Данные обогащены")
+
             # Если RSS не вернул результатов - возвращаем пустой ответ
             if not search_results:
                 logger.warning("⚠️ RSS feed не вернул результаты")
@@ -350,10 +365,23 @@ class InstantSearch:
 
             # Заказчик и его местонахождение
             customer = tender.get('customer', '')
+            customer_city = tender.get('customer_city', '')
             customer_region = tender.get('customer_region', '')
 
-            # Формируем строку местонахождения
-            location_display = customer_region if customer_region else 'Н/Д'
+            # Формируем строку местонахождения: "г. Прохладный, Кабардино-Балкарская Республика"
+            if customer_city and customer_region:
+                # Проверяем что город не дублируется в названии региона
+                city_name = customer_city.replace('г. ', '')
+                if city_name.lower() not in customer_region.lower():
+                    location_display = f"{customer_city}, {customer_region}"
+                else:
+                    location_display = customer_region
+            elif customer_city:
+                location_display = customer_city
+            elif customer_region:
+                location_display = customer_region
+            else:
+                location_display = 'Н/Д'
 
             tenders_html += f"""
             <div class="tender-card">

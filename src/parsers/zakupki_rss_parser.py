@@ -619,6 +619,244 @@ class ZakupkiRSSParser:
 
         return None
 
+    def enrich_tender_from_page(self, tender: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Обогащает данные тендера, загружая полную страницу с zakupki.gov.ru.
+        Извлекает: НМЦК, дату окончания подачи заявок, адрес заказчика.
+
+        Args:
+            tender: Базовые данные тендера из RSS
+
+        Returns:
+            Обогащенный тендер с дополнительными полями
+        """
+        url = tender.get('url', '')
+        if not url:
+            return tender
+
+        try:
+            # Создаем сессию для запроса
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
+            })
+
+            response = session.get(url, timeout=15, verify=False)
+            response.raise_for_status()
+
+            html_content = response.text
+
+            # === Извлекаем НМЦК ===
+            if not tender.get('price'):
+                price = self._extract_price_from_page(html_content)
+                if price:
+                    tender['price'] = price
+                    tender['price_formatted'] = f"{price:,.2f} ₽".replace(',', ' ')
+
+            # === Извлекаем дату окончания подачи заявок ===
+            if not tender.get('submission_deadline'):
+                deadline = self._extract_deadline_from_page(html_content)
+                if deadline:
+                    tender['submission_deadline'] = deadline
+
+            # === Извлекаем адрес и регион заказчика ===
+            address_info = self._extract_address_from_page(html_content)
+            if address_info:
+                tender['customer_address'] = address_info.get('full_address', '')
+                tender['customer_region'] = address_info.get('region', '')
+                tender['customer_city'] = address_info.get('city', '')
+
+            # === Извлекаем название заказчика если нет ===
+            if not tender.get('customer'):
+                customer = self._extract_customer_from_page(html_content)
+                if customer:
+                    tender['customer'] = customer
+
+        except requests.exceptions.Timeout:
+            print(f"   ⏱️ Таймаут при загрузке страницы тендера")
+        except requests.exceptions.RequestException as e:
+            print(f"   ⚠️ Ошибка загрузки страницы: {e}")
+        except Exception as e:
+            print(f"   ⚠️ Ошибка обогащения тендера: {e}")
+
+        return tender
+
+    def _extract_price_from_page(self, html: str) -> Optional[float]:
+        """Извлекает НМЦК из HTML страницы тендера."""
+        patterns = [
+            # Паттерн для блока с ценой
+            r'Начальная.*?максимальная.*?цена.*?контракта.*?</span>\s*<span[^>]*>([0-9\s,\.]+)',
+            r'Начальная.*?цена.*?контракта.*?</td>\s*<td[^>]*>([0-9\s,\.]+)',
+            r'НМЦК.*?</td>\s*<td[^>]*>([0-9\s,\.]+)',
+            r'Начальная.*?цена[^<]*</span>\s*<span[^>]*>([0-9\s,\.]+)',
+            # Общий паттерн
+            r'([0-9]{1,3}(?:\s?[0-9]{3})*[,\.][0-9]{2})\s*(?:₽|руб|RUB)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                price_text = match.group(1).strip()
+                try:
+                    cleaned = re.sub(r'[^\d,.]', '', price_text)
+                    cleaned = cleaned.replace(',', '.')
+                    price = float(cleaned)
+                    if price > 100:  # Минимальная валидация
+                        return price
+                except:
+                    continue
+
+        return None
+
+    def _extract_deadline_from_page(self, html: str) -> Optional[str]:
+        """Извлекает дату окончания подачи заявок из HTML страницы."""
+        patterns = [
+            # Точный паттерн для zakupki.gov.ru
+            r'Дата и время окончания срока подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
+            r'Окончание срока подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
+            r'Дата окончания подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
+            r'Окончание подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
+            # Более общий паттерн
+            r'подач[аи] заявок.*?до.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                date_part = match.group(1)
+                time_part = match.group(2) if match.lastindex >= 2 and match.group(2) else ''
+                if time_part:
+                    return f"{date_part} {time_part}"
+                return date_part
+
+        return None
+
+    def _extract_address_from_page(self, html: str) -> Optional[Dict[str, str]]:
+        """
+        Извлекает почтовый адрес заказчика и парсит его на город и регион.
+
+        Пример входа: "Российская Федерация, 361045, Кабардино-Балкарская Респ, Прохладный г, Гагарина, Д.47"
+        Пример выхода: {"city": "г. Прохладный", "region": "Кабардино-Балкарская Республика", "full_address": "..."}
+        """
+        # Ищем блок с почтовым адресом
+        patterns = [
+            r'Почтовый адрес.*?</td>\s*<td[^>]*>([^<]+)',
+            r'Почтовый адрес.*?</span>\s*<span[^>]*>([^<]+)',
+            r'Адрес.*?места нахождения.*?</td>\s*<td[^>]*>([^<]+)',
+            r'Место нахождения.*?</td>\s*<td[^>]*>([^<]+)',
+        ]
+
+        address = None
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                address = match.group(1).strip()
+                # Очищаем от HTML-сущностей
+                address = re.sub(r'&[a-z]+;', ' ', address)
+                address = re.sub(r'\s+', ' ', address).strip()
+                break
+
+        if not address:
+            return None
+
+        # Парсим адрес
+        result = {
+            'full_address': address,
+            'city': '',
+            'region': ''
+        }
+
+        # Словарь сокращений регионов
+        region_expansions = {
+            'респ': 'Республика',
+            'обл': 'область',
+            'край': 'край',
+            'г.ф.з.': '',  # город федерального значения
+            'ао': 'АО',
+            'аобл': 'автономная область',
+        }
+
+        # Разбиваем адрес на части
+        parts = [p.strip() for p in address.split(',')]
+
+        city = ''
+        region = ''
+
+        for part in parts:
+            part_lower = part.lower()
+
+            # Ищем город
+            if ' г' in part_lower or part_lower.endswith(' г') or 'город' in part_lower:
+                # Извлекаем название города
+                city_match = re.search(r'([А-Яа-яЁё\-]+)\s*г(?:ород)?\.?$', part, re.IGNORECASE)
+                if city_match:
+                    city = f"г. {city_match.group(1).strip()}"
+                else:
+                    city_match = re.search(r'г(?:ород)?\.?\s*([А-Яа-яЁё\-]+)', part, re.IGNORECASE)
+                    if city_match:
+                        city = f"г. {city_match.group(1).strip()}"
+
+            # Ищем регион (республика, область, край)
+            if any(word in part_lower for word in ['респ', 'область', 'обл', 'край', 'округ']):
+                # Нормализуем название региона
+                region_part = part.strip()
+
+                # Расширяем сокращения
+                for abbr, full in region_expansions.items():
+                    if abbr in region_part.lower():
+                        region_part = re.sub(rf'\b{abbr}\.?\b', full, region_part, flags=re.IGNORECASE)
+
+                # Убираем лишние пробелы
+                region_part = re.sub(r'\s+', ' ', region_part).strip()
+
+                # Форматируем: если начинается со слова типа "Московская", оставляем как есть
+                # Если начинается с "Республика", оставляем как есть
+                region = region_part
+
+            # Москва и Санкт-Петербург - особые случаи
+            if 'москва' in part_lower and not region:
+                city = 'г. Москва'
+                region = 'Москва'
+            elif 'санкт-петербург' in part_lower or 'петербург' in part_lower:
+                city = 'г. Санкт-Петербург'
+                region = 'Санкт-Петербург'
+            elif 'севастополь' in part_lower:
+                city = 'г. Севастополь'
+                region = 'Севастополь'
+
+        result['city'] = city
+        result['region'] = region
+
+        # Формируем красивый вывод: "г. Прохладный, Кабардино-Балкарская Республика"
+        if city and region and city.replace('г. ', '') not in region:
+            result['location'] = f"{city}, {region}"
+        elif city:
+            result['location'] = city
+        elif region:
+            result['location'] = region
+
+        return result
+
+    def _extract_customer_from_page(self, html: str) -> Optional[str]:
+        """Извлекает название заказчика из HTML страницы."""
+        patterns = [
+            r'Наименование.*?заказчика.*?</td>\s*<td[^>]*>([^<]+)',
+            r'Заказчик.*?</td>\s*<td[^>]*>([^<]+)',
+            r'Наименование организации.*?</td>\s*<td[^>]*>([^<]+)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                customer = match.group(1).strip()
+                customer = re.sub(r'\s+', ' ', customer)
+                if len(customer) > 5:  # Минимальная валидация
+                    return customer
+
+        return None
+
     def get_tender_categories_rss(self) -> List[str]:
         """
         Возвращает популярные категории тендеров для формирования RSS подписок.
