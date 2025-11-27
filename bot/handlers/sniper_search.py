@@ -41,7 +41,11 @@ class FilterSearchStates(StatesGroup):
     waiting_for_regions = State()
     waiting_for_law_type = State()
     waiting_for_purchase_stage = State()
+    waiting_for_purchase_method = State()
     waiting_for_tender_type = State()
+    waiting_for_okpd2 = State()
+    waiting_for_min_deadline = State()
+    waiting_for_customer_keywords = State()
     waiting_for_tender_count = State()
     confirm_auto_monitoring = State()
 
@@ -92,7 +96,7 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.edit_text(
             "🎯 <b>Создание фильтра с мгновенным поиском</b>\n\n"
-            "<b>Шаг 1/4:</b> Название фильтра\n\n"
+            "<b>Шаг 1/13:</b> Название фильтра\n\n"
             "Придумайте короткое название для вашего фильтра.\n"
             "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
             "💡 Это название поможет вам управлять фильтрами в будущем.",
@@ -120,7 +124,7 @@ async def process_filter_name_new(message: Message, state: FSMContext):
 
     await message.answer(
         f"✅ Название: <b>{filter_name}</b>\n\n"
-        f"<b>Шаг 2/4:</b> Ключевые слова\n\n"
+        f"<b>Шаг 2/13:</b> Ключевые слова\n\n"
         f"Введите ключевые слова через запятую.\n"
         f"Например: <i>компьютеры, ноутбуки, серверы</i>\n\n"
         f"🤖 <b>AI автоматически расширит ваш запрос</b>\n"
@@ -154,7 +158,7 @@ async def process_keywords_new(message: Message, state: FSMContext):
 
     await message.answer(
         f"✅ Ключевые слова: <b>{', '.join(keywords)}</b>\n\n"
-        f"<b>Шаг 3/9:</b> Исключающие слова\n\n"
+        f"<b>Шаг 3/13:</b> Исключающие слова\n\n"
         f"Введите слова, которые НЕ должны быть в тендере:\n"
         f"Например: <i>ремонт, б/у, аренда, лизинг</i>\n\n"
         f"Или нажмите «Пропустить»",
@@ -198,7 +202,7 @@ async def ask_for_price_range(message: Message, state: FSMContext):
 
     await message.answer(
         f"{exclude_text}"
-        f"<b>Шаг 4/9:</b> Ценовой диапазон\n\n"
+        f"<b>Шаг 4/13:</b> Ценовой диапазон\n\n"
         f"Введите диапазон цен в формате: <code>мин макс</code>\n"
         f"Например: <code>100000 5000000</code> (от 100 тыс до 5 млн)\n\n"
         f"Или нажмите «Любая цена»",
@@ -258,7 +262,7 @@ async def ask_for_regions(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 5/9:</b> Регион заказчика\n\n"
+        f"<b>Шаг 5/13:</b> Регион заказчика\n\n"
         f"Выберите регион или введите название вручную:",
         reply_markup=keyboard,
         parse_mode="HTML"
@@ -308,7 +312,7 @@ async def ask_for_law_type(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 6/9:</b> Тип закона\n\n"
+        f"<b>Шаг 6/13:</b> Тип закона\n\n"
         f"<b>44-ФЗ</b> — государственные закупки (бюджетные организации)\n"
         f"<b>223-ФЗ</b> — закупки госкомпаний (Газпром, РЖД и др.)\n\n"
         f"Выберите:",
@@ -344,7 +348,7 @@ async def ask_for_purchase_stage(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 7/9:</b> Этап закупки\n\n"
+        f"<b>Шаг 7/13:</b> Этап закупки\n\n"
         f"<b>Подача заявок</b> — можно подать заявку прямо сейчас\n"
         f"<b>Все этапы</b> — включая завершённые и на рассмотрении\n\n"
         f"💡 Рекомендуем «Только подача заявок»",
@@ -362,6 +366,42 @@ async def process_purchase_stage(callback: CallbackQuery, state: FSMContext):
     purchase_stage = "submission" if stage_value == "submission" else None
 
     await state.update_data(purchase_stage=purchase_stage)
+    await ask_for_purchase_method(callback.message, state)
+
+
+async def ask_for_purchase_method(message: Message, state: FSMContext):
+    """Запрос способа закупки."""
+    await state.set_state(FilterSearchStates.waiting_for_purchase_method)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔨 Электронный аукцион", callback_data="method_auction")],
+        [InlineKeyboardButton(text="📋 Открытый конкурс", callback_data="method_tender")],
+        [InlineKeyboardButton(text="💬 Запрос котировок", callback_data="method_quotation")],
+        [InlineKeyboardButton(text="📝 Запрос предложений", callback_data="method_request")],
+        [InlineKeyboardButton(text="🔍 Все способы", callback_data="method_all")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 8/13:</b> Способ закупки\n\n"
+        f"<b>Электронный аукцион</b> — побеждает минимальная цена\n"
+        f"<b>Открытый конкурс</b> — оценка по критериям\n"
+        f"<b>Запрос котировок</b> — до 3 млн руб\n"
+        f"<b>Запрос предложений</b> — сложные закупки\n\n"
+        f"Выберите:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("method_"))
+async def process_purchase_method(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора способа закупки."""
+    await callback.answer()
+
+    method_value = callback.data.replace("method_", "")
+    purchase_method = None if method_value == "all" else method_value
+
+    await state.update_data(purchase_method=purchase_method)
     await ask_for_tender_type(callback.message, state)
 
 
@@ -377,7 +417,7 @@ async def ask_for_tender_type(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 8/9:</b> Тип закупки\n\n"
+        f"<b>Шаг 9/13:</b> Тип закупки\n\n"
         f"<b>Товары</b> — поставка продукции\n"
         f"<b>Услуги</b> — обслуживание, консалтинг\n"
         f"<b>Работы</b> — строительство, ремонт\n\n"
@@ -402,7 +442,150 @@ async def process_tender_type(callback: CallbackQuery, state: FSMContext):
     tender_types = tender_types_map.get(ttype_value, [])
 
     await state.update_data(tender_types=tender_types)
-    await ask_for_tender_count(callback.message, state)
+    await ask_for_min_deadline(callback.message, state)
+
+
+async def ask_for_min_deadline(message: Message, state: FSMContext):
+    """Запрос минимального количества дней до дедлайна."""
+    await state.set_state(FilterSearchStates.waiting_for_min_deadline)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="3 дня", callback_data="deadline_3")],
+        [InlineKeyboardButton(text="5 дней", callback_data="deadline_5")],
+        [InlineKeyboardButton(text="7 дней", callback_data="deadline_7")],
+        [InlineKeyboardButton(text="14 дней", callback_data="deadline_14")],
+        [InlineKeyboardButton(text="⏭️ Без ограничений", callback_data="deadline_skip")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 10/13:</b> Минимум дней до дедлайна\n\n"
+        f"Сколько дней минимум должно оставаться до окончания подачи заявок?\n\n"
+        f"💡 Это поможет отфильтровать тендеры, на которые не успеете подать заявку",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("deadline_"))
+async def process_min_deadline(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора минимального дедлайна."""
+    await callback.answer()
+
+    deadline_value = callback.data.replace("deadline_", "")
+    min_deadline_days = None if deadline_value == "skip" else int(deadline_value)
+
+    await state.update_data(min_deadline_days=min_deadline_days)
+    await ask_for_customer_keywords(callback.message, state)
+
+
+async def ask_for_customer_keywords(message: Message, state: FSMContext):
+    """Запрос ключевых слов в названии заказчика."""
+    await state.set_state(FilterSearchStates.waiting_for_customer_keywords)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="customer_skip")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 11/13:</b> Фильтр по заказчику\n\n"
+        f"Введите ключевые слова для фильтрации по названию заказчика:\n"
+        f"Например: <i>больница, школа, университет</i>\n\n"
+        f"Или нажмите «Пропустить» для поиска среди всех заказчиков",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "customer_skip")
+async def skip_customer_keywords(callback: CallbackQuery, state: FSMContext):
+    """Пропуск фильтра по заказчику."""
+    await callback.answer()
+    await state.update_data(customer_keywords=[])
+    await ask_for_okpd2(callback.message, state)
+
+
+@router.message(FilterSearchStates.waiting_for_customer_keywords)
+async def process_customer_keywords(message: Message, state: FSMContext):
+    """Обработка ключевых слов заказчика."""
+    customer_input = message.text.strip()
+
+    if customer_input:
+        customer_keywords = [kw.strip() for kw in customer_input.split(',') if kw.strip()]
+    else:
+        customer_keywords = []
+
+    await state.update_data(customer_keywords=customer_keywords)
+    await ask_for_okpd2(message, state)
+
+
+async def ask_for_okpd2(message: Message, state: FSMContext):
+    """Запрос кода ОКПД2."""
+    await state.set_state(FilterSearchStates.waiting_for_okpd2)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💻 26 - Компьютеры и электроника", callback_data="okpd_26")],
+        [InlineKeyboardButton(text="🏗️ 41-43 - Строительство", callback_data="okpd_41")],
+        [InlineKeyboardButton(text="🚗 29 - Автотранспорт", callback_data="okpd_29")],
+        [InlineKeyboardButton(text="💊 21 - Лекарства", callback_data="okpd_21")],
+        [InlineKeyboardButton(text="🍞 10 - Продукты питания", callback_data="okpd_10")],
+        [InlineKeyboardButton(text="✍️ Ввести код вручную", callback_data="okpd_custom")],
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="okpd_skip")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 12/13:</b> Код ОКПД2\n\n"
+        f"ОКПД2 — классификатор продукции для точного поиска.\n\n"
+        f"Выберите категорию или введите код вручную:\n"
+        f"Например: <code>26.20</code> (компьютеры)\n\n"
+        f"💡 Можете пропустить для поиска по всем категориям",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("okpd_"))
+async def process_okpd2_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора ОКПД2."""
+    await callback.answer()
+
+    okpd_value = callback.data.replace("okpd_", "")
+
+    if okpd_value == "skip":
+        await state.update_data(okpd2_codes=[])
+        await ask_for_tender_count(callback.message, state)
+    elif okpd_value == "custom":
+        await callback.message.answer(
+            "Введите код ОКПД2:\n"
+            "Например: <code>26.20</code> или <code>26.20.1</code>\n\n"
+            "Можно ввести несколько кодов через запятую",
+            parse_mode="HTML"
+        )
+    else:
+        # Популярные категории
+        okpd_map = {
+            "26": ["26"],  # Компьютеры и электроника
+            "41": ["41", "42", "43"],  # Строительство
+            "29": ["29"],  # Автотранспорт
+            "21": ["21"],  # Лекарства
+            "10": ["10"],  # Продукты питания
+        }
+        okpd2_codes = okpd_map.get(okpd_value, [okpd_value])
+        await state.update_data(okpd2_codes=okpd2_codes)
+        await ask_for_tender_count(callback.message, state)
+
+
+@router.message(FilterSearchStates.waiting_for_okpd2)
+async def process_okpd2_text(message: Message, state: FSMContext):
+    """Обработка текстового ввода ОКПД2."""
+    okpd_input = message.text.strip()
+
+    if okpd_input:
+        okpd2_codes = [code.strip() for code in okpd_input.split(',') if code.strip()]
+    else:
+        okpd2_codes = []
+
+    await state.update_data(okpd2_codes=okpd2_codes)
+    await ask_for_tender_count(message, state)
 
 
 async def ask_for_tender_count(message: Message, state: FSMContext):
@@ -410,7 +593,7 @@ async def ask_for_tender_count(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_tender_count)
 
     await message.answer(
-        f"<b>Шаг 9/9:</b> Количество тендеров\n\n"
+        f"<b>Шаг 13/13:</b> Количество тендеров\n\n"
         f"Сколько тендеров найти?\n"
         f"Введите число от <code>1</code> до <code>25</code>\n\n"
         f"💡 Рекомендуем 10-15 для быстрого результата",
@@ -458,6 +641,10 @@ async def process_tender_count(message: Message, state: FSMContext):
             tender_types=data.get('tender_types', []),
             law_type=data.get('law_type'),
             purchase_stage=data.get('purchase_stage'),
+            purchase_method=data.get('purchase_method'),
+            okpd2_codes=data.get('okpd2_codes', []),
+            min_deadline_days=data.get('min_deadline_days'),
+            customer_keywords=data.get('customer_keywords', []),
         )
 
         # 2. AI расширение критериев
@@ -493,6 +680,10 @@ async def process_tender_count(message: Message, state: FSMContext):
             'tender_types': json.dumps(data.get('tender_types', []), ensure_ascii=False),
             'law_type': data.get('law_type'),
             'purchase_stage': data.get('purchase_stage'),
+            'purchase_method': data.get('purchase_method'),
+            'okpd2_codes': json.dumps(data.get('okpd2_codes', []), ensure_ascii=False),
+            'min_deadline_days': data.get('min_deadline_days'),
+            'customer_keywords': json.dumps(data.get('customer_keywords', []), ensure_ascii=False),
         }
 
         search_results = await searcher.search_by_filter(
