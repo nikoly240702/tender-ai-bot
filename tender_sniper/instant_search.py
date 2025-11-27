@@ -329,13 +329,31 @@ class InstantSearch:
                 f"• {reason}" for reason in tender.get('match_reasons', [])
             ])
 
-            # Форматируем цену
+            # Форматируем цену (НМЦК)
             price_display = tender.get('price_formatted') or tender.get('price', 'Не указана')
             if isinstance(price_display, (int, float)):
                 price_display = f"{price_display:,.0f} ₽".replace(',', ' ')
 
-            # Форматируем дату
-            published = tender.get('published', '') or tender.get('published_date', 'Н/Д')
+            # Форматируем дату публикации
+            published = tender.get('published_formatted') or tender.get('published', '') or 'Н/Д'
+            # Если дата в формате GMT, пробуем конвертировать
+            if 'GMT' in str(published):
+                try:
+                    from email.utils import parsedate_to_datetime
+                    dt = parsedate_to_datetime(published)
+                    published = dt.strftime('%d.%m.%Y %H:%M')
+                except:
+                    pass
+
+            # Дата окончания подачи заявок
+            deadline = tender.get('submission_deadline', 'Н/Д')
+
+            # Заказчик и его местонахождение
+            customer = tender.get('customer', '')
+            customer_region = tender.get('customer_region', '')
+
+            # Формируем строку местонахождения
+            location_display = customer_region if customer_region else 'Н/Д'
 
             tenders_html += f"""
             <div class="tender-card">
@@ -345,8 +363,11 @@ class InstantSearch:
                 </div>
                 <h3 class="tender-title">{tender.get('name', 'Без названия')}</h3>
                 <div class="tender-details">
-                    <p><strong>НМЦК:</strong> {price_display}</p>
-                    <p><strong>Размещено:</strong> {published}</p>
+                    <p><strong>💰 НМЦК:</strong> {price_display}</p>
+                    <p><strong>📅 Размещено:</strong> {published}</p>
+                    <p><strong>⏰ Окончание подачи:</strong> {deadline}</p>
+                    <p><strong>🏢 Заказчик:</strong> {customer if customer else 'Н/Д'}</p>
+                    <p><strong>📍 Регион:</strong> {location_display}</p>
                 </div>
                 <div class="match-reasons">
                     <strong>Причины совпадения:</strong><br>
@@ -496,9 +517,16 @@ class InstantSearch:
         .tender-details {{
             color: #555;
             margin-bottom: 15px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 8px 20px;
         }}
         .tender-details p {{
-            margin: 8px 0;
+            margin: 4px 0;
+            font-size: 14px;
+        }}
+        .tender-details strong {{
+            color: #2c3e50;
         }}
         .match-reasons {{
             background: #f8f9fa;

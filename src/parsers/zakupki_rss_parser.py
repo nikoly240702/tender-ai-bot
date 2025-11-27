@@ -445,11 +445,27 @@ class ZakupkiRSSParser:
             price = self._extract_price_from_summary(summary)
             if price:
                 tender['price'] = price
-                tender['price_formatted'] = f"{price:,.2f} ₽"
+                tender['price_formatted'] = f"{price:,.2f} ₽".replace(',', ' ')
 
-            # Парсим дату
+            # Извлекаем заказчика
+            customer = self._extract_customer_from_summary(summary)
+            if customer:
+                tender['customer'] = customer
+                # Извлекаем регион из названия заказчика
+                region = self._extract_region_from_customer(customer)
+                if region:
+                    tender['customer_region'] = region
+
+            # Извлекаем дату окончания подачи заявок
+            deadline = self._extract_deadline_from_summary(summary)
+            if deadline:
+                tender['submission_deadline'] = deadline
+
+            # Парсим дату публикации в удобный формат
             if entry.get('published_parsed'):
                 tender['published_datetime'] = datetime(*entry.published_parsed[:6])
+                # Форматируем дату в русский формат
+                tender['published_formatted'] = tender['published_datetime'].strftime('%d.%m.%Y %H:%M')
 
             return tender if tender.get('name') else None
 
@@ -501,24 +517,105 @@ class ZakupkiRSSParser:
         return None
 
     def _extract_price_from_summary(self, summary: str) -> Optional[float]:
-        """Извлекает цену из описания RSS."""
-        # Ищем паттерны цен в тексте
+        """Извлекает НМЦК (начальную максимальную цену контракта) из описания RSS."""
+        # Ищем паттерны цен в тексте - от более точных к менее точным
         patterns = [
+            # Паттерн из HTML RSS: "Начальная (максимальная) цена контракта:</strong> 1 234 567,89"
+            r'Начальная.*?цена.*?контракта[:\s]*</strong>\s*([0-9\s,.]+)',
+            # Простой НМЦК
             r'НМЦК[:\s]+([0-9\s,\.]+)',
-            r'цен[а-я]*[:\s]+([0-9\s,\.]+)',
-            r'сумм[а-я]*[:\s]+([0-9\s,\.]+)',
+            # Начальная цена
+            r'Начальная.*?цена[:\s]+([0-9\s,\.]+)',
+            # Максимальная цена
+            r'Максимальная.*?цена[:\s]+([0-9\s,\.]+)',
+            # Цена контракта
+            r'цена контракта[:\s]+([0-9\s,\.]+)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, summary, re.IGNORECASE | re.DOTALL)
+            if match:
+                price_text = match.group(1).strip()
+                try:
+                    # Убираем пробелы, заменяем запятую на точку
+                    cleaned = re.sub(r'[^\d,.]', '', price_text)
+                    cleaned = cleaned.replace(',', '.')
+                    price = float(cleaned)
+                    # Проверяем что это реальная цена (более 100 руб)
+                    if price > 100:
+                        return price
+                except:
+                    continue
+
+        return None
+
+    def _extract_customer_from_summary(self, summary: str) -> Optional[str]:
+        """Извлекает заказчика из описания RSS."""
+        patterns = [
+            r'<strong>Наименование Заказчика:\s*</strong>([^<]+)',
+            r'<strong>Заказчик:\s*</strong>([^<]+)',
+            r'Заказчик:\s*([^<\n]+)',
         ]
 
         for pattern in patterns:
             match = re.search(pattern, summary, re.IGNORECASE)
             if match:
-                price_text = match.group(1)
-                try:
-                    cleaned = re.sub(r'[^\d,.]', '', price_text)
-                    cleaned = cleaned.replace(',', '.')
-                    return float(cleaned)
-                except:
-                    continue
+                customer = match.group(1).strip()
+                # Убираем лишние пробелы
+                customer = re.sub(r'\s+', ' ', customer)
+                return customer
+
+        return None
+
+    def _extract_deadline_from_summary(self, summary: str) -> Optional[str]:
+        """Извлекает дату окончания подачи заявок из описания RSS."""
+        patterns = [
+            r'(?:Окончание подачи заявок|Дата окончания подачи заявок|Срок подачи заявок)[:\s]*</strong>\s*([0-9.]+(?:\s+[0-9:]+)?)',
+            r'(?:Окончание подачи заявок|Дата окончания)[:\s]+([0-9.]+(?:\s+[0-9:]+)?)',
+            r'до\s+([0-9.]+\s+[0-9:]+)',
+            r'Дата и время окончания.*?([0-9]{2}\.[0-9]{2}\.[0-9]{4}(?:\s+[0-9:]+)?)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, summary, re.IGNORECASE | re.DOTALL)
+            if match:
+                deadline = match.group(1).strip()
+                return deadline
+
+        return None
+
+    def _extract_region_from_customer(self, customer: str) -> Optional[str]:
+        """Извлекает регион из названия заказчика."""
+        # Список регионов России для поиска
+        regions = [
+            'Москва', 'Московская область', 'Санкт-Петербург', 'Ленинградская область',
+            'Республика Татарстан', 'Татарстан', 'Краснодарский край', 'Свердловская область',
+            'Новосибирская область', 'Ростовская область', 'Нижегородская область',
+            'Челябинская область', 'Самарская область', 'Республика Башкортостан', 'Башкортостан',
+            'Красноярский край', 'Пермский край', 'Воронежская область', 'Волгоградская область',
+            'Саратовская область', 'Тюменская область', 'Омская область', 'Кемеровская область',
+            'Оренбургская область', 'Иркутская область', 'Алтайский край', 'Приморский край',
+            'Ставропольский край', 'Белгородская область', 'Тульская область', 'Калужская область',
+            'Ярославская область', 'Владимирская область', 'Рязанская область', 'Тверская область',
+            'Брянская область', 'Курская область', 'Липецкая область', 'Тамбовская область',
+            'Ханты-Мансийский', 'ХМАО', 'Ямало-Ненецкий', 'ЯНАО',
+            'Республика Крым', 'Крым', 'Севастополь',
+            'Республика Дагестан', 'Дагестан', 'Чеченская Республика', 'Чечня',
+            'Хабаровский край', 'Сахалинская область', 'Камчатский край',
+            'Мурманская область', 'Архангельская область', 'Вологодская область',
+            'Калининградская область', 'Псковская область', 'Новгородская область',
+        ]
+
+        customer_upper = customer.upper()
+
+        for region in regions:
+            if region.upper() in customer_upper:
+                return region
+
+        # Ищем паттерн "г. Город" или "город Город"
+        city_match = re.search(r'(?:г\.|город)\s*([А-Яа-яЁё]+)', customer)
+        if city_match:
+            return f"г. {city_match.group(1)}"
 
         return None
 
