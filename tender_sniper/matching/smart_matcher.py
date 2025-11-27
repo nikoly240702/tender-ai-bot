@@ -67,14 +67,18 @@ class SmartMatcher:
         tender_types = self._parse_json_field(filter_config.get('tender_types', '[]'))
 
         # Извлекаем данные тендера
+        # Поддерживаем разные источники данных (RSS и HTML парсеры)
         tender_name = tender.get('name', '').lower()
-        tender_description = tender.get('description', '').lower()
+        tender_description = tender.get('description', '') or tender.get('summary', '')
+        tender_description = tender_description.lower()
         tender_price = tender.get('price')
         tender_region = tender.get('region', '').lower()
-        tender_type = tender.get('purchase_type', '').lower()
-        customer_name = tender.get('customer_name', '').lower()
+        tender_type = tender.get('purchase_type', '') or tender.get('tender_type', '')
+        tender_type = tender_type.lower()
+        customer_name = tender.get('customer_name', '') or tender.get('customer', '')
+        customer_name = customer_name.lower()
 
-        # Объединяем текст для поиска
+        # Объединяем текст для поиска (все доступные поля)
         searchable_text = f"{tender_name} {tender_description} {customer_name}"
 
         # ============================================
@@ -136,14 +140,28 @@ class SmartMatcher:
         if keywords:
             # Базовый поиск по ключевым словам
             for keyword in keywords:
-                keyword_lower = keyword.lower()
+                keyword_lower = keyword.lower().strip()
 
-                # Прямое вхождение
+                # Пропускаем пустые ключевые слова
+                if not keyword_lower:
+                    continue
+
+                # Прямое вхождение (точное)
                 if keyword_lower in searchable_text:
                     score += 20
                     matched_keywords.append(keyword)
                     logger.debug(f"   ✅ Найдено ключевое слово: {keyword}")
                     continue
+
+                # Частичное совпадение (корень слова, минимум 4 символа)
+                if len(keyword_lower) >= 4:
+                    # Берем корень слова (первые 4+ символов)
+                    root = keyword_lower[:max(4, len(keyword_lower) - 2)]
+                    if root in searchable_text:
+                        score += 15
+                        matched_keywords.append(f"{keyword} (частичное)")
+                        logger.debug(f"   ✅ Частичное совпадение: {root}* → {keyword}")
+                        continue
 
                 # Поиск синонимов
                 synonyms = self.SYNONYMS.get(keyword_lower, [])
@@ -154,10 +172,13 @@ class SmartMatcher:
                         logger.debug(f"   ✅ Найден синоним: {synonym} → {keyword}")
                         break
 
-            # Если ни одно ключевое слово не найдено - пропускаем
+            # Если ни одно ключевое слово не найдено - всё равно включаем с минимальным скором
+            # т.к. тендер был найден RSS поиском по этим же ключевым словам
             if not matched_keywords:
-                logger.debug(f"   ⛔ Ни одно ключевое слово не найдено")
-                return None
+                # Даём базовый скор, т.к. RSS уже отфильтровал по ключевым словам
+                score = 30
+                matched_keywords.append("Найден по поисковому запросу")
+                logger.debug(f"   ℹ️ Базовый скор за совпадение с RSS поиском")
 
         else:
             # Если фильтр без ключевых слов - базовый score
