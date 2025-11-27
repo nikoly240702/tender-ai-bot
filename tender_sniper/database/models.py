@@ -122,6 +122,16 @@ class TenderSniperDB:
                     regions TEXT,
                     customer_types TEXT,
                     tender_types TEXT,
+                    -- Новые критерии фильтрации
+                    law_type TEXT,
+                    purchase_stage TEXT,
+                    purchase_method TEXT,
+                    okpd2_codes TEXT,
+                    min_deadline_days INTEGER,
+                    customer_keywords TEXT,
+                    date_from TEXT,
+                    date_to TEXT,
+                    -- Системные поля
                     active INTEGER DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT,
@@ -367,7 +377,16 @@ class TenderSniperDB:
         price_max: Optional[int] = None,
         regions: Optional[List[str]] = None,
         customer_types: Optional[List[str]] = None,
-        tender_types: Optional[List[str]] = None
+        tender_types: Optional[List[str]] = None,
+        # Новые параметры
+        law_type: Optional[str] = None,
+        purchase_stage: Optional[str] = None,
+        purchase_method: Optional[str] = None,
+        okpd2_codes: Optional[List[str]] = None,
+        min_deadline_days: Optional[int] = None,
+        customer_keywords: Optional[List[str]] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None
     ) -> int:
         """Создание фильтра."""
         async with aiosqlite.connect(self.db_path) as db:
@@ -376,8 +395,11 @@ class TenderSniperDB:
             cursor = await db.execute("""
                 INSERT INTO user_filters
                 (user_id, name, keywords, exclude_keywords, price_min, price_max,
-                 regions, customer_types, tender_types, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 regions, customer_types, tender_types,
+                 law_type, purchase_stage, purchase_method, okpd2_codes,
+                 min_deadline_days, customer_keywords, date_from, date_to,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 user_id, name,
                 json.dumps(keywords or [], ensure_ascii=False),
@@ -386,6 +408,13 @@ class TenderSniperDB:
                 json.dumps(regions or [], ensure_ascii=False),
                 json.dumps(customer_types or [], ensure_ascii=False),
                 json.dumps(tender_types or [], ensure_ascii=False),
+                law_type,
+                purchase_stage,
+                purchase_method,
+                json.dumps(okpd2_codes or [], ensure_ascii=False),
+                min_deadline_days,
+                json.dumps(customer_keywords or [], ensure_ascii=False),
+                date_from, date_to,
                 now, now
             ))
 

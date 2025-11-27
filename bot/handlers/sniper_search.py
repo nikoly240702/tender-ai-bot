@@ -36,7 +36,12 @@ class FilterSearchStates(StatesGroup):
     """Состояния для создания фильтра с поиском."""
     waiting_for_filter_name = State()
     waiting_for_keywords = State()
+    waiting_for_exclude_keywords = State()
     waiting_for_price_range = State()
+    waiting_for_regions = State()
+    waiting_for_law_type = State()
+    waiting_for_purchase_stage = State()
+    waiting_for_tender_type = State()
     waiting_for_tender_count = State()
     confirm_auto_monitoring = State()
 
@@ -141,16 +146,73 @@ async def process_keywords_new(message: Message, state: FSMContext):
         return
 
     await state.update_data(keywords=keywords)
-    await state.set_state(FilterSearchStates.waiting_for_price_range)
+    await state.set_state(FilterSearchStates.waiting_for_exclude_keywords)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="skip_exclude_keywords")]
+    ])
 
     await message.answer(
         f"✅ Ключевые слова: <b>{', '.join(keywords)}</b>\n\n"
-        f"<b>Шаг 3/4:</b> Ценовой диапазон\n\n"
-        f"Введите диапазон цен в формате: <code>мин макс</code>\n"
-        f"Например: <code>100000 5000000</code> (от 100 тыс до 5 млн)\n\n"
-        f"Или отправьте <code>0</code> чтобы пропустить (все цены)",
+        f"<b>Шаг 3/9:</b> Исключающие слова\n\n"
+        f"Введите слова, которые НЕ должны быть в тендере:\n"
+        f"Например: <i>ремонт, б/у, аренда, лизинг</i>\n\n"
+        f"Или нажмите «Пропустить»",
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data == "skip_exclude_keywords")
+async def skip_exclude_keywords(callback: CallbackQuery, state: FSMContext):
+    """Пропуск исключающих слов."""
+    await callback.answer()
+    await state.update_data(exclude_keywords=[])
+    await ask_for_price_range(callback.message, state)
+
+
+@router.message(FilterSearchStates.waiting_for_exclude_keywords)
+async def process_exclude_keywords(message: Message, state: FSMContext):
+    """Обработка исключающих слов."""
+    exclude_input = message.text.strip()
+
+    if exclude_input:
+        exclude_keywords = [kw.strip() for kw in exclude_input.split(',') if kw.strip()]
+    else:
+        exclude_keywords = []
+
+    await state.update_data(exclude_keywords=exclude_keywords)
+    await ask_for_price_range(message, state)
+
+
+async def ask_for_price_range(message: Message, state: FSMContext):
+    """Запрос ценового диапазона."""
+    await state.set_state(FilterSearchStates.waiting_for_price_range)
+
+    data = await state.get_data()
+    exclude_text = f"❌ Исключаем: {', '.join(data.get('exclude_keywords', []))}\n\n" if data.get('exclude_keywords') else ""
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭️ Любая цена", callback_data="skip_price_range")]
+    ])
+
+    await message.answer(
+        f"{exclude_text}"
+        f"<b>Шаг 4/9:</b> Ценовой диапазон\n\n"
+        f"Введите диапазон цен в формате: <code>мин макс</code>\n"
+        f"Например: <code>100000 5000000</code> (от 100 тыс до 5 млн)\n\n"
+        f"Или нажмите «Любая цена»",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "skip_price_range")
+async def skip_price_range(callback: CallbackQuery, state: FSMContext):
+    """Пропуск ценового диапазона."""
+    await callback.answer()
+    await state.update_data(price_min=None, price_max=None)
+    await ask_for_regions(callback.message, state)
 
 
 @router.message(FilterSearchStates.waiting_for_price_range)
@@ -175,17 +237,180 @@ async def process_price_range_new(message: Message, state: FSMContext):
                 await message.answer("⚠️ Введите числа в формате: <code>мин макс</code>", parse_mode="HTML")
                 return
         else:
-            await message.answer("⚠️ Введите два числа через пробел или <code>0</code>", parse_mode="HTML")
+            await message.answer("⚠️ Введите два числа через пробел или нажмите «Любая цена»", parse_mode="HTML")
             return
 
     await state.update_data(price_min=price_min, price_max=price_max)
-    await state.set_state(FilterSearchStates.waiting_for_tender_count)
+    await ask_for_regions(message, state)
 
-    price_text = f"{price_min:,} - {price_max:,} ₽" if price_min and price_max else "Любая цена"
+
+async def ask_for_regions(message: Message, state: FSMContext):
+    """Запрос региона."""
+    await state.set_state(FilterSearchStates.waiting_for_regions)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏙️ Москва", callback_data="region_Москва")],
+        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="region_Санкт-Петербург")],
+        [InlineKeyboardButton(text="🏘️ Московская область", callback_data="region_Московская область")],
+        [InlineKeyboardButton(text="🌴 Краснодарский край", callback_data="region_Краснодарский край")],
+        [InlineKeyboardButton(text="🌍 Все регионы", callback_data="region_all")],
+        [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")]
+    ])
 
     await message.answer(
-        f"✅ Цена: <b>{price_text}</b>\n\n"
-        f"<b>Шаг 4/4:</b> Количество тендеров для поиска\n\n"
+        f"<b>Шаг 5/9:</b> Регион заказчика\n\n"
+        f"Выберите регион или введите название вручную:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("region_"))
+async def process_region_callback(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора региона."""
+    await callback.answer()
+
+    region_value = callback.data.replace("region_", "")
+
+    if region_value == "all":
+        await state.update_data(regions=[])
+        await ask_for_law_type(callback.message, state)
+    elif region_value == "custom":
+        await callback.message.answer(
+            "Введите название региона:\n"
+            "Например: <i>Новосибирская область</i>",
+            parse_mode="HTML"
+        )
+    else:
+        await state.update_data(regions=[region_value])
+        await ask_for_law_type(callback.message, state)
+
+
+@router.message(FilterSearchStates.waiting_for_regions)
+async def process_region_text(message: Message, state: FSMContext):
+    """Обработка текстового ввода региона."""
+    region = message.text.strip()
+    if region:
+        await state.update_data(regions=[region])
+    else:
+        await state.update_data(regions=[])
+    await ask_for_law_type(message, state)
+
+
+async def ask_for_law_type(message: Message, state: FSMContext):
+    """Запрос типа закона."""
+    await state.set_state(FilterSearchStates.waiting_for_law_type)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📜 44-ФЗ (госзакупки)", callback_data="law_44")],
+        [InlineKeyboardButton(text="📋 223-ФЗ (корпоративные)", callback_data="law_223")],
+        [InlineKeyboardButton(text="📚 Оба закона", callback_data="law_all")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 6/9:</b> Тип закона\n\n"
+        f"<b>44-ФЗ</b> — государственные закупки (бюджетные организации)\n"
+        f"<b>223-ФЗ</b> — закупки госкомпаний (Газпром, РЖД и др.)\n\n"
+        f"Выберите:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("law_"))
+async def process_law_type(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора типа закона."""
+    await callback.answer()
+
+    law_value = callback.data.replace("law_", "")
+    law_type = None
+    if law_value == "44":
+        law_type = "44-ФЗ"
+    elif law_value == "223":
+        law_type = "223-ФЗ"
+    # "all" оставляем None
+
+    await state.update_data(law_type=law_type)
+    await ask_for_purchase_stage(callback.message, state)
+
+
+async def ask_for_purchase_stage(message: Message, state: FSMContext):
+    """Запрос этапа закупки."""
+    await state.set_state(FilterSearchStates.waiting_for_purchase_stage)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Только подача заявок (актуальные)", callback_data="stage_submission")],
+        [InlineKeyboardButton(text="📊 Все этапы", callback_data="stage_all")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 7/9:</b> Этап закупки\n\n"
+        f"<b>Подача заявок</b> — можно подать заявку прямо сейчас\n"
+        f"<b>Все этапы</b> — включая завершённые и на рассмотрении\n\n"
+        f"💡 Рекомендуем «Только подача заявок»",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("stage_"))
+async def process_purchase_stage(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора этапа закупки."""
+    await callback.answer()
+
+    stage_value = callback.data.replace("stage_", "")
+    purchase_stage = "submission" if stage_value == "submission" else None
+
+    await state.update_data(purchase_stage=purchase_stage)
+    await ask_for_tender_type(callback.message, state)
+
+
+async def ask_for_tender_type(message: Message, state: FSMContext):
+    """Запрос типа закупки."""
+    await state.set_state(FilterSearchStates.waiting_for_tender_type)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📦 Товары (поставка)", callback_data="ttype_goods")],
+        [InlineKeyboardButton(text="🔧 Услуги", callback_data="ttype_services")],
+        [InlineKeyboardButton(text="🏗️ Работы", callback_data="ttype_works")],
+        [InlineKeyboardButton(text="🔍 Все типы", callback_data="ttype_all")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 8/9:</b> Тип закупки\n\n"
+        f"<b>Товары</b> — поставка продукции\n"
+        f"<b>Услуги</b> — обслуживание, консалтинг\n"
+        f"<b>Работы</b> — строительство, ремонт\n\n"
+        f"Выберите:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("ttype_"))
+async def process_tender_type(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора типа закупки."""
+    await callback.answer()
+
+    ttype_value = callback.data.replace("ttype_", "")
+    tender_types_map = {
+        "goods": ["товары"],
+        "services": ["услуги"],
+        "works": ["работы"],
+        "all": []
+    }
+    tender_types = tender_types_map.get(ttype_value, [])
+
+    await state.update_data(tender_types=tender_types)
+    await ask_for_tender_count(callback.message, state)
+
+
+async def ask_for_tender_count(message: Message, state: FSMContext):
+    """Запрос количества тендеров."""
+    await state.set_state(FilterSearchStates.waiting_for_tender_count)
+
+    await message.answer(
+        f"<b>Шаг 9/9:</b> Количество тендеров\n\n"
         f"Сколько тендеров найти?\n"
         f"Введите число от <code>1</code> до <code>25</code>\n\n"
         f"💡 Рекомендуем 10-15 для быстрого результата",
@@ -221,15 +446,18 @@ async def process_tender_count(message: Message, state: FSMContext):
         db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(message.from_user.id)
 
-        # 1. Сохраняем фильтр в БД
+        # 1. Сохраняем фильтр в БД с новыми критериями
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=data['filter_name'],
             keywords=data['keywords'],
+            exclude_keywords=data.get('exclude_keywords', []),
             price_min=data.get('price_min'),
             price_max=data.get('price_max'),
-            regions=[],  # Пока без регионов
-            tender_types=[]
+            regions=data.get('regions', []),
+            tender_types=data.get('tender_types', []),
+            law_type=data.get('law_type'),
+            purchase_stage=data.get('purchase_stage'),
         )
 
         # 2. AI расширение критериев
@@ -258,9 +486,13 @@ async def process_tender_count(message: Message, state: FSMContext):
             'id': filter_id,
             'name': data['filter_name'],
             'keywords': json.dumps(data['keywords'], ensure_ascii=False),
+            'exclude_keywords': json.dumps(data.get('exclude_keywords', []), ensure_ascii=False),
             'price_min': data.get('price_min'),
             'price_max': data.get('price_max'),
-            'regions': '[]'
+            'regions': json.dumps(data.get('regions', []), ensure_ascii=False),
+            'tender_types': json.dumps(data.get('tender_types', []), ensure_ascii=False),
+            'law_type': data.get('law_type'),
+            'purchase_stage': data.get('purchase_stage'),
         }
 
         search_results = await searcher.search_by_filter(

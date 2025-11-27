@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from bot.config import BotConfig
 from bot.handlers import start, search, history, admin, access_requests, sniper, sniper_search
@@ -93,6 +94,15 @@ async def main():
     try:
         # Удаляем старые webhook (если были)
         await bot.delete_webhook(drop_pending_updates=True)
+
+        # Устанавливаем команды бота
+        commands = [
+            BotCommand(command="start", description="🏠 Главное меню"),
+            BotCommand(command="sniper", description="🎯 Tender Sniper - поиск и мониторинг"),
+            BotCommand(command="help", description="❓ Справка"),
+        ]
+        await bot.set_my_commands(commands)
+        logger.info("✅ Команды бота установлены")
 
         # Запускаем polling
         logger.info("✅ Бот успешно запущен!")

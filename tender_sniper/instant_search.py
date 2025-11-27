@@ -56,6 +56,7 @@ class InstantSearch:
 
         # Парсим критерии
         original_keywords = json.loads(filter_data.get('keywords', '[]'))
+        exclude_keywords = json.loads(filter_data.get('exclude_keywords', '[]'))
 
         # Комбинируем оригинальные и расширенные ключевые слова
         # Приоритет: оригинальные ключевые слова ВСЕГДА используются
@@ -71,6 +72,9 @@ class InstantSearch:
         price_min = filter_data.get('price_min')
         price_max = filter_data.get('price_max')
         regions = json.loads(filter_data.get('regions', '[]'))
+        tender_types = json.loads(filter_data.get('tender_types', '[]'))
+        law_type = filter_data.get('law_type')
+        purchase_stage = filter_data.get('purchase_stage')
 
         # Формируем список поисковых запросов
         # Каждое оригинальное ключевое слово - отдельный запрос (OR логика)
@@ -85,6 +89,10 @@ class InstantSearch:
         logger.info(f"   🔑 Поисковые запросы ({len(search_queries)}): {', '.join(search_queries)}")
         logger.info(f"   💰 Цена: {price_min} - {price_max}")
         logger.info(f"   📍 Регионы: {regions if regions else 'Все'}")
+        logger.info(f"   📜 Закон: {law_type if law_type else 'Все'}")
+        logger.info(f"   📝 Этап: {purchase_stage if purchase_stage else 'Все'}")
+        if exclude_keywords:
+            logger.info(f"   ❌ Исключаем: {', '.join(exclude_keywords)}")
 
         try:
             # Выполняем ОТДЕЛЬНЫЙ поиск для каждого ключевого слова
@@ -97,18 +105,36 @@ class InstantSearch:
             for query in search_queries:
                 logger.info(f"   🔎 Поиск: '{query}'...")
 
+                # Определяем тип закупки для RSS
+                tender_type_for_rss = tender_types[0] if tender_types else None
+
                 results = self.parser.search_tenders_rss(
                     keywords=query,
                     price_min=price_min,
                     price_max=price_max,
                     regions=regions,
-                    max_results=results_per_query
+                    max_results=results_per_query,
+                    tender_type=tender_type_for_rss,
+                    law_type=law_type,
+                    purchase_stage=purchase_stage,
                 )
 
-                # Дедупликация по номеру тендера
+                # Дедупликация по номеру тендера + фильтрация исключающих слов
                 for tender in results:
                     number = tender.get('number')
                     if number and number not in seen_numbers:
+                        # Проверяем исключающие слова
+                        if exclude_keywords:
+                            tender_text = f"{tender.get('name', '')} {tender.get('summary', '')}".lower()
+                            skip = False
+                            for exclude_word in exclude_keywords:
+                                if exclude_word.lower() in tender_text:
+                                    logger.debug(f"      ⛔ Исключен (содержит '{exclude_word}'): {tender.get('name', '')[:50]}")
+                                    skip = True
+                                    break
+                            if skip:
+                                continue
+
                         seen_numbers.add(number)
                         all_results.append(tender)
 

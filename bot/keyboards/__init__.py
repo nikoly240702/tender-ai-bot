@@ -84,15 +84,11 @@ FEDERAL_DISTRICTS = {
 
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Главное меню бота."""
+    """Главное меню бота - Tender Sniper."""
     builder = ReplyKeyboardBuilder()
 
     builder.row(
-        KeyboardButton(text="🔍 Новый поиск"),
-        KeyboardButton(text="📂 Мои поиски")
-    )
-    builder.row(
-        KeyboardButton(text="ℹ️ Помощь")
+        KeyboardButton(text="🎯 Tender Sniper")
     )
 
     return builder.as_markup(resize_keyboard=True)
