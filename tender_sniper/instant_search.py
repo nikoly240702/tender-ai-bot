@@ -72,27 +72,54 @@ class InstantSearch:
         price_max = filter_data.get('price_max')
         regions = json.loads(filter_data.get('regions', '[]'))
 
-        # Формируем поисковый запрос - используем ВСЕ оригинальные + топ-3 расширенных
-        original_count = len(original_keywords)
-        expanded_count = min(3, len(keywords_to_search) - original_count)
-        search_keywords = keywords_to_search[:original_count + expanded_count]
-        search_query = ' '.join(search_keywords)
+        # Формируем список поисковых запросов
+        # Каждое оригинальное ключевое слово - отдельный запрос (OR логика)
+        # + добавляем топ-3 расширенных термина
+        search_queries = original_keywords.copy()
 
-        logger.info(f"   🔑 Поисковый запрос: {search_query}")
+        # Добавляем расширенные термины (если есть)
+        if expanded_keywords:
+            extra_keywords = [kw for kw in expanded_keywords if kw not in original_keywords][:3]
+            search_queries.extend(extra_keywords)
+
+        logger.info(f"   🔑 Поисковые запросы ({len(search_queries)}): {', '.join(search_queries)}")
         logger.info(f"   💰 Цена: {price_min} - {price_max}")
         logger.info(f"   📍 Регионы: {regions if regions else 'Все'}")
 
         try:
-            # Выполняем поиск через RSS feed (синхронный метод)
-            search_results = self.parser.search_tenders_rss(
-                keywords=search_query,
-                price_min=price_min,
-                price_max=price_max,
-                regions=regions,
-                max_results=max_tenders  # RSS может вернуть столько, сколько нужно
-            )
+            # Выполняем ОТДЕЛЬНЫЙ поиск для каждого ключевого слова
+            # Это OR логика - тендер найдётся если содержит ЛЮБОЕ из слов
+            all_results = []
+            seen_numbers = set()
 
-            logger.info(f"   ✅ Найдено тендеров: {len(search_results)}")
+            results_per_query = max(10, max_tenders // len(search_queries) + 5)
+
+            for query in search_queries:
+                logger.info(f"   🔎 Поиск: '{query}'...")
+
+                results = self.parser.search_tenders_rss(
+                    keywords=query,
+                    price_min=price_min,
+                    price_max=price_max,
+                    regions=regions,
+                    max_results=results_per_query
+                )
+
+                # Дедупликация по номеру тендера
+                for tender in results:
+                    number = tender.get('number')
+                    if number and number not in seen_numbers:
+                        seen_numbers.add(number)
+                        all_results.append(tender)
+
+                logger.info(f"      Найдено: {len(results)}, уникальных всего: {len(all_results)}")
+
+                # Достаточно результатов
+                if len(all_results) >= max_tenders:
+                    break
+
+            search_results = all_results[:max_tenders]
+            logger.info(f"   ✅ Итого найдено тендеров: {len(search_results)}")
 
             # Если RSS не вернул результатов - возвращаем пустой ответ
             if not search_results:
@@ -102,7 +129,8 @@ class InstantSearch:
                     'total_found': 0,
                     'matches': [],
                     'stats': {
-                        'search_query': search_query,
+                        'search_queries': search_queries,
+                        'search_query': ', '.join(search_queries),  # Для совместимости с HTML шаблоном
                         'expanded_keywords': expanded_keywords or [],
                         'original_keywords': original_keywords
                     }
@@ -113,7 +141,7 @@ class InstantSearch:
             temp_filter = {
                 'id': filter_data['id'],
                 'name': filter_data['name'],
-                'keywords': keywords_to_search,
+                'keywords': original_keywords,  # Используем оригинальные для матчинга
                 'price_min': price_min,
                 'price_max': price_max,
                 'regions': regions
@@ -140,7 +168,8 @@ class InstantSearch:
                 'total_found': len(search_results),
                 'matches': matches,
                 'stats': {
-                    'search_query': search_query,
+                    'search_queries': search_queries,
+                    'search_query': ', '.join(search_queries),  # Для совместимости с HTML шаблоном
                     'expanded_keywords': expanded_keywords or [],
                     'original_keywords': original_keywords,
                     'high_score_count': len([m for m in matches if m['match_score'] >= 70]),
