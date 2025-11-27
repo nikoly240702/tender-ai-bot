@@ -124,7 +124,7 @@ class InstantSearch:
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
                 # Проверяем что match_result не None
-                if match_result and match_result.get('score', 0) >= 40:  # Минимальный порог
+                if match_result and match_result.get('score', 0) >= 25:  # Минимальный порог (снижен для большего охвата)
                     tender_with_score = tender.copy()
                     tender_with_score['match_score'] = match_result['score']
                     tender_with_score['match_reasons'] = match_result.get('reasons', [])
@@ -133,7 +133,7 @@ class InstantSearch:
             # Сортируем по скору
             matches.sort(key=lambda x: x['match_score'], reverse=True)
 
-            logger.info(f"   🎯 Совпадений (score ≥ 40): {len(matches)}")
+            logger.info(f"   🎯 Совпадений (score ≥ 25): {len(matches)}")
 
             return {
                 'tenders': search_results,
@@ -226,6 +226,14 @@ class InstantSearch:
                 f"• {reason}" for reason in tender.get('match_reasons', [])
             ])
 
+            # Форматируем цену
+            price_display = tender.get('price_formatted') or tender.get('price', 'Не указана')
+            if isinstance(price_display, (int, float)):
+                price_display = f"{price_display:,.0f} ₽".replace(',', ' ')
+
+            # Форматируем дату
+            published = tender.get('published', '') or tender.get('published_date', 'Н/Д')
+
             tenders_html += f"""
             <div class="tender-card">
                 <div class="tender-header">
@@ -234,14 +242,12 @@ class InstantSearch:
                 </div>
                 <h3 class="tender-title">{tender.get('name', 'Без названия')}</h3>
                 <div class="tender-details">
-                    <p><strong>Заказчик:</strong> {tender.get('customer_name', 'Н/Д')}</p>
-                    <p><strong>НМЦК:</strong> {tender.get('price', 'Не указана')} ₽</p>
-                    <p><strong>Размещено:</strong> {tender.get('published_date', 'Н/Д')}</p>
-                    {f'<p><strong>Регион:</strong> {tender.get("region", "Н/Д")}</p>' if tender.get('region') else ''}
+                    <p><strong>НМЦК:</strong> {price_display}</p>
+                    <p><strong>Размещено:</strong> {published}</p>
                 </div>
                 <div class="match-reasons">
                     <strong>Причины совпадения:</strong><br>
-                    {reasons_html}
+                    {reasons_html if reasons_html else '• Найдено по ключевым словам'}
                 </div>
                 <div class="tender-actions">
                     <a href="{tender.get('url', '#')}" target="_blank" class="btn-primary">Открыть на zakupki.gov.ru</a>
