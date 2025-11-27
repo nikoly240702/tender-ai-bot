@@ -416,9 +416,14 @@ class ZakupkiRSSParser:
         try:
             summary = entry.get('summary', '')
 
+            # Получаем URL и делаем его абсолютным
+            url = entry.get('link', '')
+            if url and not url.startswith('http'):
+                url = f"{self.BASE_URL}{url}"
+
             tender = {
                 'name': entry.get('title', ''),
-                'url': entry.get('link', ''),
+                'url': url,
                 'published': entry.get('published', ''),
                 'summary': summary,
             }
