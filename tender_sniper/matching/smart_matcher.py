@@ -72,7 +72,8 @@ class SmartMatcher:
         tender_description = tender.get('description', '') or tender.get('summary', '')
         tender_description = tender_description.lower()
         tender_price = tender.get('price')
-        tender_region = tender.get('region', '').lower()
+        # Регион может быть в разных полях
+        tender_region = (tender.get('region', '') or tender.get('customer_region', '') or '').lower()
         tender_type = tender.get('purchase_type', '') or tender.get('tender_type', '')
         tender_type = tender_type.lower()
         customer_name = tender.get('customer_name', '') or tender.get('customer', '')
@@ -106,8 +107,9 @@ class SmartMatcher:
                 logger.debug(f"   ⛔ Цена слишком высокая: {tender_price} > {price_max}")
                 return None
 
-        # Проверка региона
-        if regions:
+        # Проверка региона (не строгая - не отклоняем если регион не указан в тендере)
+        # RSS уже фильтрует по региону, здесь только дополнительная проверка
+        if regions and tender_region:
             region_match = False
             for region in regions:
                 if region.lower() in tender_region:
@@ -116,10 +118,12 @@ class SmartMatcher:
 
             if not region_match:
                 logger.debug(f"   ⛔ Регион не подходит: {tender_region}")
-                return None
+                # Не отклоняем полностью, т.к. RSS уже отфильтровал
+                # return None
 
-        # Проверка типа тендера
-        if tender_types:
+        # Проверка типа тендера (не строгая - не отклоняем если тип не указан)
+        # RSS/клиентская фильтрация уже проверили тип
+        if tender_types and tender_type:
             type_match = False
             for t_type in tender_types:
                 if t_type.lower() in tender_type:
@@ -128,7 +132,8 @@ class SmartMatcher:
 
             if not type_match:
                 logger.debug(f"   ⛔ Тип тендера не подходит: {tender_type}")
-                return None
+                # Не отклоняем полностью
+                # return None
 
         # ============================================
         # 3. SCORING ПО КЛЮЧЕВЫМ СЛОВАМ
