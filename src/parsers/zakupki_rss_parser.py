@@ -246,43 +246,89 @@ class ZakupkiRSSParser:
                 if not tender:
                     continue
 
-                # Client-side фильтрация по типу закупки (если указан)
+                # Client-side СТРОГАЯ фильтрация по типу закупки (если указан)
                 if tender_type == "товары":
-                    # Для товаров используем более умную фильтрацию
-                    # Проверяем наличие ключевых слов в названии и описании
+                    # СТРОГАЯ фильтрация для товаров - исключаем все услуги и работы
                     name_lower = tender.get('name', '').lower()
                     summary_lower = tender.get('summary', '').lower()
+                    full_text = name_lower + ' ' + summary_lower
+
+                    # Индикаторы услуг/работ - если они есть, это НЕ товары
+                    service_work_indicators = [
+                        'оказание услуг', 'выполнение работ', 'проведение работ',
+                        'оказание услуги', 'выполнение услуг',
+                        'ремонт', 'монтаж', 'установка', 'обслуживание',
+                        'консультирование', 'разработка', 'проектирование',
+                        'техническое обслуживание', 'техобслуживание',
+                        'услуги по', 'работы по', 'сервисное обслуживание',
+                        'медицинские услуги', 'медицинская помощь',
+                        'сопровождение', 'настройка', 'наладка'
+                    ]
+
+                    # СТРОГАЯ проверка: если есть индикатор услуг/работ - отфильтровываем
+                    is_service_or_work = False
+                    for indicator in service_work_indicators:
+                        if indicator in full_text:
+                            filtered_count += 1
+                            print(f"   ⛔ Отфильтрован (услуга/работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                            is_service_or_work = True
+                            break
+                    if is_service_or_work:
+                        continue
+
+                elif tender_type == "услуги":
+                    # СТРОГАЯ фильтрация для услуг - исключаем товары и работы
+                    name_lower = tender.get('name', '').lower()
+                    summary_lower = tender.get('summary', '').lower()
+                    full_text = name_lower + ' ' + summary_lower
+
+                    # Индикаторы товаров - если они есть явно, это НЕ услуги
+                    goods_indicators = [
+                        'поставка товар', 'закупка товар', 'приобретение товар',
+                        'поставка оборудования', 'закупка оборудования',
+                        'поставка материал', 'закупка материал'
+                    ]
+                    # Индикаторы работ
+                    work_indicators = [
+                        'выполнение работ', 'строительные работы', 'ремонт',
+                        'строительство', 'реконструкция'
+                    ]
+
+                    is_goods_or_work = False
+                    for indicator in goods_indicators + work_indicators:
+                        if indicator in full_text:
+                            filtered_count += 1
+                            print(f"   ⛔ Отфильтрован (не услуга, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                            is_goods_or_work = True
+                            break
+                    if is_goods_or_work:
+                        continue
+
+                elif tender_type == "работы":
+                    # СТРОГАЯ фильтрация для работ - исключаем товары и услуги
+                    name_lower = tender.get('name', '').lower()
+                    summary_lower = tender.get('summary', '').lower()
+                    full_text = name_lower + ' ' + summary_lower
 
                     # Индикаторы товаров
                     goods_indicators = [
-                        'поставка', 'закупка', 'приобретение', 'покупка',
-                        'товар', 'оборудовани', 'материал', 'изделие',
-                        'продукция', 'комплект', 'партия'
+                        'поставка товар', 'закупка товар', 'приобретение товар',
+                        'поставка оборудования', 'закупка оборудования'
                     ]
-
-                    # Индикаторы НЕ товаров (услуги/работы)
+                    # Индикаторы услуг
                     service_indicators = [
-                        'оказание услуг', 'выполнение работ', 'проведение работ',
-                        'ремонт', 'монтаж', 'установка', 'обслуживание',
-                        'консультирование', 'разработка', 'проектирование'
+                        'оказание услуг', 'медицинские услуги', 'консультирование',
+                        'услуги по', 'сопровождение'
                     ]
 
-                    # Проверяем индикаторы
-                    has_goods_indicator = any(ind in name_lower or ind in summary_lower for ind in goods_indicators)
-                    has_service_indicator = any(ind in name_lower or ind in summary_lower for ind in service_indicators)
-
-                    # Фильтруем только явные услуги/работы
-                    if has_service_indicator and not has_goods_indicator:
-                        filtered_count += 1
-                        print(f"   ⚠️ Отфильтрован (услуга/работа): {tender.get('name', '')[:50]}...")
-                        continue
-
-                elif tender_type:
-                    # Для других типов используем старую логику
-                    detected_type = tender.get('tender_type')
-                    if detected_type and detected_type != tender_type:
-                        filtered_count += 1
-                        print(f"   ⚠️ Отфильтрован: {detected_type} != {tender_type}")
+                    is_goods_or_service = False
+                    for indicator in goods_indicators + service_indicators:
+                        if indicator in full_text:
+                            filtered_count += 1
+                            print(f"   ⛔ Отфильтрован (не работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                            is_goods_or_service = True
+                            break
+                    if is_goods_or_service:
                         continue
 
                 tenders.append(tender)
@@ -635,15 +681,8 @@ class ZakupkiRSSParser:
             return tender
 
         try:
-            # Создаем сессию для запроса
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'ru-RU,ru;q=0.9,en;q=0.8',
-            })
-
-            response = session.get(url, timeout=15, verify=False)
+            # Используем self.session (уже настроена с прокси)
+            response = self.session.get(url, timeout=15, verify=False)
             response.raise_for_status()
 
             html_content = response.text
