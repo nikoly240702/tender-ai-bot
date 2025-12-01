@@ -678,7 +678,10 @@ class ZakupkiRSSParser:
         """
         url = tender.get('url', '')
         if not url:
+            print(f"   ⚠️ Обогащение: URL отсутствует, пропускаем")
             return tender
+
+        print(f"   🌐 Загружаем страницу тендера: {url[:80]}...")
 
         try:
             # Используем self.session (уже настроена с прокси)
@@ -712,6 +715,9 @@ class ZakupkiRSSParser:
                 customer = self._extract_customer_from_page(html_content)
                 if customer:
                     tender['customer'] = customer
+
+            # Логируем что было извлечено
+            print(f"   ✅ Обогащено: цена={tender.get('price', 'Н/Д')}, дедлайн={tender.get('submission_deadline', 'Н/Д')}, регион={tender.get('customer_region', 'Н/Д')}")
 
         except requests.exceptions.Timeout:
             print(f"   ⏱️ Таймаут при загрузке страницы тендера")
