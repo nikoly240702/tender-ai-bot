@@ -686,13 +686,13 @@ class ZakupkiRSSParser:
     def _extract_price_from_page(self, html: str) -> Optional[float]:
         """Извлекает НМЦК из HTML страницы тендера."""
         patterns = [
-            # Паттерн для блока с ценой
-            r'Начальная.*?максимальная.*?цена.*?контракта.*?</span>\s*<span[^>]*>([0-9\s,\.]+)',
-            r'Начальная.*?цена.*?контракта.*?</td>\s*<td[^>]*>([0-9\s,\.]+)',
-            r'НМЦК.*?</td>\s*<td[^>]*>([0-9\s,\.]+)',
-            r'Начальная.*?цена[^<]*</span>\s*<span[^>]*>([0-9\s,\.]+)',
-            # Общий паттерн
-            r'([0-9]{1,3}(?:\s?[0-9]{3})*[,\.][0-9]{2})\s*(?:₽|руб|RUB)',
+            # Реальный паттерн zakupki.gov.ru: section__title + section__info
+            r'Максимальное значение цены контракта\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([0-9\s,\.]+)',
+            # Паттерн из хедера карточки (cardMainInfo)
+            r'Начальная цена.*?cardMainInfo__content[^>]*>\s*([0-9\s,\.]+)',
+            r'cardMainInfo__title[^>]*>\s*Начальная цена.*?cardMainInfo__content[^>]*>\s*([0-9\s,\.]+)',
+            # Альтернативный паттерн
+            r'Начальная \(максимальная\) цена контракта.*?section__info[^>]*>\s*([0-9\s,\.]+)',
         ]
 
         for pattern in patterns:
@@ -712,24 +712,30 @@ class ZakupkiRSSParser:
 
     def _extract_deadline_from_page(self, html: str) -> Optional[str]:
         """Извлекает дату окончания подачи заявок из HTML страницы."""
-        patterns = [
-            # Точный паттерн для zakupki.gov.ru
-            r'Дата и время окончания срока подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
-            r'Окончание срока подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
-            r'Дата окончания подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
-            r'Окончание подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
-            # Более общий паттерн
-            r'подач[аи] заявок.*?до.*?(\d{2}\.\d{2}\.\d{4})\s*(\d{2}:\d{2})?',
+        # Сначала пробуем найти с временем
+        patterns_with_time = [
+            # Реальный паттерн zakupki.gov.ru: section__title + section__info
+            r'Дата и время окончания срока подачи заявок\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})',
+            # Альтернативный паттерн
+            r'окончания срока подачи заявок.*?(\d{2}\.\d{2}\.\d{4})\s+(\d{2}:\d{2})',
         ]
 
-        for pattern in patterns:
+        for pattern in patterns_with_time:
             match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
             if match:
-                date_part = match.group(1)
-                time_part = match.group(2) if match.lastindex >= 2 and match.group(2) else ''
-                if time_part:
-                    return f"{date_part} {time_part}"
-                return date_part
+                return f"{match.group(1)} {match.group(2)}"
+
+        # Если не нашли с временем - ищем только дату (из хедера cardMainInfo)
+        patterns_date_only = [
+            # Паттерн из хедера карточки (cardMainInfo) - там только дата без времени
+            r'Окончание подачи заявок\s*</span>\s*<span[^>]*cardMainInfo__content[^>]*>\s*(\d{2}\.\d{2}\.\d{4})',
+            r'cardMainInfo__title[^>]*>\s*Окончание подачи заявок\s*</span>\s*<span[^>]*>\s*(\d{2}\.\d{2}\.\d{4})',
+        ]
+
+        for pattern in patterns_date_only:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                return match.group(1)
 
         return None
 
@@ -737,15 +743,17 @@ class ZakupkiRSSParser:
         """
         Извлекает почтовый адрес заказчика и парсит его на город и регион.
 
-        Пример входа: "Российская Федерация, 361045, Кабардино-Балкарская Респ, Прохладный г, Гагарина, Д.47"
-        Пример выхода: {"city": "г. Прохладный", "region": "Кабардино-Балкарская Республика", "full_address": "..."}
+        Пример входа: "670000, Респ Бурятия, г Улан-Удэ, ул Ленина, дом 30"
+        Пример выхода: {"city": "г. Улан-Удэ", "region": "Республика Бурятия", "full_address": "..."}
         """
-        # Ищем блок с почтовым адресом
+        # Ищем блок с почтовым адресом - реальный паттерн zakupki.gov.ru
         patterns = [
-            r'Почтовый адрес.*?</td>\s*<td[^>]*>([^<]+)',
-            r'Почтовый адрес.*?</span>\s*<span[^>]*>([^<]+)',
-            r'Адрес.*?места нахождения.*?</td>\s*<td[^>]*>([^<]+)',
-            r'Место нахождения.*?</td>\s*<td[^>]*>([^<]+)',
+            # section__title + section__info (реальная структура)
+            r'Почтовый адрес\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            r'section__title[^>]*>Почтовый адрес</span>\s*<span[^>]*section__info[^>]*>\s*([^<]+)',
+            # Место нахождения как альтернатива
+            r'Место нахождения\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            r'section__title[^>]*>Место нахождения</span>\s*<span[^>]*section__info[^>]*>\s*([^<]+)',
         ]
 
         address = None
@@ -756,7 +764,8 @@ class ZakupkiRSSParser:
                 # Очищаем от HTML-сущностей
                 address = re.sub(r'&[a-z]+;', ' ', address)
                 address = re.sub(r'\s+', ' ', address).strip()
-                break
+                if len(address) > 10:  # Минимальная валидация
+                    break
 
         if not address:
             return None
@@ -787,16 +796,22 @@ class ZakupkiRSSParser:
         for part in parts:
             part_lower = part.lower()
 
-            # Ищем город
-            if ' г' in part_lower or part_lower.endswith(' г') or 'город' in part_lower:
-                # Извлекаем название города
+            # Ищем город (форматы: "г Улан-Удэ", "Улан-Удэ г", "город Улан-Удэ", "г. Улан-Удэ")
+            if ' г' in part_lower or part_lower.startswith('г ') or part_lower.startswith('г.') or part_lower.endswith(' г') or 'город' in part_lower:
+                # Паттерн 1: город в конце (напр: "Прохладный г")
                 city_match = re.search(r'([А-Яа-яЁё\-]+)\s*г(?:ород)?\.?$', part, re.IGNORECASE)
                 if city_match:
                     city = f"г. {city_match.group(1).strip()}"
                 else:
-                    city_match = re.search(r'г(?:ород)?\.?\s*([А-Яа-яЁё\-]+)', part, re.IGNORECASE)
+                    # Паттерн 2: город в начале (напр: "г Улан-Удэ", "г. Москва")
+                    city_match = re.search(r'^г\.?\s*([А-Яа-яЁё\-]+)', part, re.IGNORECASE)
                     if city_match:
                         city = f"г. {city_match.group(1).strip()}"
+                    else:
+                        # Паттерн 3: "город Название"
+                        city_match = re.search(r'город\s+([А-Яа-яЁё\-]+)', part, re.IGNORECASE)
+                        if city_match:
+                            city = f"г. {city_match.group(1).strip()}"
 
             # Ищем регион (республика, область, край)
             if any(word in part_lower for word in ['респ', 'область', 'обл', 'край', 'округ']):
@@ -840,11 +855,14 @@ class ZakupkiRSSParser:
         return result
 
     def _extract_customer_from_page(self, html: str) -> Optional[str]:
-        """Извлекает название заказчика из HTML страницы."""
+        """Извлекает название заказчика/организации из HTML страницы."""
         patterns = [
-            r'Наименование.*?заказчика.*?</td>\s*<td[^>]*>([^<]+)',
-            r'Заказчик.*?</td>\s*<td[^>]*>([^<]+)',
-            r'Наименование организации.*?</td>\s*<td[^>]*>([^<]+)',
+            # Организация, осуществляющая размещение (из хедера cardMainInfo)
+            r'Организация,\s*осуществляющая\s*размещение.*?cardMainInfo__content[^>]*>\s*(?:<a[^>]*>)?([^<]+)',
+            # section__info вариант
+            r'Организация,\s*осуществляющая\s*размещение\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            # Прямой заказчик
+            r'Наименование.*?заказчика.*?section__info[^>]*>\s*([^<]+)',
         ]
 
         for pattern in patterns:
@@ -852,7 +870,8 @@ class ZakupkiRSSParser:
             if match:
                 customer = match.group(1).strip()
                 customer = re.sub(r'\s+', ' ', customer)
-                if len(customer) > 5:  # Минимальная валидация
+                # Валидация: минимум 10 символов, не цифры
+                if len(customer) > 10 and not customer.replace(' ', '').replace(',', '').replace('.', '').isdigit():
                     return customer
 
         return None
