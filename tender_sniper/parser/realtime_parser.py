@@ -180,11 +180,16 @@ class RealtimeParser:
 
             logger.info(f"   ✅ Получено тендеров: {len(tenders)}")
 
+            # Debug: показываем первые 3 номера тендеров для отслеживания
+            if tenders:
+                sample_numbers = [t.get('number', 'N/A')[:10] + '...' for t in tenders[:3]]
+                logger.info(f"   🔍 Образец номеров: {', '.join(sample_numbers)}")
+
             # Фильтруем новые тендеры
             new_tenders = self._filter_new_tenders(tenders)
 
             if not new_tenders:
-                logger.info("   ℹ️  Все тендеры уже были обработаны ранее")
+                logger.info(f"   ℹ️  Все тендеры уже были обработаны ранее (кеш: {len(self.seen_tenders)} тендеров)")
                 return
 
             logger.info(f"   🆕 Новых тендеров: {len(new_tenders)}")
