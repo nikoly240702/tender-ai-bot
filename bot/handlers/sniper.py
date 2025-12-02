@@ -29,8 +29,16 @@ class SniperStates(StatesGroup):
     """Состояния для FSM управления фильтрами."""
     waiting_for_filter_name = State()
     waiting_for_keywords = State()
+    waiting_for_exclude_keywords = State()
     waiting_for_price_range = State()
     waiting_for_regions = State()
+    waiting_for_law_type = State()
+    waiting_for_purchase_stage = State()
+    waiting_for_purchase_method = State()
+    waiting_for_tender_type = State()
+    waiting_for_okpd2 = State()
+    waiting_for_min_deadline = State()
+    waiting_for_customer_keywords = State()
 
 
 # ============================================

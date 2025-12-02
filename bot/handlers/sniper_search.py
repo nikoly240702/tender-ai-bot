@@ -54,6 +54,64 @@ class FilterSearchStates(StatesGroup):
 # НОВЫЙ WORKFLOW: СОЗДАНИЕ ФИЛЬТРА + ПОИСК
 # ============================================
 
+@router.callback_query(F.data == "sniper_create_filter")
+async def start_create_filter_only(callback: CallbackQuery, state: FSMContext):
+    """Создание фильтра БЕЗ мгновенного поиска (сразу активен)."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+
+        # Получаем или создаем пользователя
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not user:
+            await db.create_or_update_user(
+                telegram_id=callback.from_user.id,
+                username=callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                subscription_tier='free'
+            )
+            user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        # Проверяем квоту на фильтры
+        filters = await db.get_active_filters(user['id'])
+        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+        max_filters = plan_limits.get('max_filters', 5)
+
+        if len(filters) >= max_filters:
+            await callback.message.edit_text(
+                f"⚠️ <b>Достигнут лимит фильтров</b>\n\n"
+                f"Ваш тариф <b>{user['subscription_tier'].title()}</b> позволяет создать максимум {max_filters} фильтров.\n"
+                f"У вас уже создано: {len(filters)}\n\n"
+                f"Удалите старые фильтры или обновите подписку.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                ])
+            )
+            return
+
+        # Сохраняем что это создание БЕЗ instant search
+        await state.update_data(with_instant_search=False)
+
+        # Запускаем процесс создания фильтра
+        await state.set_state(FilterSearchStates.waiting_for_filter_name)
+
+        await callback.message.edit_text(
+            "➕ <b>Создание фильтра для автомониторинга</b>\n\n"
+            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "Придумайте короткое название для вашего фильтра.\n"
+            "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
+            "💡 Это название поможет вам управлять фильтрами в будущем.\n\n"
+            "🔔 Фильтр будет сразу активен для мониторинга.",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Error starting filter creation: {e}", exc_info=True)
+        await callback.message.answer("❌ Произошла ошибка. Попробуйте позже.")
+
+
 @router.callback_query(F.data == "sniper_new_search")
 async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
     """Начало нового workflow: создание фильтра + мгновенный поиск."""
@@ -90,6 +148,9 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
                 ])
             )
             return
+
+        # Сохраняем что это поиск с instant search
+        await state.update_data(with_instant_search=True)
 
         # Запускаем процесс создания фильтра
         await state.set_state(FilterSearchStates.waiting_for_filter_name)
@@ -617,20 +678,29 @@ async def process_tender_count(message: Message, state: FSMContext):
 
     # Получаем все данные
     data = await state.get_data()
+    with_instant_search = data.get('with_instant_search', True)
 
     # Показываем прогресс
-    progress_msg = await message.answer(
-        "🔄 <b>Обработка вашего запроса...</b>\n\n"
-        "⏳ Шаг 1/4: Сохранение фильтра...",
-        parse_mode="HTML"
-    )
+    if with_instant_search:
+        progress_msg = await message.answer(
+            "🔄 <b>Обработка вашего запроса...</b>\n\n"
+            "⏳ Шаг 1/4: Сохранение фильтра...",
+            parse_mode="HTML"
+        )
+    else:
+        progress_msg = await message.answer(
+            "🔄 <b>Создание фильтра...</b>\n\n"
+            "⏳ Сохранение...",
+            parse_mode="HTML"
+        )
 
     try:
         db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(message.from_user.id)
 
         # 1. Сохраняем фильтр в БД с новыми критериями
-        # active=0 - фильтр неактивен до подтверждения пользователем
+        # active=0 для with_instant_search (требует подтверждения)
+        # active=1 для прямого создания (сразу активен)
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=data['filter_name'],
@@ -646,123 +716,167 @@ async def process_tender_count(message: Message, state: FSMContext):
             okpd2_codes=data.get('okpd2_codes', []),
             min_deadline_days=data.get('min_deadline_days'),
             customer_keywords=data.get('customer_keywords', []),
-            active=0  # Фильтр неактивен до явного включения мониторинга
+            active=0 if with_instant_search else 1  # Активен только если без поиска
         )
 
-        # 2. AI расширение критериев
-        await progress_msg.edit_text(
-            "🔄 <b>Обработка вашего запроса...</b>\n\n"
-            "✅ Шаг 1/4: Фильтр сохранен\n"
-            "⏳ Шаг 2/4: AI расширяет критерии поиска...",
-            parse_mode="HTML"
-        )
+        # РЕЖИМ 1: С мгновенным поиском
+        if with_instant_search:
+            # 2. AI расширение критериев
+            await progress_msg.edit_text(
+                "🔄 <b>Обработка вашего запроса...</b>\n\n"
+                "✅ Шаг 1/4: Фильтр сохранен\n"
+                "⏳ Шаг 2/4: AI расширяет критерии поиска...",
+                parse_mode="HTML"
+            )
 
-        expander = QueryExpander()
-        expansion = await expander.expand_keywords(data['keywords'])
-        expanded_keywords = expansion.get('expanded_keywords', [])
+            expander = QueryExpander()
+            expansion = await expander.expand_keywords(data['keywords'])
+            expanded_keywords = expansion.get('expanded_keywords', [])
 
-        # 3. Мгновенный поиск
-        await progress_msg.edit_text(
-            "🔄 <b>Обработка вашего запроса...</b>\n\n"
-            "✅ Шаг 1/4: Фильтр сохранен\n"
-            "✅ Шаг 2/4: AI расширил запрос (+{} терминов)\n"
-            "⏳ Шаг 3/4: Поиск тендеров на zakupki.gov.ru...".format(len(expanded_keywords)),
-            parse_mode="HTML"
-        )
+            # 3. Мгновенный поиск
+            await progress_msg.edit_text(
+                "🔄 <b>Обработка вашего запроса...</b>\n\n"
+                "✅ Шаг 1/4: Фильтр сохранен\n"
+                "✅ Шаг 2/4: AI расширил запрос (+{} терминов)\n"
+                "⏳ Шаг 3/4: Поиск тендеров на zakupki.gov.ru...".format(len(expanded_keywords)),
+                parse_mode="HTML"
+            )
 
-        searcher = InstantSearch()
-        filter_data = {
-            'id': filter_id,
-            'name': data['filter_name'],
-            'keywords': json.dumps(data['keywords'], ensure_ascii=False),
-            'exclude_keywords': json.dumps(data.get('exclude_keywords', []), ensure_ascii=False),
-            'price_min': data.get('price_min'),
-            'price_max': data.get('price_max'),
-            'regions': json.dumps(data.get('regions', []), ensure_ascii=False),
-            'tender_types': json.dumps(data.get('tender_types', []), ensure_ascii=False),
-            'law_type': data.get('law_type'),
-            'purchase_stage': data.get('purchase_stage'),
-            'purchase_method': data.get('purchase_method'),
-            'okpd2_codes': json.dumps(data.get('okpd2_codes', []), ensure_ascii=False),
-            'min_deadline_days': data.get('min_deadline_days'),
-            'customer_keywords': json.dumps(data.get('customer_keywords', []), ensure_ascii=False),
-        }
+            searcher = InstantSearch()
+            filter_data = {
+                'id': filter_id,
+                'name': data['filter_name'],
+                'keywords': json.dumps(data['keywords'], ensure_ascii=False),
+                'exclude_keywords': json.dumps(data.get('exclude_keywords', []), ensure_ascii=False),
+                'price_min': data.get('price_min'),
+                'price_max': data.get('price_max'),
+                'regions': json.dumps(data.get('regions', []), ensure_ascii=False),
+                'tender_types': json.dumps(data.get('tender_types', []), ensure_ascii=False),
+                'law_type': data.get('law_type'),
+                'purchase_stage': data.get('purchase_stage'),
+                'purchase_method': data.get('purchase_method'),
+                'okpd2_codes': json.dumps(data.get('okpd2_codes', []), ensure_ascii=False),
+                'min_deadline_days': data.get('min_deadline_days'),
+                'customer_keywords': json.dumps(data.get('customer_keywords', []), ensure_ascii=False),
+            }
 
-        search_results = await searcher.search_by_filter(
-            filter_data=filter_data,
-            max_tenders=count,
-            expanded_keywords=expanded_keywords
-        )
+            search_results = await searcher.search_by_filter(
+                filter_data=filter_data,
+                max_tenders=count,
+                expanded_keywords=expanded_keywords
+            )
 
-        # 4. Генерация HTML отчета
-        await progress_msg.edit_text(
-            "🔄 <b>Обработка вашего запроса...</b>\n\n"
-            "✅ Шаг 1/4: Фильтр сохранен\n"
-            "✅ Шаг 2/4: AI расширил запрос (+{} терминов)\n"
-            "✅ Шаг 3/4: Найдено {} тендеров\n"
-            "⏳ Шаг 4/4: Генерация HTML отчета...".format(
-                len(expanded_keywords),
-                search_results['total_found']
-            ),
-            parse_mode="HTML"
-        )
+            # 4. Генерация HTML отчета
+            await progress_msg.edit_text(
+                "🔄 <b>Обработка вашего запроса...</b>\n\n"
+                "✅ Шаг 1/4: Фильтр сохранен\n"
+                "✅ Шаг 2/4: AI расширил запрос (+{} терминов)\n"
+                "✅ Шаг 3/4: Найдено {} тендеров\n"
+                "⏳ Шаг 4/4: Генерация HTML отчета...".format(
+                    len(expanded_keywords),
+                    search_results['total_found']
+                ),
+                parse_mode="HTML"
+            )
 
-        report_path = await searcher.generate_html_report(
-            search_results=search_results,
-            filter_data=filter_data
-        )
+            report_path = await searcher.generate_html_report(
+                search_results=search_results,
+                filter_data=filter_data
+            )
 
-        # Получаем лимиты тарифа для отображения
-        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+            # Получаем лимиты тарифа для отображения
+            plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
 
-        # Отправляем результаты
-        await progress_msg.edit_text(
-            "✅ <b>Готово!</b>\n\n"
-            f"📊 Найдено тендеров: {search_results['total_found']}\n"
-            f"🎯 Релевантных: {len(search_results['matches'])}\n"
-            f"🔥 Отличных (≥70): {search_results['stats'].get('high_score_count', 0)}\n\n"
-            f"📄 Отправляю HTML отчет...",
-            parse_mode="HTML"
-        )
+            # Отправляем результаты
+            await progress_msg.edit_text(
+                "✅ <b>Готово!</b>\n\n"
+                f"📊 Найдено тендеров: {search_results['total_found']}\n"
+                f"🎯 Релевантных: {len(search_results['matches'])}\n"
+                f"🔥 Отличных (≥70): {search_results['stats'].get('high_score_count', 0)}\n\n"
+                f"📄 Отправляю HTML отчет...",
+                parse_mode="HTML"
+            )
 
-        # Отправляем HTML файл
-        await message.answer_document(
-            document=FSInputFile(report_path),
-            caption=(
-                f"📊 <b>Результаты поиска</b>\n\n"
-                f"Фильтр: <b>{data['filter_name']}</b>\n"
-                f"Найдено: {search_results['total_found']} тендеров\n\n"
-                f"🤖 AI расширил ваш запрос с {len(data['keywords'])} до {len(data['keywords']) + len(expanded_keywords)} терминов"
-            ),
-            parse_mode="HTML"
-        )
+            # Отправляем HTML файл
+            await message.answer_document(
+                document=FSInputFile(report_path),
+                caption=(
+                    f"📊 <b>Результаты поиска</b>\n\n"
+                    f"Фильтр: <b>{data['filter_name']}</b>\n"
+                    f"Найдено: {search_results['total_found']} тендеров\n\n"
+                    f"🤖 AI расширил ваш запрос с {len(data['keywords'])} до {len(data['keywords']) + len(expanded_keywords)} терминов"
+                ),
+                parse_mode="HTML"
+            )
 
-        # Предлагаем включить автоматический мониторинг
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(
-                text="🔔 Включить автомониторинг",
-                callback_data=f"enable_monitoring_{filter_id}"
-            )],
-            [InlineKeyboardButton(
-                text="📋 Мои фильтры",
-                callback_data="sniper_my_filters"
-            )],
-            [InlineKeyboardButton(
-                text="🎯 Новый поиск",
-                callback_data="sniper_new_search"
-            )]
-        ])
+            # Предлагаем включить автоматический мониторинг
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="🔔 Включить автомониторинг",
+                    callback_data=f"enable_monitoring_{filter_id}"
+                )],
+                [InlineKeyboardButton(
+                    text="📋 Мои фильтры",
+                    callback_data="sniper_my_filters"
+                )],
+                [InlineKeyboardButton(
+                    text="🎯 Новый поиск",
+                    callback_data="sniper_new_search"
+                )]
+            ])
 
-        await message.answer(
-            "💡 <b>Хотите получать автоматические уведомления?</b>\n\n"
-            "Включите автоматический мониторинг, и бот будет присылать вам\n"
-            "уведомления о новых тендерах по этим критериям каждые 5 минут.\n\n"
-            f"🆓 Ваш лимит: {plan_limits.get('max_notifications_daily', 10)} уведомлений в день",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+            await message.answer(
+                "💡 <b>Хотите получать автоматические уведомления?</b>\n\n"
+                "Включите автоматический мониторинг, и бот будет присылать вам\n"
+                "уведомления о новых тендерах по этим критериям каждые 5 минут.\n\n"
+                f"🆓 Ваш лимит: {plan_limits.get('max_notifications_daily', 10)} уведомлений в день",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
 
-        await state.clear()
+            await state.clear()
+
+        # РЕЖИМ 2: Без мгновенного поиска (просто сохраняем фильтр)
+        else:
+            await progress_msg.edit_text(
+                "✅ <b>Фильтр создан!</b>",
+                parse_mode="HTML"
+            )
+
+            # Получаем лимиты
+            plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+
+            # Формируем описание фильтра
+            filter_summary = f"📝 <b>{data['filter_name']}</b>\n\n"
+            filter_summary += f"🔑 Ключевые слова: {', '.join(data['keywords'])}\n"
+
+            if data.get('price_min') or data.get('price_max'):
+                price_min = f"{data.get('price_min'):,}" if data.get('price_min') else "0"
+                price_max = f"{data.get('price_max'):,}" if data.get('price_max') else "∞"
+                filter_summary += f"💰 Цена: {price_min} - {price_max} ₽\n"
+
+            if data.get('regions'):
+                filter_summary += f"📍 Регионы: {', '.join(data['regions'])}\n"
+
+            if data.get('min_deadline_days'):
+                filter_summary += f"⏰ Минимум дней до дедлайна: {data['min_deadline_days']}\n"
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+                [InlineKeyboardButton(text="🎯 Главное меню", callback_data="sniper_menu")]
+            ])
+
+            await message.answer(
+                f"✅ <b>Фильтр успешно создан и активирован!</b>\n\n"
+                f"{filter_summary}\n"
+                f"🔔 <b>Автоматический мониторинг включен</b>\n\n"
+                f"Вы будете получать уведомления о новых подходящих тендерах каждые 5 минут.\n\n"
+                f"🆓 Ваш лимит: {plan_limits.get('max_notifications_daily', 10)} уведомлений в день",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+
+            await state.clear()
 
     except Exception as e:
         logger.error(f"Error in filter search: {e}", exc_info=True)
