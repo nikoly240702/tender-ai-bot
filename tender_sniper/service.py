@@ -194,10 +194,8 @@ class TenderSniperService:
                 logger.warning("⚠️  Matcher или DB не инициализированы")
                 return
 
-            # 1. Получаем все активные фильтры пользователей из ОСНОВНОЙ базы бота
-            from bot.db import get_database
-            bot_db = await get_database()
-            filters = await bot_db.get_all_filters()  # Получаем все фильтры из основной БД
+            # 1. Получаем все активные фильтры пользователей
+            filters = await self.db.get_all_active_filters()
             logger.info(f"   📋 Активных фильтров: {len(filters)}")
 
             if not filters:

@@ -501,7 +501,18 @@ async def finalize_filter_creation(message: Message, state: FSMContext):
 
     try:
         db = await get_sniper_db()
-        user = await db.get_user_by_telegram_id(message.from_user.id if hasattr(message, 'from_user') else message.chat.id)
+        telegram_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+
+        # Получаем или создаем пользователя
+        user = await db.get_user_by_telegram_id(telegram_id)
+        if not user:
+            # Создаем пользователя с бесплатным тарифом
+            await db.register_user(
+                telegram_id=telegram_id,
+                username=message.from_user.username if hasattr(message, 'from_user') else None,
+                subscription_tier='free'
+            )
+            user = await db.get_user_by_telegram_id(telegram_id)
 
         # Создаем фильтр
         filter_id = await db.create_filter(
