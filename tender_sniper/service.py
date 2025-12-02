@@ -24,6 +24,8 @@ from tender_sniper.matching import SmartMatcher
 from tender_sniper.database import get_sniper_db, init_subscription_plans, get_plan_limits
 from tender_sniper.notifications.telegram_notifier import TelegramNotifier
 from tender_sniper.config import is_tender_sniper_enabled, is_component_enabled
+from tender_sniper.instant_search import InstantSearch
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -182,16 +184,17 @@ class TenderSniperService:
         """
         Callback для обработки новых тендеров.
 
+        НОВАЯ ЛОГИКА: Вместо матчинга всех тендеров против фильтров,
+        делаем целевой RSS запрос для каждого фильтра (как в instant_search).
+
         Args:
-            new_tenders: Список новых тендеров от парсера
+            new_tenders: Список новых тендеров от парсера (ИГНОРИРУЕТСЯ в новой логике)
         """
         try:
-            logger.info(f"\n🔄 Обработка {len(new_tenders)} новых тендеров...")
+            logger.info(f"\n🔄 Проверка активных фильтров...")
 
-            self.stats['tenders_processed'] += len(new_tenders)
-
-            if not self.matcher or not self.db:
-                logger.warning("⚠️  Matcher или DB не инициализированы")
+            if not self.db:
+                logger.warning("⚠️  DB не инициализирована")
                 return
 
             # 1. Получаем все активные фильтры пользователей
@@ -202,81 +205,74 @@ class TenderSniperService:
                 logger.info("   ℹ️  Нет активных фильтров для проверки")
                 return
 
-            # 2. Проверяем каждый тендер против фильтров
+            # 2. Для КАЖДОГО фильтра делаем целевой поиск
+            searcher = InstantSearch()
             notifications_to_send = []
 
-            for tender in new_tenders:
-                tender_number = tender.get('number')
+            for filter_data in filters:
+                filter_id = filter_data['id']
+                filter_name = filter_data['name']
+                user_id = filter_data['user_id']
+                telegram_id = filter_data.get('telegram_id')
+                subscription_tier = filter_data.get('subscription_tier', 'free')
 
-                # Сохраняем тендер в базу мониторинга
-                await self.db.add_or_update_tender(
-                    tender_number=tender_number,
-                    name=tender.get('name'),
-                    customer_name=tender.get('customer_name'),
-                    nmck=tender.get('price'),
-                    published_date=tender.get('published_datetime'),
-                    url=tender.get('url'),
-                    region=tender.get('region'),
-                    tender_type=tender.get('purchase_type'),
-                    raw_data=tender
-                )
+                logger.info(f"\n   🔍 Проверка фильтра: {filter_name} (ID: {filter_id})")
 
-                # Проверяем против фильтров
-                # Используем min_score=60 чтобы отсекать слабые/случайные совпадения
-                matches = self.matcher.match_against_filters(tender, filters, min_score=60)
+                # Парсим keywords из JSON
+                keywords_raw = filter_data.get('keywords', '[]')
+                try:
+                    keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else keywords_raw
+                except:
+                    keywords = []
 
-                if matches:
-                    logger.info(f"   ✅ Тендер {tender_number}: {len(matches)} совпадений")
-                    # Логируем детали первого совпадения для отладки
-                    if matches:
-                        first_match = matches[0]
-                        logger.info(f"      📊 Score: {first_match.get('score', 0)}, Причины: {first_match.get('reasons', [])[:3]}")
-                    self.stats['matches_found'] += len(matches)
+                if not keywords:
+                    logger.warning(f"      ⚠️  Нет ключевых слов, пропускаем")
+                    continue
 
-                    # Для каждого совпадения готовим уведомление
+                # Делаем поиск по фильтру (БЕЗ AI расширения для скорости)
+                try:
+                    search_results = await searcher.search_by_filter(
+                        filter_data=filter_data,
+                        max_tenders=5,  # Только топ-5 для мониторинга
+                        expanded_keywords=[]  # Без AI расширения
+                    )
+
+                    matches = search_results.get('matches', [])
+                    logger.info(f"      ✅ Найдено совпадений: {len(matches)}")
+
+                    # Фильтруем только новые тендеры (которых еще не уведомляли)
                     for match in matches:
-                        filter_id = match['filter_id']
-                        user_id = None
+                        tender = match.get('tender', {})
+                        tender_number = tender.get('number')
+                        score = match.get('score', 0)
 
-                        # Находим user_id для этого фильтра
-                        for f in filters:
-                            if f['id'] == filter_id:
-                                user_id = f['user_id']
-                                telegram_id = f.get('telegram_id')
-                                subscription_tier = f.get('subscription_tier', 'free')
-                                break
-
-                        if not telegram_id:
+                        if not tender_number:
                             continue
 
-                        # Проверяем, не отправляли ли уже уведомление
-                        already_notified = await self.db.is_tender_notified(
-                            tender_number, user_id
-                        )
+                        # Проверяем score (должен быть >= 60)
+                        if score < 60:
+                            logger.debug(f"         ⏭️  Низкий score {score}, пропускаем")
+                            continue
 
+                        # Проверяем, не отправляли ли уже
+                        already_notified = await self.db.is_tender_notified(tender_number, user_id)
                         if already_notified:
-                            logger.debug(f"   ⏭️  Уведомление уже отправлено ранее")
+                            logger.debug(f"         ⏭️  Уже уведомлен: {tender_number}")
                             continue
-
-                        # Получаем лимиты тарифа
-                        plan_limits = await get_plan_limits(self.db_path, subscription_tier)
-                        daily_limit = plan_limits.get('max_notifications_daily', 10)
 
                         # Проверяем квоту
-                        has_quota = await self.db.check_notification_quota(
-                            user_id, daily_limit
-                        )
+                        plan_limits = await get_plan_limits(self.db.db_path, subscription_tier)
+                        daily_limit = plan_limits.get('max_notifications_daily', 10)
+                        has_quota = await self.db.check_notification_quota(user_id, daily_limit)
 
                         if not has_quota:
-                            logger.warning(f"   ⚠️  Квота исчерпана для user {user_id}")
-
-                            # Отправляем уведомление о превышении квоты
+                            logger.warning(f"         ⚠️  Квота исчерпана для user {user_id}")
                             if self.notifier:
                                 await self.notifier.send_quota_exceeded_notification(
                                     telegram_id=telegram_id,
                                     current_limit=daily_limit
                                 )
-                            continue
+                            break  # Выходим из цикла для этого фильтра
 
                         # Добавляем в очередь на отправку
                         notifications_to_send.append({
@@ -285,8 +281,15 @@ class TenderSniperService:
                             'tender': tender,
                             'match_info': match,
                             'filter_id': filter_id,
-                            'filter_name': match.get('filter_name', 'Фильтр')
+                            'filter_name': filter_name,
+                            'score': score
                         })
+
+                        logger.info(f"         📤 Готово к отправке: {tender_number} (score: {score})")
+
+                except Exception as e:
+                    logger.error(f"      ❌ Ошибка поиска для фильтра {filter_id}: {e}", exc_info=True)
+                    continue
 
             # 3. Отправляем уведомления
             if notifications_to_send and self.notifier:
