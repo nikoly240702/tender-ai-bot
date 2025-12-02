@@ -507,7 +507,7 @@ async def finalize_filter_creation(message: Message, state: FSMContext):
         user = await db.get_user_by_telegram_id(telegram_id)
         if not user:
             # Создаем пользователя с бесплатным тарифом
-            await db.register_user(
+            await db.create_or_update_user(
                 telegram_id=telegram_id,
                 username=message.from_user.username if hasattr(message, 'from_user') else None,
                 subscription_tier='free'

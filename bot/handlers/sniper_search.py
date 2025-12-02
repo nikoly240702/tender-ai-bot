@@ -630,6 +630,7 @@ async def process_tender_count(message: Message, state: FSMContext):
         user = await db.get_user_by_telegram_id(message.from_user.id)
 
         # 1. Сохраняем фильтр в БД с новыми критериями
+        # active=0 - фильтр неактивен до подтверждения пользователем
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=data['filter_name'],
@@ -645,6 +646,7 @@ async def process_tender_count(message: Message, state: FSMContext):
             okpd2_codes=data.get('okpd2_codes', []),
             min_deadline_days=data.get('min_deadline_days'),
             customer_keywords=data.get('customer_keywords', []),
+            active=0  # Фильтр неактивен до явного включения мониторинга
         )
 
         # 2. AI расширение критериев
@@ -783,9 +785,10 @@ async def enable_auto_monitoring(callback: CallbackQuery):
     try:
         db = await get_sniper_db()
 
-        # Обновляем статус фильтра (включаем мониторинг)
-        # В текущей схеме БД все фильтры активны по умолчанию
-        # Можно добавить отдельное поле для auto_monitoring
+        # Активируем фильтр (включаем мониторинг)
+        await db.activate_filter(filter_id)
+
+        logger.info(f"✅ Фильтр {filter_id} активирован пользователем {callback.from_user.id}")
 
         await callback.message.edit_text(
             "✅ <b>Автоматический мониторинг включен!</b>\n\n"
@@ -801,5 +804,5 @@ async def enable_auto_monitoring(callback: CallbackQuery):
         )
 
     except Exception as e:
-        logger.error(f"Error enabling monitoring: {e}", exc_info=True)
+        logger.error(f"Error enabling monitoring for filter {filter_id}: {e}", exc_info=True)
         await callback.message.answer("❌ Ошибка. Попробуйте позже.")

@@ -386,7 +386,8 @@ class TenderSniperDB:
         min_deadline_days: Optional[int] = None,
         customer_keywords: Optional[List[str]] = None,
         date_from: Optional[str] = None,
-        date_to: Optional[str] = None
+        date_to: Optional[str] = None,
+        active: int = 1  # По умолчанию фильтр активен
     ) -> int:
         """Создание фильтра."""
         async with aiosqlite.connect(self.db_path) as db:
@@ -398,8 +399,8 @@ class TenderSniperDB:
                  regions, customer_types, tender_types,
                  law_type, purchase_stage, purchase_method, okpd2_codes,
                  min_deadline_days, customer_keywords, date_from, date_to,
-                 created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 active, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 user_id, name,
                 json.dumps(keywords or [], ensure_ascii=False),
@@ -415,7 +416,7 @@ class TenderSniperDB:
                 min_deadline_days,
                 json.dumps(customer_keywords or [], ensure_ascii=False),
                 date_from, date_to,
-                now, now
+                active, now, now
             ))
 
             await db.commit()
@@ -448,6 +449,28 @@ class TenderSniperDB:
             """) as cursor:
                 rows = await cursor.fetchall()
                 return [dict(row) for row in rows]
+
+    async def activate_filter(self, filter_id: int) -> bool:
+        """Активация фильтра (включение мониторинга)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE user_filters
+                SET active = 1, updated_at = ?
+                WHERE id = ?
+            """, (datetime.now().isoformat(), filter_id))
+            await db.commit()
+            return True
+
+    async def deactivate_filter(self, filter_id: int) -> bool:
+        """Деактивация фильтра (выключение мониторинга)."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE user_filters
+                SET active = 0, updated_at = ?
+                WHERE id = ?
+            """, (datetime.now().isoformat(), filter_id))
+            await db.commit()
+            return True
 
     # ============================================
     # МЕТОДЫ ДЛЯ ТЕНДЕРОВ
