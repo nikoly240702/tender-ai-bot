@@ -222,10 +222,15 @@ class TenderSniperService:
                 )
 
                 # Проверяем против фильтров
-                matches = self.matcher.match_against_filters(tender, filters, min_score=40)
+                # Используем min_score=60 чтобы отсекать слабые/случайные совпадения
+                matches = self.matcher.match_against_filters(tender, filters, min_score=60)
 
                 if matches:
                     logger.info(f"   ✅ Тендер {tender_number}: {len(matches)} совпадений")
+                    # Логируем детали первого совпадения для отладки
+                    if matches:
+                        first_match = matches[0]
+                        logger.info(f"      📊 Score: {first_match.get('score', 0)}, Причины: {first_match.get('reasons', [])[:3]}")
                     self.stats['matches_found'] += len(matches)
 
                     # Для каждого совпадения готовим уведомление
