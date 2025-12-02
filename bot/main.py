@@ -19,6 +19,10 @@ from bot.handlers import start, search, history, admin, access_requests, sniper,
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware
 
+# Импортируем Tender Sniper Service
+from tender_sniper.service import TenderSniperService
+from tender_sniper.config import is_tender_sniper_enabled
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -91,6 +95,33 @@ async def main():
 
     logger.info("🤖 Бот запускается...")
 
+    # Инициализируем Tender Sniper Service (если включен)
+    sniper_service = None
+    sniper_task = None
+    if is_tender_sniper_enabled():
+        try:
+            logger.info("🎯 Инициализация Tender Sniper Service...")
+            sniper_service = TenderSniperService(
+                bot_token=BotConfig.BOT_TOKEN,
+                poll_interval=300,  # 5 минут
+                max_tenders_per_poll=100
+            )
+            await sniper_service.initialize()
+
+            # Запускаем мониторинг в фоновом режиме
+            async def run_sniper():
+                try:
+                    await sniper_service.start()
+                except Exception as e:
+                    logger.error(f"❌ Ошибка Tender Sniper: {e}", exc_info=True)
+
+            sniper_task = asyncio.create_task(run_sniper())
+            logger.info("✅ Tender Sniper Service запущен в фоновом режиме")
+        except Exception as e:
+            logger.error(f"❌ Не удалось запустить Tender Sniper: {e}", exc_info=True)
+    else:
+        logger.info("ℹ️  Tender Sniper отключен в конфигурации")
+
     try:
         # Удаляем старые webhook (если были)
         await bot.delete_webhook(drop_pending_updates=True)
@@ -111,6 +142,17 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Ошибка при запуске бота: {e}")
     finally:
+        # Останавливаем Tender Sniper если запущен
+        if sniper_service:
+            logger.info("🛑 Остановка Tender Sniper Service...")
+            await sniper_service.stop()
+        if sniper_task and not sniper_task.done():
+            sniper_task.cancel()
+            try:
+                await sniper_task
+            except asyncio.CancelledError:
+                pass
+
         await bot.session.close()
 
 
