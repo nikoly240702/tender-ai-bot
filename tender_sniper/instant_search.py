@@ -202,10 +202,10 @@ class InstantSearch:
                 for i, tender in enumerate(search_results):
                     try:
                         logger.debug(f"      [{i+1}/{len(search_results)}] Обогащение: {tender.get('number', 'N/A')}")
-                        enriched = self.rss_parser.enrich_tender_from_page(tender)
+                        enriched = self.parser.enrich_tender_from_page(tender)
                         enriched_results.append(enriched)
                     except Exception as e:
-                        logger.debug(f"      ⚠️ Ошибка обогащения: {e}")
+                        logger.error(f"      ⚠️ Ошибка обогащения тендера {tender.get('number', 'N/A')}: {e}", exc_info=True)
                         enriched_results.append(tender)
                 search_results = enriched_results
                 logger.info(f"   ✅ Данные обогащены")
@@ -238,6 +238,41 @@ class InstantSearch:
 
             matches = []
             for tender in search_results:
+                # ФИЛЬТР 1: Исключаем старые тендеры (старше 2 лет)
+                published_str = tender.get('published', '')
+                if published_str:
+                    try:
+                        # Парсим дату
+                        if 'GMT' in published_str:
+                            from email.utils import parsedate_to_datetime
+                            published_dt = parsedate_to_datetime(published_str)
+                        else:
+                            from datetime import datetime as dt
+                            published_dt = dt.strptime(published_str[:10], '%Y-%m-%d')
+
+                        # Проверяем что тендер не старше 2 лет
+                        from datetime import datetime, timedelta
+                        two_years_ago = datetime.now() - timedelta(days=730)
+                        if published_dt < two_years_ago:
+                            logger.debug(f"      ⛔ Исключен (старый, {published_dt.year}): {tender.get('name', '')[:60]}")
+                            continue
+                    except:
+                        pass  # Если не удалось распарсить - пропускаем проверку
+
+                # ФИЛЬТР 2: ДВОЙНАЯ ПРОВЕРКА ТИПА - дополнительная защита от услуг в товарах
+                if tender_types and len(tender_types) > 0:
+                    tender_name = tender.get('name', '').lower()
+                    tender_summary = tender.get('summary', '').lower()
+                    full_text = tender_name + ' ' + tender_summary
+
+                    # Если выбраны только товары - исключаем явные услуги
+                    if tender_types == ['товары']:
+                        service_indicators = ['оказание услуг', 'выполнение работ', 'медицинские услуги',
+                                             'ремонт', 'обслуживание', 'услуги по', 'работы по']
+                        if any(ind in full_text for ind in service_indicators):
+                            logger.debug(f"      ⛔ Исключен при scoring (услуга): {tender.get('name', '')[:60]}")
+                            continue
+
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
                 # Проверяем что match_result не None
