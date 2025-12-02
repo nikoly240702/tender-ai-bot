@@ -202,10 +202,10 @@ class InstantSearch:
                 for i, tender in enumerate(search_results):
                     try:
                         logger.debug(f"      [{i+1}/{len(search_results)}] Обогащение: {tender.get('number', 'N/A')}")
-                        enriched = self.rss_parser.enrich_tender_from_page(tender)
+                        enriched = self.parser.enrich_tender_from_page(tender)
                         enriched_results.append(enriched)
                     except Exception as e:
-                        logger.debug(f"      ⚠️ Ошибка обогащения: {e}")
+                        logger.error(f"      ⚠️ Ошибка обогащения тендера {tender.get('number', 'N/A')}: {e}", exc_info=True)
                         enriched_results.append(tender)
                 search_results = enriched_results
                 logger.info(f"   ✅ Данные обогащены")
