@@ -249,10 +249,9 @@ class TenderSniperService:
                         if not tender_number:
                             continue
 
-                        # Проверяем score (должен быть >= 60)
-                        if score < 60:
-                            logger.debug(f"         ⏭️  Низкий score {score}, пропускаем")
-                            continue
+                        # Score не фильтруем - RSS уже отобрал релевантные тендеры
+                        # Score показываем только в уведомлении для информации
+                        logger.debug(f"         ℹ️  Score: {score}")
 
                         # Проверяем, не отправляли ли уже
                         already_notified = await self.db.is_tender_notified(tender_number, user_id)
