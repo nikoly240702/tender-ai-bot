@@ -244,19 +244,21 @@ class TenderSniperService:
                     for match in matches:
                         tender = match.get('tender', {})
                         tender_number = tender.get('number')
+                        tender_name = tender.get('name', '')[:50]
                         score = match.get('score', 0)
 
                         if not tender_number:
+                            logger.warning(f"         ⚠️  Тендер без номера, пропускаем")
                             continue
 
-                        # Score не фильтруем - RSS уже отобрал релевантные тендеры
-                        # Score показываем только в уведомлении для информации
-                        logger.debug(f"         ℹ️  Score: {score}")
+                        logger.info(f"         🔍 Проверка тендера: {tender_number}")
+                        logger.info(f"            Название: {tender_name}...")
+                        logger.info(f"            Score: {score}")
 
                         # Проверяем, не отправляли ли уже
                         already_notified = await self.db.is_tender_notified(tender_number, user_id)
                         if already_notified:
-                            logger.debug(f"         ⏭️  Уже уведомлен: {tender_number}")
+                            logger.info(f"         ⏭️  Уже уведомлен ранее: {tender_number}")
                             continue
 
                         # Проверяем квоту
@@ -291,6 +293,8 @@ class TenderSniperService:
                     continue
 
             # 3. Отправляем уведомления
+            logger.info(f"\n   📊 Итого подготовлено уведомлений: {len(notifications_to_send)}")
+
             if notifications_to_send and self.notifier:
                 logger.info(f"   📤 Отправка {len(notifications_to_send)} уведомлений...")
 
