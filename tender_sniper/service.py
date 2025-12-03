@@ -242,10 +242,11 @@ class TenderSniperService:
 
                     # Фильтруем только новые тендеры (которых еще не уведомляли)
                     for match in matches:
-                        tender = match.get('tender', {})
+                        # match УЖЕ содержит данные тендера + match_score
+                        tender = match
                         tender_number = tender.get('number')
                         tender_name = tender.get('name', '')[:50]
-                        score = match.get('score', 0)
+                        score = tender.get('match_score', 0)
 
                         if not tender_number:
                             logger.warning(f"         ⚠️  Тендер без номера, пропускаем")
@@ -280,7 +281,10 @@ class TenderSniperService:
                             'user_id': user_id,
                             'telegram_id': telegram_id,
                             'tender': tender,
-                            'match_info': match,
+                            'match_info': {
+                                'score': score,  # Используем match_score как score
+                                'matched_keywords': tender.get('match_reasons', [])
+                            },
                             'filter_id': filter_id,
                             'filter_name': filter_name,
                             'score': score
