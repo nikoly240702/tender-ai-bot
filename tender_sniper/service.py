@@ -307,7 +307,8 @@ class TenderSniperService:
                         telegram_id=notif['telegram_id'],
                         tender=notif['tender'],
                         match_info=notif['match_info'],
-                        filter_name=notif['filter_name']
+                        filter_name=notif['filter_name'],
+                        is_auto_notification=True  # Уведомление из автомониторинга
                     )
 
                     if success:

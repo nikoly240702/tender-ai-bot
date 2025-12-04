@@ -54,7 +54,8 @@ class TelegramNotifier:
         telegram_id: int,
         tender: Dict[str, Any],
         match_info: Dict[str, Any],
-        filter_name: str
+        filter_name: str,
+        is_auto_notification: bool = False
     ) -> bool:
         """
         Отправка уведомления о новом тендере.
@@ -64,6 +65,7 @@ class TelegramNotifier:
             tender: Данные тендера
             match_info: Информация о совпадении (score, matched_keywords)
             filter_name: Название фильтра
+            is_auto_notification: True если уведомление из автомониторинга
 
         Returns:
             True если успешно отправлено, False иначе
@@ -73,7 +75,7 @@ class TelegramNotifier:
             message = self._format_tender_message(tender, match_info, filter_name)
 
             # Создаем кнопки
-            keyboard = self._create_tender_keyboard(tender)
+            keyboard = self._create_tender_keyboard(tender, is_auto_notification)
 
             # Отправляем уведомление
             await self.bot.send_message(
@@ -183,12 +185,13 @@ class TelegramNotifier:
 
         return message.strip()
 
-    def _create_tender_keyboard(self, tender: Dict[str, Any]) -> InlineKeyboardMarkup:
+    def _create_tender_keyboard(self, tender: Dict[str, Any], is_auto_notification: bool = False) -> InlineKeyboardMarkup:
         """
         Создание inline клавиатуры для тендера.
 
         Args:
             tender: Данные тендера
+            is_auto_notification: True если уведомление из автомониторинга
 
         Returns:
             Inline клавиатура
@@ -208,9 +211,9 @@ class TelegramNotifier:
                 )
             ])
 
-        # Кнопка анализа (если есть AI Analysis в тарифе)
+        # Кнопка анализа (ТОЛЬКО для ручного поиска, не для автомониторинга)
         tender_number = tender.get('number')
-        if tender_number:
+        if tender_number and not is_auto_notification:
             buttons.append([
                 InlineKeyboardButton(
                     text="🤖 Анализировать с AI",

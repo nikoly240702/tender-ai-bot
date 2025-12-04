@@ -18,14 +18,14 @@ async def init_subscription_plans(db_path: Path):
             'price_monthly': 0,
             'price_yearly': 0,
             'max_filters': 5,
-            'max_notifications_daily': 10,
+            'max_notifications_daily': 15,
             'ai_analysis_enabled': 0,
             'api_access_enabled': 0,
             'priority_support': 0,
             'description': 'Базовый функционал для знакомства с системой',
             'features': json.dumps([
                 '5 фильтров мониторинга',
-                '10 уведомлений в день',
+                '15 уведомлений в день',
                 'Telegram бот',
                 'История поисков'
             ], ensure_ascii=False)
@@ -128,7 +128,7 @@ async def get_plan_limits(db_path: Path, plan_name: str) -> Dict[str, Any]:
             # Возвращаем free plan по умолчанию
             return {
                 'max_filters': 5,
-                'max_notifications_daily': 10,
+                'max_notifications_daily': 15,
                 'ai_analysis_enabled': 0,
                 'api_access_enabled': 0
             }
