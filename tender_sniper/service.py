@@ -25,6 +25,7 @@ from tender_sniper.database import get_sniper_db, init_subscription_plans, get_p
 from tender_sniper.notifications.telegram_notifier import TelegramNotifier
 from tender_sniper.config import is_tender_sniper_enabled, is_component_enabled
 from tender_sniper.instant_search import InstantSearch
+from bot.config import BotConfig  # Для проверки админа
 import json
 
 logger = logging.getLogger(__name__)
@@ -262,19 +263,24 @@ class TenderSniperService:
                             logger.info(f"         ⏭️  Уже уведомлен ранее: {tender_number}")
                             continue
 
-                        # Проверяем квоту
-                        plan_limits = await get_plan_limits(self.db.db_path, subscription_tier)
-                        daily_limit = plan_limits.get('max_notifications_daily', 10)
-                        has_quota = await self.db.check_notification_quota(user_id, daily_limit)
+                        # Проверяем квоту (админы имеют неограниченный доступ)
+                        is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
 
-                        if not has_quota:
-                            logger.warning(f"         ⚠️  Квота исчерпана для user {user_id}")
-                            if self.notifier:
-                                await self.notifier.send_quota_exceeded_notification(
-                                    telegram_id=telegram_id,
-                                    current_limit=daily_limit
-                                )
-                            break  # Выходим из цикла для этого фильтра
+                        if not is_admin:
+                            plan_limits = await get_plan_limits(self.db.db_path, subscription_tier)
+                            daily_limit = plan_limits.get('max_notifications_daily', 10)
+                            has_quota = await self.db.check_notification_quota(user_id, daily_limit)
+
+                            if not has_quota:
+                                logger.warning(f"         ⚠️  Квота исчерпана для user {user_id}")
+                                if self.notifier:
+                                    await self.notifier.send_quota_exceeded_notification(
+                                        telegram_id=telegram_id,
+                                        current_limit=daily_limit
+                                    )
+                                break  # Выходим из цикла для этого фильтра
+                        else:
+                            logger.info(f"         👑 Админ {telegram_id}: неограниченный доступ")
 
                         # Добавляем в очередь на отправку
                         notifications_to_send.append({
@@ -320,8 +326,10 @@ class TenderSniperService:
                             notification_type='match'
                         )
 
-                        # Увеличиваем счетчик квоты
-                        await self.db.increment_notification_quota(notif['user_id'])
+                        # Увеличиваем счетчик квоты (кроме админов)
+                        is_admin = BotConfig.ADMIN_USER_ID and notif['telegram_id'] == BotConfig.ADMIN_USER_ID
+                        if not is_admin:
+                            await self.db.increment_notification_quota(notif['user_id'])
 
                         self.stats['notifications_sent'] += 1
 
