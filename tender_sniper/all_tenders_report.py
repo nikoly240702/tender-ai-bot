@@ -1,0 +1,433 @@
+"""
+Генератор HTML отчетов для всех тендеров пользователя.
+
+Создает красивый HTML-файл со всеми тендерами из уведомлений.
+"""
+
+import sys
+from pathlib import Path
+from typing import List, Dict, Any
+from datetime import datetime
+import html
+
+# Добавляем корневую директорию в путь
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+def format_price(price: float) -> str:
+    """Форматирование цены."""
+    if not price:
+        return "Не указана"
+    return f"{price:,.0f} ₽".replace(',', ' ')
+
+
+def format_date(date_str: str) -> str:
+    """Форматирование даты."""
+    if not date_str:
+        return "Не указана"
+    try:
+        dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        return dt.strftime('%d.%m.%Y %H:%M')
+    except:
+        return date_str[:16] if len(date_str) > 16 else date_str
+
+
+def generate_html_report(
+    tenders: List[Dict[str, Any]],
+    username: str = "Пользователь",
+    total_count: int = None
+) -> str:
+    """
+    Генерация HTML отчета всех тендеров.
+
+    Args:
+        tenders: Список тендеров
+        username: Имя пользователя
+        total_count: Общее количество тендеров (если отображена только часть)
+
+    Returns:
+        HTML строка
+    """
+    if total_count is None:
+        total_count = len(tenders)
+
+    # Группировка по фильтрам
+    tenders_by_filter = {}
+    for tender in tenders:
+        filter_name = tender.get('filter_name', 'Без фильтра')
+        if filter_name not in tenders_by_filter:
+            tenders_by_filter[filter_name] = []
+        tenders_by_filter[filter_name].append(tender)
+
+    # HTML шаблон
+    html_content = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Все мои тендеры - Tender Sniper</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }}
+
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+
+        .header {{
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }}
+
+        .header h1 {{
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }}
+
+        .header .subtitle {{
+            color: #666;
+            font-size: 16px;
+        }}
+
+        .stats {{
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+            flex-wrap: wrap;
+        }}
+
+        .stat-card {{
+            flex: 1;
+            min-width: 150px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 12px;
+            text-align: center;
+        }}
+
+        .stat-card .value {{
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }}
+
+        .stat-card .label {{
+            font-size: 14px;
+            opacity: 0.9;
+        }}
+
+        .filter-section {{
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }}
+
+        .filter-title {{
+            font-size: 24px;
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+
+        .filter-badge {{
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: normal;
+        }}
+
+        .tender-card {{
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 15px;
+            transition: all 0.3s ease;
+            border-left: 4px solid #667eea;
+        }}
+
+        .tender-card:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.2);
+        }}
+
+        .tender-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            gap: 20px;
+        }}
+
+        .tender-number {{
+            background: #667eea;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            white-space: nowrap;
+        }}
+
+        .tender-name {{
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            line-height: 1.4;
+        }}
+
+        .tender-info {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 12px;
+            margin-bottom: 15px;
+        }}
+
+        .info-item {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #666;
+        }}
+
+        .info-icon {{
+            font-size: 18px;
+            width: 24px;
+        }}
+
+        .price {{
+            font-size: 22px;
+            font-weight: bold;
+            color: #667eea;
+            margin: 15px 0;
+        }}
+
+        .tender-actions {{
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }}
+
+        .btn {{
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }}
+
+        .btn-primary {{
+            background: #667eea;
+            color: white;
+        }}
+
+        .btn-primary:hover {{
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }}
+
+        .empty-state {{
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }}
+
+        .empty-state-icon {{
+            font-size: 64px;
+            margin-bottom: 20px;
+        }}
+
+        .footer {{
+            text-align: center;
+            color: white;
+            margin-top: 40px;
+            padding: 20px;
+            opacity: 0.9;
+        }}
+
+        @media (max-width: 768px) {{
+            .header h1 {{
+                font-size: 24px;
+            }}
+
+            .stats {{
+                flex-direction: column;
+            }}
+
+            .tender-info {{
+                grid-template-columns: 1fr;
+            }}
+
+            .tender-header {{
+                flex-direction: column;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Заголовок -->
+        <div class="header">
+            <h1>🎯 Все мои тендеры</h1>
+            <p class="subtitle">Tender Sniper • {html.escape(username)}</p>
+
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="value">{total_count}</div>
+                    <div class="label">Всего тендеров</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">{len(tenders_by_filter)}</div>
+                    <div class="label">Активных фильтров</div>
+                </div>
+                <div class="stat-card">
+                    <div class="value">{len(tenders)}</div>
+                    <div class="label">Отображено</div>
+                </div>
+            </div>
+        </div>
+"""
+
+    # Генерируем секции для каждого фильтра
+    if tenders:
+        for filter_name, filter_tenders in tenders_by_filter.items():
+            html_content += f"""
+        <!-- Фильтр: {html.escape(filter_name)} -->
+        <div class="filter-section">
+            <div class="filter-title">
+                📋 {html.escape(filter_name)}
+                <span class="filter-badge">{len(filter_tenders)} тендеров</span>
+            </div>
+"""
+
+            for tender in filter_tenders:
+                tender_url = tender.get('url', '')
+                if tender_url and not tender_url.startswith('http'):
+                    tender_url = f"https://zakupki.gov.ru{tender_url}"
+
+                html_content += f"""
+            <div class="tender-card">
+                <div class="tender-header">
+                    <div class="tender-number">№ {html.escape(tender.get('number', 'N/A'))}</div>
+                </div>
+
+                <div class="tender-name">{html.escape(tender.get('name', 'Без названия'))}</div>
+
+                <div class="price">💰 {format_price(tender.get('price'))}</div>
+
+                <div class="tender-info">
+                    <div class="info-item">
+                        <span class="info-icon">🏢</span>
+                        <span>{html.escape(tender.get('customer_name', 'Не указан'))[:60]}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-icon">📍</span>
+                        <span>{html.escape(tender.get('region', 'Не указан'))}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-icon">📅</span>
+                        <span>Опубликован: {format_date(tender.get('published_date', ''))}</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-icon">⏰</span>
+                        <span>Уведомление: {format_date(tender.get('sent_at', ''))}</span>
+                    </div>
+                </div>
+
+                <div class="tender-actions">
+                    <a href="{html.escape(tender_url)}" class="btn btn-primary" target="_blank">
+                        📄 Открыть на zakupki.gov.ru
+                    </a>
+                </div>
+            </div>
+"""
+
+            html_content += "        </div>\n"
+    else:
+        html_content += """
+        <div class="filter-section">
+            <div class="empty-state">
+                <div class="empty-state-icon">📭</div>
+                <h2>Пока нет тендеров</h2>
+                <p>Создайте фильтры и включите автоматический мониторинг!</p>
+            </div>
+        </div>
+"""
+
+    # Футер
+    html_content += f"""
+        <div class="footer">
+            <p>🤖 Сгенерировано Tender Sniper Bot</p>
+            <p>{datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+    return html_content
+
+
+async def generate_all_tenders_html(
+    user_id: int,
+    username: str = "Пользователь",
+    limit: int = 100
+) -> Path:
+    """
+    Генерация HTML файла со всеми тендерами пользователя.
+
+    Args:
+        user_id: ID пользователя
+        username: Имя пользователя
+        limit: Максимальное количество тендеров
+
+    Returns:
+        Путь к созданному HTML файлу
+    """
+    from tender_sniper.database import get_sniper_db
+
+    # Получаем тендеры из БД
+    db = await get_sniper_db()
+    tenders = await db.get_user_tenders(user_id, limit=limit)
+
+    # Генерируем HTML
+    html_content = generate_html_report(tenders, username)
+
+    # Сохраняем в файл
+    output_dir = Path(__file__).parent.parent / 'temp_reports'
+    output_dir.mkdir(exist_ok=True)
+
+    filename = f"all_tenders_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+    output_path = output_dir / filename
+
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+
+    return output_path

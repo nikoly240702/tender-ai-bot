@@ -635,6 +635,91 @@ class TenderSniperDB:
                 'notifications_limit': notifications_limit
             }
 
+    async def get_user_tenders(
+        self,
+        user_id: int,
+        limit: int = 100,
+        filter_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Получение всех тендеров пользователя из уведомлений.
+
+        Args:
+            user_id: ID пользователя
+            limit: Максимальное количество тендеров (по умолчанию 100)
+            filter_id: ID фильтра для фильтрации (опционально)
+
+        Returns:
+            Список тендеров с данными
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            # Строим запрос
+            query = """
+                SELECT
+                    n.id as notification_id,
+                    n.tender_number,
+                    n.sent_at,
+                    n.filter_id,
+                    f.name as filter_name,
+                    mt.name as tender_name,
+                    mt.customer_name,
+                    mt.nmck as price,
+                    mt.published_date,
+                    mt.end_date,
+                    mt.url,
+                    mt.region,
+                    mt.tender_type,
+                    mt.raw_data
+                FROM notifications n
+                LEFT JOIN user_filters f ON n.filter_id = f.id
+                LEFT JOIN monitored_tenders mt ON n.tender_number = mt.tender_number
+                WHERE n.user_id = ?
+            """
+
+            params = [user_id]
+
+            if filter_id:
+                query += " AND n.filter_id = ?"
+                params.append(filter_id)
+
+            query += " ORDER BY n.sent_at DESC LIMIT ?"
+            params.append(limit)
+
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+
+                tenders = []
+                for row in rows:
+                    tender = {
+                        'notification_id': row['notification_id'],
+                        'number': row['tender_number'],
+                        'name': row['tender_name'],
+                        'customer_name': row['customer_name'],
+                        'price': row['price'],
+                        'published_date': row['published_date'],
+                        'end_date': row['end_date'],
+                        'url': row['url'],
+                        'region': row['region'],
+                        'tender_type': row['tender_type'],
+                        'sent_at': row['sent_at'],
+                        'filter_name': row['filter_name'],
+                        'filter_id': row['filter_id']
+                    }
+
+                    # Парсим raw_data если есть
+                    if row['raw_data']:
+                        try:
+                            raw_data = json.loads(row['raw_data'])
+                            tender.update(raw_data)
+                        except:
+                            pass
+
+                    tenders.append(tender)
+
+                return tenders
+
 
 # Глобальный экземпляр базы данных
 _sniper_db_instance: Optional[TenderSniperDB] = None

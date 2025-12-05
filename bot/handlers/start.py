@@ -4,7 +4,7 @@
 
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
 router = Router()
@@ -38,7 +38,8 @@ async def cmd_start(message: Message, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await message.answer(
@@ -81,10 +82,47 @@ async def cmd_help(message: Message):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎯 Открыть Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "main_menu")
+async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
+    """
+    Возврат в главное меню из любого состояния.
+    Очищает FSM state и показывает стартовое сообщение.
+    """
+    await callback.answer()
+
+    # Очищаем любое состояние
+    await state.clear()
+
+    welcome_text = (
+        "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
+        "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
+        "<b>Что я умею:</b>\n"
+        "🔍 Мгновенный поиск по вашим критериям\n"
+        "🎯 Умное сопоставление (scoring 0-100)\n"
+        "📱 Автоматические уведомления о новых тендерах\n"
+        "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
+        "<b>Ваш тариф:</b> 🆓 Бесплатный\n"
+        "• 5 фильтров мониторинга\n"
+        "• 15 уведомлений в день\n\n"
+        "<i>Нажмите кнопку ниже для начала!</i>"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+    ])
+
+    await callback.message.edit_text(
+        welcome_text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 
 # Старые handlers отключены - теперь используем только Tender Sniper

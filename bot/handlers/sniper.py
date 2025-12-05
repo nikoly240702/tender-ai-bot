@@ -10,10 +10,11 @@
 
 from aiogram import Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import sys
+import logging
 from pathlib import Path
 
 # Добавляем путь для импорта Tender Sniper
@@ -21,7 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from tender_sniper.database import get_sniper_db, get_plan_limits
 from tender_sniper.config import is_tender_sniper_enabled
+from tender_sniper.all_tenders_report import generate_all_tenders_html
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 
@@ -63,9 +66,11 @@ async def cmd_sniper_menu(message: Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
         [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="sniper_stats")],
+        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
         [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await message.answer(
@@ -94,9 +99,11 @@ async def show_sniper_menu(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
         [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="sniper_stats")],
+        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
         [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await callback.message.edit_text(
@@ -179,7 +186,8 @@ async def show_sniper_stats(callback: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬆️ Улучшить тариф", callback_data="sniper_plans")],
-            [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+            [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
 
         await callback.message.edit_text(
@@ -191,6 +199,97 @@ async def show_sniper_stats(callback: CallbackQuery):
     except Exception as e:
         await callback.message.answer(
             f"❌ Ошибка при получении статистики: {str(e)}"
+        )
+
+
+# ============================================
+# ВСЕ МОИ ТЕНДЕРЫ
+# ============================================
+
+@router.callback_query(F.data == "sniper_all_tenders")
+async def show_all_tenders(callback: CallbackQuery):
+    """Генерация и отправка HTML отчета со всеми тендерами."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+
+        # Получаем пользователя
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        # Показываем прогресс
+        progress_msg = await callback.message.answer(
+            "🔄 <b>Генерирую отчет...</b>\n\n"
+            "⏳ Собираю данные из базы...",
+            parse_mode="HTML"
+        )
+
+        # Генерируем HTML отчет
+        username = callback.from_user.first_name or callback.from_user.username or "Пользователь"
+        report_path = await generate_all_tenders_html(
+            user_id=user['id'],
+            username=username,
+            limit=100  # Последние 100 тендеров
+        )
+
+        # Получаем количество тендеров
+        tenders = await db.get_user_tenders(user['id'], limit=100)
+        tender_count = len(tenders)
+
+        await progress_msg.edit_text(
+            "✅ <b>Отчет готов!</b>\n\n"
+            f"📊 Тендеров в отчете: {tender_count}\n"
+            "📄 Отправляю файл...",
+            parse_mode="HTML"
+        )
+
+        # Отправляем HTML файл
+        if tender_count > 0:
+            await callback.message.answer_document(
+                document=FSInputFile(report_path),
+                caption=(
+                    f"📊 <b>Все ваши тендеры</b>\n\n"
+                    f"Отображено: {tender_count} тендеров\n"
+                    f"Сгенерировано: {progress_msg.date.strftime('%d.%m.%Y %H:%M')}\n\n"
+                    f"Откройте HTML файл в браузере для просмотра."
+                ),
+                parse_mode="HTML"
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+                [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await callback.message.answer(
+                "✨ Готово! Откройте HTML файл для просмотра всех тендеров.",
+                reply_markup=keyboard
+            )
+        else:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+                [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await progress_msg.edit_text(
+                "📭 <b>У вас пока нет тендеров</b>\n\n"
+                "Создайте фильтры и включите автоматический мониторинг!\n"
+                "Бот будет отправлять вам уведомления о новых подходящих тендерах.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка генерации отчета: {e}", exc_info=True)
+        await callback.message.answer(
+            f"❌ Ошибка при генерации отчета: {str(e)}"
         )
 
 
@@ -236,7 +335,8 @@ async def show_subscription_plans(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Оформить Базовый", callback_data="sniper_buy_basic")],
         [InlineKeyboardButton(text="💎 Оформить Премиум", callback_data="sniper_buy_premium")],
-        [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+        [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await callback.message.edit_text(
@@ -290,7 +390,8 @@ async def show_my_filters(callback: CallbackQuery):
         if not filters:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_create_filter")],
-                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
 
             await callback.message.edit_text(
@@ -336,6 +437,9 @@ async def show_my_filters(callback: CallbackQuery):
         ])
         keyboard_buttons.append([
             InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
         ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
@@ -383,7 +487,8 @@ async def start_create_filter(callback: CallbackQuery, state: FSMContext):
         if len(filters) >= max_filters:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⬆️ Улучшить тариф", callback_data="sniper_plans")],
-                [InlineKeyboardButton(text="« Назад", callback_data="sniper_my_filters")]
+                [InlineKeyboardButton(text="« Назад", callback_data="sniper_my_filters")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
 
             await callback.message.edit_text(
@@ -541,7 +646,8 @@ async def finalize_filter_creation(message: Message, state: FSMContext):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="🎯 Главное меню", callback_data="sniper_menu")]
+            [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
 
         await message.answer(
@@ -602,7 +708,8 @@ async def show_sniper_help(callback: CallbackQuery):
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+        [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await callback.message.edit_text(

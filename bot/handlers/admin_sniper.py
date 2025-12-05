@@ -22,7 +22,7 @@ import logging
 import aiosqlite
 
 from bot.config import BotConfig
-from tender_sniper.database.models import SniperDatabase
+# SniperDatabase не используется, работаем напрямую с aiosqlite
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -41,6 +41,7 @@ def get_sniper_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="👥 Пользователи и тарифы", callback_data="sniper_admin_users")],
         [InlineKeyboardButton(text="📈 Мониторинг системы", callback_data="sniper_admin_monitoring")],
         [InlineKeyboardButton(text="🔄 Сбросить квоты (сегодня)", callback_data="sniper_admin_reset_quotas")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

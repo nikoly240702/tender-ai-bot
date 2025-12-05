@@ -86,7 +86,8 @@ async def start_create_filter_only(callback: CallbackQuery, state: FSMContext):
                 f"Удалите старые фильтры или обновите подписку.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+                    [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
                 ])
             )
             return
@@ -144,7 +145,8 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
                 f"Удалите старые фильтры или обновите подписку.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+                    [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
                 ])
             )
             return
@@ -822,6 +824,10 @@ async def process_tender_count(message: Message, state: FSMContext):
                 [InlineKeyboardButton(
                     text="🎯 Новый поиск",
                     callback_data="sniper_new_search"
+                )],
+                [InlineKeyboardButton(
+                    text="🏠 Главное меню",
+                    callback_data="main_menu"
                 )]
             ])
 
@@ -863,7 +869,8 @@ async def process_tender_count(message: Message, state: FSMContext):
 
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-                [InlineKeyboardButton(text="🎯 Главное меню", callback_data="sniper_menu")]
+                [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
 
             await message.answer(
@@ -913,7 +920,8 @@ async def enable_auto_monitoring(callback: CallbackQuery):
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-                [InlineKeyboardButton(text="« В главное меню", callback_data="sniper_menu")]
+                [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
         )
 
