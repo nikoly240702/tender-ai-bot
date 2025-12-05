@@ -2,11 +2,13 @@
 Обработчики команды /start и главного меню.
 """
 
+import logging
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
 from aiogram.fsm.context import FSMContext
 
+logger = logging.getLogger(__name__)
 router = Router()
 
 
@@ -15,12 +17,34 @@ async def cmd_start(message: Message, state: FSMContext):
     """
     Обработчик команды /start.
     Приветствует пользователя и показывает главное меню.
+    Для новых пользователей запускает онбординг.
     """
     # Очищаем любое предыдущее состояние
     await state.clear()
 
     # Удаляем старую Reply Keyboard (кнопки внизу экрана)
     await message.answer("🎯", reply_markup=ReplyKeyboardRemove())
+
+    # Проверяем, новый ли пользователь
+    # Если команда /start onboarding - принудительно показываем онбординг
+    force_onboarding = message.text and "onboarding" in message.text.lower()
+
+    if force_onboarding:
+        logger.info(f"Принудительный запуск онбординга для пользователя {message.from_user.id}")
+        from bot.handlers.onboarding import start_onboarding
+        await start_onboarding(message, state)
+        return
+
+    # Проверяем, новый ли пользователь (автоматический онбординг)
+    try:
+        from bot.handlers.onboarding import is_first_time_user, start_onboarding
+
+        if await is_first_time_user(message.from_user.id):
+            logger.info(f"Первый запуск для пользователя {message.from_user.id} - показываем онбординг")
+            await start_onboarding(message, state)
+            return
+    except Exception as e:
+        logger.error(f"Ошибка проверки нового пользователя: {e}")
 
     welcome_text = (
         "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
@@ -38,8 +62,8 @@ async def cmd_start(message: Message, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        [InlineKeyboardButton(text="👋 Экскурсия для новичков", callback_data="start_onboarding")],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
     ])
 
     await message.answer(
@@ -115,6 +139,7 @@ async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
+        [InlineKeyboardButton(text="👋 Экскурсия для новичков", callback_data="start_onboarding")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
     ])
 
@@ -123,6 +148,15 @@ async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data == "start_onboarding")
+async def callback_start_onboarding(callback: CallbackQuery, state: FSMContext):
+    """Запуск онбординга по кнопке."""
+    await callback.answer("👋 Запускаю экскурсию...")
+
+    from bot.handlers.onboarding import start_onboarding
+    await start_onboarding(callback.message, state)
 
 
 # Старые handlers отключены - теперь используем только Tender Sniper
