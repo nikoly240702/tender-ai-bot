@@ -80,9 +80,9 @@ async def start_create_filter_only(callback: CallbackQuery, state: FSMContext):
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
         # Проверяем квоту на фильтры
-        filters = await db.get_active_filters(user['id'])
-        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
-        max_filters = plan_limits.get('max_filters', 5)
+        filters = await db.get_user_filters(user['id'], active_only=True)
+        # Временно используем жёстко заданные лимиты (TODO: мигрировать get_plan_limits на PostgreSQL)
+        max_filters = 5 if user['subscription_tier'] == 'free' else 15
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(
@@ -139,9 +139,9 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
         # Проверяем квоту на фильтры
-        filters = await db.get_active_filters(user['id'])
-        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
-        max_filters = plan_limits.get('max_filters', 5)
+        filters = await db.get_user_filters(user['id'], active_only=True)
+        # Временно используем жёстко заданные лимиты (TODO: мигрировать get_plan_limits на PostgreSQL)
+        max_filters = 5 if user['subscription_tier'] == 'free' else 15
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(
