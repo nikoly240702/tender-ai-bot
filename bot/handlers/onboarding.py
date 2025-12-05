@@ -161,7 +161,7 @@ async def start_sniper_from_onboarding(callback: CallbackQuery, state: FSMContex
 
     # Открываем Tender Sniper
     from bot.handlers.sniper import show_sniper_menu
-    await show_sniper_menu(callback.message, state)
+    await show_sniper_menu(callback)
 
 
 async def start_onboarding(message: Message, state: FSMContext):
