@@ -26,8 +26,13 @@ from tender_sniper.config import is_tender_sniper_enabled
 from tender_sniper.monitoring import init_sentry, capture_exception, flush_events
 
 # Импортируем production infrastructure
-from bot.health_check import start_health_check_server, update_health_status
+# from bot.health_check import start_health_check_server, update_health_status
 from bot.env_validator import EnvValidator
+
+# Заглушка для update_health_status (health check временно отключен)
+def update_health_status(component: str, status: str):
+    """Заглушка для update_health_status."""
+    pass
 
 # Настройка логирования
 logging.basicConfig(
@@ -51,11 +56,13 @@ async def main():
     EnvValidator.validate_and_exit_if_invalid(strict=False)
 
     # ============================================
-    # PRODUCTION: Health Check Server
+    # PRODUCTION: Health Check Server (ВРЕМЕННО ОТКЛЮЧЕН)
     # ============================================
-    health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
-    logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
-    health_check_runner = await start_health_check_server(port=health_check_port)
+    # health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
+    # logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
+    # health_check_runner = await start_health_check_server(port=health_check_port)
+    health_check_runner = None
+    logger.info("ℹ️  Health check server временно отключен")
 
     # Инициализация Sentry для мониторинга ошибок
     sentry_enabled = init_sentry(
