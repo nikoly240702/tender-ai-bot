@@ -18,10 +18,6 @@ COPY . .
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${HEALTH_CHECK_PORT:-8080}/health || exit 1
-
 EXPOSE 8080
 
 CMD ["python", "-m", "bot.main"]
