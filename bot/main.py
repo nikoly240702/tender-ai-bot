@@ -16,7 +16,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from bot.config import BotConfig
-from bot.handlers import start, search, history, admin, access_requests, sniper, sniper_search, admin_sniper, onboarding, inline_search
+from bot.handlers import start, search, history, admin, access_requests, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 
@@ -136,6 +136,7 @@ async def main():
     dp.include_router(admin_sniper.router)  # Расширенная админ-панель Tender Sniper
     dp.include_router(onboarding.router)  # Онбординг для новых пользователей
     dp.include_router(inline_search.router)  # Inline поиск и quick actions
+    dp.include_router(all_tenders.router)  # Все мои тендеры - единая история
     dp.include_router(sniper_search.router)  # Tender Sniper Search (новый workflow)
     dp.include_router(sniper.router)  # Tender Sniper (приоритет)
     dp.include_router(start.router)

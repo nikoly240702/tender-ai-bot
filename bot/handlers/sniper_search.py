@@ -321,35 +321,172 @@ async def ask_for_regions(message: Message, state: FSMContext):
     """Запрос региона."""
     await state.set_state(FilterSearchStates.waiting_for_regions)
 
-    # Кнопки с федеральными округами + популярные регионы
+    # Инициализируем выбранные ФО, если еще не было
+    data = await state.get_data()
+    if 'selected_federal_districts' not in data:
+        await state.update_data(selected_federal_districts=[], region_selection_mode='initial')
+
+    # Кнопки с переключением режима
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        # Популярные регионы
-        [InlineKeyboardButton(text="🏙️ Москва", callback_data="region_single_Москва")],
-        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="region_single_Санкт-Петербург")],
-        [InlineKeyboardButton(text="🏘️ Московская область", callback_data="region_single_Московская область")],
-        # Федеральные округа
-        [InlineKeyboardButton(text="📍 Центральный ФО", callback_data="region_fo_Центральный")],
-        [InlineKeyboardButton(text="📍 Северо-Западный ФО", callback_data="region_fo_Северо-Западный")],
-        [InlineKeyboardButton(text="📍 Южный ФО", callback_data="region_fo_Южный")],
-        [InlineKeyboardButton(text="📍 Приволжский ФО", callback_data="region_fo_Приволжский")],
-        [InlineKeyboardButton(text="📍 Уральский ФО", callback_data="region_fo_Уральский")],
-        [InlineKeyboardButton(text="📍 Сибирский ФО", callback_data="region_fo_Сибирский")],
-        [InlineKeyboardButton(text="📍 Дальневосточный ФО", callback_data="region_fo_Дальневосточный")],
-        [InlineKeyboardButton(text="📍 Северо-Кавказский ФО", callback_data="region_fo_Северо-Кавказский")],
-        # Все регионы или ручной ввод
-        [InlineKeyboardButton(text="🌍 Все регионы", callback_data="region_all")],
+        # Режимы выбора
+        [InlineKeyboardButton(text="📍 Выбрать федеральные округа", callback_data="region_mode_federal")],
+        [InlineKeyboardButton(text="🏙️ Выбрать отдельные регионы", callback_data="region_mode_single")],
+        # Быстрые опции
+        [InlineKeyboardButton(text="🌍 Все регионы России", callback_data="region_all")],
         [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")]
     ])
 
     await message.answer(
         f"<b>Шаг 5/13:</b> Регион заказчика\n\n"
-        f"📍 Выберите федеральный округ (все регионы ФО)\n"
-        f"🏙️ Или отдельный регион\n"
-        f"✍️ Или введите несколько регионов через запятую\n\n"
-        f"<i>Например: москва, спб, краснодар</i>",
+        f"Выберите способ указания регионов:\n\n"
+        f"📍 <b>Федеральные округа</b> — выбрать один или несколько ФО\n"
+        f"🏙️ <b>Отдельные регионы</b> — Москва, СПб и др.\n"
+        f"🌍 <b>Все регионы</b> — поиск по всей России\n"
+        f"✍️ <b>Ручной ввод</b> — например: москва, спб, краснодар",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data == "region_mode_federal")
+async def show_federal_districts_selection(callback: CallbackQuery, state: FSMContext):
+    """Показать меню выбора федеральных округов."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected_fos = data.get('selected_federal_districts', [])
+
+    # Создаем клавиатуру с чекбоксами для каждого ФО
+    keyboard_rows = []
+
+    federal_districts = [
+        ("Центральный", "Центральный"),
+        ("Северо-Западный", "Северо-Западный"),
+        ("Южный", "Южный"),
+        ("Северо-Кавказский", "Северо-Кавказский"),
+        ("Приволжский", "Приволжский"),
+        ("Уральский", "Уральский"),
+        ("Сибирский", "Сибирский"),
+        ("Дальневосточный", "Дальневосточный"),
+    ]
+
+    for name, code in federal_districts:
+        is_selected = code in selected_fos
+        prefix = "✅" if is_selected else "⬜"
+        keyboard_rows.append([
+            InlineKeyboardButton(
+                text=f"{prefix} {name} ФО",
+                callback_data=f"region_toggle_fo_{code}"
+            )
+        ])
+
+    # Кнопки подтверждения
+    if selected_fos:
+        keyboard_rows.append([
+            InlineKeyboardButton(
+                text=f"➡️ Продолжить ({len(selected_fos)} ФО)",
+                callback_data="region_confirm_federal"
+            )
+        ])
+
+    keyboard_rows.append([
+        InlineKeyboardButton(text="« Назад", callback_data="region_back_to_modes")
+    ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+    selected_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_fos)}" if selected_fos else "\n\n<i>Выберите один или несколько федеральных округов</i>"
+
+    await callback.message.edit_text(
+        f"📍 <b>Выбор федеральных округов</b>\n\n"
+        f"Нажмите на округ, чтобы добавить/убрать его из выбора.{selected_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("region_toggle_fo_"))
+async def toggle_federal_district(callback: CallbackQuery, state: FSMContext):
+    """Переключение выбора федерального округа."""
+    fo_code = callback.data.replace("region_toggle_fo_", "")
+
+    data = await state.get_data()
+    selected_fos = data.get('selected_federal_districts', [])
+
+    if fo_code in selected_fos:
+        selected_fos.remove(fo_code)
+    else:
+        selected_fos.append(fo_code)
+
+    await state.update_data(selected_federal_districts=selected_fos)
+
+    # Обновляем меню
+    await show_federal_districts_selection(callback, state)
+
+
+@router.callback_query(F.data == "region_confirm_federal")
+async def confirm_federal_districts(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение выбора федеральных округов."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected_fos = data.get('selected_federal_districts', [])
+
+    if not selected_fos:
+        await callback.answer("⚠️ Выберите хотя бы один федеральный округ", show_alert=True)
+        return
+
+    # Собираем все регионы из выбранных ФО
+    all_regions = []
+    for fo in selected_fos:
+        regions = get_regions_by_district(fo)
+        all_regions.extend(regions)
+
+    await state.update_data(regions=all_regions)
+
+    await callback.message.answer(
+        f"✅ <b>Выбрано федеральных округов: {len(selected_fos)}</b>\n\n"
+        f"📍 {', '.join(selected_fos)}\n\n"
+        f"Включено регионов: {len(all_regions)}",
+        parse_mode="HTML"
+    )
+    await ask_for_law_type(callback.message, state)
+
+
+@router.callback_query(F.data == "region_mode_single")
+async def show_single_regions_selection(callback: CallbackQuery, state: FSMContext):
+    """Показать меню выбора отдельных регионов."""
+    await callback.answer()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏙️ Москва", callback_data="region_single_Москва")],
+        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="region_single_Санкт-Петербург")],
+        [InlineKeyboardButton(text="🏘️ Московская область", callback_data="region_single_Московская область")],
+        [InlineKeyboardButton(text="🏭 Свердловская область", callback_data="region_single_Свердловская область")],
+        [InlineKeyboardButton(text="🌆 Краснодарский край", callback_data="region_single_Краснодарский край")],
+        [InlineKeyboardButton(text="🏙️ Новосибирская область", callback_data="region_single_Новосибирская область")],
+        [InlineKeyboardButton(text="✍️ Ввести другой регион", callback_data="region_custom")],
+        [InlineKeyboardButton(text="« Назад", callback_data="region_back_to_modes")]
+    ])
+
+    await callback.message.edit_text(
+        f"🏙️ <b>Выбор отдельного региона</b>\n\n"
+        f"Выберите популярный регион или введите название вручную:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "region_back_to_modes")
+async def back_to_region_modes(callback: CallbackQuery, state: FSMContext):
+    """Возврат к выбору режима."""
+    await callback.answer()
+
+    # Сбрасываем выбранные ФО
+    await state.update_data(selected_federal_districts=[])
+
+    # Перезапускаем выбор регионов
+    await ask_for_regions(callback.message, state)
 
 
 @router.callback_query(F.data.startswith("region_"))
