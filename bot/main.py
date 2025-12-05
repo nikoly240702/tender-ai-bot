@@ -17,11 +17,12 @@ from aiogram.types import BotCommand
 from bot.config import BotConfig
 from bot.handlers import start, search, history, admin, access_requests, sniper, sniper_search, admin_sniper
 from bot.db import get_database
-from bot.middlewares import AccessControlMiddleware
+from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 
 # Импортируем Tender Sniper Service
 from tender_sniper.service import TenderSniperService
 from tender_sniper.config import is_tender_sniper_enabled
+from tender_sniper.monitoring import init_sentry, capture_exception, flush_events
 
 # Настройка логирования
 logging.basicConfig(
@@ -38,12 +39,24 @@ logger = logging.getLogger(__name__)
 async def main():
     """Главная функция запуска бота."""
 
+    # Инициализация Sentry для мониторинга ошибок
+    sentry_enabled = init_sentry(
+        environment="production",
+        traces_sample_rate=0.1,  # 10% трассировки
+        profiles_sample_rate=0.1  # 10% профилирования
+    )
+    if sentry_enabled:
+        logger.info("✅ Sentry мониторинг активирован")
+    else:
+        logger.info("ℹ️  Sentry мониторинг отключен (SENTRY_DSN не указан)")
+
     # Проверяем конфигурацию
     try:
         BotConfig.validate()
         logger.info("✅ Конфигурация валидна")
     except ValueError as e:
         logger.error(f"❌ Ошибка конфигурации: {e}")
+        capture_exception(e, level="fatal", tags={"component": "config"})
         return
 
     # Проверяем наличие прокси
@@ -76,6 +89,12 @@ async def main():
     access_middleware = AccessControlMiddleware()
     dp.message.middleware(access_middleware)
     dp.callback_query.middleware(access_middleware)
+
+    # Подключаем rate limiting для защиты от спама
+    rate_limiter = AdaptiveRateLimitMiddleware(period=60, block_duration=300)
+    dp.message.middleware(rate_limiter)
+    dp.callback_query.middleware(rate_limiter)
+    logger.info("✅ Rate Limiting активирован")
 
     # Логируем информацию о контроле доступа
     if BotConfig.ALLOWED_USERS:
@@ -141,7 +160,8 @@ async def main():
         await dp.start_polling(bot)
 
     except Exception as e:
-        logger.error(f"❌ Ошибка при запуске бота: {e}")
+        logger.error(f"❌ Ошибка при запуске бота: {e}", exc_info=True)
+        capture_exception(e, level="fatal", tags={"component": "main"})
     finally:
         # Останавливаем Tender Sniper если запущен
         if sniper_service:
@@ -155,6 +175,9 @@ async def main():
                 pass
 
         await bot.session.close()
+
+        # Отправляем все накопленные события в Sentry перед завершением
+        flush_events(timeout=2)
 
 
 if __name__ == "__main__":

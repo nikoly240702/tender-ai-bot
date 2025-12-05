@@ -22,6 +22,12 @@ import logging
 from tender_sniper.database import get_sniper_db, get_plan_limits
 from tender_sniper.query_expander import QueryExpander
 from tender_sniper.instant_search import InstantSearch
+from tender_sniper.regions import (
+    get_all_federal_districts,
+    get_regions_by_district,
+    parse_regions_input,
+    format_regions_list
+)
 
 logger = logging.getLogger(__name__)
 
@@ -315,18 +321,32 @@ async def ask_for_regions(message: Message, state: FSMContext):
     """Запрос региона."""
     await state.set_state(FilterSearchStates.waiting_for_regions)
 
+    # Кнопки с федеральными округами + популярные регионы
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏙️ Москва", callback_data="region_Москва")],
-        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="region_Санкт-Петербург")],
-        [InlineKeyboardButton(text="🏘️ Московская область", callback_data="region_Московская область")],
-        [InlineKeyboardButton(text="🌴 Краснодарский край", callback_data="region_Краснодарский край")],
+        # Популярные регионы
+        [InlineKeyboardButton(text="🏙️ Москва", callback_data="region_single_Москва")],
+        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="region_single_Санкт-Петербург")],
+        [InlineKeyboardButton(text="🏘️ Московская область", callback_data="region_single_Московская область")],
+        # Федеральные округа
+        [InlineKeyboardButton(text="📍 Центральный ФО", callback_data="region_fo_Центральный")],
+        [InlineKeyboardButton(text="📍 Северо-Западный ФО", callback_data="region_fo_Северо-Западный")],
+        [InlineKeyboardButton(text="📍 Южный ФО", callback_data="region_fo_Южный")],
+        [InlineKeyboardButton(text="📍 Приволжский ФО", callback_data="region_fo_Приволжский")],
+        [InlineKeyboardButton(text="📍 Уральский ФО", callback_data="region_fo_Уральский")],
+        [InlineKeyboardButton(text="📍 Сибирский ФО", callback_data="region_fo_Сибирский")],
+        [InlineKeyboardButton(text="📍 Дальневосточный ФО", callback_data="region_fo_Дальневосточный")],
+        [InlineKeyboardButton(text="📍 Северо-Кавказский ФО", callback_data="region_fo_Северо-Кавказский")],
+        # Все регионы или ручной ввод
         [InlineKeyboardButton(text="🌍 Все регионы", callback_data="region_all")],
         [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")]
     ])
 
     await message.answer(
         f"<b>Шаг 5/13:</b> Регион заказчика\n\n"
-        f"Выберите регион или введите название вручную:",
+        f"📍 Выберите федеральный округ (все регионы ФО)\n"
+        f"🏙️ Или отдельный регион\n"
+        f"✍️ Или введите несколько регионов через запятую\n\n"
+        f"<i>Например: москва, спб, краснодар</i>",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -337,30 +357,87 @@ async def process_region_callback(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора региона."""
     await callback.answer()
 
-    region_value = callback.data.replace("region_", "")
+    region_data = callback.data.replace("region_", "")
 
-    if region_value == "all":
+    if region_data == "all":
+        # Все регионы
         await state.update_data(regions=[])
+        await callback.message.answer("✅ <b>Все регионы России</b>", parse_mode="HTML")
         await ask_for_law_type(callback.message, state)
-    elif region_value == "custom":
+
+    elif region_data == "custom":
+        # Ручной ввод
         await callback.message.answer(
-            "Введите название региона:\n"
-            "Например: <i>Новосибирская область</i>",
+            "✍️ <b>Ручной ввод регионов</b>\n\n"
+            "Введите один или несколько регионов через запятую.\n\n"
+            "<b>Примеры:</b>\n"
+            "• <code>москва</code>\n"
+            "• <code>спб, москва</code>\n"
+            "• <code>краснодар, ростов, волгоград</code>\n"
+            "• <code>екатеринбург, новосибирск, красноярск</code>\n\n"
+            "💡 Система автоматически распознает сокращения и альтернативные названия!",
             parse_mode="HTML"
         )
-    else:
-        await state.update_data(regions=[region_value])
+
+    elif region_data.startswith("fo_"):
+        # Федеральный округ
+        district_name = region_data.replace("fo_", "")
+        district_regions = get_regions_by_district(district_name)
+
+        await state.update_data(regions=district_regions)
+
+        await callback.message.answer(
+            f"✅ <b>{district_name} федеральный округ</b>\n\n"
+            f"Включено регионов: {len(district_regions)}\n"
+            f"📍 {format_regions_list(district_regions, max_display=5)}",
+            parse_mode="HTML"
+        )
+        await ask_for_law_type(callback.message, state)
+
+    elif region_data.startswith("single_"):
+        # Одиночный регион
+        region_name = region_data.replace("single_", "")
+        await state.update_data(regions=[region_name])
+        await callback.message.answer(f"✅ <b>Регион:</b> {region_name}", parse_mode="HTML")
         await ask_for_law_type(callback.message, state)
 
 
 @router.message(FilterSearchStates.waiting_for_regions)
 async def process_region_text(message: Message, state: FSMContext):
-    """Обработка текстового ввода региона."""
-    region = message.text.strip()
-    if region:
-        await state.update_data(regions=[region])
-    else:
+    """Обработка текстового ввода региона с распознаванием."""
+    regions_text = message.text.strip()
+
+    if not regions_text:
         await state.update_data(regions=[])
+        await message.answer("⚠️ <b>Регионы не указаны</b>\nБудем искать по всей России.", parse_mode="HTML")
+        await ask_for_law_type(message, state)
+        return
+
+    # Парсим и распознаем регионы
+    recognized, unrecognized = parse_regions_input(regions_text)
+
+    if not recognized and not unrecognized:
+        await state.update_data(regions=[])
+        await message.answer("⚠️ <b>Регионы не распознаны</b>\nБудем искать по всей России.", parse_mode="HTML")
+        await ask_for_law_type(message, state)
+        return
+
+    # Сохраняем распознанные регионы
+    await state.update_data(regions=recognized if recognized else [])
+
+    # Формируем ответ
+    response = ""
+
+    if recognized:
+        response += f"✅ <b>Распознано регионов: {len(recognized)}</b>\n"
+        response += f"📍 {format_regions_list(recognized, max_display=8)}\n"
+
+    if unrecognized:
+        response += f"\n⚠️ <b>Не распознано: {len(unrecognized)}</b>\n"
+        response += f"❌ {', '.join(unrecognized)}\n"
+        response += f"\n<i>Эти регионы будут пропущены при поиске.</i>"
+
+    await message.answer(response, parse_mode="HTML")
     await ask_for_law_type(message, state)
 
 
