@@ -5,6 +5,7 @@
 import asyncio
 import logging
 import sys
+import os
 from pathlib import Path
 
 # Добавляем родительскую директорию в путь для импорта модулей системы
@@ -24,6 +25,10 @@ from tender_sniper.service import TenderSniperService
 from tender_sniper.config import is_tender_sniper_enabled
 from tender_sniper.monitoring import init_sentry, capture_exception, flush_events
 
+# Импортируем production infrastructure
+from bot.health_check import start_health_check_server, update_health_status
+from bot.env_validator import EnvValidator
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +44,19 @@ logger = logging.getLogger(__name__)
 async def main():
     """Главная функция запуска бота."""
 
+    # ============================================
+    # PRODUCTION: Валидация окружения
+    # ============================================
+    logger.info("🔍 Проверка переменных окружения...")
+    EnvValidator.validate_and_exit_if_invalid(strict=False)
+
+    # ============================================
+    # PRODUCTION: Health Check Server
+    # ============================================
+    health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
+    logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
+    health_check_runner = await start_health_check_server(port=health_check_port)
+
     # Инициализация Sentry для мониторинга ошибок
     sentry_enabled = init_sentry(
         environment="production",
@@ -47,15 +65,19 @@ async def main():
     )
     if sentry_enabled:
         logger.info("✅ Sentry мониторинг активирован")
+        update_health_status("sentry", "ok")
     else:
         logger.info("ℹ️  Sentry мониторинг отключен (SENTRY_DSN не указан)")
+        update_health_status("sentry", "disabled")
 
     # Проверяем конфигурацию
     try:
         BotConfig.validate()
         logger.info("✅ Конфигурация валидна")
+        update_health_status("config", "ok")
     except ValueError as e:
         logger.error(f"❌ Ошибка конфигурации: {e}")
+        update_health_status("config", f"error: {e}")
         capture_exception(e, level="fatal", tags={"component": "config"})
         return
 
@@ -71,7 +93,13 @@ async def main():
 
     # Инициализируем базу данных
     logger.info("🗄️  Инициализация базы данных...")
-    await get_database()
+    try:
+        await get_database()
+        update_health_status("database", "ok")
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации БД: {e}")
+        update_health_status("database", f"error: {e}")
+        raise
 
     # Синхронизируем пользователей из переменной окружения ALLOWED_USERS в базу данных
     if BotConfig.ALLOWED_USERS:
@@ -139,10 +167,13 @@ async def main():
 
             sniper_task = asyncio.create_task(run_sniper())
             logger.info("✅ Tender Sniper Service запущен в фоновом режиме")
+            update_health_status("sniper_service", "ok")
         except Exception as e:
             logger.error(f"❌ Не удалось запустить Tender Sniper: {e}", exc_info=True)
+            update_health_status("sniper_service", f"error: {e}")
     else:
         logger.info("ℹ️  Tender Sniper отключен в конфигурации")
+        update_health_status("sniper_service", "disabled")
 
     try:
         # Удаляем старые webhook (если были)
@@ -156,13 +187,16 @@ async def main():
         ]
         await bot.set_my_commands(commands)
         logger.info("✅ Команды бота установлены")
+        update_health_status("bot", "ok")
 
         # Запускаем polling
         logger.info("✅ Бот успешно запущен!")
+        update_health_status("bot", "running")
         await dp.start_polling(bot)
 
     except Exception as e:
         logger.error(f"❌ Ошибка при запуске бота: {e}", exc_info=True)
+        update_health_status("bot", f"error: {e}")
         capture_exception(e, level="fatal", tags={"component": "main"})
     finally:
         # Останавливаем Tender Sniper если запущен
@@ -177,6 +211,11 @@ async def main():
                 pass
 
         await bot.session.close()
+
+        # Останавливаем health check сервер
+        if health_check_runner:
+            logger.info("🛑 Остановка health check сервера...")
+            await health_check_runner.cleanup()
 
         # Отправляем все накопленные события в Sentry перед завершением
         flush_events(timeout=2)

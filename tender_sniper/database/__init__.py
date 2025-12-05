@@ -24,12 +24,24 @@ Example usage:
     )
 """
 
-from .models import TenderSniperDB, get_sniper_db
-from .init_plans import init_subscription_plans, get_plan_limits
+# Используем SQLAlchemy adapter для PostgreSQL
+from .sqlalchemy_adapter import TenderSniperDB, get_sniper_db, serialize_for_json
+
+# Оставляем для обратной совместимости
+try:
+    from .init_plans import init_subscription_plans, get_plan_limits
+except ImportError:
+    # Fallback для старой версии
+    async def init_subscription_plans():
+        pass
+
+    def get_plan_limits(tier):
+        return {'filters': 5, 'notifications': 15}
 
 __all__ = [
     'TenderSniperDB',
     'get_sniper_db',
+    'serialize_for_json',
     'init_subscription_plans',
     'get_plan_limits'
 ]

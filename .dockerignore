@@ -23,7 +23,16 @@ wheels/
 .installed.cfg
 *.egg
 
-# IDE
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
 .vscode/
 .idea/
 *.swp
@@ -34,34 +43,32 @@ wheels/
 .DS_Store
 Thumbs.db
 
+# Project specific
+bot_logs/
+backups/
+*.log
+*.sqlite
+*.db
+
 # Git
 .git/
 .gitignore
 
-# Logs
-*.log
-bot/bot.log
-
-# Output files
-output/
-downloads/
-
-# Database (будет создана в контейнере)
-bot/database/*.db
-
-# Environment (не копируем .env, передаем через docker-compose)
-.env.example
-
 # Documentation
-README.md
+docs/
 *.md
+README.md
 
-# Testing
+# Tests
 tests/
+pytest.ini
 .pytest_cache/
-.coverage
-htmlcov/
 
-# Temporary files
-*.tmp
-*.temp
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

@@ -52,6 +52,15 @@ feedparser>=6.0.10  # RSS/Atom парсинг для zakupki.gov.ru
 aiogram>=3.15.0
 aiosqlite>=0.19.0
 
+# PostgreSQL and Database
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Production Infrastructure
+aiohttp>=3.9.0  # Health check endpoint
+sentry-sdk>=1.39.0  # Error monitoring (уже используется в коде)
+
 # Level 2 Analysis Dependencies
 pydantic>=2.5.0  # Структурированные модели
 pydantic-settings>=2.1.0
