@@ -429,6 +429,69 @@ async def back_to_filter_name(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(text, parse_mode="HTML")
 
 
+@router.callback_query(F.data == "back_to_price")
+async def back_to_price(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к шагу выбора цены."""
+    await callback.answer("« Возвращаемся к выбору цены")
+    await ask_for_price_range(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_regions")
+async def back_to_regions(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору регионов."""
+    await callback.answer("« Возвращаемся к выбору регионов")
+    await ask_for_regions(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_law_type")
+async def back_to_law_type(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору типа закона."""
+    await callback.answer("« Возвращаемся к типу закона")
+    await ask_for_law_type(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_purchase_stage")
+async def back_to_purchase_stage(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору этапа закупки."""
+    await callback.answer("« Возвращаемся к этапу закупки")
+    await ask_for_purchase_stage(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_purchase_method")
+async def back_to_purchase_method(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору способа закупки."""
+    await callback.answer("« Возвращаемся к способу закупки")
+    await ask_for_purchase_method(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_tender_type")
+async def back_to_tender_type(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору типа закупки."""
+    await callback.answer("« Возвращаемся к типу закупки")
+    await ask_for_tender_type(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_min_deadline")
+async def back_to_min_deadline(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору минимального дедлайна."""
+    await callback.answer("« Возвращаемся к дедлайну")
+    await ask_for_min_deadline(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_customer_keywords")
+async def back_to_customer_keywords(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к вводу ключевых слов заказчика."""
+    await callback.answer("« Возвращаемся к фильтру по заказчику")
+    await ask_for_customer_keywords(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_okpd2")
+async def back_to_okpd2(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору ОКПД2."""
+    await callback.answer("« Возвращаемся к ОКПД2")
+    await ask_for_okpd2(callback.message, state)
+
+
 async def ask_for_regions(message: Message, state: FSMContext):
     """Запрос региона."""
     await state.set_state(FilterSearchStates.waiting_for_regions)
@@ -445,7 +508,9 @@ async def ask_for_regions(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="🏙️ Выбрать отдельные регионы", callback_data="region_mode_single")],
         # Быстрые опции
         [InlineKeyboardButton(text="🌍 Все регионы России", callback_data="region_all")],
-        [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")]
+        [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")],
+        # Навигация
+        [InlineKeyboardButton(text="« Назад к цене", callback_data="back_to_price")]
     ])
 
     await message.answer(
@@ -697,7 +762,8 @@ async def ask_for_law_type(message: Message, state: FSMContext):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📜 44-ФЗ (госзакупки)", callback_data="law_44")],
         [InlineKeyboardButton(text="📋 223-ФЗ (корпоративные)", callback_data="law_223")],
-        [InlineKeyboardButton(text="📚 Оба закона", callback_data="law_all")]
+        [InlineKeyboardButton(text="📚 Оба закона", callback_data="law_all")],
+        [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")]
     ])
 
     await message.answer(
@@ -733,7 +799,8 @@ async def ask_for_purchase_stage(message: Message, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📝 Только подача заявок (актуальные)", callback_data="stage_submission")],
-        [InlineKeyboardButton(text="📊 Все этапы", callback_data="stage_all")]
+        [InlineKeyboardButton(text="📊 Все этапы", callback_data="stage_all")],
+        [InlineKeyboardButton(text="« Назад к типу закона", callback_data="back_to_law_type")]
     ])
 
     await message.answer(
@@ -767,7 +834,8 @@ async def ask_for_purchase_method(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="📋 Открытый конкурс", callback_data="method_tender")],
         [InlineKeyboardButton(text="💬 Запрос котировок", callback_data="method_quotation")],
         [InlineKeyboardButton(text="📝 Запрос предложений", callback_data="method_request")],
-        [InlineKeyboardButton(text="🔍 Все способы", callback_data="method_all")]
+        [InlineKeyboardButton(text="🔍 Все способы", callback_data="method_all")],
+        [InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")]
     ])
 
     await message.answer(
@@ -802,7 +870,8 @@ async def ask_for_tender_type(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="📦 Товары (поставка)", callback_data="ttype_goods")],
         [InlineKeyboardButton(text="🔧 Услуги", callback_data="ttype_services")],
         [InlineKeyboardButton(text="🏗️ Работы", callback_data="ttype_works")],
-        [InlineKeyboardButton(text="🔍 Все типы", callback_data="ttype_all")]
+        [InlineKeyboardButton(text="🔍 Все типы", callback_data="ttype_all")],
+        [InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")]
     ])
 
     await message.answer(
@@ -843,7 +912,8 @@ async def ask_for_min_deadline(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="5 дней", callback_data="deadline_5")],
         [InlineKeyboardButton(text="7 дней", callback_data="deadline_7")],
         [InlineKeyboardButton(text="14 дней", callback_data="deadline_14")],
-        [InlineKeyboardButton(text="⏭️ Без ограничений", callback_data="deadline_skip")]
+        [InlineKeyboardButton(text="⏭️ Без ограничений", callback_data="deadline_skip")],
+        [InlineKeyboardButton(text="« Назад к типу закупки", callback_data="back_to_tender_type")]
     ])
 
     await message.answer(
@@ -872,7 +942,8 @@ async def ask_for_customer_keywords(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_customer_keywords)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="customer_skip")]
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="customer_skip")],
+        [InlineKeyboardButton(text="« Назад к дедлайну", callback_data="back_to_min_deadline")]
     ])
 
     await message.answer(
@@ -918,7 +989,8 @@ async def ask_for_okpd2(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="💊 21 - Лекарства", callback_data="okpd_21")],
         [InlineKeyboardButton(text="🍞 10 - Продукты питания", callback_data="okpd_10")],
         [InlineKeyboardButton(text="✍️ Ввести код вручную", callback_data="okpd_custom")],
-        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="okpd_skip")]
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="okpd_skip")],
+        [InlineKeyboardButton(text="« Назад к заказчику", callback_data="back_to_customer_keywords")]
     ])
 
     await message.answer(
@@ -981,11 +1053,16 @@ async def ask_for_tender_count(message: Message, state: FSMContext):
     """Запрос количества тендеров."""
     await state.set_state(FilterSearchStates.waiting_for_tender_count)
 
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад к ОКПД2", callback_data="back_to_okpd2")]
+    ])
+
     await message.answer(
         f"<b>Шаг 13/13:</b> Количество тендеров\n\n"
         f"Сколько тендеров найти?\n"
         f"Введите число от <code>1</code> до <code>25</code>\n\n"
         f"💡 Рекомендуем 10-15 для быстрого результата",
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
 
