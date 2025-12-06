@@ -272,6 +272,105 @@ def generate_html_report(
             opacity: 0.9;
         }}
 
+        /* Панель фильтров */
+        .filters-panel {{
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }}
+
+        .filters-title {{
+            font-size: 20px;
+            color: #667eea;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }}
+
+        .filters-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }}
+
+        .filter-group {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+
+        .filter-label {{
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+        }}
+
+        .filter-input {{
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }}
+
+        .filter-input:focus {{
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }}
+
+        .filter-select {{
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+
+        .filter-select:focus {{
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }}
+
+        .filter-actions {{
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }}
+
+        .btn-reset {{
+            background: #f0f0f0;
+            color: #333;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+
+        .btn-reset:hover {{
+            background: #e0e0e0;
+        }}
+
+        .results-count {{
+            background: #667eea;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+            display: inline-block;
+        }}
+
+        .tender-card.hidden {{
+            display: none;
+        }}
+
         @media (max-width: 768px) {{
             .header h1 {{
                 font-size: 24px;
@@ -287,6 +386,10 @@ def generate_html_report(
 
             .tender-header {{
                 flex-direction: column;
+            }}
+
+            .filters-grid {{
+                grid-template-columns: 1fr;
             }}
         }}
     </style>
@@ -313,6 +416,57 @@ def generate_html_report(
                 </div>
             </div>
         </div>
+
+        <!-- Панель фильтров -->
+        <div class="filters-panel">
+            <div class="filters-title">🔍 Фильтры и поиск</div>
+
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label class="filter-label">Поиск по названию</label>
+                    <input type="text" id="searchInput" class="filter-input" placeholder="Введите ключевые слова...">
+                </div>
+
+                <div class="filter-group">
+                    <label class="filter-label">Регион</label>
+                    <select id="regionFilter" class="filter-select">
+                        <option value="">Все регионы</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label class="filter-label">Мин. цена (₽)</label>
+                    <input type="number" id="minPrice" class="filter-input" placeholder="От...">
+                </div>
+
+                <div class="filter-group">
+                    <label class="filter-label">Макс. цена (₽)</label>
+                    <input type="number" id="maxPrice" class="filter-input" placeholder="До...">
+                </div>
+
+                <div class="filter-group">
+                    <label class="filter-label">Сортировка</label>
+                    <select id="sortBy" class="filter-select">
+                        <option value="date-desc">Сначала новые</option>
+                        <option value="date-asc">Сначала старые</option>
+                        <option value="price-desc">По убыванию цены</option>
+                        <option value="price-asc">По возрастанию цены</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
+                    <label class="filter-label">Фильтр источника</label>
+                    <select id="filterSource" class="filter-select">
+                        <option value="">Все фильтры</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="filter-actions">
+                <button id="resetFilters" class="btn-reset">🔄 Сбросить фильтры</button>
+                <div class="results-count" id="resultsCount">Найдено: {len(tenders)}</div>
+            </div>
+        </div>
 """
 
     # Генерируем секции для каждого фильтра
@@ -332,8 +486,19 @@ def generate_html_report(
                 if tender_url and not tender_url.startswith('http'):
                     tender_url = f"https://zakupki.gov.ru{tender_url}"
 
+                # Подготавливаем данные для фильтрации
+                tender_name = tender.get('name', 'Без названия')
+                tender_price = tender.get('price', 0) or 0
+                tender_region = tender.get('region', 'Не указан')
+                tender_date = tender.get('published_date', '')
+
                 html_content += f"""
-            <div class="tender-card">
+            <div class="tender-card"
+                 data-name="{html.escape(tender_name.lower())}"
+                 data-price="{tender_price}"
+                 data-region="{html.escape(tender_region)}"
+                 data-filter="{html.escape(filter_name)}"
+                 data-date="{html.escape(tender_date)}">
                 <div class="tender-header">
                     <div class="tender-number">№ {html.escape(tender.get('number', 'N/A'))}</div>
                 </div>
@@ -388,6 +553,148 @@ def generate_html_report(
             <p>{datetime.now().strftime('%d.%m.%Y %H:%M')}</p>
         </div>
     </div>
+
+    <script>
+        // JavaScript для фильтрации и сортировки тендеров
+        document.addEventListener('DOMContentLoaded', function() {{
+            const searchInput = document.getElementById('searchInput');
+            const regionFilter = document.getElementById('regionFilter');
+            const minPriceInput = document.getElementById('minPrice');
+            const maxPriceInput = document.getElementById('maxPrice');
+            const sortBySelect = document.getElementById('sortBy');
+            const filterSourceSelect = document.getElementById('filterSource');
+            const resetButton = document.getElementById('resetFilters');
+            const resultsCount = document.getElementById('resultsCount');
+            const tenderCards = Array.from(document.querySelectorAll('.tender-card'));
+
+            // Собираем уникальные регионы и фильтры
+            const regions = new Set();
+            const filters = new Set();
+
+            tenderCards.forEach(card => {{
+                const region = card.dataset.region;
+                const filter = card.dataset.filter;
+                if (region && region !== 'Не указан') regions.add(region);
+                if (filter) filters.add(filter);
+            }});
+
+            // Заполняем селекты
+            regions.forEach(region => {{
+                const option = document.createElement('option');
+                option.value = region;
+                option.textContent = region;
+                regionFilter.appendChild(option);
+            }});
+
+            filters.forEach(filter => {{
+                const option = document.createElement('option');
+                option.value = filter;
+                option.textContent = filter;
+                filterSourceSelect.appendChild(option);
+            }});
+
+            // Функция фильтрации
+            function applyFilters() {{
+                const searchTerm = searchInput.value.toLowerCase();
+                const selectedRegion = regionFilter.value;
+                const minPrice = parseFloat(minPriceInput.value) || 0;
+                const maxPrice = parseFloat(maxPriceInput.value) || Infinity;
+                const selectedFilter = filterSourceSelect.value;
+
+                let visibleCount = 0;
+                const visibleCards = [];
+
+                tenderCards.forEach(card => {{
+                    const name = card.dataset.name || '';
+                    const price = parseFloat(card.dataset.price) || 0;
+                    const region = card.dataset.region || '';
+                    const filter = card.dataset.filter || '';
+
+                    let isVisible = true;
+
+                    // Фильтр по поиску
+                    if (searchTerm && !name.includes(searchTerm)) {{
+                        isVisible = false;
+                    }}
+
+                    // Фильтр по региону
+                    if (selectedRegion && region !== selectedRegion) {{
+                        isVisible = false;
+                    }}
+
+                    // Фильтр по цене
+                    if (price < minPrice || price > maxPrice) {{
+                        isVisible = false;
+                    }}
+
+                    // Фильтр по источнику
+                    if (selectedFilter && filter !== selectedFilter) {{
+                        isVisible = false;
+                    }}
+
+                    if (isVisible) {{
+                        card.classList.remove('hidden');
+                        visibleCards.push(card);
+                        visibleCount++;
+                    }} else {{
+                        card.classList.add('hidden');
+                    }}
+                }});
+
+                // Применяем сортировку к видимым карточкам
+                applySorting(visibleCards);
+
+                // Обновляем счетчик
+                resultsCount.textContent = `Найдено: ${{visibleCount}}`;
+            }}
+
+            // Функция сортировки
+            function applySorting(cards) {{
+                const sortBy = sortBySelect.value;
+
+                cards.sort((a, b) => {{
+                    if (sortBy === 'date-desc') {{
+                        return (b.dataset.date || '').localeCompare(a.dataset.date || '');
+                    }} else if (sortBy === 'date-asc') {{
+                        return (a.dataset.date || '').localeCompare(b.dataset.date || '');
+                    }} else if (sortBy === 'price-desc') {{
+                        return parseFloat(b.dataset.price || 0) - parseFloat(a.dataset.price || 0);
+                    }} else if (sortBy === 'price-asc') {{
+                        return parseFloat(a.dataset.price || 0) - parseFloat(b.dataset.price || 0);
+                    }}
+                    return 0;
+                }});
+
+                // Перестраиваем DOM
+                cards.forEach(card => {{
+                    card.parentNode.appendChild(card);
+                }});
+            }}
+
+            // Сброс фильтров
+            function resetFilters() {{
+                searchInput.value = '';
+                regionFilter.value = '';
+                minPriceInput.value = '';
+                maxPriceInput.value = '';
+                sortBySelect.value = 'date-desc';
+                filterSourceSelect.value = '';
+                applyFilters();
+            }}
+
+            // Обработчики событий
+            searchInput.addEventListener('input', applyFilters);
+            regionFilter.addEventListener('change', applyFilters);
+            minPriceInput.addEventListener('input', applyFilters);
+            maxPriceInput.addEventListener('input', applyFilters);
+            sortBySelect.addEventListener('change', applyFilters);
+            filterSourceSelect.addEventListener('change', applyFilters);
+            resetButton.addEventListener('click', resetFilters);
+
+            // Инициализация при загрузке
+            applyFilters();
+        }});
+    </script>
 </body>
 </html>
 """
