@@ -161,6 +161,85 @@ class TenderCache(Base):
     times_matched = Column(Integer, default=1, nullable=False)
 
 
+class TenderFavorite(Base):
+    """Избранные тендеры пользователя."""
+    __tablename__ = 'tender_favorites'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tender_number = Column(String(100), nullable=False, index=True)
+    tender_name = Column(Text, nullable=True)
+    tender_price = Column(Float, nullable=True)
+    tender_url = Column(String(500), nullable=True)
+    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    notes = Column(Text, nullable=True)  # Заметки пользователя
+
+    # Indexes
+    __table_args__ = (
+        Index('ix_tender_favorites_user_tender', 'user_id', 'tender_number', unique=True),
+    )
+
+
+class HiddenTender(Base):
+    """Скрытые тендеры (пользователь не хочет их видеть)."""
+    __tablename__ = 'hidden_tenders'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tender_number = Column(String(100), nullable=False, index=True)
+    hidden_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reason = Column(String(255), nullable=True)  # Причина скрытия (опционально)
+
+    # Indexes
+    __table_args__ = (
+        Index('ix_hidden_tenders_user_tender', 'user_id', 'tender_number', unique=True),
+    )
+
+
+class TenderReminder(Base):
+    """Напоминания о тендерах."""
+    __tablename__ = 'tender_reminders'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tender_number = Column(String(100), nullable=False, index=True)
+    tender_name = Column(Text, nullable=True)
+    tender_url = Column(String(500), nullable=True)
+    reminder_time = Column(DateTime, nullable=False)  # Когда напомнить
+    days_before_deadline = Column(Integer, nullable=True)  # За сколько дней до дедлайна
+    sent = Column(Boolean, default=False, nullable=False)  # Отправлено ли напоминание
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Indexes
+    __table_args__ = (
+        Index('ix_tender_reminders_user_time', 'user_id', 'reminder_time'),
+        Index('ix_tender_reminders_sent', 'sent', 'reminder_time'),
+    )
+
+
+class UserProfile(Base):
+    """Профиль пользователя для персонализации."""
+    __tablename__ = 'user_profiles'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), unique=True, nullable=False, index=True)
+
+    # Профиль компании
+    specialization = Column(String(500), nullable=True)  # IT оборудование, строительство и т.д.
+    regions = Column(JSON, default=list)  # List[str] - регионы работы
+    amount_min = Column(Float, nullable=True)  # Минимальная сумма контракта
+    amount_max = Column(Float, nullable=True)  # Максимальная сумма контракта
+
+    # Дополнительные параметры
+    licenses = Column(JSON, default=list)  # List[str] - наличие лицензий и допусков
+    experience_years = Column(Integer, nullable=True)  # Опыт работы в годах
+    preferred_law_types = Column(JSON, default=list)  # List[str] - предпочтения по законам (44-ФЗ, 223-ФЗ)
+
+    # Метаданные
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ============================================
 # DATABASE ENGINE & SESSION
 # ============================================
