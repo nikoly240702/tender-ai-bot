@@ -1205,8 +1205,8 @@ async def process_tender_count(message: Message, state: FSMContext):
                 filter_data=filter_data
             )
 
-            # Получаем лимиты тарифа для отображения
-            plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+            # Получаем лимиты тарифа для отображения (хардкод, пока не мигрирован на PostgreSQL)
+            daily_limit = 10 if user['subscription_tier'] == 'free' else 50
 
             # Отправляем результаты
             await progress_msg.edit_text(
@@ -1254,7 +1254,7 @@ async def process_tender_count(message: Message, state: FSMContext):
                 "💡 <b>Хотите получать автоматические уведомления?</b>\n\n"
                 "Включите автоматический мониторинг, и бот будет присылать вам\n"
                 "уведомления о новых тендерах по этим критериям каждые 5 минут.\n\n"
-                f"🆓 Ваш лимит: {plan_limits.get('max_notifications_daily', 10)} уведомлений в день",
+                f"🆓 Ваш лимит: {daily_limit} уведомлений в день",
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
@@ -1268,8 +1268,8 @@ async def process_tender_count(message: Message, state: FSMContext):
                 parse_mode="HTML"
             )
 
-            # Получаем лимиты
-            plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+            # Получаем лимиты (хардкод, пока не мигрирован на PostgreSQL)
+            daily_limit = 10 if user['subscription_tier'] == 'free' else 50
 
             # Формируем описание фильтра
             filter_summary = f"📝 <b>{filter_name}</b>\n\n"
@@ -1299,7 +1299,7 @@ async def process_tender_count(message: Message, state: FSMContext):
                 f"{filter_summary}\n"
                 f"🔔 <b>Автоматический мониторинг включен</b>\n\n"
                 f"Вы будете получать уведомления о новых подходящих тендерах каждые 5 минут.\n\n"
-                f"🆓 Ваш лимит: {plan_limits.get('max_notifications_daily', 10)} уведомлений в день",
+                f"🆓 Ваш лимит: {daily_limit} уведомлений в день",
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )

@@ -54,9 +54,22 @@ class InstantSearch:
 
         logger.info(f"🔍 Запуск мгновенного поиска по фильтру: {filter_data['name']}")
 
-        # Парсим критерии
-        original_keywords = json.loads(filter_data.get('keywords', '[]'))
-        exclude_keywords = json.loads(filter_data.get('exclude_keywords', '[]'))
+        # Вспомогательная функция для безопасного парсинга JSON (совместимость SQLite/PostgreSQL)
+        def safe_json_parse(value, default=[]):
+            """Парсит JSON если это строка, иначе возвращает как есть."""
+            if value is None:
+                return default
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except:
+                    return default
+            # Уже распарсено (PostgreSQL JSON/JSONB)
+            return value if isinstance(value, list) else default
+
+        # Парсим критерии (совместимость SQLite/PostgreSQL)
+        original_keywords = safe_json_parse(filter_data.get('keywords'), [])
+        exclude_keywords = safe_json_parse(filter_data.get('exclude_keywords'), [])
 
         # Комбинируем оригинальные и расширенные ключевые слова
         # Приоритет: оригинальные ключевые слова ВСЕГДА используются
@@ -71,14 +84,14 @@ class InstantSearch:
 
         price_min = filter_data.get('price_min')
         price_max = filter_data.get('price_max')
-        regions = json.loads(filter_data.get('regions', '[]'))
-        tender_types = json.loads(filter_data.get('tender_types', '[]'))
+        regions = safe_json_parse(filter_data.get('regions'), [])
+        tender_types = safe_json_parse(filter_data.get('tender_types'), [])
         law_type = filter_data.get('law_type')
         purchase_stage = filter_data.get('purchase_stage')
         purchase_method = filter_data.get('purchase_method')
-        okpd2_codes = json.loads(filter_data.get('okpd2_codes', '[]'))
+        okpd2_codes = safe_json_parse(filter_data.get('okpd2_codes'), [])
         min_deadline_days = filter_data.get('min_deadline_days')
-        customer_keywords = json.loads(filter_data.get('customer_keywords', '[]'))
+        customer_keywords = safe_json_parse(filter_data.get('customer_keywords'), [])
 
         # Формируем список поисковых запросов
         # Каждое оригинальное ключевое слово - отдельный запрос (OR логика)
