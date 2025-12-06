@@ -914,13 +914,29 @@ async def process_tender_count(message: Message, state: FSMContext):
         db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(message.from_user.id)
 
+        # Генерируем название фильтра если не указано
+        filter_name = data.get('filter_name')
+        if not filter_name:
+            # Автоматическое название на основе ключевых слов
+            keywords = data.get('keywords', [])
+            if keywords:
+                filter_name = ', '.join(keywords[:3])  # Первые 3 ключевых слова
+                if len(filter_name) > 50:
+                    filter_name = filter_name[:47] + '...'
+            else:
+                # Если нет ключевых слов - используем дату
+                from datetime import datetime
+                filter_name = f"Фильтр {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+
+            logger.info(f"Автоматически сгенерировано название фильтра: {filter_name}")
+
         # 1. Сохраняем фильтр в БД с новыми критериями
         # active=0 для with_instant_search (требует подтверждения)
         # active=1 для прямого создания (сразу активен)
         filter_id = await db.create_filter(
             user_id=user['id'],
-            name=data['filter_name'],
-            keywords=data['keywords'],
+            name=filter_name,
+            keywords=data.get('keywords', []),
             exclude_keywords=data.get('exclude_keywords', []),
             price_min=data.get('price_min'),
             price_max=data.get('price_max'),
@@ -946,7 +962,7 @@ async def process_tender_count(message: Message, state: FSMContext):
             )
 
             expander = QueryExpander()
-            expansion = await expander.expand_keywords(data['keywords'])
+            expansion = await expander.expand_keywords(data.get('keywords', []))
             expanded_keywords = expansion.get('expanded_keywords', [])
 
             # 3. Мгновенный поиск
@@ -961,8 +977,8 @@ async def process_tender_count(message: Message, state: FSMContext):
             searcher = InstantSearch()
             filter_data = {
                 'id': filter_id,
-                'name': data['filter_name'],
-                'keywords': json.dumps(data['keywords'], ensure_ascii=False),
+                'name': filter_name,
+                'keywords': json.dumps(data.get('keywords', []), ensure_ascii=False),
                 'exclude_keywords': json.dumps(data.get('exclude_keywords', []), ensure_ascii=False),
                 'price_min': data.get('price_min'),
                 'price_max': data.get('price_max'),
@@ -1018,9 +1034,9 @@ async def process_tender_count(message: Message, state: FSMContext):
                 document=FSInputFile(report_path),
                 caption=(
                     f"📊 <b>Результаты поиска</b>\n\n"
-                    f"Фильтр: <b>{data['filter_name']}</b>\n"
+                    f"Фильтр: <b>{filter_name}</b>\n"
                     f"Найдено: {search_results['total_found']} тендеров\n\n"
-                    f"🤖 AI расширил ваш запрос с {len(data['keywords'])} до {len(data['keywords']) + len(expanded_keywords)} терминов"
+                    f"🤖 AI расширил ваш запрос с {len(data.get('keywords', []))} до {len(data.get('keywords', [])) + len(expanded_keywords)} терминов"
                 ),
                 parse_mode="HTML"
             )
@@ -1067,8 +1083,10 @@ async def process_tender_count(message: Message, state: FSMContext):
             plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
 
             # Формируем описание фильтра
-            filter_summary = f"📝 <b>{data['filter_name']}</b>\n\n"
-            filter_summary += f"🔑 Ключевые слова: {', '.join(data['keywords'])}\n"
+            filter_summary = f"📝 <b>{filter_name}</b>\n\n"
+            keywords = data.get('keywords', [])
+            if keywords:
+                filter_summary += f"🔑 Ключевые слова: {', '.join(keywords)}\n"
 
             if data.get('price_min') or data.get('price_max'):
                 price_min = f"{data.get('price_min'):,}" if data.get('price_min') else "0"
@@ -1076,7 +1094,7 @@ async def process_tender_count(message: Message, state: FSMContext):
                 filter_summary += f"💰 Цена: {price_min} - {price_max} ₽\n"
 
             if data.get('regions'):
-                filter_summary += f"📍 Регионы: {', '.join(data['regions'])}\n"
+                filter_summary += f"📍 Регионы: {', '.join(data.get('regions', []))}\n"
 
             if data.get('min_deadline_days'):
                 filter_summary += f"⏰ Минимум дней до дедлайна: {data['min_deadline_days']}\n"
