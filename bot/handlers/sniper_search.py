@@ -44,6 +44,7 @@ class FilterSearchStates(StatesGroup):
     waiting_for_keywords = State()
     waiting_for_exclude_keywords = State()
     waiting_for_price_range = State()
+    confirm_price_range = State()  # Новый state для подтверждения цены
     waiting_for_regions = State()
     waiting_for_law_type = State()
     waiting_for_purchase_stage = State()
@@ -189,7 +190,19 @@ async def process_filter_name_new(message: Message, state: FSMContext):
         return
 
     await state.update_data(filter_name=filter_name)
+    await ask_for_keywords(message, state)
+
+
+async def ask_for_keywords(message: Message, state: FSMContext):
+    """Запрос ключевых слов."""
     await state.set_state(FilterSearchStates.waiting_for_keywords)
+
+    data = await state.get_data()
+    filter_name = data.get('filter_name', 'Новый фильтр')
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад к названию", callback_data="back_to_filter_name")]
+    ])
 
     await message.answer(
         f"✅ Название: <b>{filter_name}</b>\n\n"
@@ -198,6 +211,7 @@ async def process_filter_name_new(message: Message, state: FSMContext):
         f"Например: <i>компьютеры, ноутбуки, серверы</i>\n\n"
         f"🤖 <b>AI автоматически расширит ваш запрос</b>\n"
         f"Система добавит синонимы и связанные термины для более точного поиска.",
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
 
@@ -219,10 +233,19 @@ async def process_keywords_new(message: Message, state: FSMContext):
         return
 
     await state.update_data(keywords=keywords)
+    await ask_for_exclude_keywords(message, state)
+
+
+async def ask_for_exclude_keywords(message: Message, state: FSMContext):
+    """Запрос исключающих слов."""
     await state.set_state(FilterSearchStates.waiting_for_exclude_keywords)
 
+    data = await state.get_data()
+    keywords = data.get('keywords', [])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="skip_exclude_keywords")]
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="skip_exclude_keywords")],
+        [InlineKeyboardButton(text="« Назад к ключевым словам", callback_data="back_to_keywords")]
     ])
 
     await message.answer(
@@ -266,7 +289,8 @@ async def ask_for_price_range(message: Message, state: FSMContext):
     exclude_text = f"❌ Исключаем: {', '.join(data.get('exclude_keywords', []))}\n\n" if data.get('exclude_keywords') else ""
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏭️ Любая цена", callback_data="skip_price_range")]
+        [InlineKeyboardButton(text="⏭️ Любая цена", callback_data="skip_price_range")],
+        [InlineKeyboardButton(text="« Назад", callback_data="back_to_exclude_keywords")]
     ])
 
     await message.answer(
@@ -283,9 +307,10 @@ async def ask_for_price_range(message: Message, state: FSMContext):
 @router.callback_query(F.data == "skip_price_range")
 async def skip_price_range(callback: CallbackQuery, state: FSMContext):
     """Пропуск ценового диапазона."""
-    await callback.answer()
+    await callback.answer("🌍 Выбрана любая цена")
     await state.update_data(price_min=None, price_max=None)
-    await ask_for_regions(callback.message, state)
+    # Показываем подтверждение с "Любая цена"
+    await show_price_confirmation(callback.message, state, None, None)
 
 
 @router.message(FilterSearchStates.waiting_for_price_range)
@@ -314,7 +339,94 @@ async def process_price_range_new(message: Message, state: FSMContext):
             return
 
     await state.update_data(price_min=price_min, price_max=price_max)
-    await ask_for_regions(message, state)
+
+    # Показываем подтверждение выбранного диапазона
+    await show_price_confirmation(message, state, price_min, price_max)
+
+
+async def show_price_confirmation(message: Message, state: FSMContext, price_min: int, price_max: int):
+    """Показать подтверждение выбранного ценового диапазона."""
+    await state.set_state(FilterSearchStates.confirm_price_range)
+
+    # Форматируем цены для отображения
+    if price_min and price_max:
+        price_text = f"💰 <b>Выбранный диапазон цен:</b>\n\n"
+        price_text += f"От: <code>{price_min:,}</code> ₽\n"
+        price_text += f"До: <code>{price_max:,}</code> ₽\n\n"
+        price_text += f"📊 Разница: {price_max - price_min:,} ₽"
+    else:
+        price_text = "💰 <b>Ценовой диапазон:</b>\n\n🌍 Любая цена (без ограничений)"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Продолжить", callback_data="confirm_price_continue")],
+        [InlineKeyboardButton(text="✏️ Изменить цену", callback_data="confirm_price_edit")],
+        [InlineKeyboardButton(text="« Назад к ключевым словам", callback_data="back_to_exclude_keywords")]
+    ])
+
+    await message.answer(
+        f"{price_text}\n\n"
+        f"<b>Всё верно?</b>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "confirm_price_continue")
+async def confirm_price_continue(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение цены - переход к следующему шагу."""
+    await callback.answer("✅ Переходим к выбору регионов")
+    await ask_for_regions(callback.message, state)
+
+
+@router.callback_query(F.data == "confirm_price_edit")
+async def confirm_price_edit(callback: CallbackQuery, state: FSMContext):
+    """Изменить цену - вернуться к вводу."""
+    await callback.answer("✏️ Введите новый диапазон цен")
+    await ask_for_price_range(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_exclude_keywords")
+async def back_to_exclude_keywords(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к предыдущему шагу (исключаемые слова)."""
+    await callback.answer("« Возвращаемся к исключаемым словам")
+    await ask_for_exclude_keywords(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_keywords")
+async def back_to_keywords(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к шагу ключевых слов."""
+    await callback.answer("« Возвращаемся к ключевым словам")
+    await ask_for_keywords(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_filter_name")
+async def back_to_filter_name(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к вводу названия фильтра."""
+    await callback.answer("« Возвращаемся к названию фильтра")
+    await state.set_state(FilterSearchStates.waiting_for_filter_name)
+
+    data = await state.get_data()
+    with_instant_search = data.get('with_instant_search', True)
+
+    if with_instant_search:
+        text = (
+            "🎯 <b>Создание фильтра с мгновенным поиском</b>\n\n"
+            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "Придумайте короткое название для вашего фильтра.\n"
+            "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
+            "💡 Это название поможет вам управлять фильтрами в будущем."
+        )
+    else:
+        text = (
+            "➕ <b>Создание фильтра для автомониторинга</b>\n\n"
+            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "Придумайте короткое название для вашего фильтра.\n"
+            "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
+            "💡 Это название поможет вам управлять фильтрами в будущем.\n\n"
+            "🔔 Фильтр будет сразу активен для мониторинга."
+        )
+
+    await callback.message.edit_text(text, parse_mode="HTML")
 
 
 async def ask_for_regions(message: Message, state: FSMContext):
