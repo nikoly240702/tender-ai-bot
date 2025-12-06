@@ -153,8 +153,8 @@ async def show_sniper_stats(callback: CallbackQuery):
         # Получаем статистику
         stats = await db.get_user_stats(user['id'])
 
-        # Получаем лимиты тарифа
-        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
+        # Получаем лимиты тарифа (хардкод, пока не мигрирован на PostgreSQL)
+        max_filters = 5 if user['subscription_tier'] == 'free' else 15
 
         # Определяем emoji для тарифа
         tier_emoji = {
@@ -173,7 +173,7 @@ async def show_sniper_stats(callback: CallbackQuery):
             f"📊 <b>Ваша статистика</b>\n\n"
             f"{tier_emoji} <b>Тариф:</b> {tier_name}\n\n"
             f"<b>Активность:</b>\n"
-            f"• Активных фильтров: {stats['active_filters']}/{plan_limits.get('max_filters', 5)}\n"
+            f"• Активных фильтров: {stats['active_filters']}/{max_filters}\n"
             f"• Всего совпадений: {stats['total_matches']}\n\n"
             f"<b>Уведомления сегодня:</b>\n"
             f"• Отправлено: {stats['notifications_today']}/{stats['notifications_limit']}\n"
@@ -479,10 +479,9 @@ async def start_create_filter(callback: CallbackQuery, state: FSMContext):
             )
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
-        # Получаем текущие фильтры и лимиты
+        # Получаем текущие фильтры и лимиты (хардкод, пока не мигрирован на PostgreSQL)
         filters = await db.get_active_filters(user['id'])
-        plan_limits = await get_plan_limits(db.db_path, user['subscription_tier'])
-        max_filters = plan_limits.get('max_filters', 5)
+        max_filters = 5 if user['subscription_tier'] == 'free' else 15
 
         if len(filters) >= max_filters:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[

@@ -152,7 +152,8 @@ class TenderSniperDB:
                 purchase_method=kwargs.get('purchase_method'),
                 okpd2_codes=kwargs.get('okpd2_codes', []),
                 min_deadline_days=kwargs.get('min_deadline_days'),
-                customer_keywords=kwargs.get('customer_keywords', [])
+                customer_keywords=kwargs.get('customer_keywords', []),
+                is_active=kwargs.get('is_active', True)  # По умолчанию активен
             )
             session.add(filter_obj)
             await session.flush()

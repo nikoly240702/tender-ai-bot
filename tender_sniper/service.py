@@ -267,8 +267,8 @@ class TenderSniperService:
                         is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
 
                         if not is_admin:
-                            plan_limits = await get_plan_limits(self.db.db_path, subscription_tier)
-                            daily_limit = plan_limits.get('max_notifications_daily', 10)
+                            # Лимиты хардкод (пока не мигрирован на PostgreSQL)
+                            daily_limit = 10 if subscription_tier == 'free' else 50
                             has_quota = await self.db.check_notification_quota(user_id, daily_limit)
 
                             if not has_quota:

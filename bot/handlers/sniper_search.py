@@ -1120,8 +1120,8 @@ async def process_tender_count(message: Message, state: FSMContext):
             logger.info(f"Автоматически сгенерировано название фильтра: {filter_name}")
 
         # 1. Сохраняем фильтр в БД с новыми критериями
-        # active=0 для with_instant_search (требует подтверждения)
-        # active=1 для прямого создания (сразу активен)
+        # is_active=False для with_instant_search (требует подтверждения)
+        # is_active=True для прямого создания (сразу активен)
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=filter_name,
@@ -1137,7 +1137,7 @@ async def process_tender_count(message: Message, state: FSMContext):
             okpd2_codes=data.get('okpd2_codes', []),
             min_deadline_days=data.get('min_deadline_days'),
             customer_keywords=data.get('customer_keywords', []),
-            active=0 if with_instant_search else 1  # Активен только если без поиска
+            is_active=False if with_instant_search else True  # Активен только если без поиска
         )
 
         # РЕЖИМ 1: С мгновенным поиском
@@ -1328,7 +1328,7 @@ async def enable_auto_monitoring(callback: CallbackQuery):
         db = await get_sniper_db()
 
         # Активируем фильтр (включаем мониторинг)
-        await db.activate_filter(filter_id)
+        await db.update_filter(filter_id, is_active=True)
 
         logger.info(f"✅ Фильтр {filter_id} активирован пользователем {callback.from_user.id}")
 
