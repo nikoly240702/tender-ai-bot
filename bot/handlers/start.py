@@ -13,12 +13,20 @@ router = Router()
 
 
 @router.message(CommandStart())
+@router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     """
     Обработчик команды /start.
     Приветствует пользователя и показывает главное меню.
     Для новых пользователей запускает онбординг.
+
+    ВАЖНО: Работает в любом состоянии FSM для возврата в главное меню.
     """
+    # Получаем текущее состояние для логирования
+    current_state = await state.get_state()
+    if current_state:
+        logger.info(f"Пользователь {message.from_user.id} вызвал /start из состояния {current_state}")
+
     # Очищаем любое предыдущее состояние
     await state.clear()
 
@@ -110,6 +118,46 @@ async def cmd_help(message: Message):
     ])
 
     await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "cancel_action")
+async def cancel_current_action(callback: CallbackQuery, state: FSMContext):
+    """
+    Универсальная отмена текущего действия.
+    Сбрасывает FSM и возвращает в главное меню.
+    """
+    current_state = await state.get_state()
+    if current_state:
+        logger.info(f"Пользователь {callback.from_user.id} отменил действие из состояния {current_state}")
+
+    await state.clear()
+    await callback.answer("❌ Действие отменено")
+
+    welcome_text = (
+        "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
+        "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
+        "<b>Что я умею:</b>\n"
+        "🔍 Мгновенный поиск по вашим критериям\n"
+        "🎯 Умное сопоставление (scoring 0-100)\n"
+        "📱 Автоматические уведомления о новых тендерах\n"
+        "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
+        "<b>Ваш тариф:</b> 🆓 Бесплатный\n"
+        "• 5 фильтров мониторинга\n"
+        "• 10 уведомлений в день\n\n"
+        "<i>Нажмите кнопку ниже для начала!</i>"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
+        [InlineKeyboardButton(text="👋 Экскурсия для новичков", callback_data="start_onboarding")],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+    ])
+
+    await callback.message.edit_text(
+        welcome_text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data == "main_menu")
