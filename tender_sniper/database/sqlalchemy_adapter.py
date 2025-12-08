@@ -236,14 +236,25 @@ class TenderSniperDB:
             )
 
     async def get_all_active_filters(self) -> List[Dict[str, Any]]:
-        """Получение всех активных фильтров."""
+        """Получение всех активных фильтров с информацией о пользователе."""
         async with DatabaseSession() as session:
+            # JOIN с SniperUser чтобы получить telegram_id и subscription_tier
             result = await session.execute(
-                select(SniperFilterModel).where(SniperFilterModel.is_active == True)
+                select(SniperFilterModel, SniperUserModel)
+                .join(SniperUserModel, SniperFilterModel.user_id == SniperUserModel.id)
+                .where(SniperFilterModel.is_active == True)
             )
-            filters = result.scalars().all()
+            filter_user_pairs = result.all()
 
-            return [self._filter_to_dict(f) for f in filters]
+            filters = []
+            for filter_obj, user_obj in filter_user_pairs:
+                filter_dict = self._filter_to_dict(filter_obj)
+                # Добавляем telegram_id и subscription_tier из user
+                filter_dict['telegram_id'] = user_obj.telegram_id
+                filter_dict['subscription_tier'] = user_obj.subscription_tier
+                filters.append(filter_dict)
+
+            return filters
 
     def _filter_to_dict(self, filter_obj: SniperFilterModel) -> Dict[str, Any]:
         """Конвертация фильтра в dict."""
