@@ -190,13 +190,14 @@ class RealtimeParser:
 
             if not new_tenders:
                 logger.info(f"   ℹ️  Все тендеры уже были обработаны ранее (кеш: {len(self.seen_tenders)} тендеров)")
-                return
+                # НО все равно вызываем callbacks - они сами делают целевой поиск по фильтрам!
+                logger.info(f"   🔄 Вызываем callbacks для проверки фильтров пользователей...")
+            else:
+                logger.info(f"   🆕 Новых тендеров: {len(new_tenders)}")
+                self.stats['new_tenders'] += len(new_tenders)
 
-            logger.info(f"   🆕 Новых тендеров: {len(new_tenders)}")
-            self.stats['new_tenders'] += len(new_tenders)
-
-            # Вызываем все callback функции
-            await self._notify_callbacks(new_tenders)
+            # ВСЕГДА вызываем callbacks (сервис делает целевые поиски по фильтрам)
+            await self._notify_callbacks(new_tenders if new_tenders else [])
 
         except Exception as e:
             logger.error(f"❌ Ошибка при опросе: {e}", exc_info=True)
