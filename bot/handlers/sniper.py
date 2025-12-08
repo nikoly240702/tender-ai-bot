@@ -435,6 +435,9 @@ async def show_my_filters(callback: CallbackQuery):
             InlineKeyboardButton(text="➕ Добавить фильтр", callback_data="sniper_create_filter")
         ])
         keyboard_buttons.append([
+            InlineKeyboardButton(text="🗑️ Удалить все фильтры", callback_data="confirm_delete_all_filters")
+        ])
+        keyboard_buttons.append([
             InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")
         ])
         keyboard_buttons.append([
@@ -963,6 +966,97 @@ async def delete_filter(callback: CallbackQuery):
 
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+@router.callback_query(F.data == "confirm_delete_all_filters")
+async def confirm_delete_all_filters(callback: CallbackQuery):
+    """Запрос подтверждения удаления всех фильтров."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        # Получаем количество фильтров
+        filters = await db.get_active_filters(user['id'])
+        filters_count = len(filters)
+
+        if filters_count == 0:
+            await callback.message.edit_text(
+                "📋 <b>У вас нет фильтров для удаления</b>",
+                parse_mode="HTML"
+            )
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да, удалить все", callback_data="delete_all_filters_confirmed")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_my_filters")]
+        ])
+
+        await callback.message.edit_text(
+            f"⚠️ <b>Подтверждение удаления</b>\n\n"
+            f"Вы уверены, что хотите удалить все {filters_count} фильтр(ов)?\n\n"
+            f"<i>Это действие необратимо!</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+@router.callback_query(F.data == "delete_all_filters_confirmed")
+async def delete_all_filters_confirmed(callback: CallbackQuery):
+    """Удалить все фильтры пользователя."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        # Получаем все фильтры пользователя
+        filters = await db.get_user_filters(user['id'], active_only=False)
+
+        if not filters:
+            await callback.message.edit_text(
+                "📋 <b>У вас нет фильтров для удаления</b>",
+                parse_mode="HTML"
+            )
+            return
+
+        # Удаляем все фильтры
+        deleted_count = 0
+        for filter_data in filters:
+            try:
+                await db.delete_filter(filter_data['id'])
+                deleted_count += 1
+            except Exception as e:
+                logger.error(f"Ошибка при удалении фильтра {filter_data['id']}: {e}")
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Создать новый фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            f"✅ <b>Все фильтры удалены</b>\n\n"
+            f"Удалено фильтров: {deleted_count}\n\n"
+            f"Вы можете создать новые фильтры для мониторинга тендеров.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка при удалении фильтров: {str(e)}")
 
 
 # ============================================
