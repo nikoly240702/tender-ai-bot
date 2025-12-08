@@ -718,6 +718,254 @@ async def show_sniper_help(callback: CallbackQuery):
 
 
 # ============================================
+# ПРОСМОТР И РЕДАКТИРОВАНИЕ ФИЛЬТРА
+# ============================================
+
+@router.callback_query(F.data.startswith("sniper_filter_"))
+async def show_filter_details(callback: CallbackQuery):
+    """Показать детальную информацию о фильтре."""
+    await callback.answer()
+
+    try:
+        # Извлекаем ID фильтра
+        filter_id = int(callback.data.replace("sniper_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.answer("❌ Фильтр не найден")
+            return
+
+        # Формируем текст с информацией о фильтре
+        keywords = filter_data.get('keywords', [])
+        exclude_keywords = filter_data.get('exclude_keywords', [])
+        price_min = filter_data.get('price_min')
+        price_max = filter_data.get('price_max')
+        regions = filter_data.get('regions', [])
+        law_type = filter_data.get('law_type')
+        tender_types = filter_data.get('tender_types', [])
+        is_active = filter_data.get('is_active', True)
+
+        status_emoji = "✅" if is_active else "⏸️"
+        status_text = "Активен" if is_active else "Приостановлен"
+
+        text = f"📋 <b>Фильтр: {filter_data['name']}</b>\n\n"
+        text += f"Статус: {status_emoji} {status_text}\n\n"
+
+        if keywords:
+            text += f"🔑 <b>Ключевые слова:</b>\n{', '.join(keywords)}\n\n"
+
+        if exclude_keywords:
+            text += f"🚫 <b>Исключить:</b>\n{', '.join(exclude_keywords)}\n\n"
+
+        if price_min or price_max:
+            price_min_str = f"{price_min:,}" if price_min else "0"
+            price_max_str = f"{price_max:,}" if price_max else "∞"
+            text += f"💰 <b>Цена:</b> {price_min_str} - {price_max_str} ₽\n\n"
+
+        if regions:
+            text += f"📍 <b>Регионы:</b> {', '.join(regions[:3])}"
+            if len(regions) > 3:
+                text += f" и еще {len(regions) - 3}"
+            text += "\n\n"
+
+        if law_type:
+            text += f"📜 <b>Закон:</b> {law_type}\n\n"
+
+        if tender_types:
+            text += f"📦 <b>Тип закупки:</b> {', '.join(tender_types)}\n\n"
+
+        # Кнопки управления фильтром
+        keyboard_buttons = [
+            [InlineKeyboardButton(
+                text="✏️ Редактировать цену",
+                callback_data=f"edit_filter_price_{filter_id}"
+            )],
+            [InlineKeyboardButton(
+                text="⏸️ Приостановить" if is_active else "▶️ Возобновить",
+                callback_data=f"toggle_filter_{filter_id}"
+            )],
+            [InlineKeyboardButton(
+                text="🗑️ Удалить фильтр",
+                callback_data=f"delete_filter_{filter_id}"
+            )],
+            [InlineKeyboardButton(text="« Назад к фильтрам", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ]
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+# Добавляем FSM state для редактирования цены
+class EditFilterStates(StatesGroup):
+    """Состояния для редактирования фильтра."""
+    waiting_for_new_price_range = State()
+
+
+@router.callback_query(F.data.startswith("edit_filter_price_"))
+async def start_edit_filter_price(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование ценового диапазона фильтра."""
+    await callback.answer()
+
+    filter_id = int(callback.data.replace("edit_filter_price_", ""))
+
+    await state.update_data(editing_filter_id=filter_id)
+    await state.set_state(EditFilterStates.waiting_for_new_price_range)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Отмена", callback_data=f"sniper_filter_{filter_id}")]
+    ])
+
+    await callback.message.edit_text(
+        "✏️ <b>Редактирование ценового диапазона</b>\n\n"
+        "Введите новый диапазон цен в формате:\n"
+        "<code>мин макс</code>\n\n"
+        "Пример: <code>100000 5000000</code>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(EditFilterStates.waiting_for_new_price_range)
+async def process_edit_filter_price(message: Message, state: FSMContext):
+    """Обработка нового ценового диапазона."""
+    try:
+        parts = message.text.strip().split()
+        if len(parts) != 2:
+            await message.answer(
+                "⚠️ Неверный формат. Введите два числа через пробел:\n"
+                "Пример: <code>100000 5000000</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        price_min = int(parts[0])
+        price_max = int(parts[1])
+
+        if price_min >= price_max:
+            await message.answer("⚠️ Минимальная цена должна быть меньше максимальной")
+            return
+
+        # Получаем ID фильтра из state
+        data = await state.get_data()
+        filter_id = data.get('editing_filter_id')
+
+        if not filter_id:
+            await message.answer("❌ Ошибка: ID фильтра не найден")
+            await state.clear()
+            return
+
+        # Обновляем фильтр в базе
+        db = await get_sniper_db()
+        await db.update_filter(
+            filter_id=filter_id,
+            price_min=price_min,
+            price_max=price_max
+        )
+
+        await state.clear()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Просмотреть фильтр", callback_data=f"sniper_filter_{filter_id}")],
+            [InlineKeyboardButton(text="« К списку фильтров", callback_data="sniper_my_filters")]
+        ])
+
+        await message.answer(
+            f"✅ <b>Ценовой диапазон обновлен!</b>\n\n"
+            f"💰 Новая цена: {price_min:,} - {price_max:,} ₽",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except ValueError:
+        await message.answer(
+            "⚠️ Введите корректные числа.\n"
+            "Пример: <code>100000 5000000</code>",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при обновлении фильтра: {str(e)}")
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("toggle_filter_"))
+async def toggle_filter_status(callback: CallbackQuery):
+    """Переключить статус фильтра (активен/приостановлен)."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("toggle_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.answer("❌ Фильтр не найден")
+            return
+
+        # Переключаем статус
+        new_status = not filter_data.get('is_active', True)
+
+        await db.update_filter(
+            filter_id=filter_id,
+            is_active=new_status
+        )
+
+        status_text = "возобновлен ▶️" if new_status else "приостановлен ⏸️"
+        await callback.answer(f"Фильтр {status_text}", show_alert=True)
+
+        # Обновляем отображение фильтра
+        await show_filter_details(callback)
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+@router.callback_query(F.data.startswith("delete_filter_"))
+async def delete_filter(callback: CallbackQuery):
+    """Удалить фильтр."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("delete_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.answer("❌ Фильтр не найден")
+            return
+
+        # Удаляем фильтр
+        await db.delete_filter(filter_id)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            f"✅ <b>Фильтр удален</b>\n\n"
+            f"Фильтр «{filter_data['name']}» успешно удален.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+# ============================================
 # ВОЗВРАТ В ГЛАВНОЕ МЕНЮ
 # ============================================
 

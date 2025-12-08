@@ -11,6 +11,7 @@ from urllib.parse import urlencode, quote_plus
 import re
 import warnings
 import os
+import html
 
 # Отключаем предупреждения SSL (для zakupki.gov.ru)
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -467,8 +468,11 @@ class ZakupkiRSSParser:
             if url and not url.startswith('http'):
                 url = f"{self.BASE_URL}{url}"
 
+            # Декодируем HTML entities в названии (например, &laquo; → «)
+            title = html.unescape(entry.get('title', ''))
+
             tender = {
-                'name': entry.get('title', ''),
+                'name': title,
                 'url': url,
                 'published': entry.get('published', ''),
                 'summary': summary,
@@ -480,7 +484,8 @@ class ZakupkiRSSParser:
             # Извлекаем объект закупки из summary (приоритет)
             purchase_object = self._extract_purchase_object(summary)
             if purchase_object:
-                tender['name'] = purchase_object
+                # Декодируем HTML entities в объекте закупки
+                tender['name'] = html.unescape(purchase_object)
 
             # Извлекаем тип закупки из summary для client-side фильтрации
             tender_type = self._extract_tender_type(summary)

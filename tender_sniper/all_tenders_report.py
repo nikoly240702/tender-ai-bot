@@ -22,12 +22,27 @@ def format_price(price: float) -> str:
 
 
 def format_date(date_str: str) -> str:
-    """Форматирование даты."""
+    """Форматирование даты с русским днем недели."""
     if not date_str:
         return "Не указана"
     try:
         dt = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-        return dt.strftime('%d.%m.%Y %H:%M')
+
+        # Словарь для перевода дней недели на русский
+        weekdays_ru = {
+            0: 'Пн',  # Monday
+            1: 'Вт',  # Tuesday
+            2: 'Ср',  # Wednesday
+            3: 'Чт',  # Thursday
+            4: 'Пт',  # Friday
+            5: 'Сб',  # Saturday
+            6: 'Вс'   # Sunday
+        }
+
+        weekday_ru = weekdays_ru[dt.weekday()]
+        date_str_formatted = dt.strftime('%d.%m.%Y %H:%M')
+
+        return f"{weekday_ru}, {date_str_formatted}"
     except:
         return date_str[:16] if len(date_str) > 16 else date_str
 

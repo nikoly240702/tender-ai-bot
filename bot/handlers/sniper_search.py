@@ -507,12 +507,12 @@ async def ask_for_regions(message: Message, state: FSMContext):
 
     # Кнопки с переключением режима
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        # Быстрые опции (ВВЕРХУ)
+        [InlineKeyboardButton(text="🌍 Все регионы России", callback_data="region_all")],
+        [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")],
         # Режимы выбора
         [InlineKeyboardButton(text="📍 Выбрать федеральные округа", callback_data="region_mode_federal")],
         [InlineKeyboardButton(text="🏙️ Выбрать отдельные регионы", callback_data="region_mode_single")],
-        # Быстрые опции
-        [InlineKeyboardButton(text="🌍 Все регионы России", callback_data="region_all")],
-        [InlineKeyboardButton(text="✍️ Ввести вручную", callback_data="region_custom")],
         # Навигация
         [InlineKeyboardButton(text="« Назад к цене", callback_data="back_to_price")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -765,9 +765,9 @@ async def ask_for_law_type(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_law_type)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📚 Оба закона", callback_data="law_all")],
         [InlineKeyboardButton(text="📜 44-ФЗ (госзакупки)", callback_data="law_44")],
         [InlineKeyboardButton(text="📋 223-ФЗ (корпоративные)", callback_data="law_223")],
-        [InlineKeyboardButton(text="📚 Оба закона", callback_data="law_all")],
         [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -804,8 +804,8 @@ async def ask_for_purchase_stage(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_purchase_stage)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Только подача заявок (актуальные)", callback_data="stage_submission")],
         [InlineKeyboardButton(text="📊 Все этапы", callback_data="stage_all")],
+        [InlineKeyboardButton(text="📝 Только подача заявок (актуальные)", callback_data="stage_submission")],
         [InlineKeyboardButton(text="« Назад к типу закона", callback_data="back_to_law_type")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -837,11 +837,11 @@ async def ask_for_purchase_method(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_purchase_method)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Все способы", callback_data="method_all")],
         [InlineKeyboardButton(text="🔨 Электронный аукцион", callback_data="method_auction")],
         [InlineKeyboardButton(text="📋 Открытый конкурс", callback_data="method_tender")],
         [InlineKeyboardButton(text="💬 Запрос котировок", callback_data="method_quotation")],
         [InlineKeyboardButton(text="📝 Запрос предложений", callback_data="method_request")],
-        [InlineKeyboardButton(text="🔍 Все способы", callback_data="method_all")],
         [InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -875,10 +875,10 @@ async def ask_for_tender_type(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_tender_type)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Все типы", callback_data="ttype_all")],
         [InlineKeyboardButton(text="📦 Товары (поставка)", callback_data="ttype_goods")],
         [InlineKeyboardButton(text="🔧 Услуги", callback_data="ttype_services")],
         [InlineKeyboardButton(text="🏗️ Работы", callback_data="ttype_works")],
-        [InlineKeyboardButton(text="🔍 Все типы", callback_data="ttype_all")],
         [InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -994,13 +994,13 @@ async def ask_for_okpd2(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_okpd2)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="okpd_skip")],
+        [InlineKeyboardButton(text="✍️ Ввести код вручную", callback_data="okpd_custom")],
         [InlineKeyboardButton(text="💻 26 - Компьютеры и электроника", callback_data="okpd_26")],
         [InlineKeyboardButton(text="🏗️ 41-43 - Строительство", callback_data="okpd_41")],
         [InlineKeyboardButton(text="🚗 29 - Автотранспорт", callback_data="okpd_29")],
         [InlineKeyboardButton(text="💊 21 - Лекарства", callback_data="okpd_21")],
         [InlineKeyboardButton(text="🍞 10 - Продукты питания", callback_data="okpd_10")],
-        [InlineKeyboardButton(text="✍️ Ввести код вручную", callback_data="okpd_custom")],
-        [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="okpd_skip")],
         [InlineKeyboardButton(text="« Назад к заказчику", callback_data="back_to_customer_keywords")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
