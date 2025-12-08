@@ -1200,6 +1200,32 @@ async def process_tender_count(message: Message, state: FSMContext):
                 expanded_keywords=expanded_keywords
             )
 
+            # Сохраняем результаты мгновенного поиска в БД
+            logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД...")
+            for match in search_results['matches']:
+                try:
+                    tender_data = {
+                        'number': match.get('number', ''),
+                        'name': match.get('name', ''),
+                        'price': match.get('price'),
+                        'url': match.get('url'),
+                        'region': match.get('customer_region'),
+                        'customer_name': match.get('customer'),
+                        'published_date': match.get('published')
+                    }
+
+                    await db.save_notification(
+                        user_id=user['id'],
+                        filter_id=filter_id,
+                        filter_name=filter_name,
+                        tender_data=tender_data,
+                        score=match.get('match_score', 0),
+                        matched_keywords=match.get('match_reasons', [])
+                    )
+                except Exception as e:
+                    logger.warning(f"Не удалось сохранить тендер {match.get('number')}: {e}")
+            logger.info(f"✅ Тендеры сохранены в историю")
+
             # 4. Генерация HTML отчета
             await progress_msg.edit_text(
                 "🔄 <b>Обработка вашего запроса...</b>\n\n"

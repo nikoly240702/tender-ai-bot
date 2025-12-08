@@ -142,7 +142,7 @@ async def generate_all_tenders_html(
     filter_params: Dict[str, Any]
 ) -> str:
     """
-    Генерация HTML отчета со всеми тендерами.
+    Генерация HTML отчета со всеми тендерами используя all_tenders_report.
 
     Args:
         tenders: Список тендеров
@@ -152,6 +152,8 @@ async def generate_all_tenders_html(
     Returns:
         Путь к HTML файлу
     """
+    from tender_sniper.all_tenders_report import generate_html_report
+
     # Создаем директорию для отчетов
     reports_dir = Path(f"reports/user_{user_id}")
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -159,197 +161,28 @@ async def generate_all_tenders_html(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     report_path = reports_dir / f"all_tenders_{timestamp}.html"
 
-    # Формируем HTML
-    html_content = f"""<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Все мои тендеры - {datetime.now().strftime("%d.%m.%Y")}</title>
-    <style>
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }}
-        h1 {{
-            color: #2c3e50;
-            border-bottom: 3px solid #3498db;
-            padding-bottom: 10px;
-        }}
-        .summary {{
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }}
-        .tender-card {{
-            background: white;
-            padding: 20px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-left: 4px solid #3498db;
-        }}
-        .tender-header {{
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 15px;
-        }}
-        .tender-number {{
-            font-size: 0.9em;
-            color: #7f8c8d;
-            font-weight: 600;
-        }}
-        .tender-score {{
-            background: #3498db;
-            color: white;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.9em;
-            font-weight: bold;
-        }}
-        .tender-score.high {{ background: #27ae60; }}
-        .tender-score.medium {{ background: #f39c12; }}
-        .tender-score.low {{ background: #95a5a6; }}
-        .tender-name {{
-            font-size: 1.1em;
-            font-weight: 600;
-            color: #2c3e50;
-            margin-bottom: 10px;
-        }}
-        .tender-info {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 10px;
-            margin-bottom: 10px;
-        }}
-        .info-item {{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        .info-label {{
-            font-weight: 600;
-            color: #7f8c8d;
-        }}
-        .info-value {{
-            color: #2c3e50;
-        }}
-        .price {{
-            color: #27ae60;
-            font-weight: 700;
-            font-size: 1.1em;
-        }}
-        .filter-badge {{
-            display: inline-block;
-            background: #ecf0f1;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            margin-right: 5px;
-            color: #34495e;
-        }}
-        .source-badge {{
-            display: inline-block;
-            background: #e8f4f8;
-            color: #2980b9;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 0.85em;
-            font-weight: 600;
-        }}
-        a {{
-            color: #3498db;
-            text-decoration: none;
-        }}
-        a:hover {{
-            text-decoration: underline;
-        }}
-    </style>
-</head>
-<body>
-    <h1>📊 Все мои тендеры</h1>
+    # Преобразуем данные в нужный формат (убираем None, заменяем на дефолты)
+    formatted_tenders = []
+    for tender in tenders:
+        formatted_tenders.append({
+            'number': tender.get('number') or 'N/A',
+            'name': tender.get('name') or 'Без названия',
+            'price': tender.get('price'),  # None это OK для цены
+            'url': tender.get('url') or '',
+            'customer_name': tender.get('customer_name') or 'Не указан',
+            'region': tender.get('region') or 'Не указан',
+            'published_date': tender.get('published_date') or '',
+            'sent_at': tender.get('sent_at') or datetime.now().isoformat(),
+            'filter_name': tender.get('filter_name') or 'Без фильтра',
+            'source': tender.get('source') or 'automonitoring'
+        })
 
-    <div class="summary">
-        <h2>Сводка</h2>
-        <p><strong>Всего тендеров:</strong> {len(tenders)}</p>
-        <p><strong>Дата формирования:</strong> {datetime.now().strftime("%d.%m.%Y %H:%M")}</p>
-"""
-
-    # Добавляем информацию о фильтрах
-    if filter_params.get('sort_by'):
-        sort_labels = {
-            'date_desc': 'По дате (новые первые)',
-            'date_asc': 'По дате (старые первые)',
-            'price_desc': 'По цене (от большей к меньшей)',
-            'price_asc': 'По цене (от меньшей к большей)',
-            'score_desc': 'По релевантности (лучшие первые)'
-        }
-        html_content += f"<p><strong>Сортировка:</strong> {sort_labels.get(filter_params['sort_by'], filter_params['sort_by'])}</p>"
-
-    if filter_params.get('price_min') or filter_params.get('price_max'):
-        price_range = f"{filter_params.get('price_min', 0):,.0f} - {filter_params.get('price_max', '∞'):,.0f} ₽"
-        html_content += f"<p><strong>Ценовой диапазон:</strong> {price_range}</p>"
-
-    html_content += "</div>"
-
-    # Добавляем тендеры
-    for i, tender in enumerate(tenders, 1):
-        score = tender.get('score', 0)
-        score_class = 'high' if score >= 70 else 'medium' if score >= 50 else 'low'
-
-        price_text = f"{tender.get('price'):,.0f} ₽" if tender.get('price') else 'Не указана'
-
-        source_label = "🤖 Автомониторинг" if tender.get('source') == 'automonitoring' else "🔍 Мгновенный поиск"
-
-        html_content += f"""
-    <div class="tender-card">
-        <div class="tender-header">
-            <div class="tender-number">#{i} • {tender.get('number', 'N/A')}</div>
-            <div class="tender-score {score_class}">{score}%</div>
-        </div>
-
-        <div class="tender-name">{tender.get('name', 'Без названия')}</div>
-
-        <div class="tender-info">
-            <div class="info-item">
-                <span class="info-label">💰 Цена:</span>
-                <span class="info-value price">{price_text}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">📍 Регион:</span>
-                <span class="info-value">{tender.get('region', 'Не указан')}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">🏢 Заказчик:</span>
-                <span class="info-value">{tender.get('customer_name', 'Не указан')}</span>
-            </div>
-            <div class="info-item">
-                <span class="info-label">📅 Дата:</span>
-                <span class="info-value">{tender.get('published_date', 'N/A')}</span>
-            </div>
-        </div>
-
-        <div>
-            <span class="source-badge">{source_label}</span>
-            {f'<span class="filter-badge">Фильтр: {tender.get("filter_name")}</span>' if tender.get('filter_name') else ''}
-        </div>
-
-        {f'<p style="margin-top: 10px;"><a href="{tender.get("url")}" target="_blank">🔗 Открыть на zakupki.gov.ru</a></p>' if tender.get('url') else ''}
-    </div>
-"""
-
-    html_content += """
-</body>
-</html>
-"""
+    # Используем готовый генератор HTML с JavaScript фильтрацией
+    html_content = generate_html_report(
+        tenders=formatted_tenders,
+        username=f"User {user_id}",
+        total_count=len(formatted_tenders)
+    )
 
     # Сохраняем файл
     with open(report_path, 'w', encoding='utf-8') as f:
