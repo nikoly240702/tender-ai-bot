@@ -19,8 +19,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 import logging
-from sqlalchemy import select, func, and_, distinct
-from sqlalchemy.sql import text
+from sqlalchemy import select, func, and_, distinct, update
 
 from bot.config import BotConfig
 from database import (
@@ -46,7 +45,7 @@ def get_sniper_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎯 Активные фильтры", callback_data="sniper_admin_filters")],
         [InlineKeyboardButton(text="👥 Пользователи и тарифы", callback_data="sniper_admin_users")],
         [InlineKeyboardButton(text="📈 Мониторинг системы", callback_data="sniper_admin_monitoring")],
-        [InlineKeyboardButton(text="🔄 Сбросить квоты (сегодня)", callback_data="sniper_admin_reset_quotas")],
+        [InlineKeyboardButton(text="⚙️ Управление тарифами", callback_data="sniper_admin_manage_tiers")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -295,25 +294,35 @@ async def show_system_monitoring(callback: CallbackQuery):
             recent_notifications = recent_result.all()
 
             # Статистика по часам (последние 24 часа)
-            hourly_query = text("""
-                SELECT
-                    TO_CHAR(sent_at, 'HH24:00') as hour,
-                    COUNT(*) as count
-                FROM sniper_notifications
-                WHERE sent_at >= NOW() - INTERVAL '24 hours'
-                GROUP BY TO_CHAR(sent_at, 'HH24:00')
-                ORDER BY hour DESC
-                LIMIT 6
-            """)
-            hourly_result = await session.execute(hourly_query)
-            hourly_stats = hourly_result.all()
+            # Упрощенный подход: группируем по часам в Python
+            twenty_four_hours_ago = datetime.now() - timedelta(hours=24)
+            recent_24h_query = (
+                select(SniperNotification.sent_at)
+                .where(SniperNotification.sent_at >= twenty_four_hours_ago)
+                .order_by(SniperNotification.sent_at.desc())
+            )
+            result_24h = await session.execute(recent_24h_query)
+            notifications_24h = result_24h.scalars().all()
+
+            # Группируем по часам в Python
+            from collections import defaultdict
+            hourly_counts = defaultdict(int)
+            for sent_at in notifications_24h:
+                hour_key = sent_at.strftime('%H:00')
+                hourly_counts[hour_key] += 1
+
+            # Берем последние 6 часов
+            hourly_stats = [
+                {'hour': hour, 'count': count}
+                for hour, count in sorted(hourly_counts.items(), reverse=True)[:6]
+            ]
 
         text = "📈 <b>Мониторинг системы</b>\n\n"
 
         if hourly_stats:
             text += "<b>Активность по часам (последние 6 часов):</b>\n"
             for stat in hourly_stats:
-                text += f"  {stat.hour}: {stat.count} уведомлений\n"
+                text += f"  {stat['hour']}: {stat['count']} уведомлений\n"
             text += "\n"
 
         if recent_notifications:
@@ -329,9 +338,9 @@ async def show_system_monitoring(callback: CallbackQuery):
         await callback.message.answer("❌ Ошибка мониторинга")
 
 
-@router.callback_query(F.data == "sniper_admin_reset_quotas")
-async def reset_daily_quotas(callback: CallbackQuery):
-    """Сбрасывает дневные квоты всех пользователей."""
+@router.callback_query(F.data == "sniper_admin_manage_tiers")
+async def manage_user_tiers(callback: CallbackQuery):
+    """Управление тарифами пользователей."""
     if not is_admin(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен", show_alert=True)
         return
@@ -340,25 +349,148 @@ async def reset_daily_quotas(callback: CallbackQuery):
 
     try:
         async with DatabaseSession() as session:
-            # Сбрасываем квоты
-            from sqlalchemy import update
+            # Получаем всех пользователей
+            query = (
+                select(
+                    SniperUser.id,
+                    SniperUser.telegram_id,
+                    SniperUser.username,
+                    SniperUser.subscription_tier
+                )
+                .order_by(SniperUser.created_at.desc())
+            )
+            result = await session.execute(query)
+            users = result.all()
+
+        if not users:
+            await callback.message.answer("ℹ️ Нет пользователей в системе")
+            return
+
+        text = (
+            "⚙️ <b>Управление тарифами</b>\n\n"
+            "Для изменения тарифа пользователя отправьте команду:\n"
+            "<code>/set_tier USER_ID TIER</code>\n\n"
+            "<b>Доступные тарифы:</b>\n"
+            "• <code>free</code> - Бесплатный (5 фильтров, 15 уведомлений/день)\n"
+            "• <code>basic</code> - Базовый (15 фильтров, 50 уведомлений/день)\n"
+            "• <code>premium</code> - Премиум (unlimited)\n\n"
+            "<b>Пользователи:</b>\n\n"
+        )
+
+        tier_emoji = {
+            'free': '🆓',
+            'basic': '💼',
+            'premium': '👑'
+        }
+
+        for user in users[:20]:  # Показываем первых 20
+            emoji = tier_emoji.get(user.subscription_tier, '❓')
+            username = f"@{user.username}" if user.username else "нет username"
+            text += f"{emoji} ID: <code>{user.telegram_id}</code> ({username}) - {user.subscription_tier}\n"
+
+        text += (
+            "\n<b>Пример:</b>\n"
+            f"<code>/set_tier {users[0].telegram_id if users else '123456789'} premium</code>"
+        )
+
+        await callback.message.answer(text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка управления тарифами: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка получения пользователей")
+
+
+@router.message(Command("set_tier"))
+async def set_user_tier(message: Message):
+    """Установка тарифа пользователю."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа")
+        return
+
+    try:
+        # Парсим команду: /set_tier USER_ID TIER
+        parts = message.text.split()
+        if len(parts) != 3:
+            await message.answer(
+                "❌ Неверный формат команды\n\n"
+                "Используйте: <code>/set_tier USER_ID TIER</code>\n"
+                "Пример: <code>/set_tier 123456789 premium</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        try:
+            target_telegram_id = int(parts[1])
+        except ValueError:
+            await message.answer("❌ USER_ID должен быть числом")
+            return
+
+        new_tier = parts[2].lower()
+        valid_tiers = ['free', 'basic', 'premium']
+
+        if new_tier not in valid_tiers:
+            await message.answer(
+                f"❌ Неверный тариф. Доступны: {', '.join(valid_tiers)}"
+            )
+            return
+
+        # Обновляем тариф
+        async with DatabaseSession() as session:
+            # Проверяем существование пользователя
+            user_query = select(SniperUser).where(SniperUser.telegram_id == target_telegram_id)
+            result = await session.execute(user_query)
+            user = result.scalar_one_or_none()
+
+            if not user:
+                await message.answer(
+                    f"❌ Пользователь с ID <code>{target_telegram_id}</code> не найден",
+                    parse_mode="HTML"
+                )
+                return
+
+            old_tier = user.subscription_tier
+
+            # Обновляем тариф и лимиты
+            limits_map = {
+                'free': {'filters': 5, 'notifications': 15},
+                'basic': {'filters': 15, 'notifications': 50},
+                'premium': {'filters': 9999, 'notifications': 9999}
+            }
+
+            new_limits = limits_map[new_tier]
+
             await session.execute(
-                update(SniperUser).values(
-                    notifications_sent_today=0,
-                    last_notification_reset=datetime.utcnow()
+                update(SniperUser)
+                .where(SniperUser.telegram_id == target_telegram_id)
+                .values(
+                    subscription_tier=new_tier,
+                    filters_limit=new_limits['filters'],
+                    notifications_limit=new_limits['notifications']
                 )
             )
 
-            total = await session.scalar(select(func.count(SniperUser.id)))
+        tier_emoji = {
+            'free': '🆓',
+            'basic': '💼',
+            'premium': '👑'
+        }
 
-        await callback.message.answer(
-            f"✅ <b>Квоты сброшены</b>\n\n"
-            f"Дневные квоты {total} пользователей сброшены до нуля.",
+        await message.answer(
+            f"✅ <b>Тариф изменен</b>\n\n"
+            f"Пользователь: <code>{target_telegram_id}</code>\n"
+            f"Было: {tier_emoji.get(old_tier, '❓')} {old_tier}\n"
+            f"Стало: {tier_emoji.get(new_tier, '❓')} {new_tier}\n\n"
+            f"Новые лимиты:\n"
+            f"• Фильтры: {new_limits['filters']}\n"
+            f"• Уведомления/день: {new_limits['notifications']}",
             parse_mode="HTML"
         )
 
-        logger.info(f"Админ {callback.from_user.id} сбросил квоты для {total} пользователей")
+        logger.info(
+            f"Админ {message.from_user.id} изменил тариф пользователя {target_telegram_id}: "
+            f"{old_tier} → {new_tier}"
+        )
 
     except Exception as e:
-        logger.error(f"Ошибка сброса квот: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка сброса квот")
+        logger.error(f"Ошибка изменения тарифа: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при изменении тарифа")

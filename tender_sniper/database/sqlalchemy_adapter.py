@@ -172,6 +172,10 @@ class TenderSniperDB:
 
             return [self._filter_to_dict(f) for f in filters]
 
+    async def get_active_filters(self, user_id: int) -> List[Dict[str, Any]]:
+        """Алиас для get_user_filters (для обратной совместимости)."""
+        return await self.get_user_filters(user_id, active_only=True)
+
     async def get_filter_by_id(self, filter_id: int) -> Optional[Dict[str, Any]]:
         """Получение фильтра по ID."""
         async with DatabaseSession() as session:
