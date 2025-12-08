@@ -290,6 +290,7 @@ async def init_database(echo: bool = False):
     logger.info(f"Инициализация database: {database_url.split('@')[-1] if '@' in database_url else 'SQLite'}")
 
     # Создаем engine
+    logger.info("   Создание SQLAlchemy engine...")
     _engine = create_async_engine(
         database_url,
         echo=echo,
@@ -298,17 +299,23 @@ async def init_database(echo: bool = False):
         max_overflow=40 if not is_sqlite else 0,
         poolclass=NullPool if is_sqlite else None,  # SQLite = no pool
     )
+    logger.info("   ✅ Engine создан")
 
     # Создаем session factory
+    logger.info("   Создание session factory...")
     _async_session_factory = async_sessionmaker(
         _engine,
         class_=AsyncSession,
         expire_on_commit=False
     )
+    logger.info("   ✅ Session factory создан")
 
     # Создаем таблицы (если их нет)
+    logger.info("   Подключение к PostgreSQL для создания таблиц...")
     async with _engine.begin() as conn:
+        logger.info("   Соединение установлено, выполнение CREATE TABLE...")
         await conn.run_sync(Base.metadata.create_all)
+        logger.info("   ✅ Таблицы созданы/проверены")
 
     logger.info("✅ Database инициализирована")
 

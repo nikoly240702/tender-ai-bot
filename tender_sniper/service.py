@@ -87,6 +87,7 @@ class TenderSniperService:
         logger.info("="*70)
 
         # 1. Проверяем feature flags
+        logger.info("📋 Шаг 1/4: Проверка feature flags...")
         if not is_tender_sniper_enabled():
             logger.error("❌ Tender Sniper отключен в config/features.yaml")
             raise RuntimeError("Tender Sniper disabled in features config")
@@ -94,32 +95,37 @@ class TenderSniperService:
         logger.info("✅ Tender Sniper включен в конфигурации")
 
         # 2. Инициализируем базу данных
-        logger.info("🗄️  Инициализация базы данных...")
+        logger.info("📋 Шаг 2/4: Инициализация базы данных...")
+        logger.info("   Попытка подключения к Sniper DB...")
         self.db = await get_sniper_db()
+        logger.info("   ✅ Sniper DB подключена")
 
         # Инициализируем тарифные планы (ВРЕМЕННО ОТКЛЮЧЕНО - требует миграции на PostgreSQL)
         # await init_subscription_plans(self.db_path)
         logger.info("✅ База данных готова")
 
         # 3. Инициализируем компоненты
+        logger.info("📋 Шаг 3/4: Инициализация компонентов...")
+
         if is_component_enabled('realtime_parser'):
-            logger.info("📡 Инициализация Real-time Parser...")
+            logger.info("   📡 Создание Real-time Parser...")
             self.parser = RealtimeParser(
                 poll_interval=self.poll_interval,
                 max_tenders_per_poll=self.max_tenders_per_poll
             )
+            logger.info("   ➕ Добавление callback...")
             self.parser.add_callback(self._process_new_tenders)
-            logger.info("✅ Real-time Parser готов")
+            logger.info("   ✅ Real-time Parser готов")
 
         if is_component_enabled('smart_matching'):
-            logger.info("🎯 Инициализация Smart Matcher...")
+            logger.info("   🎯 Создание Smart Matcher...")
             self.matcher = SmartMatcher()
-            logger.info("✅ Smart Matcher готов")
+            logger.info("   ✅ Smart Matcher готов")
 
         if is_component_enabled('instant_notifications'):
-            logger.info("📱 Инициализация Telegram Notifier...")
+            logger.info("   📱 Создание Telegram Notifier...")
             self.notifier = TelegramNotifier(self.bot_token)
-            logger.info("✅ Telegram Notifier готов")
+            logger.info("   ✅ Telegram Notifier готов")
 
         logger.info("="*70)
         logger.info("✅ ВСЕ КОМПОНЕНТЫ ИНИЦИАЛИЗИРОВАНЫ")
