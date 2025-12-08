@@ -1,5 +1,6 @@
 """
 Главный файл Telegram бота для анализа тендеров.
+Version: 2.0.1
 """
 
 import asyncio
