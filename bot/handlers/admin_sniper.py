@@ -19,7 +19,7 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 import logging
-from sqlalchemy import select, func, and_, distinct, update
+from sqlalchemy import select, func, and_, distinct, update, delete, text
 
 from bot.config import BotConfig
 from database import (
@@ -317,19 +317,34 @@ async def show_system_monitoring(callback: CallbackQuery):
                 for hour, count in sorted(hourly_counts.items(), reverse=True)[:6]
             ]
 
-        text = "📈 <b>Мониторинг системы</b>\n\n"
+        # Получаем общую статистику для статуса
+        total_users = await session.scalar(select(func.count(SniperUser.id)))
+        active_filters = await session.scalar(
+            select(func.count(SniperFilter.id)).where(SniperFilter.is_active == True)
+        )
+
+        text = (
+            "📈 <b>Мониторинг системы</b>\n\n"
+            f"<b>Статус:</b> ✅ Работает\n"
+            f"<b>Пользователей:</b> {total_users}\n"
+            f"<b>Активных фильтров:</b> {active_filters}\n\n"
+        )
 
         if hourly_stats:
             text += "<b>Активность по часам (последние 6 часов):</b>\n"
             for stat in hourly_stats:
                 text += f"  {stat['hour']}: {stat['count']} уведомлений\n"
             text += "\n"
+        else:
+            text += "ℹ️ Нет уведомлений за последние 24 часа\n\n"
 
         if recent_notifications:
             text += "<b>Последние 5 уведомлений:</b>\n"
             for notif in recent_notifications:
                 time = notif.sent_at.strftime('%Y-%m-%d %H:%M:%S')
                 text += f"  • {time} - User {notif.telegram_id} ({notif.filter_name})\n"
+        else:
+            text += "ℹ️ Уведомлений пока нет\n"
 
         await callback.message.answer(text, parse_mode="HTML")
 
@@ -494,3 +509,53 @@ async def set_user_tier(message: Message):
     except Exception as e:
         logger.error(f"Ошибка изменения тарифа: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при изменении тарифа")
+
+
+@router.message(Command("cleanup_duplicates"))
+async def cleanup_duplicate_filters(message: Message):
+    """Удаление дубликатов фильтров (одинаковые имя + user_id)."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа")
+        return
+
+    try:
+        async with DatabaseSession() as session:
+            # Находим дубликаты: группируем по user_id + name и оставляем только ID старейшего
+            duplicates_query = text("""
+                WITH duplicates AS (
+                    SELECT
+                        id,
+                        user_id,
+                        name,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY user_id, name
+                            ORDER BY created_at ASC
+                        ) as row_num
+                    FROM sniper_filters
+                )
+                SELECT id FROM duplicates WHERE row_num > 1
+            """)
+
+            result = await session.execute(duplicates_query)
+            duplicate_ids = [row[0] for row in result.all()]
+
+            if not duplicate_ids:
+                await message.answer("✅ Дубликатов не найдено")
+                return
+
+            # Удаляем дубликаты
+            await session.execute(
+                delete(SniperFilter).where(SniperFilter.id.in_(duplicate_ids))
+            )
+
+            await message.answer(
+                f"✅ <b>Дубликаты удалены</b>\n\n"
+                f"Удалено фильтров: {len(duplicate_ids)}",
+                parse_mode="HTML"
+            )
+
+            logger.info(f"Админ {message.from_user.id} удалил {len(duplicate_ids)} дубликатов фильтров")
+
+    except Exception as e:
+        logger.error(f"Ошибка удаления дубликатов: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при удалении дубликатов")

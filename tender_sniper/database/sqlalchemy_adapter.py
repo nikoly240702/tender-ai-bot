@@ -220,23 +220,36 @@ class TenderSniperDB:
 
     def _filter_to_dict(self, filter_obj: SniperFilterModel) -> Dict[str, Any]:
         """Конвертация фильтра в dict."""
+        def safe_list(value):
+            """Безопасное преобразование в список."""
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return value
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except:
+                    return []
+            return []
+
         return {
             'id': filter_obj.id,
             'user_id': filter_obj.user_id,
             'name': filter_obj.name,
-            'keywords': filter_obj.keywords if isinstance(filter_obj.keywords, list) else json.loads(filter_obj.keywords or '[]'),
-            'exclude_keywords': filter_obj.exclude_keywords if isinstance(filter_obj.exclude_keywords, list) else json.loads(filter_obj.exclude_keywords or '[]'),
+            'keywords': safe_list(filter_obj.keywords),
+            'exclude_keywords': safe_list(filter_obj.exclude_keywords),
             'price_min': filter_obj.price_min,
             'price_max': filter_obj.price_max,
-            'regions': filter_obj.regions if isinstance(filter_obj.regions, list) else json.loads(filter_obj.regions or '[]'),
-            'customer_types': filter_obj.customer_types if isinstance(filter_obj.customer_types, list) else json.loads(filter_obj.customer_types or '[]'),
-            'tender_types': filter_obj.tender_types if isinstance(filter_obj.tender_types, list) else json.loads(filter_obj.tender_types or '[]'),
+            'regions': safe_list(filter_obj.regions),
+            'customer_types': safe_list(filter_obj.customer_types),
+            'tender_types': safe_list(filter_obj.tender_types),
             'law_type': filter_obj.law_type,
             'purchase_stage': filter_obj.purchase_stage,
             'purchase_method': filter_obj.purchase_method,
-            'okpd2_codes': filter_obj.okpd2_codes if isinstance(filter_obj.okpd2_codes, list) else json.loads(filter_obj.okpd2_codes or '[]'),
+            'okpd2_codes': safe_list(filter_obj.okpd2_codes),
             'min_deadline_days': filter_obj.min_deadline_days,
-            'customer_keywords': filter_obj.customer_keywords if isinstance(filter_obj.customer_keywords, list) else json.loads(filter_obj.customer_keywords or '[]'),
+            'customer_keywords': safe_list(filter_obj.customer_keywords),
             'is_active': filter_obj.is_active,
             'created_at': filter_obj.created_at.isoformat() if filter_obj.created_at else None,
             'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None
@@ -300,6 +313,19 @@ class TenderSniperDB:
                 'published_date': n.published_date.isoformat() if n.published_date else None,
                 'sent_at': n.sent_at.isoformat() if n.sent_at else None
             } for n in notifications]
+
+    async def is_tender_notified(self, tender_number: str, user_id: int) -> bool:
+        """Проверка, было ли уже отправлено уведомление о тендере пользователю."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.tender_number == tender_number,
+                        SniperNotificationModel.user_id == user_id
+                    )
+                )
+            )
+            return result.scalar_one_or_none() is not None
 
     # ============================================
     # TENDER CACHE
