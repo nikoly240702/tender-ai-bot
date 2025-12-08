@@ -44,6 +44,7 @@ class FilterSearchStates(StatesGroup):
     waiting_for_keywords = State()
     waiting_for_exclude_keywords = State()
     waiting_for_price_range = State()
+    confirm_price_range = State()
     waiting_for_regions = State()
     waiting_for_law_type = State()
     waiting_for_purchase_stage = State()
@@ -342,8 +343,50 @@ async def process_price_range_new(message: Message, state: FSMContext):
 
     await state.update_data(price_min=price_min, price_max=price_max)
 
-    # Сразу переходим к регионам
-    await ask_for_regions(message, state)
+    # Показываем подтверждение цены
+    await show_price_confirmation(message, state)
+
+
+async def show_price_confirmation(message: Message, state: FSMContext):
+    """Показать подтверждение ценового диапазона."""
+    await state.set_state(FilterSearchStates.confirm_price_range)
+
+    data = await state.get_data()
+    price_min = data.get('price_min')
+    price_max = data.get('price_max')
+
+    if price_min is not None and price_max is not None:
+        price_text = f"💰 {price_min:,} ₽ — {price_max:,} ₽"
+    else:
+        price_text = "💰 Любая цена"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Продолжить", callback_data="confirm_price_continue")],
+        [InlineKeyboardButton(text="✏️ Изменить цену", callback_data="confirm_price_edit")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await message.answer(
+        f"<b>Подтверждение ценового диапазона</b>\n\n"
+        f"{price_text}\n\n"
+        f"Продолжить с этими параметрами?",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "confirm_price_continue")
+async def confirm_price_continue(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение цены - продолжаем к регионам."""
+    await callback.answer("✅ Цена подтверждена")
+    await ask_for_regions(callback.message, state)
+
+
+@router.callback_query(F.data == "confirm_price_edit")
+async def confirm_price_edit(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к редактированию цены."""
+    await callback.answer("✏️ Возвращаемся к выбору цены")
+    await ask_for_price_range(callback.message, state)
 
 
 @router.callback_query(F.data == "back_to_exclude_keywords")

@@ -44,7 +44,7 @@ class RemoveUserStates(StatesGroup):
 @router.message(Command("admin"))
 async def admin_panel(message: Message):
     """
-    Открывает админ-панель.
+    Открывает админ-панель Tender Sniper.
     Доступна только администратору.
     """
     if not is_admin(message.from_user.id):
@@ -55,18 +55,9 @@ async def admin_panel(message: Message):
         )
         return
 
-    # Получаем статистику
-    users_count = access_manager.get_users_count()
-    access_mode = "Приватный" if BotConfig.ALLOWED_USERS is not None else "Открытый"
-
-    await message.answer(
-        f"🔐 <b>Админ-панель</b>\n\n"
-        f"Режим доступа: <b>{access_mode}</b>\n"
-        f"Пользователей с доступом: <b>{users_count}</b>\n\n"
-        f"Выберите действие:",
-        reply_markup=get_admin_panel_keyboard(),
-        parse_mode="HTML"
-    )
+    # Импортируем и вызываем админ панель Tender Sniper
+    from bot.handlers.admin_sniper import sniper_admin_panel
+    await sniper_admin_panel(message)
 
 
 @router.callback_query(F.data == "admin_list_users")

@@ -85,13 +85,13 @@ async def show_statistics(callback: CallbackQuery):
             db.row_factory = aiosqlite.Row
 
             # Общая статистика
-            async with db.execute("SELECT COUNT(*) as total FROM users") as cursor:
+            async with db.execute("SELECT COUNT(*) as total FROM sniper_users") as cursor:
                 total_users = (await cursor.fetchone())['total']
 
-            async with db.execute("SELECT COUNT(*) as total FROM filters WHERE active = 1") as cursor:
+            async with db.execute("SELECT COUNT(*) as total FROM user_filters WHERE active = 1") as cursor:
                 active_filters = (await cursor.fetchone())['total']
 
-            async with db.execute("SELECT COUNT(*) as total FROM filters") as cursor:
+            async with db.execute("SELECT COUNT(*) as total FROM user_filters") as cursor:
                 total_filters = (await cursor.fetchone())['total']
 
             # Статистика уведомлений
@@ -118,7 +118,7 @@ async def show_statistics(callback: CallbackQuery):
             async with db.execute("""
                 SELECT u.telegram_id, u.subscription_tier, COUNT(n.id) as notif_count
                 FROM notifications n
-                JOIN users u ON n.user_id = u.id
+                JOIN sniper_users u ON n.user_id = u.id
                 GROUP BY u.id
                 ORDER BY notif_count DESC
                 LIMIT 3
@@ -166,8 +166,8 @@ async def show_active_filters(callback: CallbackQuery):
                 SELECT f.id, f.name, f.keywords, f.price_min, f.price_max,
                        u.telegram_id, u.subscription_tier,
                        COUNT(n.id) as notifications_count
-                FROM filters f
-                JOIN users u ON f.user_id = u.id
+                FROM user_filters f
+                JOIN sniper_users u ON f.user_id = u.id
                 LEFT JOIN notifications n ON f.id = n.filter_id
                 WHERE f.active = 1
                 GROUP BY f.id
@@ -228,9 +228,9 @@ async def show_users_and_tiers(callback: CallbackQuery):
                     COUNT(DISTINCT f.id) as filters_count,
                     COUNT(DISTINCT CASE WHEN f.active = 1 THEN f.id END) as active_filters,
                     COUNT(n.id) as total_notifications,
-                    COUNT(CASE WHEN date(n.created_at) = date('now') THEN 1 END) as today_notifications
-                FROM users u
-                LEFT JOIN filters f ON u.id = f.user_id
+                    COUNT(CASE WHEN date(n.sent_at) = date('now') THEN 1 END) as today_notifications
+                FROM sniper_users u
+                LEFT JOIN user_filters f ON u.id = f.user_id
                 LEFT JOIN notifications n ON u.id = n.user_id
                 GROUP BY u.id
                 ORDER BY total_notifications DESC
@@ -282,13 +282,13 @@ async def show_system_monitoring(callback: CallbackQuery):
             # Последние уведомления
             async with db.execute("""
                 SELECT
-                    n.created_at,
+                    n.sent_at,
                     u.telegram_id,
                     f.name as filter_name
                 FROM notifications n
-                JOIN users u ON n.user_id = u.id
-                JOIN filters f ON n.filter_id = f.id
-                ORDER BY n.created_at DESC
+                JOIN sniper_users u ON n.user_id = u.id
+                JOIN user_filters f ON n.filter_id = f.id
+                ORDER BY n.sent_at DESC
                 LIMIT 5
             """) as cursor:
                 recent_notifications = await cursor.fetchall()
@@ -296,10 +296,10 @@ async def show_system_monitoring(callback: CallbackQuery):
             # Статистика по часам (последние 24 часа)
             async with db.execute("""
                 SELECT
-                    strftime('%H:00', created_at) as hour,
+                    strftime('%H:00', sent_at) as hour,
                     COUNT(*) as count
                 FROM notifications
-                WHERE created_at >= datetime('now', '-24 hours')
+                WHERE sent_at >= datetime('now', '-24 hours')
                 GROUP BY hour
                 ORDER BY hour DESC
                 LIMIT 6
@@ -317,7 +317,7 @@ async def show_system_monitoring(callback: CallbackQuery):
         if recent_notifications:
             text += "<b>Последние 5 уведомлений:</b>\n"
             for notif in recent_notifications:
-                time = notif['created_at'].split('.')[0]  # Убираем миллисекунды
+                time = notif['sent_at'].split('.')[0] if '.' in notif['sent_at'] else notif['sent_at']  # Убираем миллисекунды
                 text += f"  • {time} - User {notif['telegram_id']} ({notif['filter_name']})\n"
 
         await callback.message.answer(text, parse_mode="HTML")
@@ -340,14 +340,16 @@ async def reset_daily_quotas(callback: CallbackQuery):
         db_path = Path(__file__).parent.parent.parent / 'tender_sniper' / 'database' / 'sniper.db'
 
         async with aiosqlite.connect(db_path) as db:
-            # Сбрасываем квоты
+            # Сбрасываем квоты в таблице notification_quotas
+            today = datetime.now().date().isoformat()
             await db.execute("""
-                UPDATE users
-                SET notifications_today = 0, last_notification_date = NULL
-            """)
+                UPDATE notification_quotas
+                SET notifications_sent = 0
+                WHERE date = ?
+            """, (today,))
             await db.commit()
 
-            async with db.execute("SELECT COUNT(*) as total FROM users") as cursor:
+            async with db.execute("SELECT COUNT(*) as total FROM sniper_users") as cursor:
                 total = (await cursor.fetchone())['total']
 
         await callback.message.answer(
