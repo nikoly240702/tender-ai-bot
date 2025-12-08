@@ -5,11 +5,28 @@
 import logging
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardRemove, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+def get_main_keyboard() -> ReplyKeyboardMarkup:
+    """
+    Возвращает постоянную клавиатуру управления ботом.
+    Отображается справа от текстовой строки.
+    """
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Мои фильтры")],
+            [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="📈 Статистика")]
+        ],
+        resize_keyboard=True,
+        persistent=True  # Клавиатура остается видимой всегда
+    )
+    return keyboard
 
 
 @router.message(CommandStart())
@@ -29,9 +46,6 @@ async def cmd_start(message: Message, state: FSMContext):
 
     # Очищаем любое предыдущее состояние
     await state.clear()
-
-    # Удаляем старую Reply Keyboard (кнопки внизу экрана)
-    await message.answer("🎯", reply_markup=ReplyKeyboardRemove())
 
     # Проверяем, новый ли пользователь
     # Если команда /start onboarding - принудительно показываем онбординг
@@ -76,6 +90,12 @@ async def cmd_start(message: Message, state: FSMContext):
 
     await message.answer(
         welcome_text,
+        reply_markup=get_main_keyboard(),
+        parse_mode="HTML"
+    )
+
+    await message.answer(
+        "Выберите действие:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -118,46 +138,6 @@ async def cmd_help(message: Message):
     ])
 
     await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
-
-
-@router.callback_query(F.data == "cancel_action")
-async def cancel_current_action(callback: CallbackQuery, state: FSMContext):
-    """
-    Универсальная отмена текущего действия.
-    Сбрасывает FSM и возвращает в главное меню.
-    """
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Пользователь {callback.from_user.id} отменил действие из состояния {current_state}")
-
-    await state.clear()
-    await callback.answer("❌ Действие отменено")
-
-    welcome_text = (
-        "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
-        "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
-        "<b>Что я умею:</b>\n"
-        "🔍 Мгновенный поиск по вашим критериям\n"
-        "🎯 Умное сопоставление (scoring 0-100)\n"
-        "📱 Автоматические уведомления о новых тендерах\n"
-        "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
-        "<b>Ваш тариф:</b> 🆓 Бесплатный\n"
-        "• 5 фильтров мониторинга\n"
-        "• 10 уведомлений в день\n\n"
-        "<i>Нажмите кнопку ниже для начала!</i>"
-    )
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="👋 Экскурсия для новичков", callback_data="start_onboarding")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
-    ])
-
-    await callback.message.edit_text(
-        welcome_text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
 
 
 @router.callback_query(F.data == "main_menu")
@@ -205,6 +185,64 @@ async def callback_start_onboarding(callback: CallbackQuery, state: FSMContext):
 
     from bot.handlers.onboarding import start_onboarding
     await start_onboarding(callback.message, state)
+
+
+# ============================================
+# ОБРАБОТЧИКИ ПОСТОЯННОЙ КЛАВИАТУРЫ
+# ============================================
+
+@router.message(F.text == "🏠 Главное меню")
+async def keyboard_main_menu(message: Message, state: FSMContext):
+    """Обработчик кнопки 'Главное меню' из постоянной клавиатуры."""
+    # Используем существующую логику cmd_start
+    await cmd_start(message, state)
+
+
+@router.message(F.text == "🎯 Tender Sniper")
+async def keyboard_tender_sniper(message: Message):
+    """Обработчик кнопки 'Tender Sniper' из постоянной клавиатуры."""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
+        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")]
+    ])
+
+    await message.answer(
+        "🎯 <b>Tender Sniper</b>\n\nВыберите действие:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.text == "📊 Мои фильтры")
+async def keyboard_my_filters(message: Message):
+    """Обработчик кнопки 'Мои фильтры' из постоянной клавиатуры."""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")]
+    ])
+
+    await message.answer(
+        "Открываю ваши фильтры...",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.text == "⭐ Избранное")
+async def keyboard_favorites(message: Message):
+    """Обработчик кнопки 'Избранное' из постоянной клавиатуры."""
+    # Импортируем обработчик из user_management
+    from bot.handlers.user_management import favorites_command
+    await favorites_command(message)
+
+
+@router.message(F.text == "📈 Статистика")
+async def keyboard_stats(message: Message):
+    """Обработчик кнопки 'Статистика' из постоянной клавиатуры."""
+    # Импортируем обработчик из user_management
+    from bot.handlers.user_management import stats_command
+    await stats_command(message)
 
 
 # Старые handlers отключены - теперь используем только Tender Sniper

@@ -365,13 +365,35 @@ class InstantSearch:
                 'generated_at': datetime.now().isoformat()
             }
 
-            # Генерируем HTML встроенной функцией
-            html_content = self._build_html_content(report_data)
+            # Используем генератор с JavaScript фильтрацией
+            from tender_sniper.all_tenders_report import generate_html_report as generate_filtered_html
+
+            # Преобразуем данные в формат all_tenders_report
+            tenders_for_report = []
+            for match in search_results['matches']:
+                tenders_for_report.append({
+                    'number': match.get('number', 'N/A'),
+                    'name': match.get('name', 'Без названия'),
+                    'price': match.get('price', 0),
+                    'url': match.get('url', ''),
+                    'customer_name': match.get('customer', 'Не указан'),
+                    'region': match.get('customer_region', 'Не указан'),
+                    'published_date': match.get('published', ''),
+                    'sent_at': datetime.now().isoformat(),
+                    'filter_name': filter_data['name']
+                })
+
+            # Генерируем HTML с JavaScript фильтрацией
+            html_content = generate_filtered_html(
+                tenders=tenders_for_report,
+                username="Пользователь",
+                total_count=search_results['total_found']
+            )
 
             # Сохраняем
             output_path.write_text(html_content, encoding='utf-8')
 
-            logger.info(f"   ✅ Отчет сохранен: {output_path}")
+            logger.info(f"   ✅ Отчет сохранен с JavaScript фильтрацией: {output_path}")
             return output_path
 
         except Exception as e:
