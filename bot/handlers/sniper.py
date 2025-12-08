@@ -407,8 +407,7 @@ async def show_my_filters(callback: CallbackQuery):
 
         keyboard_buttons = []
         for i, f in enumerate(filters, 1):
-            import json
-            keywords = json.loads(f.get('keywords', '[]'))
+            keywords = f.get('keywords', [])
             price_range = ""
             if f.get('price_min') or f.get('price_max'):
                 price_min = f"{f['price_min']:,}" if f.get('price_min') else "0"
