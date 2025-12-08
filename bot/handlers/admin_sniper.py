@@ -19,10 +19,16 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 import logging
-import aiosqlite
+from sqlalchemy import select, func, and_, distinct
+from sqlalchemy.sql import text
 
 from bot.config import BotConfig
-# SniperDatabase не используется, работаем напрямую с aiosqlite
+from database import (
+    SniperUser,
+    SniperFilter,
+    SniperNotification,
+    DatabaseSession
+)
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -79,51 +85,45 @@ async def show_statistics(callback: CallbackQuery):
     await callback.answer()
 
     try:
-        db_path = Path(__file__).parent.parent.parent / 'tender_sniper' / 'database' / 'sniper.db'
-
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-
+        async with DatabaseSession() as session:
             # Общая статистика
-            async with db.execute("SELECT COUNT(*) as total FROM sniper_users") as cursor:
-                total_users = (await cursor.fetchone())['total']
-
-            async with db.execute("SELECT COUNT(*) as total FROM user_filters WHERE active = 1") as cursor:
-                active_filters = (await cursor.fetchone())['total']
-
-            async with db.execute("SELECT COUNT(*) as total FROM user_filters") as cursor:
-                total_filters = (await cursor.fetchone())['total']
-
-            # Статистика уведомлений
-            async with db.execute("SELECT COUNT(*) as total FROM notifications") as cursor:
-                total_notifications = (await cursor.fetchone())['total']
+            total_users = await session.scalar(select(func.count(SniperUser.id)))
+            active_filters = await session.scalar(
+                select(func.count(SniperFilter.id)).where(SniperFilter.is_active == True)
+            )
+            total_filters = await session.scalar(select(func.count(SniperFilter.id)))
+            total_notifications = await session.scalar(select(func.count(SniperNotification.id)))
 
             # Уведомления за сегодня
-            today = datetime.now().date().isoformat()
-            async with db.execute(
-                "SELECT COUNT(*) as total FROM notifications WHERE date(created_at) = ?",
-                (today,)
-            ) as cursor:
-                today_notifications = (await cursor.fetchone())['total']
+            today = datetime.now().date()
+            today_notifications = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    func.date(SniperNotification.sent_at) == today
+                )
+            )
 
             # Уведомления за последние 7 дней
-            week_ago = (datetime.now() - timedelta(days=7)).date().isoformat()
-            async with db.execute(
-                "SELECT COUNT(*) as total FROM notifications WHERE date(created_at) >= ?",
-                (week_ago,)
-            ) as cursor:
-                week_notifications = (await cursor.fetchone())['total']
+            week_ago = datetime.now() - timedelta(days=7)
+            week_notifications = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    SniperNotification.sent_at >= week_ago
+                )
+            )
 
             # Топ-3 пользователя по уведомлениям
-            async with db.execute("""
-                SELECT u.telegram_id, u.subscription_tier, COUNT(n.id) as notif_count
-                FROM notifications n
-                JOIN sniper_users u ON n.user_id = u.id
-                GROUP BY u.id
-                ORDER BY notif_count DESC
-                LIMIT 3
-            """) as cursor:
-                top_users = await cursor.fetchall()
+            top_users_query = (
+                select(
+                    SniperUser.telegram_id,
+                    SniperUser.subscription_tier,
+                    func.count(SniperNotification.id).label('notif_count')
+                )
+                .join(SniperNotification, SniperNotification.user_id == SniperUser.id)
+                .group_by(SniperUser.id)
+                .order_by(func.count(SniperNotification.id).desc())
+                .limit(3)
+            )
+            top_users_result = await session.execute(top_users_query)
+            top_users = top_users_result.all()
 
         text = (
             "📊 <b>Статистика Tender Sniper</b>\n\n"
@@ -138,7 +138,7 @@ async def show_statistics(callback: CallbackQuery):
         if top_users:
             text += "<b>🏆 Топ-3 пользователя:</b>\n"
             for i, user in enumerate(top_users, 1):
-                text += f"  {i}. ID {user['telegram_id']} ({user['subscription_tier']}): {user['notif_count']} уведомлений\n"
+                text += f"  {i}. ID {user.telegram_id} ({user.subscription_tier}): {user.notif_count} уведомлений\n"
 
         await callback.message.answer(text, parse_mode="HTML")
 
@@ -157,24 +157,27 @@ async def show_active_filters(callback: CallbackQuery):
     await callback.answer()
 
     try:
-        db_path = Path(__file__).parent.parent.parent / 'tender_sniper' / 'database' / 'sniper.db'
-
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-
-            async with db.execute("""
-                SELECT f.id, f.name, f.keywords, f.price_min, f.price_max,
-                       u.telegram_id, u.subscription_tier,
-                       COUNT(n.id) as notifications_count
-                FROM user_filters f
-                JOIN sniper_users u ON f.user_id = u.id
-                LEFT JOIN notifications n ON f.id = n.filter_id
-                WHERE f.active = 1
-                GROUP BY f.id
-                ORDER BY notifications_count DESC
-                LIMIT 10
-            """) as cursor:
-                filters = await cursor.fetchall()
+        async with DatabaseSession() as session:
+            query = (
+                select(
+                    SniperFilter.id,
+                    SniperFilter.name,
+                    SniperFilter.keywords,
+                    SniperFilter.price_min,
+                    SniperFilter.price_max,
+                    SniperUser.telegram_id,
+                    SniperUser.subscription_tier,
+                    func.count(SniperNotification.id).label('notifications_count')
+                )
+                .join(SniperUser, SniperFilter.user_id == SniperUser.id)
+                .outerjoin(SniperNotification, SniperFilter.id == SniperNotification.filter_id)
+                .where(SniperFilter.is_active == True)
+                .group_by(SniperFilter.id, SniperUser.telegram_id, SniperUser.subscription_tier)
+                .order_by(func.count(SniperNotification.id).desc())
+                .limit(10)
+            )
+            result = await session.execute(query)
+            filters = result.all()
 
         if not filters:
             await callback.message.answer("ℹ️ Нет активных фильтров")
@@ -184,19 +187,19 @@ async def show_active_filters(callback: CallbackQuery):
 
         for f in filters:
             import json
-            keywords = json.loads(f['keywords']) if f['keywords'] else []
+            keywords = f.keywords if isinstance(f.keywords, list) else json.loads(f.keywords) if f.keywords else []
             keywords_str = ', '.join(keywords[:3])
             if len(keywords) > 3:
                 keywords_str += f" (+{len(keywords)-3})"
 
-            price = f"{f['price_min']:,} - {f['price_max']:,}" if f['price_min'] and f['price_max'] else "Не указана"
+            price = f"{f.price_min:,} - {f.price_max:,}" if f.price_min and f.price_max else "Не указана"
 
             text += (
-                f"<b>{f['name']}</b>\n"
-                f"  ID: {f['id']} | User: {f['telegram_id']} ({f['subscription_tier']})\n"
+                f"<b>{f.name}</b>\n"
+                f"  ID: {f.id} | User: {f.telegram_id} ({f.subscription_tier})\n"
                 f"  Ключевые слова: {keywords_str}\n"
                 f"  Цена: {price}\n"
-                f"  Уведомлений: {f['notifications_count']}\n\n"
+                f"  Уведомлений: {f.notifications_count}\n\n"
             )
 
         await callback.message.answer(text, parse_mode="HTML")
@@ -216,27 +219,28 @@ async def show_users_and_tiers(callback: CallbackQuery):
     await callback.answer()
 
     try:
-        db_path = Path(__file__).parent.parent.parent / 'tender_sniper' / 'database' / 'sniper.db'
-
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-
-            async with db.execute("""
-                SELECT
-                    u.telegram_id,
-                    u.subscription_tier,
-                    COUNT(DISTINCT f.id) as filters_count,
-                    COUNT(DISTINCT CASE WHEN f.active = 1 THEN f.id END) as active_filters,
-                    COUNT(n.id) as total_notifications,
-                    COUNT(CASE WHEN date(n.sent_at) = date('now') THEN 1 END) as today_notifications
-                FROM sniper_users u
-                LEFT JOIN user_filters f ON u.id = f.user_id
-                LEFT JOIN notifications n ON u.id = n.user_id
-                GROUP BY u.id
-                ORDER BY total_notifications DESC
-                LIMIT 15
-            """) as cursor:
-                users = await cursor.fetchall()
+        async with DatabaseSession() as session:
+            query = (
+                select(
+                    SniperUser.telegram_id,
+                    SniperUser.subscription_tier,
+                    func.count(distinct(SniperFilter.id)).label('filters_count'),
+                    func.count(distinct(
+                        SniperFilter.id
+                    )).filter(SniperFilter.is_active == True).label('active_filters'),
+                    func.count(SniperNotification.id).label('total_notifications'),
+                    func.count(SniperNotification.id).filter(
+                        func.date(SniperNotification.sent_at) == datetime.now().date()
+                    ).label('today_notifications')
+                )
+                .outerjoin(SniperFilter, SniperUser.id == SniperFilter.user_id)
+                .outerjoin(SniperNotification, SniperUser.id == SniperNotification.user_id)
+                .group_by(SniperUser.id)
+                .order_by(func.count(SniperNotification.id).desc())
+                .limit(15)
+            )
+            result = await session.execute(query)
+            users = result.all()
 
         if not users:
             await callback.message.answer("ℹ️ Нет пользователей")
@@ -249,12 +253,12 @@ async def show_users_and_tiers(callback: CallbackQuery):
                 'free': '🆓',
                 'basic': '💼',
                 'premium': '👑'
-            }.get(user['subscription_tier'], '❓')
+            }.get(user.subscription_tier, '❓')
 
             text += (
-                f"{tier_emoji} <b>User {user['telegram_id']}</b> ({user['subscription_tier']})\n"
-                f"  Фильтры: {user['active_filters']}/{user['filters_count']}\n"
-                f"  Уведомления: {user['today_notifications']} сегодня / {user['total_notifications']} всего\n\n"
+                f"{tier_emoji} <b>User {user.telegram_id}</b> ({user.subscription_tier})\n"
+                f"  Фильтры: {user.active_filters or 0}/{user.filters_count or 0}\n"
+                f"  Уведомления: {user.today_notifications or 0} сегодня / {user.total_notifications or 0} всего\n\n"
             )
 
         await callback.message.answer(text, parse_mode="HTML")
@@ -274,51 +278,49 @@ async def show_system_monitoring(callback: CallbackQuery):
     await callback.answer()
 
     try:
-        db_path = Path(__file__).parent.parent.parent / 'tender_sniper' / 'database' / 'sniper.db'
-
-        async with aiosqlite.connect(db_path) as db:
-            db.row_factory = aiosqlite.Row
-
+        async with DatabaseSession() as session:
             # Последние уведомления
-            async with db.execute("""
-                SELECT
-                    n.sent_at,
-                    u.telegram_id,
-                    f.name as filter_name
-                FROM notifications n
-                JOIN sniper_users u ON n.user_id = u.id
-                JOIN user_filters f ON n.filter_id = f.id
-                ORDER BY n.sent_at DESC
-                LIMIT 5
-            """) as cursor:
-                recent_notifications = await cursor.fetchall()
+            recent_query = (
+                select(
+                    SniperNotification.sent_at,
+                    SniperUser.telegram_id,
+                    SniperFilter.name.label('filter_name')
+                )
+                .join(SniperUser, SniperNotification.user_id == SniperUser.id)
+                .join(SniperFilter, SniperNotification.filter_id == SniperFilter.id)
+                .order_by(SniperNotification.sent_at.desc())
+                .limit(5)
+            )
+            recent_result = await session.execute(recent_query)
+            recent_notifications = recent_result.all()
 
             # Статистика по часам (последние 24 часа)
-            async with db.execute("""
+            hourly_query = text("""
                 SELECT
-                    strftime('%H:00', sent_at) as hour,
+                    TO_CHAR(sent_at, 'HH24:00') as hour,
                     COUNT(*) as count
-                FROM notifications
-                WHERE sent_at >= datetime('now', '-24 hours')
-                GROUP BY hour
+                FROM sniper_notifications
+                WHERE sent_at >= NOW() - INTERVAL '24 hours'
+                GROUP BY TO_CHAR(sent_at, 'HH24:00')
                 ORDER BY hour DESC
                 LIMIT 6
-            """) as cursor:
-                hourly_stats = await cursor.fetchall()
+            """)
+            hourly_result = await session.execute(hourly_query)
+            hourly_stats = hourly_result.all()
 
         text = "📈 <b>Мониторинг системы</b>\n\n"
 
         if hourly_stats:
             text += "<b>Активность по часам (последние 6 часов):</b>\n"
             for stat in hourly_stats:
-                text += f"  {stat['hour']}: {stat['count']} уведомлений\n"
+                text += f"  {stat.hour}: {stat.count} уведомлений\n"
             text += "\n"
 
         if recent_notifications:
             text += "<b>Последние 5 уведомлений:</b>\n"
             for notif in recent_notifications:
-                time = notif['sent_at'].split('.')[0] if '.' in notif['sent_at'] else notif['sent_at']  # Убираем миллисекунды
-                text += f"  • {time} - User {notif['telegram_id']} ({notif['filter_name']})\n"
+                time = notif.sent_at.strftime('%Y-%m-%d %H:%M:%S')
+                text += f"  • {time} - User {notif.telegram_id} ({notif.filter_name})\n"
 
         await callback.message.answer(text, parse_mode="HTML")
 
@@ -337,20 +339,17 @@ async def reset_daily_quotas(callback: CallbackQuery):
     await callback.answer()
 
     try:
-        db_path = Path(__file__).parent.parent.parent / 'tender_sniper' / 'database' / 'sniper.db'
+        async with DatabaseSession() as session:
+            # Сбрасываем квоты
+            from sqlalchemy import update
+            await session.execute(
+                update(SniperUser).values(
+                    notifications_sent_today=0,
+                    last_notification_reset=datetime.utcnow()
+                )
+            )
 
-        async with aiosqlite.connect(db_path) as db:
-            # Сбрасываем квоты в таблице notification_quotas
-            today = datetime.now().date().isoformat()
-            await db.execute("""
-                UPDATE notification_quotas
-                SET notifications_sent = 0
-                WHERE date = ?
-            """, (today,))
-            await db.commit()
-
-            async with db.execute("SELECT COUNT(*) as total FROM sniper_users") as cursor:
-                total = (await cursor.fetchone())['total']
+            total = await session.scalar(select(func.count(SniperUser.id)))
 
         await callback.message.answer(
             f"✅ <b>Квоты сброшены</b>\n\n"
