@@ -130,6 +130,33 @@ class TenderSniperDB:
                 .values(notifications_sent_today=SniperUserModel.notifications_sent_today + 1)
             )
 
+    async def check_notification_quota(self, user_id: int, daily_limit: int) -> bool:
+        """Проверка квоты уведомлений пользователя."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.id == user_id)
+            )
+            user = result.scalar_one_or_none()
+
+            if not user:
+                return False
+
+            # Проверяем, нужно ли сбросить счетчик (прошел день)
+            from datetime import timedelta
+            if user.last_notification_reset:
+                time_since_reset = datetime.utcnow() - user.last_notification_reset
+                if time_since_reset > timedelta(days=1):
+                    # Сбрасываем счетчик
+                    await self.reset_daily_notifications(user_id)
+                    return True
+
+            # Проверяем квоту
+            return user.notifications_sent_today < daily_limit
+
+    async def increment_notification_quota(self, user_id: int):
+        """Алиас для increment_notifications_count (для обратной совместимости)."""
+        await self.increment_notifications_count(user_id)
+
     # ============================================
     # FILTERS
     # ============================================

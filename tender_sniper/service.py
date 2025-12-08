@@ -321,9 +321,11 @@ class TenderSniperService:
                         # Сохраняем в базу
                         await self.db.save_notification(
                             user_id=notif['user_id'],
-                            tender_number=notif['tender'].get('number'),
                             filter_id=notif['filter_id'],
-                            notification_type='match'
+                            filter_name=notif['filter_name'],
+                            tender_data=notif['tender'],
+                            score=notif['score'],
+                            matched_keywords=notif['match_info'].get('matched_keywords', [])
                         )
 
                         # Увеличиваем счетчик квоты (кроме админов)
