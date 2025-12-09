@@ -1249,7 +1249,8 @@ async def process_tender_count(message: Message, state: FSMContext):
                         filter_name=filter_name,
                         tender_data=tender_data,
                         score=match.get('match_score', 0),
-                        matched_keywords=match.get('match_reasons', [])
+                        matched_keywords=match.get('match_reasons', []),
+                        source='instant_search'
                     )
                     saved_count += 1
 

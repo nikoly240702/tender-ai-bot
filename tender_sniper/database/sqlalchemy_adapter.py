@@ -305,7 +305,8 @@ class TenderSniperDB:
         tender_data: Dict[str, Any],
         score: int,
         matched_keywords: List[str],
-        telegram_message_id: Optional[int] = None
+        telegram_message_id: Optional[int] = None,
+        source: str = 'automonitoring'
     ) -> int:
         """Сохранение уведомления."""
         async with DatabaseSession() as session:
@@ -372,6 +373,7 @@ class TenderSniperDB:
                 matched_keywords=matched_keywords,
                 published_date=published_date,
                 submission_deadline=submission_deadline,
+                tender_source=source,
                 telegram_message_id=telegram_message_id
             )
             session.add(notification)
@@ -413,6 +415,7 @@ class TenderSniperDB:
                 'score': n.score,
                 'published_date': n.published_date.isoformat() if n.published_date else None,
                 'submission_deadline': n.submission_deadline.isoformat() if n.submission_deadline else None,
+                'source': n.tender_source,
                 'sent_at': n.sent_at.isoformat() if n.sent_at else None
             } for n in notifications]
 

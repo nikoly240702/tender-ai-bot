@@ -18,6 +18,14 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
+# Импортируем AI генератор названий
+try:
+    from tender_sniper.ai_name_generator import generate_tender_name
+except ImportError:
+    # Fallback если модуль недоступен
+    def generate_tender_name(name, *args, **kwargs):
+        return name[:80] + '...' if len(name) > 80 else name
+
 logger = logging.getLogger(__name__)
 
 
@@ -156,10 +164,13 @@ class TelegramNotifier:
         else:
             pub_str = "Неизвестна"
 
-        # Форматируем название (обрезаем если слишком длинное)
-        name = tender.get('name', 'Без названия')
-        if len(name) > 200:
-            name = name[:197] + '...'
+        # Генерируем короткое AI-название (или используем оригинальное)
+        original_name = tender.get('name', 'Без названия')
+        name = generate_tender_name(
+            original_name,
+            tender_data=tender,
+            max_length=80  # Короткие названия для уведомлений
+        )
 
         # Формируем сообщение
         message = f"""

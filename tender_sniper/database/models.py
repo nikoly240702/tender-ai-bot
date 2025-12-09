@@ -363,6 +363,35 @@ class TenderSniperDB:
             await db.commit()
             return True
 
+    async def pause_monitoring(self, telegram_id: int) -> bool:
+        """Приостановить автомониторинг для пользователя."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE sniper_users
+                SET notifications_enabled = 0
+                WHERE telegram_id = ?
+            """, (telegram_id,))
+            await db.commit()
+            return True
+
+    async def resume_monitoring(self, telegram_id: int) -> bool:
+        """Возобновить автомониторинг для пользователя."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("""
+                UPDATE sniper_users
+                SET notifications_enabled = 1
+                WHERE telegram_id = ?
+            """, (telegram_id,))
+            await db.commit()
+            return True
+
+    async def get_monitoring_status(self, telegram_id: int) -> bool:
+        """Получить статус автомониторинга пользователя."""
+        user = await self.get_user_by_telegram_id(telegram_id)
+        if user:
+            return bool(user.get('notifications_enabled', 1))
+        return False
+
     # ============================================
     # МЕТОДЫ ДЛЯ ФИЛЬТРОВ
     # ============================================
@@ -589,6 +618,63 @@ class TenderSniperDB:
             """, (user_id, today))
 
             await db.commit()
+
+    async def clear_old_notifications(self, telegram_id: int, days: int = 30) -> int:
+        """
+        Очистить старые уведомления пользователя.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            days: Удалить уведомления старше этого количества дней
+
+        Returns:
+            Количество удаленных записей
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            cutoff_date = (datetime.now() - timedelta(days=days)).isoformat()
+
+            # Получаем user_id
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return 0
+
+            # Удаляем старые уведомления
+            cursor = await db.execute("""
+                DELETE FROM notifications
+                WHERE user_id = ? AND sent_at < ?
+            """, (user['id'], cutoff_date))
+
+            deleted_count = cursor.rowcount
+            await db.commit()
+
+            return deleted_count
+
+    async def clear_all_notifications(self, telegram_id: int) -> int:
+        """
+        Очистить все уведомления пользователя.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+
+        Returns:
+            Количество удаленных записей
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            # Получаем user_id
+            user = await self.get_user_by_telegram_id(telegram_id)
+            if not user:
+                return 0
+
+            # Удаляем все уведомления
+            cursor = await db.execute("""
+                DELETE FROM notifications
+                WHERE user_id = ?
+            """, (user['id'],))
+
+            deleted_count = cursor.rowcount
+            await db.commit()
+
+            return deleted_count
 
     # ============================================
     # МЕТОДЫ ДЛЯ СТАТИСТИКИ

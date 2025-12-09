@@ -136,6 +136,7 @@ class SniperNotification(Base):
     matched_keywords = Column(JSON, default=list)  # List[str]
     published_date = Column(DateTime, nullable=True)
     submission_deadline = Column(DateTime, nullable=True)  # Срок подачи заявки
+    tender_source = Column(String(50), default='automonitoring', nullable=False)  # instant_search или automonitoring
     sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     telegram_message_id = Column(BigInteger, nullable=True)
 

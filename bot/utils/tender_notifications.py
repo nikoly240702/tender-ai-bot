@@ -9,6 +9,14 @@ from typing import Dict, Any, Tuple, Optional
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 import logging
 
+# Импортируем AI генератор названий
+try:
+    from tender_sniper.ai_name_generator import generate_tender_name
+except ImportError:
+    # Fallback если модуль недоступен
+    def generate_tender_name(name, *args, **kwargs):
+        return name[:80] + '...' if len(name) > 80 else name
+
 logger = logging.getLogger(__name__)
 
 
@@ -61,8 +69,9 @@ def format_tender_notification(tender_data: Dict[str, Any]) -> Tuple[str, Inline
         else:
             time_left_str = f"{estimated_days_left} дней"
 
-    # Получаем название
-    tender_name = tender_data.get('tender_name') or tender_data.get('name', 'Без названия')
+    # Получаем и генерируем короткое AI-название
+    original_name = tender_data.get('tender_name') or tender_data.get('name', 'Без названия')
+    tender_name = generate_tender_name(original_name, tender_data=tender_data, max_length=80)
     tender_number = tender_data.get('tender_number') or tender_data.get('number', 'N/A')
 
     # Формируем текст сообщения
@@ -136,7 +145,8 @@ def format_detailed_tender_info(tender_data: Dict[str, Any]) -> str:
     Returns:
         str: Детальное сообщение
     """
-    tender_name = tender_data.get('tender_name') or tender_data.get('name', 'Без названия')
+    original_name = tender_data.get('tender_name') or tender_data.get('name', 'Без названия')
+    tender_name = generate_tender_name(original_name, tender_data=tender_data, max_length=100)
     tender_number = tender_data.get('tender_number') or tender_data.get('number', 'N/A')
     amount = tender_data.get('tender_price') or tender_data.get('price', 0)
 

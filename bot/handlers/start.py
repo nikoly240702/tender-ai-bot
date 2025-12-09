@@ -21,6 +21,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         keyboard=[
             [KeyboardButton(text="🏠 Главное меню")],
             [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Мои фильтры")],
+            [KeyboardButton(text="📊 Все мои тендеры")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="📈 Статистика")]
         ],
         resize_keyboard=True,
@@ -84,7 +85,6 @@ async def cmd_start(message: Message, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="👋 Экскурсия для новичков", callback_data="start_onboarding")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
     ])
 
@@ -167,7 +167,6 @@ async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="👋 Экскурсия для новичков", callback_data="start_onboarding")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
     ])
 
@@ -224,6 +223,26 @@ async def keyboard_my_filters(message: Message):
 
     await message.answer(
         "Открываю ваши фильтры...",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.text == "📊 Все мои тендеры")
+async def keyboard_all_tenders(message: Message, state: FSMContext):
+    """Обработчик кнопки 'Все мои тендеры' из постоянной клавиатуры."""
+    # Импортируем и вызываем обработчик из all_tenders.py
+    from bot.handlers.all_tenders import show_all_tenders, AllTendersStates
+    from aiogram.types import CallbackQuery
+
+    # Создаем фейковый CallbackQuery для совместимости с существующим обработчиком
+    # Это временное решение - в идеале нужен отдельный обработчик для Message
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Открыть все тендеры", callback_data="sniper_all_tenders")]
+    ])
+
+    await message.answer(
+        "📊 <b>Все мои тендеры</b>\n\nОткрываю историю найденных тендеров...",
         reply_markup=keyboard,
         parse_mode="HTML"
     )

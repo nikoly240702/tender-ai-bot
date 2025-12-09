@@ -96,10 +96,23 @@ async def show_sniper_menu(callback: CallbackQuery):
     """Callback для возврата в главное меню Sniper."""
     await callback.answer()
 
+    # Проверяем статус автомониторинга
+    db = await get_sniper_db()
+    is_monitoring_enabled = await db.get_monitoring_status(callback.from_user.id)
+
+    # Кнопка паузы/возобновления
+    if is_monitoring_enabled:
+        monitoring_button = InlineKeyboardButton(text="⏸️ Пауза автомониторинга", callback_data="sniper_pause_monitoring")
+        monitoring_status = "🟢 <b>Автомониторинг активен</b>"
+    else:
+        monitoring_button = InlineKeyboardButton(text="▶️ Возобновить автомониторинг", callback_data="sniper_resume_monitoring")
+        monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
         [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
         [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+        [monitoring_button],
         [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
         [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
@@ -107,21 +120,77 @@ async def show_sniper_menu(callback: CallbackQuery):
     ])
 
     await callback.message.edit_text(
-        "🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
-        "<b>Новый workflow:</b>\n"
-        "1️⃣ Создаете фильтр с критериями\n"
-        "2️⃣ AI расширяет ваш запрос\n"
-        "3️⃣ Получаете HTML отчет с тендерами\n"
-        "4️⃣ Включаете автомониторинг (опционально)\n\n"
-        "<b>Возможности:</b>\n"
-        "• 🤖 AI расширение критериев поиска\n"
-        "• 📊 Мгновенный поиск до 25 тендеров\n"
-        "• 📄 Красивые HTML отчеты\n"
-        "• 🔔 Автоматические уведомления\n\n"
-        "Начните с создания фильтра!",
+        f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+        f"{monitoring_status}\n\n"
+        f"<b>Два режима работы:</b>\n\n"
+        f"🔍 <b>Новый поиск</b> (мгновенный)\n"
+        f"→ Разовый поиск по критериям\n"
+        f"→ Получаете HTML отчет сразу\n"
+        f"→ Нет автоматических уведомлений\n\n"
+        f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
+        f"→ Создаете постоянные фильтры\n"
+        f"→ Бот автоматически ищет новые тендеры\n"
+        f"→ Получаете уведомления 24/7\n\n"
+        f"<b>Возможности:</b>\n"
+        f"• 🤖 AI расширение критериев\n"
+        f"• 📄 Красивые HTML отчеты\n"
+        f"• 🔔 Умные уведомления\n\n"
+        f"<i>Выберите режим работы ниже</i>",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+# ============================================
+# УПРАВЛЕНИЕ АВТОМОНИТОРИНГОМ
+# ============================================
+
+@router.callback_query(F.data == "sniper_pause_monitoring")
+async def pause_monitoring(callback: CallbackQuery):
+    """Приостановить автомониторинг."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        await db.pause_monitoring(callback.from_user.id)
+
+        await callback.message.answer(
+            "⏸️ <b>Автомониторинг приостановлен</b>\n\n"
+            "Вы перестанете получать уведомления о новых тендерах.\n"
+            "Все ваши фильтры сохранены и будут работать после возобновления.",
+            parse_mode="HTML"
+        )
+
+        # Обновляем меню
+        await show_sniper_menu(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка при паузе мониторинга: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка при паузе автомониторинга")
+
+
+@router.callback_query(F.data == "sniper_resume_monitoring")
+async def resume_monitoring(callback: CallbackQuery):
+    """Возобновить автомониторинг."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        await db.resume_monitoring(callback.from_user.id)
+
+        await callback.message.answer(
+            "▶️ <b>Автомониторинг возобновлен</b>\n\n"
+            "Вы снова будете получать уведомления о новых тендерах,\n"
+            "соответствующих вашим фильтрам.",
+            parse_mode="HTML"
+        )
+
+        # Обновляем меню
+        await show_sniper_menu(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка при возобновлении мониторинга: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка при возобновлении автомониторинга")
 
 
 # ============================================
@@ -709,6 +778,7 @@ async def show_sniper_help(callback: CallbackQuery):
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📚 Инструкция для новичков", callback_data="start_onboarding")],
         [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -1057,6 +1127,62 @@ async def delete_all_filters_confirmed(callback: CallbackQuery):
 
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка при удалении фильтров: {str(e)}")
+
+
+# ============================================
+# ОБРАТНАЯ СВЯЗЬ ПО ТЕНДЕРАМ
+# ============================================
+
+@router.callback_query(F.data.startswith("interested_"))
+async def mark_tender_interesting(callback: CallbackQuery):
+    """Пользователь отметил тендер как интересный."""
+    await callback.answer("👍 Отмечено как интересное")
+
+    try:
+        # Извлекаем номер тендера из callback_data
+        tender_number = callback.data.replace("interested_", "")
+
+        # Здесь можно сохранить в БД для аналитики/ML
+        logger.info(f"Пользователь {callback.from_user.id} отметил тендер {tender_number} как интересный")
+
+        # Обновляем сообщение
+        await callback.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Отмечено как интересное", callback_data="noop")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при отметке тендера: {e}", exc_info=True)
+
+
+@router.callback_query(F.data.startswith("skip_"))
+async def mark_tender_skipped(callback: CallbackQuery):
+    """Пользователь пропустил тендер."""
+    await callback.answer("👎 Пропущено")
+
+    try:
+        # Извлекаем номер тендера из callback_data
+        tender_number = callback.data.replace("skip_", "")
+
+        # Здесь можно сохранить в БД для аналитики/ML
+        logger.info(f"Пользователь {callback.from_user.id} пропустил тендер {tender_number}")
+
+        # Обновляем сообщение
+        await callback.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Пропущено", callback_data="noop")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при пропуске тендера: {e}", exc_info=True)
+
+
+@router.callback_query(F.data == "noop")
+async def noop_callback(callback: CallbackQuery):
+    """Пустой callback для неактивных кнопок."""
+    await callback.answer()
 
 
 # ============================================

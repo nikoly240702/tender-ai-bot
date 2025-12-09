@@ -450,6 +450,15 @@ def generate_html_report(
                 </div>
 
                 <div class="filter-group">
+                    <label class="filter-label">Источник</label>
+                    <select id="sourceFilter" class="filter-select">
+                        <option value="">Все источники</option>
+                        <option value="instant_search">🔍 Мгновенный поиск</option>
+                        <option value="automonitoring">🤖 Автомониторинг</option>
+                    </select>
+                </div>
+
+                <div class="filter-group">
                     <label class="filter-label">Мин. цена (₽)</label>
                     <input type="number" id="minPrice" class="filter-input" placeholder="От...">
                 </div>
@@ -507,12 +516,15 @@ def generate_html_report(
                 tender_region = tender.get('region', 'Не указан')
                 tender_date = tender.get('published_date', '')
 
+                tender_source = tender.get('source', 'automonitoring')
+
                 html_content += f"""
             <div class="tender-card"
                  data-name="{html.escape(tender_name.lower())}"
                  data-price="{tender_price}"
                  data-region="{html.escape(tender_region)}"
                  data-filter="{html.escape(filter_name)}"
+                 data-source="{html.escape(tender_source)}"
                  data-date="{html.escape(tender_date)}">
                 <div class="tender-header">
                     <div class="tender-number">№ {html.escape(tender.get('number', 'N/A'))}</div>
@@ -578,6 +590,7 @@ def generate_html_report(
         document.addEventListener('DOMContentLoaded', function() {{
             const searchInput = document.getElementById('searchInput');
             const regionFilter = document.getElementById('regionFilter');
+            const sourceFilter = document.getElementById('sourceFilter');
             const minPriceInput = document.getElementById('minPrice');
             const maxPriceInput = document.getElementById('maxPrice');
             const sortBySelect = document.getElementById('sortBy');
@@ -616,6 +629,7 @@ def generate_html_report(
             function applyFilters() {{
                 const searchTerm = searchInput.value.toLowerCase();
                 const selectedRegion = regionFilter.value;
+                const selectedSource = sourceFilter.value;
                 const minPrice = parseFloat(minPriceInput.value) || 0;
                 const maxPrice = parseFloat(maxPriceInput.value) || Infinity;
                 const selectedFilter = filterSourceSelect.value;
@@ -627,6 +641,7 @@ def generate_html_report(
                     const name = card.dataset.name || '';
                     const price = parseFloat(card.dataset.price) || 0;
                     const region = card.dataset.region || '';
+                    const source = card.dataset.source || 'automonitoring';
                     const filter = card.dataset.filter || '';
 
                     let isVisible = true;
@@ -638,6 +653,11 @@ def generate_html_report(
 
                     // Фильтр по региону
                     if (selectedRegion && region !== selectedRegion) {{
+                        isVisible = false;
+                    }}
+
+                    // Фильтр по источнику
+                    if (selectedSource && source !== selectedSource) {{
                         isVisible = false;
                     }}
 
@@ -694,6 +714,7 @@ def generate_html_report(
             function resetFilters() {{
                 searchInput.value = '';
                 regionFilter.value = '';
+                sourceFilter.value = '';
                 minPriceInput.value = '';
                 maxPriceInput.value = '';
                 sortBySelect.value = 'date-desc';
@@ -704,6 +725,7 @@ def generate_html_report(
             // Обработчики событий
             searchInput.addEventListener('input', applyFilters);
             regionFilter.addEventListener('change', applyFilters);
+            sourceFilter.addEventListener('change', applyFilters);
             minPriceInput.addEventListener('input', applyFilters);
             maxPriceInput.addEventListener('input', applyFilters);
             sortBySelect.addEventListener('change', applyFilters);
