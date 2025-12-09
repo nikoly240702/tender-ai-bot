@@ -1062,9 +1062,6 @@ async def delete_all_filters_confirmed(callback: CallbackQuery):
 # ============================================
 # ВОЗВРАТ В ГЛАВНОЕ МЕНЮ
 # ============================================
-
-@router.callback_query(F.data == "sniper_menu")
-async def return_to_sniper_menu(callback: CallbackQuery):
-    """Возврат в главное меню Tender Sniper."""
-    # Вызываем главное меню
-    await cmd_sniper_menu(callback.message)
+# УДАЛЕН: Дублирующий обработчик sniper_menu (строка 94 уже обрабатывает)
+# Причина: cmd_sniper_menu(callback.message) использует message.answer() вместо edit_text(),
+# что приводит к зависанию при нажатии кнопки "Главное меню" из разделов

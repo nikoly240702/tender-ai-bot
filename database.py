@@ -135,6 +135,7 @@ class SniperNotification(Base):
     score = Column(Integer, default=0, nullable=False)
     matched_keywords = Column(JSON, default=list)  # List[str]
     published_date = Column(DateTime, nullable=True)
+    submission_deadline = Column(DateTime, nullable=True)  # Срок подачи заявки
     sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     telegram_message_id = Column(BigInteger, nullable=True)
 

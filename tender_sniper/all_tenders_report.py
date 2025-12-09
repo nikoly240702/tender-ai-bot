@@ -536,6 +536,10 @@ def generate_html_report(
                         <span>Опубликован: {format_date(tender.get('published_date', ''))}</span>
                     </div>
                     <div class="info-item">
+                        <span class="info-icon">📮</span>
+                        <span>Срок подачи: {format_date(tender.get('submission_deadline', '')) if tender.get('submission_deadline') else 'Не указан'}</span>
+                    </div>
+                    <div class="info-item">
                         <span class="info-icon">⏰</span>
                         <span>Уведомление: {format_date(tender.get('sent_at', ''))}</span>
                     </div>

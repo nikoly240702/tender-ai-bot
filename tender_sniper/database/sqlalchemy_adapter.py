@@ -333,6 +333,31 @@ class TenderSniperDB:
                 if published_date and published_date.tzinfo is not None:
                     published_date = published_date.replace(tzinfo=None)
 
+            # Парсинг срока подачи заявки (submission_deadline)
+            submission_deadline = None
+            if tender_data.get('submission_deadline') or tender_data.get('deadline') or tender_data.get('end_date'):
+                deadline_str = tender_data.get('submission_deadline') or tender_data.get('deadline') or tender_data.get('end_date')
+                try:
+                    # Пробуем ISO формат
+                    submission_deadline = datetime.fromisoformat(deadline_str)
+                except (ValueError, TypeError):
+                    try:
+                        # Пробуем RFC 2822
+                        from email.utils import parsedate_to_datetime
+                        submission_deadline = parsedate_to_datetime(deadline_str)
+                    except:
+                        # Пробуем распространенные форматы даты
+                        for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M', '%Y-%m-%d %H:%M']:
+                            try:
+                                submission_deadline = datetime.strptime(deadline_str, fmt)
+                                break
+                            except:
+                                continue
+
+                # Убираем timezone если есть
+                if submission_deadline and submission_deadline.tzinfo is not None:
+                    submission_deadline = submission_deadline.replace(tzinfo=None)
+
             notification = SniperNotificationModel(
                 user_id=user_id,
                 filter_id=filter_id,
@@ -346,6 +371,7 @@ class TenderSniperDB:
                 score=score,
                 matched_keywords=matched_keywords,
                 published_date=published_date,
+                submission_deadline=submission_deadline,
                 telegram_message_id=telegram_message_id
             )
             session.add(notification)
@@ -386,6 +412,7 @@ class TenderSniperDB:
                 'filter_name': n.filter_name,
                 'score': n.score,
                 'published_date': n.published_date.isoformat() if n.published_date else None,
+                'submission_deadline': n.submission_deadline.isoformat() if n.submission_deadline else None,
                 'sent_at': n.sent_at.isoformat() if n.sent_at else None
             } for n in notifications]
 
