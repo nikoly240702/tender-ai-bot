@@ -13,6 +13,14 @@ import html
 # Добавляем корневую директорию в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Импортируем AI генератор названий
+try:
+    from tender_sniper.ai_name_generator import generate_tender_name
+except ImportError:
+    # Fallback если модуль недоступен
+    def generate_tender_name(name, *args, **kwargs):
+        return name[:80] + '...' if len(name) > 80 else name
+
 
 def format_price(price: float) -> str:
     """Форматирование цены."""
@@ -511,7 +519,13 @@ def generate_html_report(
                     tender_url = f"https://zakupki.gov.ru{tender_url}"
 
                 # Подготавливаем данные для фильтрации
-                tender_name = tender.get('name', 'Без названия')
+                original_name = tender.get('name', 'Без названия')
+                # Генерируем короткое AI-название
+                tender_name = generate_tender_name(
+                    original_name,
+                    tender_data=tender,
+                    max_length=80
+                )
                 tender_price = tender.get('price', 0) or 0
                 tender_region = tender.get('region', 'Не указан')
                 tender_date = tender.get('published_date', '')
@@ -530,7 +544,7 @@ def generate_html_report(
                     <div class="tender-number">№ {html.escape(tender.get('number', 'N/A'))}</div>
                 </div>
 
-                <div class="tender-name">{html.escape(tender.get('name', 'Без названия'))}</div>
+                <div class="tender-name">{html.escape(tender_name)}</div>
 
                 <div class="price">💰 {format_price(tender.get('price'))}</div>
 
