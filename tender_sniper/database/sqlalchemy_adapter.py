@@ -309,6 +309,10 @@ class TenderSniperDB:
     ) -> int:
         """Сохранение уведомления."""
         async with DatabaseSession() as session:
+            # DEBUG: Логируем что именно сохраняем
+            logger.debug(f"   💾 save_notification: number={tender_data.get('number')}, "
+                        f"region='{tender_data.get('region')}', customer='{tender_data.get('customer_name')}'")
+
             notification = SniperNotificationModel(
                 user_id=user_id,
                 filter_id=filter_id,
@@ -326,6 +330,11 @@ class TenderSniperDB:
             )
             session.add(notification)
             await session.flush()
+
+            # DEBUG: Логируем что сохранилось
+            logger.debug(f"   ✅ Saved notification id={notification.id}, "
+                        f"tender_region='{notification.tender_region}', tender_customer='{notification.tender_customer}'")
+
             return notification.id
 
     async def get_user_tenders(self, user_id: int, limit: int = 100) -> List[Dict[str, Any]]:
@@ -339,7 +348,15 @@ class TenderSniperDB:
             )
             notifications = result.scalars().all()
 
-            return [{
+            logger.info(f"📊 get_user_tenders: найдено {len(notifications)} уведомлений для user_id={user_id}")
+
+            # DEBUG: Показываем первое уведомление
+            if notifications:
+                first = notifications[0]
+                logger.debug(f"   🔍 Первое уведомление: number={first.tender_number}, "
+                           f"region='{first.tender_region}', customer='{first.tender_customer}'")
+
+            tenders = [{
                 'number': n.tender_number,
                 'name': n.tender_name,
                 'price': n.tender_price,
@@ -351,6 +368,8 @@ class TenderSniperDB:
                 'published_date': n.published_date.isoformat() if n.published_date else None,
                 'sent_at': n.sent_at.isoformat() if n.sent_at else None
             } for n in notifications]
+
+            return tenders
 
     async def is_tender_notified(self, tender_number: str, user_id: int) -> bool:
         """Проверка, было ли уже отправлено уведомление о тендере пользователю."""

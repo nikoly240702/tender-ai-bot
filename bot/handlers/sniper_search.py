@@ -1206,8 +1206,20 @@ async def process_tender_count(message: Message, state: FSMContext):
             skipped_count = 0
             error_count = 0
 
-            for match in search_results['matches']:
+            for i, match in enumerate(search_results['matches'], 1):
                 tender_number = match.get('number', '')
+
+                # DEBUG: Показываем первый тендер полностью
+                if i == 1:
+                    logger.info(f"   🔍 DEBUG первого тендера:")
+                    logger.info(f"      number: {match.get('number')}")
+                    logger.info(f"      name: {match.get('name', '')[:50]}...")
+                    logger.info(f"      customer: {match.get('customer')}")
+                    logger.info(f"      customer_name: {match.get('customer_name')}")
+                    logger.info(f"      customer_region: {match.get('customer_region')}")
+                    logger.info(f"      region: {match.get('region')}")
+                    logger.info(f"      price: {match.get('price')}")
+                    logger.info(f"      published: {match.get('published')}")
 
                 # Проверяем дубликат
                 already_saved = await db.is_tender_notified(tender_number, user['id'])
@@ -1228,7 +1240,8 @@ async def process_tender_count(message: Message, state: FSMContext):
                         'published_date': match.get('published', match.get('published_date', ''))
                     }
 
-                    logger.debug(f"   💾 Сохраняем {tender_number}: region={tender_data['region']}, customer={tender_data['customer_name']}")
+                    logger.info(f"   💾 [{i}/{len(search_results['matches'])}] {tender_number}: "
+                              f"region='{tender_data['region']}', customer='{tender_data['customer_name'][:30] if tender_data['customer_name'] else 'None'}...'")
 
                     await db.save_notification(
                         user_id=user['id'],
