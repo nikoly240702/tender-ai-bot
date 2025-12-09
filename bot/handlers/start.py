@@ -217,35 +217,42 @@ async def keyboard_tender_sniper(message: Message):
 @router.message(F.text == "📊 Мои фильтры")
 async def keyboard_my_filters(message: Message):
     """Обработчик кнопки 'Мои фильтры' из постоянной клавиатуры."""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")]
-    ])
-
-    await message.answer(
-        "Открываю ваши фильтры...",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    # Импортируем и вызываем напрямую handler из sniper.py
+    from bot.handlers.sniper import show_my_filters_message
+    await show_my_filters_message(message)
 
 
 @router.message(F.text == "📊 Все мои тендеры")
 async def keyboard_all_tenders(message: Message, state: FSMContext):
     """Обработчик кнопки 'Все мои тендеры' из постоянной клавиатуры."""
-    # Импортируем и вызываем обработчик из all_tenders.py
-    from bot.handlers.all_tenders import show_all_tenders, AllTendersStates
-    from aiogram.types import CallbackQuery
+    # Импортируем функции напрямую
+    from bot.handlers.all_tenders import get_all_user_tenders, show_tenders_menu, AllTendersStates
 
-    # Создаем фейковый CallbackQuery для совместимости с существующим обработчиком
-    # Это временное решение - в идеале нужен отдельный обработчик для Message
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Открыть все тендеры", callback_data="sniper_all_tenders")]
-    ])
+    try:
+        # Получаем все тендеры напрямую
+        tenders = await get_all_user_tenders(message.from_user.id)
 
-    await message.answer(
-        "📊 <b>Все мои тендеры</b>\n\nОткрываю историю найденных тендеров...",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+        if not tenders:
+            await message.answer(
+                "📊 <b>Все мои тендеры</b>\n\n"
+                "У вас пока нет найденных тендеров.\n\n"
+                "Используйте:\n"
+                "• 🔍 <b>Мгновенный поиск</b> для быстрого поиска\n"
+                "• 🎨 <b>Фильтры</b> для автоматического мониторинга",
+                parse_mode="HTML"
+            )
+            return
+
+        # Сохраняем тендеры в состоянии
+        await state.update_data(all_tenders=tenders, filter_params={'sort_by': 'date_desc'})
+        await state.set_state(AllTendersStates.viewing_list)
+
+        # Показываем меню фильтрации
+        await show_tenders_menu(message, tenders, {}, state)
+
+    except Exception as e:
+        logger.error(f"Ошибка загрузки тендеров: {e}", exc_info=True)
+        await message.answer("❌ Ошибка при загрузке тендеров")
 
 
 @router.message(F.text == "⭐ Избранное")

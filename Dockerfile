@@ -15,9 +15,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Копируем код
 COPY . .
 
+# Делаем start.sh исполняемым
+RUN chmod +x start.sh
+
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 EXPOSE 8080
 
-CMD ["python", "-m", "bot.main"]
+CMD ["./start.sh"]

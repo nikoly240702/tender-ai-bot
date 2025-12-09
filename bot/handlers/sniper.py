@@ -527,6 +527,96 @@ async def show_my_filters(callback: CallbackQuery):
         )
 
 
+async def show_my_filters_message(message: Message):
+    """Показать список фильтров (для Message вместо Callback)."""
+    try:
+        db = await get_sniper_db()
+
+        # Получаем или создаем пользователя
+        user = await db.get_user_by_telegram_id(message.from_user.id)
+        if not user:
+            await db.create_or_update_user(
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                subscription_tier='free'
+            )
+            user = await db.get_user_by_telegram_id(message.from_user.id)
+
+        # Получаем фильтры
+        filters = await db.get_active_filters(user['id'])
+
+        if not filters:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_create_filter")],
+                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await message.answer(
+                "📋 <b>У вас пока нет фильтров</b>\n\n"
+                "Создайте первый фильтр для автоматического мониторинга тендеров.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        # Формируем список фильтров
+        filters_text = "📋 <b>Ваши фильтры мониторинга</b>\n\n"
+
+        keyboard_buttons = []
+        for i, f in enumerate(filters, 1):
+            keywords = f.get('keywords', [])
+            price_range = ""
+            if f.get('price_min') or f.get('price_max'):
+                price_min = f"{f['price_min']:,}" if f.get('price_min') else "0"
+                price_max = f"{f['price_max']:,}" if f.get('price_max') else "∞"
+                price_range = f"{price_min} - {price_max} ₽"
+
+            filters_text += (
+                f"{i}. <b>{f['name']}</b>\n"
+                f"   🔑 {', '.join(keywords[:3])}\n"
+            )
+            if price_range:
+                filters_text += f"   💰 {price_range}\n"
+
+            filters_text += f"   📊 Совпадений: {f.get('match_count', 0)}\n\n"
+
+            # Кнопки для каждого фильтра
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=f"📝 {f['name'][:20]}",
+                    callback_data=f"sniper_filter_{f['id']}"
+                )
+            ])
+
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="➕ Добавить фильтр", callback_data="sniper_create_filter")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🗑️ Удалить все фильтры", callback_data="confirm_delete_all_filters")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+        await message.answer(
+            filters_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await message.answer(
+            f"❌ Ошибка при получении фильтров: {str(e)}"
+        )
+
+
 # ============================================
 # СОЗДАНИЕ ФИЛЬТРА
 # ============================================

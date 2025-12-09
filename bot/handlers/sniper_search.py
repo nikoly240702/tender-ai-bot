@@ -181,6 +181,13 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_filter_name)
 async def process_filter_name_new(message: Message, state: FSMContext):
     """Обработка названия фильтра."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        # Очищаем FSM и даем обработаться основному handler
+        await state.clear()
+        # Не обрабатываем здесь - позволяем другому handler перехватить
+        return
+
     filter_name = message.text.strip()
 
     if not filter_name or len(filter_name) > 100:
