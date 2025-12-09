@@ -1202,17 +1202,33 @@ async def process_tender_count(message: Message, state: FSMContext):
 
             # Сохраняем результаты мгновенного поиска в БД
             logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД...")
+            saved_count = 0
+            skipped_count = 0
+            error_count = 0
+
             for match in search_results['matches']:
+                tender_number = match.get('number', '')
+
+                # Проверяем дубликат
+                already_saved = await db.is_tender_notified(tender_number, user['id'])
+                if already_saved:
+                    logger.debug(f"   ⏭️  {tender_number} уже сохранен, пропускаем")
+                    skipped_count += 1
+                    continue
+
                 try:
+                    # Формируем данные тендера
                     tender_data = {
-                        'number': match.get('number', ''),
+                        'number': tender_number,
                         'name': match.get('name', ''),
                         'price': match.get('price'),
-                        'url': match.get('url'),
-                        'region': match.get('customer_region'),
-                        'customer_name': match.get('customer'),
-                        'published_date': match.get('published')
+                        'url': match.get('url', ''),
+                        'region': match.get('customer_region', match.get('region', '')),
+                        'customer_name': match.get('customer', match.get('customer_name', '')),
+                        'published_date': match.get('published', match.get('published_date', ''))
                     }
+
+                    logger.debug(f"   💾 Сохраняем {tender_number}: region={tender_data['region']}, customer={tender_data['customer_name']}")
 
                     await db.save_notification(
                         user_id=user['id'],
@@ -1222,9 +1238,13 @@ async def process_tender_count(message: Message, state: FSMContext):
                         score=match.get('match_score', 0),
                         matched_keywords=match.get('match_reasons', [])
                     )
+                    saved_count += 1
+
                 except Exception as e:
-                    logger.warning(f"Не удалось сохранить тендер {match.get('number')}: {e}")
-            logger.info(f"✅ Тендеры сохранены в историю")
+                    logger.error(f"   ❌ Не удалось сохранить {tender_number}: {e}", exc_info=True)
+                    error_count += 1
+
+            logger.info(f"✅ Тендеры обработаны: сохранено {saved_count}, пропущено {skipped_count}, ошибок {error_count}")
 
             # 4. Генерация HTML отчета
             await progress_msg.edit_text(

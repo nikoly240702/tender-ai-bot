@@ -324,12 +324,28 @@ class TenderSniperService:
                     )
 
                     if success:
+                        # Нормализуем данные тендера (маппинг из InstantSearch формата в БД формат)
+                        tender = notif['tender']
+                        tender_data = {
+                            'number': tender.get('number', ''),
+                            'name': tender.get('name', ''),
+                            'price': tender.get('price'),
+                            'url': tender.get('url', ''),
+                            # InstantSearch возвращает customer/customer_region, БД ожидает customer_name/region
+                            'region': tender.get('customer_region', tender.get('region', '')),
+                            'customer_name': tender.get('customer', tender.get('customer_name', '')),
+                            'published_date': tender.get('published', tender.get('published_date', ''))
+                        }
+
+                        logger.debug(f"   💾 Сохранение тендера {tender_data['number']}: "
+                                   f"region={tender_data['region']}, customer={tender_data['customer_name']}")
+
                         # Сохраняем в базу
                         await self.db.save_notification(
                             user_id=notif['user_id'],
                             filter_id=notif['filter_id'],
                             filter_name=notif['filter_name'],
-                            tender_data=notif['tender'],
+                            tender_data=tender_data,
                             score=notif['score'],
                             matched_keywords=notif['match_info'].get('matched_keywords', [])
                         )
