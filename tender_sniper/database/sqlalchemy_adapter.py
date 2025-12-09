@@ -503,6 +503,79 @@ class TenderSniperDB:
                 )
                 session.add(cache_entry)
 
+    # ============================================
+    # ОЧИСТКА ИСТОРИИ
+    # ============================================
+
+    async def clear_all_notifications(self, user_id: int) -> int:
+        """
+        Удалить все уведомления пользователя.
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Количество удаленных записей
+        """
+        async with DatabaseSession() as session:
+            # Получаем count перед удалением
+            count_result = await session.execute(
+                select(func.count()).select_from(SniperNotificationModel).where(
+                    SniperNotificationModel.user_id == user_id
+                )
+            )
+            count = count_result.scalar()
+
+            # Удаляем все уведомления пользователя
+            await session.execute(
+                delete(SniperNotificationModel).where(
+                    SniperNotificationModel.user_id == user_id
+                )
+            )
+            await session.commit()
+
+            return count
+
+    async def clear_old_notifications(self, user_id: int, days: int) -> int:
+        """
+        Удалить уведомления старше указанного количества дней.
+
+        Args:
+            user_id: ID пользователя
+            days: Количество дней (удаляются записи старше этого периода)
+
+        Returns:
+            Количество удаленных записей
+        """
+        from datetime import timedelta
+
+        async with DatabaseSession() as session:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+            # Получаем count перед удалением
+            count_result = await session.execute(
+                select(func.count()).select_from(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.user_id == user_id,
+                        SniperNotificationModel.sent_at < cutoff_date
+                    )
+                )
+            )
+            count = count_result.scalar()
+
+            # Удаляем старые уведомления
+            await session.execute(
+                delete(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.user_id == user_id,
+                        SniperNotificationModel.sent_at < cutoff_date
+                    )
+                )
+            )
+            await session.commit()
+
+            return count
+
 
 # Глобальный singleton
 _sniper_db_instance = None

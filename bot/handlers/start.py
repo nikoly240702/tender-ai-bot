@@ -229,8 +229,17 @@ async def keyboard_all_tenders(message: Message, state: FSMContext):
     from bot.handlers.all_tenders import get_all_user_tenders, show_tenders_menu, AllTendersStates
 
     try:
+        # Показываем промежуточное сообщение
+        loading_msg = await message.answer("⏳ Загрузка ваших тендеров...")
+
         # Получаем все тендеры напрямую
         tenders = await get_all_user_tenders(message.from_user.id)
+
+        # Удаляем сообщение о загрузке
+        try:
+            await loading_msg.delete()
+        except:
+            pass
 
         if not tenders:
             await message.answer(

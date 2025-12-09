@@ -254,6 +254,9 @@ async def show_all_tenders(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     try:
+        # Показываем промежуточное сообщение
+        await callback.message.edit_text("⏳ Загрузка ваших тендеров...")
+
         # Получаем все тендеры
         tenders = await get_all_user_tenders(callback.from_user.id)
 
@@ -499,7 +502,8 @@ async def back_to_tenders(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("alltenders_page_"))
 async def navigate_page(callback: CallbackQuery, state: FSMContext):
     """Навигация по страницам тендеров."""
-    await callback.answer()
+    # Показываем уведомление пользователю что запрос обрабатывается
+    await callback.answer("⏳ Загрузка страницы...", show_alert=False)
 
     # Получаем номер страницы из callback_data
     page = int(callback.data.replace("alltenders_page_", ""))
