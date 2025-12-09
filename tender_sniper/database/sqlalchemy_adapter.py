@@ -313,6 +313,21 @@ class TenderSniperDB:
             logger.debug(f"   💾 save_notification: number={tender_data.get('number')}, "
                         f"region='{tender_data.get('region')}', customer='{tender_data.get('customer_name')}'")
 
+            # Парсинг даты публикации (поддержка RFC 2822 и ISO форматов)
+            published_date = None
+            if tender_data.get('published_date'):
+                date_str = tender_data['published_date']
+                try:
+                    # Сначала пробуем ISO формат
+                    published_date = datetime.fromisoformat(date_str)
+                except (ValueError, TypeError):
+                    try:
+                        # Если не ISO, пробуем RFC 2822 (GMT формат)
+                        from email.utils import parsedate_to_datetime
+                        published_date = parsedate_to_datetime(date_str)
+                    except Exception as e:
+                        logger.warning(f"   ⚠️  Не удалось распарсить дату '{date_str}': {e}")
+
             notification = SniperNotificationModel(
                 user_id=user_id,
                 filter_id=filter_id,
@@ -325,7 +340,7 @@ class TenderSniperDB:
                 tender_customer=tender_data.get('customer_name'),
                 score=score,
                 matched_keywords=matched_keywords,
-                published_date=datetime.fromisoformat(tender_data['published_date']) if tender_data.get('published_date') else None,
+                published_date=published_date,
                 telegram_message_id=telegram_message_id
             )
             session.add(notification)
