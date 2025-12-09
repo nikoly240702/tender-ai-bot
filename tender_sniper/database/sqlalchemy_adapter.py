@@ -507,17 +507,28 @@ class TenderSniperDB:
     # ОЧИСТКА ИСТОРИИ
     # ============================================
 
-    async def clear_all_notifications(self, user_id: int) -> int:
+    async def clear_all_notifications(self, telegram_id: int) -> int:
         """
         Удалить все уведомления пользователя.
 
         Args:
-            user_id: ID пользователя
+            telegram_id: Telegram ID пользователя
 
         Returns:
             Количество удаленных записей
         """
         async with DatabaseSession() as session:
+            # Получаем внутренний user_id по telegram_id
+            user_result = await session.execute(
+                select(SniperUserModel.id).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user_row = user_result.first()
+
+            if not user_row:
+                return 0
+
+            user_id = user_row[0]
+
             # Получаем count перед удалением
             count_result = await session.execute(
                 select(func.count()).select_from(SniperNotificationModel).where(
@@ -536,12 +547,12 @@ class TenderSniperDB:
 
             return count
 
-    async def clear_old_notifications(self, user_id: int, days: int) -> int:
+    async def clear_old_notifications(self, telegram_id: int, days: int) -> int:
         """
         Удалить уведомления старше указанного количества дней.
 
         Args:
-            user_id: ID пользователя
+            telegram_id: Telegram ID пользователя
             days: Количество дней (удаляются записи старше этого периода)
 
         Returns:
@@ -550,6 +561,17 @@ class TenderSniperDB:
         from datetime import timedelta
 
         async with DatabaseSession() as session:
+            # Получаем внутренний user_id по telegram_id
+            user_result = await session.execute(
+                select(SniperUserModel.id).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user_row = user_result.first()
+
+            if not user_row:
+                return 0
+
+            user_id = user_row[0]
+
             cutoff_date = datetime.utcnow() - timedelta(days=days)
 
             # Получаем count перед удалением
@@ -575,6 +597,66 @@ class TenderSniperDB:
             await session.commit()
 
             return count
+
+    # ============================================
+    # УПРАВЛЕНИЕ АВТОМОНИТОРИНГОМ
+    # ============================================
+
+    async def pause_filter(self, filter_id: int) -> bool:
+        """
+        Приостановить мониторинг конкретного фильтра.
+
+        Args:
+            filter_id: ID фильтра
+
+        Returns:
+            True если успешно
+        """
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(is_active=False)
+            )
+            await session.commit()
+            return True
+
+    async def resume_filter(self, filter_id: int) -> bool:
+        """
+        Возобновить мониторинг конкретного фильтра.
+
+        Args:
+            filter_id: ID фильтра
+
+        Returns:
+            True если успешно
+        """
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(is_active=True)
+            )
+            await session.commit()
+            return True
+
+    async def get_filter_status(self, filter_id: int) -> Optional[bool]:
+        """
+        Получить статус фильтра (активен или на паузе).
+
+        Args:
+            filter_id: ID фильтра
+
+        Returns:
+            True если активен, False если на паузе, None если не найден
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperFilterModel.is_active)
+                .where(SniperFilterModel.id == filter_id)
+            )
+            row = result.first()
+            return row[0] if row else None
 
 
 # Глобальный singleton

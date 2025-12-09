@@ -379,6 +379,7 @@ class InstantSearch:
                     'customer_name': match.get('customer', 'Не указан'),
                     'region': match.get('customer_region', 'Не указан'),
                     'published_date': match.get('published', ''),
+                    'submission_deadline': match.get('submission_deadline', ''),  # ВАЖНО: Срок подачи заявок
                     'sent_at': datetime.now().isoformat(),
                     'filter_name': filter_data['name']
                 })
