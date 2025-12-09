@@ -47,8 +47,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def run_migrations():
+    """Запускаем миграции Alembic перед стартом приложения."""
+    import subprocess
+
+    logger.info("=" * 70)
+    logger.info("🔄 ЗАПУСК МИГРАЦИЙ ALEMBIC")
+    logger.info("=" * 70)
+
+    try:
+        result = subprocess.run(
+            ["alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        logger.info("✅ Миграции выполнены успешно!")
+        if result.stdout:
+            logger.info(f"Вывод:\n{result.stdout}")
+
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ ОШИБКА МИГРАЦИЙ: {e}")
+        logger.error(f"Stdout: {e.stdout}")
+        logger.error(f"Stderr: {e.stderr}")
+        raise RuntimeError("Миграции не прошли! Останавливаем приложение.") from e
+    except FileNotFoundError:
+        logger.error("❌ alembic не найден! Проверьте установку.")
+        raise
+
+    logger.info("=" * 70)
+
+
 async def main():
     """Главная функция запуска бота."""
+
+    # ============================================
+    # PRODUCTION: Миграции базы данных
+    # ============================================
+    run_migrations()
 
     # ============================================
     # PRODUCTION: Валидация окружения
