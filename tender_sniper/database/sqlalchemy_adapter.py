@@ -328,6 +328,11 @@ class TenderSniperDB:
                     except Exception as e:
                         logger.warning(f"   ⚠️  Не удалось распарсить дату '{date_str}': {e}")
 
+                # КРИТИЧНО: PostgreSQL TIMESTAMP WITHOUT TIME ZONE не принимает timezone
+                # Убираем timezone если есть
+                if published_date and published_date.tzinfo is not None:
+                    published_date = published_date.replace(tzinfo=None)
+
             notification = SniperNotificationModel(
                 user_id=user_id,
                 filter_id=filter_id,
