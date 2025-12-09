@@ -105,9 +105,39 @@ class TenderSniperDB:
                 'filters_limit': user.filters_limit,
                 'notifications_limit': user.notifications_limit,
                 'notifications_sent_today': user.notifications_sent_today,
+                'notifications_enabled': user.notifications_enabled,
                 'last_notification_reset': user.last_notification_reset.isoformat() if user.last_notification_reset else None,
                 'created_at': user.created_at.isoformat() if user.created_at else None
             }
+
+    async def get_monitoring_status(self, telegram_id: int) -> bool:
+        """Получение статуса автомониторинга пользователя."""
+        user = await self.get_user_by_telegram_id(telegram_id)
+        if not user:
+            return True  # По умолчанию включен
+        return user.get('notifications_enabled', True)
+
+    async def pause_monitoring(self, telegram_id: int) -> bool:
+        """Приостановить автомониторинг для пользователя."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperUserModel)
+                .where(SniperUserModel.telegram_id == telegram_id)
+                .values(notifications_enabled=False)
+            )
+            await session.commit()
+            return True
+
+    async def resume_monitoring(self, telegram_id: int) -> bool:
+        """Возобновить автомониторинг для пользователя."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperUserModel)
+                .where(SniperUserModel.telegram_id == telegram_id)
+                .values(notifications_enabled=True)
+            )
+            await session.commit()
+            return True
 
     async def reset_daily_notifications(self, user_id: int):
         """Сброс счетчика уведомлений."""

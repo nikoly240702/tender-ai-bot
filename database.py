@@ -75,6 +75,7 @@ class SniperUser(Base):
     filters_limit = Column(Integer, default=5, nullable=False)
     notifications_limit = Column(Integer, default=15, nullable=False)
     notifications_sent_today = Column(Integer, default=0, nullable=False)
+    notifications_enabled = Column(Boolean, default=True, nullable=False)  # Автомониторинг вкл/выкл
     last_notification_reset = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
