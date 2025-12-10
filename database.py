@@ -106,6 +106,7 @@ class SniperFilter(Base):
     min_deadline_days = Column(Integer, nullable=True)
     customer_keywords = Column(JSON, default=list)  # List[str]
     is_active = Column(Boolean, default=True, nullable=False)
+    error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

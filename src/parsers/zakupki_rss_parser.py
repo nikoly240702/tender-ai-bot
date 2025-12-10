@@ -12,6 +12,8 @@ import re
 import warnings
 import os
 import html
+import time
+from threading import Lock
 
 # Отключаем предупреждения SSL (для zakupki.gov.ru)
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -98,6 +100,12 @@ class ZakupkiRSSParser:
             timeout: Таймаут запросов в секундах
         """
         self.timeout = timeout
+
+        # Rate limiting: минимальная задержка между запросами к zakupki.gov.ru
+        self.min_request_interval = 2.0  # 2 секунды между запросами
+        self.last_request_time = 0
+        self.rate_limit_lock = Lock()
+
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -145,6 +153,22 @@ class ZakupkiRSSParser:
         adapter = SSLAdapter(max_retries=retry_strategy)
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
+
+    def _wait_for_rate_limit(self):
+        """
+        Ожидание перед запросом для соблюдения rate limit.
+        Гарантирует минимальную задержку между запросами к zakupki.gov.ru.
+        """
+        with self.rate_limit_lock:
+            current_time = time.time()
+            time_since_last_request = current_time - self.last_request_time
+
+            if time_since_last_request < self.min_request_interval:
+                sleep_time = self.min_request_interval - time_since_last_request
+                print(f"   ⏱️  Rate limit: ожидание {sleep_time:.1f}с...")
+                time.sleep(sleep_time)
+
+            self.last_request_time = time.time()
 
     def search_tenders_rss(
         self,
@@ -198,6 +222,9 @@ class ZakupkiRSSParser:
 
             # Получаем RSS через requests (обходим SSL проблему)
             try:
+                # Соблюдаем rate limit
+                self._wait_for_rate_limit()
+
                 response = self.session.get(rss_url, timeout=self.timeout, verify=False)
                 response.raise_for_status()
                 rss_content = response.content
@@ -699,8 +726,11 @@ class ZakupkiRSSParser:
         print(f"   🌐 Загружаем страницу тендера: {url[:80]}...")
 
         try:
+            # Соблюдаем rate limit
+            self._wait_for_rate_limit()
+
             # Используем self.session (уже настроена с прокси)
-            response = self.session.get(url, timeout=15, verify=False)
+            response = self.session.get(url, timeout=30, verify=False)  # Увеличили таймаут до 30с
             response.raise_for_status()
 
             html_content = response.text

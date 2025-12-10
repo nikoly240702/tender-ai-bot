@@ -658,6 +658,56 @@ class TenderSniperDB:
             row = result.first()
             return row[0] if row else None
 
+    # ============================================
+    # ОБРАБОТКА ОШИБОК МОНИТОРИНГА
+    # ============================================
+
+    async def increment_filter_error_count(self, filter_id: int) -> int:
+        """
+        Увеличить счетчик ошибок фильтра.
+
+        Args:
+            filter_id: ID фильтра
+
+        Returns:
+            Новое значение счетчика ошибок
+        """
+        async with DatabaseSession() as session:
+            # Получаем текущее значение
+            result = await session.execute(
+                select(SniperFilterModel.error_count)
+                .where(SniperFilterModel.id == filter_id)
+            )
+            row = result.first()
+            current_count = row[0] if row else 0
+
+            # Увеличиваем на 1
+            new_count = current_count + 1
+
+            await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(error_count=new_count)
+            )
+            await session.commit()
+
+            return new_count
+
+    async def reset_filter_error_count(self, filter_id: int) -> None:
+        """
+        Сбросить счетчик ошибок фильтра.
+
+        Args:
+            filter_id: ID фильтра
+        """
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(error_count=0)
+            )
+            await session.commit()
+
 
 # Глобальный singleton
 _sniper_db_instance = None

@@ -330,6 +330,57 @@ class TelegramNotifier:
         except Exception as e:
             logger.error(f"❌ Ошибка отправки уведомления о квоте: {e}")
 
+    async def send_monitoring_error_notification(
+        self,
+        telegram_id: int,
+        filter_name: str,
+        error_type: str,
+        error_count: int
+    ):
+        """
+        Отправка уведомления об ошибках автомониторинга.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            filter_name: Название фильтра
+            error_type: Тип ошибки (RSS, Прокси)
+            error_count: Количество последовательных ошибок
+        """
+        try:
+            message = f"""
+⚠️ <b>Проблема с автомониторингом</b>
+
+<b>Фильтр:</b> {filter_name}
+<b>Проблема:</b> {error_type}
+<b>Попыток подряд:</b> {error_count}
+
+Не удается получить новые тендеры для этого фильтра.
+
+<b>Возможные причины:</b>
+{"• Проблемы с прокси-сервером" if error_type == "Прокси" else "• zakupki.gov.ru временно недоступен"}
+• Временные технические проблемы
+
+<b>Что делать:</b>
+Мы продолжим попытки автоматически. Если проблема сохраняется более 24 часов, свяжитесь с поддержкой.
+            """.strip()
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Мои фильтры", callback_data="my_filters")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await self.bot.send_message(
+                chat_id=telegram_id,
+                text=message,
+                reply_markup=keyboard,
+                parse_mode='HTML'
+            )
+
+            self.stats['monitoring_errors'] = self.stats.get('monitoring_errors', 0) + 1
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки уведомления об ошибке мониторинга: {e}")
+
     async def send_system_notification(
         self,
         telegram_id: int,

@@ -247,6 +247,9 @@ class TenderSniperService:
                     matches = search_results.get('matches', [])
                     logger.info(f"      ✅ Найдено совпадений: {len(matches)}")
 
+                    # Сбрасываем счетчик ошибок при успешном поиске
+                    await self.db.reset_filter_error_count(filter_id)
+
                     # Фильтруем только новые тендеры (которых еще не уведомляли)
                     for match in matches:
                         # match УЖЕ содержит данные тендера + match_score
@@ -306,6 +309,21 @@ class TenderSniperService:
 
                 except Exception as e:
                     logger.error(f"      ❌ Ошибка поиска для фильтра {filter_id}: {e}", exc_info=True)
+
+                    # Увеличиваем счетчик ошибок
+                    error_count = await self.db.increment_filter_error_count(filter_id)
+
+                    # Если 3 последовательные ошибки - уведомляем пользователя
+                    if error_count >= 3 and self.notifier and telegram_id:
+                        error_type = "Прокси" if "proxy" in str(e).lower() or "timeout" in str(e).lower() else "RSS"
+                        await self.notifier.send_monitoring_error_notification(
+                            telegram_id=telegram_id,
+                            filter_name=filter_name,
+                            error_type=error_type,
+                            error_count=error_count
+                        )
+                        logger.info(f"      📧 Отправлено уведомление об ошибке пользователю {telegram_id}")
+
                     continue
 
             # 3. Отправляем уведомления
