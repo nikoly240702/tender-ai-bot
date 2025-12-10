@@ -1,7 +1,7 @@
 """add error_count to sniper_filters
 
 Revision ID: add_error_count
-Revises: 
+Revises: d4e5f6g7h8i9
 Create Date: 2024-12-10
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_error_count'
-down_revision = None
+down_revision = 'd4e5f6g7h8i9'
 branch_labels = None
 depends_on = None
 
