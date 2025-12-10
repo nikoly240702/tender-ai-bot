@@ -227,6 +227,11 @@ async def ask_for_keywords(message: Message, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_keywords)
 async def process_keywords_new(message: Message, state: FSMContext):
     """Обработка ключевых слов."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     keywords_input = message.text.strip()
 
     if not keywords_input:
@@ -279,6 +284,11 @@ async def skip_exclude_keywords(callback: CallbackQuery, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_exclude_keywords)
 async def process_exclude_keywords(message: Message, state: FSMContext):
     """Обработка исключающих слов."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     exclude_input = message.text.strip()
 
     if exclude_input:
@@ -326,6 +336,11 @@ async def skip_price_range(callback: CallbackQuery, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_price_range)
 async def process_price_range_new(message: Message, state: FSMContext):
     """Обработка ценового диапазона."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     price_input = message.text.strip()
 
     price_min = None
@@ -731,6 +746,11 @@ async def process_region_callback(callback: CallbackQuery, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_regions)
 async def process_region_text(message: Message, state: FSMContext):
     """Обработка текстового ввода региона с распознаванием."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     regions_text = message.text.strip()
 
     if not regions_text:
@@ -985,6 +1005,11 @@ async def skip_customer_keywords(callback: CallbackQuery, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_customer_keywords)
 async def process_customer_keywords(message: Message, state: FSMContext):
     """Обработка ключевых слов заказчика."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     customer_input = message.text.strip()
 
     if customer_input:
@@ -1057,6 +1082,11 @@ async def process_okpd2_callback(callback: CallbackQuery, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_okpd2)
 async def process_okpd2_text(message: Message, state: FSMContext):
     """Обработка текстового ввода ОКПД2."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     okpd_input = message.text.strip()
 
     if okpd_input:
@@ -1090,6 +1120,11 @@ async def ask_for_tender_count(message: Message, state: FSMContext):
 @router.message(FilterSearchStates.waiting_for_tender_count)
 async def process_tender_count(message: Message, state: FSMContext):
     """Обработка количества тендеров."""
+    # Проверяем, не нажал ли пользователь системную кнопку
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры", "📊 Все мои тендеры", "⭐ Избранное", "📈 Статистика"]:
+        await state.clear()
+        return
+
     try:
         count = int(message.text.strip())
         if not (1 <= count <= 25):
