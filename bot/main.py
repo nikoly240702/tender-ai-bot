@@ -188,7 +188,6 @@ async def main():
         return
 
     # Проверяем наличие прокси
-    import os
     proxy_url = os.getenv('PROXY_URL', '').strip()
     if proxy_url:
         # Скрываем пароль в логах
