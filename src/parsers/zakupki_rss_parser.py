@@ -731,6 +731,24 @@ class ZakupkiRSSParser:
                 if customer:
                     tender['customer'] = customer
 
+            # === Извлекаем объект закупки со страницы если в name бюрократия ===
+            current_name = tender.get('name', '')
+            # Проверяем признаки бюрократического названия
+            bureaucratic_indicators = [
+                'закупка, осуществляемая в соответствии',
+                'в соответствии с частью',
+                'статьи 93',
+                'закона № 44-фз',
+                'закона №44-фз'
+            ]
+            is_bureaucratic = any(indicator in current_name.lower() for indicator in bureaucratic_indicators)
+
+            if is_bureaucratic or len(current_name) < 20:
+                purchase_object = self._extract_purchase_object_from_page(html_content)
+                if purchase_object and len(purchase_object) > 10:
+                    tender['name'] = purchase_object
+                    print(f"   📝 Заменено название на объект закупки: {purchase_object[:60]}...")
+
             # Логируем что было извлечено
             print(f"   ✅ Обогащено: цена={tender.get('price', 'Н/Д')}, дедлайн={tender.get('submission_deadline', 'Н/Д')}, регион={tender.get('customer_region', 'Н/Д')}")
 
@@ -938,6 +956,52 @@ class ZakupkiRSSParser:
                 # Валидация: минимум 10 символов, не цифры
                 if len(customer) > 10 and not customer.replace(' ', '').replace(',', '').replace('.', '').isdigit():
                     return customer
+
+        return None
+
+    def _extract_purchase_object_from_page(self, html: str) -> Optional[str]:
+        """
+        Извлекает описание объекта закупки из раздела "Информация об объекте закупки" на странице.
+
+        Returns:
+            Описание объекта закупки или None если не найдено
+        """
+        # Паттерны для извлечения из раздела "Информация об объекте закупки"
+        patterns = [
+            # Наименование объекта закупки в section__info
+            r'Наименование объекта закупки\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            r'Объект закупки\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            # В табличной структуре
+            r'<td[^>]*>Наименование объекта закупки</td>\s*<td[^>]*>([^<]+)',
+            r'<td[^>]*>Объект закупки</td>\s*<td[^>]*>([^<]+)',
+            # В cardMainInfo (иногда там тоже есть)
+            r'Объект закупки.*?cardMainInfo__content[^>]*>\s*([^<]+)',
+            # Общий паттерн для поиска в блоках
+            r'(?:Наименование|Объект)\s+(?:объекта\s+)?закупки[:\s]*</span>\s*<[^>]*>\s*([^<]+)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                purchase_object = match.group(1).strip()
+                # Очищаем от лишних пробелов и HTML entities
+                purchase_object = re.sub(r'\s+', ' ', purchase_object)
+                purchase_object = html.unescape(purchase_object)
+
+                # Валидация: минимум 10 символов, не должно быть бюрократией
+                bureaucratic_phrases = [
+                    'в соответствии с',
+                    'статьи 93',
+                    'закона № 44',
+                    'закона №44'
+                ]
+                is_valid = (
+                    len(purchase_object) > 10 and
+                    not any(phrase in purchase_object.lower() for phrase in bureaucratic_phrases)
+                )
+
+                if is_valid:
+                    return purchase_object
 
         return None
 
