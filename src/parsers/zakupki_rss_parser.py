@@ -733,6 +733,8 @@ class ZakupkiRSSParser:
 
             # === Извлекаем объект закупки со страницы если в name бюрократия ===
             current_name = tender.get('name', '')
+            print(f"   📋 Проверка названия тендера: {current_name[:80]}...")
+
             # Проверяем признаки бюрократического названия
             bureaucratic_indicators = [
                 'закупка, осуществляемая в соответствии',
@@ -743,11 +745,27 @@ class ZakupkiRSSParser:
             ]
             is_bureaucratic = any(indicator in current_name.lower() for indicator in bureaucratic_indicators)
 
-            if is_bureaucratic or len(current_name) < 20:
+            if is_bureaucratic:
+                print(f"   ⚠️ Обнаружено бюрократическое название, попытка заменить...")
+                purchase_object = self._extract_purchase_object_from_page(html_content)
+                if purchase_object and len(purchase_object) > 10:
+                    old_name = tender['name']
+                    tender['name'] = purchase_object
+                    print(f"   ✅ Заменено название:")
+                    print(f"      Было: {old_name[:80]}...")
+                    print(f"      Стало: {purchase_object[:80]}...")
+                else:
+                    print(f"   ⚠️ Объект закупки не извлечен, оставляем исходное название")
+            elif len(current_name) < 20:
+                print(f"   ⚠️ Название слишком короткое ({len(current_name)} символов), попытка заменить...")
                 purchase_object = self._extract_purchase_object_from_page(html_content)
                 if purchase_object and len(purchase_object) > 10:
                     tender['name'] = purchase_object
-                    print(f"   📝 Заменено название на объект закупки: {purchase_object[:60]}...")
+                    print(f"   ✅ Заменено короткое название на: {purchase_object[:60]}...")
+                else:
+                    print(f"   ⚠️ Объект закупки не извлечен, оставляем исходное название")
+            else:
+                print(f"   ✓ Название в порядке, замена не требуется")
 
             # Логируем что было извлечено
             print(f"   ✅ Обогащено: цена={tender.get('price', 'Н/Д')}, дедлайн={tender.get('submission_deadline', 'Н/Д')}, регион={tender.get('customer_region', 'Н/Д')}")
@@ -966,6 +984,8 @@ class ZakupkiRSSParser:
         Returns:
             Описание объекта закупки или None если не найдено
         """
+        print(f"   🔍 Попытка извлечь объект закупки из страницы...")
+
         # Паттерны для извлечения из раздела "Информация об объекте закупки"
         patterns = [
             # Наименование объекта закупки в section__info
@@ -980,10 +1000,12 @@ class ZakupkiRSSParser:
             r'(?:Наименование|Объект)\s+(?:объекта\s+)?закупки[:\s]*</span>\s*<[^>]*>\s*([^<]+)',
         ]
 
-        for pattern in patterns:
+        for i, pattern in enumerate(patterns, 1):
             match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
             if match:
                 purchase_object = match.group(1).strip()
+                print(f"      ✓ Паттерн #{i} нашел: {purchase_object[:80]}...")
+
                 # Очищаем от лишних пробелов и HTML entities
                 purchase_object = re.sub(r'\s+', ' ', purchase_object)
                 purchase_object = html.unescape(purchase_object)
@@ -1001,8 +1023,15 @@ class ZakupkiRSSParser:
                 )
 
                 if is_valid:
+                    print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
                     return purchase_object
+                else:
+                    if len(purchase_object) <= 10:
+                        print(f"      ⚠️ Объект слишком короткий (длина: {len(purchase_object)})")
+                    else:
+                        print(f"      ⚠️ Объект содержит бюрократические фразы, пропускаем")
 
+        print(f"      ❌ Объект закупки не найден ни одним паттерном")
         return None
 
     def get_tender_categories_rss(self) -> List[str]:
