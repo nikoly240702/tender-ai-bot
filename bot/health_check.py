@@ -30,9 +30,10 @@ async def health_check_handler(request):
     try:
         # Проверяем database connection
         try:
-            from database import get_session
-            async with await get_session() as session:
-                await session.execute("SELECT 1")
+            from tender_sniper.database.sqlalchemy_adapter import DatabaseSession
+            from sqlalchemy import text
+            async with DatabaseSession() as session:
+                await session.execute(text("SELECT 1"))
             _health_status["checks"]["database"] = "ok"
         except Exception as e:
             logger.error(f"Database health check failed: {e}")

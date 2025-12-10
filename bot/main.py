@@ -7,6 +7,7 @@ import asyncio
 import logging
 import sys
 import os
+import signal
 from pathlib import Path
 
 # Добавляем родительскую директорию в путь для импорта модулей системы
@@ -27,13 +28,8 @@ from tender_sniper.config import is_tender_sniper_enabled
 from tender_sniper.monitoring import init_sentry, capture_exception, flush_events
 
 # Импортируем production infrastructure
-# from bot.health_check import start_health_check_server, update_health_status
+from bot.health_check import start_health_check_server, update_health_status
 from bot.env_validator import EnvValidator
-
-# Заглушка для update_health_status (health check временно отключен)
-def update_health_status(component: str, status: str):
-    """Заглушка для update_health_status."""
-    pass
 
 # Настройка логирования
 logging.basicConfig(
@@ -45,6 +41,58 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# GRACEFUL SHUTDOWN HANDLER
+# ============================================
+
+class GracefulShutdown:
+    """
+    Обработчик graceful shutdown для безопасной остановки бота.
+
+    При получении SIGTERM/SIGINT:
+    1. Устанавливает флаг shutdown_requested
+    2. Ждет завершения текущих задач (макс 30 секунд)
+    3. Останавливает event loop
+    """
+
+    def __init__(self):
+        self.shutdown_requested = False
+        self.shutdown_timeout = 30  # секунд
+
+    async def shutdown(self, signal_type, loop):
+        """Обработка сигнала завершения."""
+        logger.info(f"⚠️  Получен сигнал {signal_type.name}, начинаем graceful shutdown...")
+        self.shutdown_requested = True
+
+        # Получаем все активные задачи кроме текущей
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+
+        if tasks:
+            logger.info(f"⏳ Ожидаем завершения {len(tasks)} задач (макс {self.shutdown_timeout}с)...")
+
+            # Ждем завершения задач с таймаутом
+            done, pending = await asyncio.wait(
+                tasks,
+                timeout=self.shutdown_timeout,
+                return_when=asyncio.ALL_COMPLETED
+            )
+
+            if pending:
+                logger.warning(f"⚠️  {len(pending)} задач не успели завершиться за {self.shutdown_timeout}с")
+                # Отменяем незавершенные задачи
+                for task in pending:
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            else:
+                logger.info(f"✅ Все {len(done)} задач успешно завершены")
+
+        logger.info("✅ Graceful shutdown завершен")
+        loop.stop()
 
 
 def run_migrations():
@@ -88,19 +136,32 @@ async def main():
     run_migrations()
 
     # ============================================
+    # PRODUCTION: Graceful Shutdown Handler
+    # ============================================
+    shutdown_handler = GracefulShutdown()
+    loop = asyncio.get_running_loop()
+
+    # Регистрируем обработчики сигналов
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(
+            sig,
+            lambda s=sig: asyncio.create_task(shutdown_handler.shutdown(s, loop))
+        )
+
+    logger.info("✅ Graceful shutdown handler зарегистрирован")
+
+    # ============================================
     # PRODUCTION: Валидация окружения
     # ============================================
     logger.info("🔍 Проверка переменных окружения...")
     EnvValidator.validate_and_exit_if_invalid(strict=False)
 
     # ============================================
-    # PRODUCTION: Health Check Server (ВРЕМЕННО ОТКЛЮЧЕН)
+    # PRODUCTION: Health Check Server
     # ============================================
-    # health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
-    # logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
-    # health_check_runner = await start_health_check_server(port=health_check_port)
-    health_check_runner = None
-    logger.info("ℹ️  Health check server временно отключен")
+    health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
+    logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
+    health_check_runner = await start_health_check_server(port=health_check_port)
 
     # Инициализация Sentry для мониторинга ошибок
     sentry_enabled = init_sentry(

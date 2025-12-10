@@ -1,0 +1,263 @@
+"""
+Pydantic schemas для валидации пользовательского ввода.
+
+Обеспечивает безопасность и чистоту данных в системе.
+"""
+
+from typing import List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
+import re
+
+
+class FilterCreate(BaseModel):
+    """Схема для создания фильтра."""
+
+    name: str = Field(
+        ...,
+        min_length=3,
+        max_length=100,
+        description="Название фильтра"
+    )
+    keywords: List[str] = Field(
+        ...,
+        min_length=1,
+        max_length=20,
+        description="Ключевые слова для поиска"
+    )
+    price_min: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1_000_000_000,
+        description="Минимальная цена тендера"
+    )
+    price_max: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1_000_000_000,
+        description="Максимальная цена тендера"
+    )
+    regions: Optional[List[str]] = Field(
+        None,
+        max_length=20,
+        description="Регионы для фильтрации"
+    )
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Валидация названия фильтра."""
+        # Запрещаем HTML теги
+        if '<' in v or '>' in v:
+            raise ValueError('HTML теги запрещены в названии')
+
+        # Запрещаем SQL ключевые слова
+        sql_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'SELECT', '--', ';']
+        v_upper = v.upper()
+        for keyword in sql_keywords:
+            if keyword in v_upper:
+                raise ValueError(f'Недопустимое ключевое слово: {keyword}')
+
+        # Убираем лишние пробелы
+        v = ' '.join(v.split())
+
+        return v.strip()
+
+    @field_validator('keywords')
+    @classmethod
+    def validate_keywords(cls, v: List[str]) -> List[str]:
+        """Валидация ключевых слов."""
+        # Фильтруем пустые строки и убираем лишние пробелы
+        keywords = [kw.strip() for kw in v if kw.strip()]
+
+        if not keywords:
+            raise ValueError('Необходимо указать хотя бы одно ключевое слово')
+
+        if len(keywords) > 20:
+            raise ValueError('Максимум 20 ключевых слов')
+
+        # Проверяем каждое ключевое слово
+        for kw in keywords:
+            if len(kw) < 2:
+                raise ValueError(f'Ключевое слово слишком короткое: "{kw}" (минимум 2 символа)')
+            if len(kw) > 100:
+                raise ValueError(f'Ключевое слово слишком длинное: "{kw}" (максимум 100 символов)')
+            if '<' in kw or '>' in kw:
+                raise ValueError(f'HTML теги запрещены в ключевых словах: "{kw}"')
+
+        return keywords
+
+    @field_validator('regions')
+    @classmethod
+    def validate_regions(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Валидация регионов."""
+        if v is None:
+            return None
+
+        # Фильтруем пустые строки
+        regions = [r.strip() for r in v if r.strip()]
+
+        if not regions:
+            return None
+
+        # Проверяем каждый регион
+        for region in regions:
+            if '<' in region or '>' in region:
+                raise ValueError(f'HTML теги запрещены в регионах: "{region}"')
+
+        return regions
+
+    @model_validator(mode='after')
+    def validate_price_range(self):
+        """Проверка диапазона цен."""
+        if self.price_min is not None and self.price_max is not None:
+            if self.price_min > self.price_max:
+                raise ValueError('Минимальная цена не может быть больше максимальной')
+
+        return self
+
+
+class FilterUpdate(BaseModel):
+    """Схема для обновления фильтра."""
+
+    name: Optional[str] = Field(
+        None,
+        min_length=3,
+        max_length=100
+    )
+    keywords: Optional[List[str]] = Field(
+        None,
+        min_length=1,
+        max_length=20
+    )
+    price_min: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1_000_000_000
+    )
+    price_max: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1_000_000_000
+    )
+    regions: Optional[List[str]] = Field(
+        None,
+        max_length=20
+    )
+    is_active: Optional[bool] = None
+
+    # Используем те же валидаторы
+    _validate_name = field_validator('name')(FilterCreate.validate_name.__func__)
+    _validate_keywords = field_validator('keywords')(FilterCreate.validate_keywords.__func__)
+    _validate_regions = field_validator('regions')(FilterCreate.validate_regions.__func__)
+
+    @model_validator(mode='after')
+    def validate_at_least_one_field(self):
+        """Проверка что хотя бы одно поле указано для обновления."""
+        if not any([
+            self.name,
+            self.keywords,
+            self.price_min is not None,
+            self.price_max is not None,
+            self.regions,
+            self.is_active is not None
+        ]):
+            raise ValueError('Необходимо указать хотя бы одно поле для обновления')
+
+        return self
+
+
+class SearchQuery(BaseModel):
+    """Схема для поискового запроса."""
+
+    query: str = Field(
+        ...,
+        min_length=2,
+        max_length=200,
+        description="Поисковый запрос"
+    )
+    tender_type: Optional[str] = Field(
+        None,
+        description="Тип тендера (товары/услуги)"
+    )
+    price_min: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1_000_000_000
+    )
+    price_max: Optional[int] = Field(
+        None,
+        ge=0,
+        le=1_000_000_000
+    )
+    regions: Optional[List[str]] = Field(
+        None,
+        max_length=10
+    )
+
+    @field_validator('query')
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        """Валидация поискового запроса."""
+        # Запрещаем HTML теги
+        if '<' in v or '>' in v:
+            raise ValueError('HTML теги запрещены в запросе')
+
+        # Убираем лишние пробелы
+        v = ' '.join(v.split())
+
+        return v.strip()
+
+    @field_validator('tender_type')
+    @classmethod
+    def validate_tender_type(cls, v: Optional[str]) -> Optional[str]:
+        """Валидация типа тендера."""
+        if v is None:
+            return None
+
+        allowed_types = ['товары', 'услуги', 'работы', 'all']
+        if v.lower() not in allowed_types:
+            raise ValueError(f'Недопустимый тип тендера. Разрешены: {", ".join(allowed_types)}')
+
+        return v.lower()
+
+    @model_validator(mode='after')
+    def validate_price_range(self):
+        """Проверка диапазона цен."""
+        if self.price_min is not None and self.price_max is not None:
+            if self.price_min > self.price_max:
+                raise ValueError('Минимальная цена не может быть больше максимальной')
+
+        return self
+
+
+def sanitize_html(text: str) -> str:
+    """
+    Очистка HTML от потенциально опасных элементов.
+
+    Args:
+        text: Исходный текст
+
+    Returns:
+        Безопасный текст с экранированными HTML символами
+    """
+    if not text:
+        return text
+
+    # Экранируем HTML символы
+    html_escape_table = {
+        "&": "&amp;",
+        '"': "&quot;",
+        "'": "&#x27;",
+        ">": "&gt;",
+        "<": "&lt;",
+    }
+
+    return "".join(html_escape_table.get(c, c) for c in text)
+
+
+__all__ = [
+    'FilterCreate',
+    'FilterUpdate',
+    'SearchQuery',
+    'sanitize_html'
+]

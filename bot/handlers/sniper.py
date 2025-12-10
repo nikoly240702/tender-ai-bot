@@ -831,50 +831,140 @@ async def finalize_filter_creation(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "sniper_help")
 async def show_sniper_help(callback: CallbackQuery):
-    """Показать справку по Tender Sniper."""
+    """Показать главную страницу справки по Tender Sniper."""
     await callback.answer()
 
-    help_text = (
-        "❓ <b>Справка Tender Sniper</b>\n\n"
-
-        "<b>Что такое Tender Sniper?</b>\n"
-        "Это система автоматического мониторинга новых тендеров на zakupki.gov.ru. "
-        "Вы создаете фильтры с вашими критериями, и бот автоматически уведомляет вас "
-        "о подходящих тендерах.\n\n"
-
-        "<b>Как это работает?</b>\n"
-        "1. Создайте фильтр с ключевыми словами и критериями\n"
-        "2. Бот проверяет новые тендеры каждые 5 минут\n"
-        "3. При совпадении вы получаете уведомление\n"
-        "4. Можете сразу перейти к анализу или открыть на zakupki.gov.ru\n\n"
-
-        "<b>Scoring (релевантность)</b>\n"
-        "Каждый тендер оценивается по шкале 0-100:\n"
-        "• 80-100: Отличное совпадение 🔥\n"
-        "• 60-79: Хорошее совпадение ✨\n"
-        "• 40-59: Среднее совпадение 📌\n\n"
-
-        "<b>Квоты и лимиты</b>\n"
-        "Зависят от вашего тарифа:\n"
-        "• Free: 5 фильтров, 10 уведомлений/день\n"
-        "• Basic: 15 фильтров, 50 уведомлений/день\n"
-        "• Premium: Unlimited\n\n"
-
-        "<b>Советы по созданию фильтров</b>\n"
-        "• Используйте конкретные ключевые слова\n"
-        "• Указывайте ценовой диапазон для точности\n"
-        "• Создавайте отдельные фильтры для разных категорий\n"
-        "• Проверяйте статистику для оптимизации"
-    )
+    from bot.utils.help_messages import HELP_MAIN
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📚 Инструкция для новичков", callback_data="start_onboarding")],
+        [InlineKeyboardButton(text="📖 Быстрый старт", callback_data="help_quick_start")],
+        [InlineKeyboardButton(text="🎯 Создание фильтров", callback_data="help_filters")],
+        [InlineKeyboardButton(text="📊 Понимание результатов", callback_data="help_results")],
+        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="help_settings")],
+        [InlineKeyboardButton(text="❓ FAQ", callback_data="help_faq")],
+        [InlineKeyboardButton(text="🔧 Troubleshooting", callback_data="help_troubleshooting")],
         [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+    ])
+
+    await callback.message.edit_text(
+        HELP_MAIN,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "help_quick_start")
+async def show_help_quick_start(callback: CallbackQuery):
+    """Показать раздел 'Быстрый старт'."""
+    await callback.answer()
+
+    from bot.utils.help_messages import HELP_QUICK_START
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📚 Начать обучение", callback_data="start_onboarding")],
+        [InlineKeyboardButton(text="« Назад к справке", callback_data="sniper_help")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await callback.message.edit_text(
-        help_text,
+        HELP_QUICK_START,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "help_filters")
+async def show_help_filters(callback: CallbackQuery):
+    """Показать раздел 'Создание фильтров'."""
+    await callback.answer()
+
+    from bot.utils.help_messages import HELP_CREATING_FILTERS
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Создать фильтр", callback_data="sniper_new_search")],
+        [InlineKeyboardButton(text="« Назад к справке", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await callback.message.edit_text(
+        HELP_CREATING_FILTERS,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "help_results")
+async def show_help_results(callback: CallbackQuery):
+    """Показать раздел 'Понимание результатов'."""
+    await callback.answer()
+
+    from bot.utils.help_messages import HELP_UNDERSTANDING_RESULTS
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад к справке", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await callback.message.edit_text(
+        HELP_UNDERSTANDING_RESULTS,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "help_settings")
+async def show_help_settings(callback: CallbackQuery):
+    """Показать раздел 'Настройки'."""
+    await callback.answer()
+
+    from bot.utils.help_messages import HELP_SETTINGS
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Посмотреть тарифы", callback_data="sniper_plans")],
+        [InlineKeyboardButton(text="« Назад к справке", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await callback.message.edit_text(
+        HELP_SETTINGS,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "help_faq")
+async def show_help_faq(callback: CallbackQuery):
+    """Показать раздел FAQ."""
+    await callback.answer()
+
+    from bot.utils.help_messages import HELP_FAQ
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад к справке", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await callback.message.edit_text(
+        HELP_FAQ,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "help_troubleshooting")
+async def show_help_troubleshooting(callback: CallbackQuery):
+    """Показать раздел Troubleshooting."""
+    await callback.answer()
+
+    from bot.utils.help_messages import HELP_TROUBLESHOOTING
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад к справке", callback_data="sniper_help")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await callback.message.edit_text(
+        HELP_TROUBLESHOOTING,
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -1271,8 +1361,8 @@ async def mark_tender_skipped(callback: CallbackQuery):
 
 @router.callback_query(F.data == "noop")
 async def noop_callback(callback: CallbackQuery):
-    """Пустой callback для неактивных кнопок."""
-    await callback.answer()
+    """Handler для отключенных/информационных кнопок."""
+    await callback.answer("✅ Уже отмечено")
 
 
 # ============================================

@@ -28,6 +28,8 @@ from tender_sniper.regions import (
     parse_regions_input,
     format_regions_list
 )
+from bot.schemas.filters import FilterCreate, sanitize_html
+from pydantic import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -241,9 +243,30 @@ async def process_keywords_new(message: Message, state: FSMContext):
     # Парсим ключевые слова
     keywords = [kw.strip() for kw in keywords_input.split(',') if kw.strip()]
 
-    if len(keywords) > 20:
-        await message.answer("⚠️ Максимум 20 ключевых слов. Попробуйте еще раз:")
-        return
+    # Валидация ключевых слов с Pydantic
+    try:
+        # Используем временное имя для валидации только ключевых слов
+        validated = FilterCreate(
+            name="temp",
+            keywords=keywords,
+        )
+        keywords = validated.keywords  # Используем валидированные ключевые слова
+        logger.info(f"✅ Валидация ключевых слов прошла успешно: {len(keywords)} слов")
+    except ValidationError as e:
+        error_messages = []
+        for error in e.errors():
+            # Фильтруем только ошибки связанные с keywords
+            if 'keywords' in str(error.get('loc', [])):
+                msg = error['msg']
+                error_messages.append(f"• {msg}")
+
+        if error_messages:
+            await message.answer(
+                f"❌ <b>Ошибка валидации ключевых слов:</b>\n\n" + "\n".join(error_messages) +
+                "\n\nПопробуйте еще раз:",
+                parse_mode="HTML"
+            )
+            return
 
     await state.update_data(keywords=keywords)
     await ask_for_exclude_keywords(message, state)
@@ -1173,6 +1196,30 @@ async def process_tender_count(message: Message, state: FSMContext):
                 filter_name = f"Фильтр {datetime.now().strftime('%d.%m.%Y %H:%M')}"
 
             logger.info(f"Автоматически сгенерировано название фильтра: {filter_name}")
+
+        # Валидация входных данных
+        try:
+            validated_data = FilterCreate(
+                name=filter_name,
+                keywords=data.get('keywords', []),
+                price_min=data.get('price_min'),
+                price_max=data.get('price_max'),
+                regions=data.get('regions', [])
+            )
+            logger.info(f"✅ Валидация данных фильтра прошла успешно")
+        except ValidationError as e:
+            error_messages = []
+            for error in e.errors():
+                field = error['loc'][0] if error['loc'] else 'unknown'
+                msg = error['msg']
+                error_messages.append(f"• {field}: {msg}")
+
+            await message.answer(
+                f"❌ <b>Ошибка валидации данных:</b>\n\n" + "\n".join(error_messages),
+                parse_mode="HTML"
+            )
+            await state.clear()
+            return
 
         # 1. Сохраняем фильтр в БД с новыми критериями
         # is_active=False для with_instant_search (требует подтверждения)
