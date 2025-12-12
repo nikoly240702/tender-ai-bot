@@ -26,6 +26,7 @@ from tender_sniper.notifications.telegram_notifier import TelegramNotifier
 from tender_sniper.config import is_tender_sniper_enabled, is_component_enabled
 from tender_sniper.instant_search import InstantSearch
 from tender_sniper.monitoring import send_error_to_telegram
+from tender_sniper.ai_name_generator import generate_tender_name  # AI генератор названий
 from bot.config import BotConfig  # Для проверки админа
 import json
 
@@ -336,9 +337,21 @@ class TenderSniperService:
                 logger.info(f"   📤 Отправка {len(notifications_to_send)} уведомлений...")
 
                 for notif in notifications_to_send:
+                    tender = notif['tender']
+
+                    # Генерируем AI-название ОДИН РАЗ (для уведомления и БД)
+                    original_name = tender.get('name', '')
+                    short_name = generate_tender_name(
+                        original_name,
+                        tender_data=tender,
+                        max_length=80
+                    )
+                    # Заменяем название в тендере на короткое
+                    tender['name'] = short_name
+
                     success = await self.notifier.send_tender_notification(
                         telegram_id=notif['telegram_id'],
-                        tender=notif['tender'],
+                        tender=tender,
                         match_info=notif['match_info'],
                         filter_name=notif['filter_name'],
                         is_auto_notification=True  # Уведомление из автомониторинга
@@ -346,10 +359,10 @@ class TenderSniperService:
 
                     if success:
                         # Нормализуем данные тендера (маппинг из InstantSearch формата в БД формат)
-                        tender = notif['tender']
+                        # Используем уже сгенерированное короткое название!
                         tender_data = {
                             'number': tender.get('number', ''),
-                            'name': tender.get('name', ''),
+                            'name': short_name,  # Сохраняем AI-название в БД!
                             'price': tender.get('price'),
                             'url': tender.get('url', ''),
                             # InstantSearch возвращает customer/customer_region, БД ожидает customer_name/region
