@@ -46,6 +46,7 @@ def get_sniper_admin_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="👥 Пользователи и тарифы", callback_data="sniper_admin_users")],
         [InlineKeyboardButton(text="📈 Мониторинг системы", callback_data="sniper_admin_monitoring")],
         [InlineKeyboardButton(text="⚙️ Управление тарифами", callback_data="sniper_admin_manage_tiers")],
+        [InlineKeyboardButton(text="🚫 Управление блокировками", callback_data="sniper_admin_manage_blocks")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -559,3 +560,219 @@ async def cleanup_duplicate_filters(message: Message):
     except Exception as e:
         logger.error(f"Ошибка удаления дубликатов: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при удалении дубликатов")
+
+
+# ============================================
+# УПРАВЛЕНИЕ БЛОКИРОВКАМИ
+# ============================================
+
+@router.callback_query(F.data == "sniper_admin_manage_blocks")
+async def manage_user_blocks(callback: CallbackQuery):
+    """Управление блокировками пользователей."""
+    if not is_admin(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен", show_alert=True)
+        return
+
+    await callback.answer()
+
+    try:
+        async with DatabaseSession() as session:
+            # Получаем заблокированных пользователей
+            blocked_query = (
+                select(SniperUser)
+                .where(SniperUser.status == 'blocked')
+                .order_by(SniperUser.blocked_at.desc())
+            )
+            result = await session.execute(blocked_query)
+            blocked_users = result.scalars().all()
+
+        text = (
+            "🚫 <b>Управление блокировками</b>\n\n"
+            "<b>Команды:</b>\n"
+            "• <code>/block USER_ID причина</code> - заблокировать пользователя\n"
+            "• <code>/unblock USER_ID</code> - разблокировать пользователя\n\n"
+        )
+
+        if blocked_users:
+            text += f"<b>Заблокированные пользователи ({len(blocked_users)}):</b>\n\n"
+            for user in blocked_users[:15]:  # Показываем первых 15
+                username = f"@{user.username}" if user.username else "нет username"
+                full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Без имени"
+                blocked_at = user.blocked_at.strftime('%Y-%m-%d %H:%M') if user.blocked_at else "?"
+                reason = user.blocked_reason or "Не указана"
+
+                text += (
+                    f"🔒 <b>{full_name}</b> ({username})\n"
+                    f"   ID: <code>{user.telegram_id}</code>\n"
+                    f"   Заблокирован: {blocked_at}\n"
+                    f"   Причина: {reason}\n\n"
+                )
+        else:
+            text += "✅ Нет заблокированных пользователей\n"
+
+        text += (
+            "\n<b>Примеры:</b>\n"
+            "<code>/block 123456789 Спам</code>\n"
+            "<code>/unblock 123456789</code>"
+        )
+
+        await callback.message.answer(text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка получения заблокированных: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка получения данных")
+
+
+@router.message(Command("block"))
+async def block_user(message: Message):
+    """Заблокировать пользователя."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа")
+        return
+
+    try:
+        # Парсим команду: /block USER_ID причина
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.answer(
+                "❌ Неверный формат команды\n\n"
+                "Используйте: <code>/block USER_ID причина</code>\n"
+                "Пример: <code>/block 123456789 Спам</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        try:
+            target_telegram_id = int(parts[1])
+        except ValueError:
+            await message.answer("❌ USER_ID должен быть числом")
+            return
+
+        reason = parts[2] if len(parts) > 2 else "Не указана"
+
+        # Блокируем пользователя
+        async with DatabaseSession() as session:
+            # Проверяем существование пользователя
+            user_query = select(SniperUser).where(SniperUser.telegram_id == target_telegram_id)
+            result = await session.execute(user_query)
+            user = result.scalar_one_or_none()
+
+            if not user:
+                await message.answer(
+                    f"❌ Пользователь с ID <code>{target_telegram_id}</code> не найден",
+                    parse_mode="HTML"
+                )
+                return
+
+            if user.status == 'blocked':
+                await message.answer(
+                    f"⚠️ Пользователь <code>{target_telegram_id}</code> уже заблокирован",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Блокируем
+            await session.execute(
+                update(SniperUser)
+                .where(SniperUser.telegram_id == target_telegram_id)
+                .values(
+                    status='blocked',
+                    blocked_reason=reason,
+                    blocked_at=datetime.now(),
+                    blocked_by=message.from_user.id
+                )
+            )
+
+        username = f"@{user.username}" if user.username else "нет username"
+        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Без имени"
+
+        await message.answer(
+            f"🔒 <b>Пользователь заблокирован</b>\n\n"
+            f"Имя: {full_name}\n"
+            f"Username: {username}\n"
+            f"ID: <code>{target_telegram_id}</code>\n"
+            f"Причина: {reason}",
+            parse_mode="HTML"
+        )
+
+        logger.info(f"Админ {message.from_user.id} заблокировал пользователя {target_telegram_id}: {reason}")
+
+    except Exception as e:
+        logger.error(f"Ошибка блокировки: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при блокировке")
+
+
+@router.message(Command("unblock"))
+async def unblock_user(message: Message):
+    """Разблокировать пользователя."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа")
+        return
+
+    try:
+        # Парсим команду: /unblock USER_ID
+        parts = message.text.split()
+        if len(parts) != 2:
+            await message.answer(
+                "❌ Неверный формат команды\n\n"
+                "Используйте: <code>/unblock USER_ID</code>\n"
+                "Пример: <code>/unblock 123456789</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        try:
+            target_telegram_id = int(parts[1])
+        except ValueError:
+            await message.answer("❌ USER_ID должен быть числом")
+            return
+
+        # Разблокируем пользователя
+        async with DatabaseSession() as session:
+            # Проверяем существование пользователя
+            user_query = select(SniperUser).where(SniperUser.telegram_id == target_telegram_id)
+            result = await session.execute(user_query)
+            user = result.scalar_one_or_none()
+
+            if not user:
+                await message.answer(
+                    f"❌ Пользователь с ID <code>{target_telegram_id}</code> не найден",
+                    parse_mode="HTML"
+                )
+                return
+
+            if user.status != 'blocked':
+                await message.answer(
+                    f"⚠️ Пользователь <code>{target_telegram_id}</code> не заблокирован",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Разблокируем
+            await session.execute(
+                update(SniperUser)
+                .where(SniperUser.telegram_id == target_telegram_id)
+                .values(
+                    status='active',
+                    blocked_reason=None,
+                    blocked_at=None,
+                    blocked_by=None
+                )
+            )
+
+        username = f"@{user.username}" if user.username else "нет username"
+        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "Без имени"
+
+        await message.answer(
+            f"🔓 <b>Пользователь разблокирован</b>\n\n"
+            f"Имя: {full_name}\n"
+            f"Username: {username}\n"
+            f"ID: <code>{target_telegram_id}</code>",
+            parse_mode="HTML"
+        )
+
+        logger.info(f"Админ {message.from_user.id} разблокировал пользователя {target_telegram_id}")
+
+    except Exception as e:
+        logger.error(f"Ошибка разблокировки: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при разблокировке")

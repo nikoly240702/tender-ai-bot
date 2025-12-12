@@ -22,26 +22,15 @@ class BotConfig:
     # OpenAI API Key (используется из основной системы)
     OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
-    # Администратор бота (может управлять доступом)
+    # Администратор бота (может блокировать пользователей и управлять тарифами)
     # Формат: единственный Telegram User ID
     # Пример: ADMIN_USER_ID=123456789
     ADMIN_USER_ID_STR = os.getenv('ADMIN_USER_ID', '')
     ADMIN_USER_ID = int(ADMIN_USER_ID_STR) if ADMIN_USER_ID_STR.strip() else None
 
-    # Система приватности (белый список пользователей)
-    # Формат: список Telegram User ID через запятую
-    # Пример: ALLOWED_USERS=123456789,987654321
-    # Если задан ADMIN_USER_ID, но ALLOWED_USERS не задан - по умолчанию пустой список (закрытый доступ)
-    # Если ADMIN_USER_ID не задан и ALLOWED_USERS не задан - бот доступен всем
-    ALLOWED_USERS_STR = os.getenv('ALLOWED_USERS', '')
-    if ALLOWED_USERS_STR:
-        ALLOWED_USERS = set(int(uid.strip()) for uid in ALLOWED_USERS_STR.split(',') if uid.strip())
-    elif ADMIN_USER_ID:
-        # Если есть админ, но ALLOWED_USERS не задан - закрытый доступ (пустой список)
-        ALLOWED_USERS = set()
-    else:
-        # Если нет ни админа, ни ALLOWED_USERS - открытый доступ
-        ALLOWED_USERS = None
+    # ОТКРЫТЫЙ ДОСТУП: все пользователи могут использовать бота
+    # Админ может блокировать отдельных пользователей через /block команду
+    # и управлять тарифами через /set_tier команду
 
     # Настройки базы данных
     DB_PATH = Path(__file__).parent / 'database' / 'bot.db'

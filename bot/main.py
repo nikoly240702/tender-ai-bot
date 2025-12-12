@@ -18,7 +18,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from bot.config import BotConfig
-from bot.handlers import start, search, history, admin, access_requests, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management
+from bot.handlers import start, search, history, admin, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 
@@ -217,12 +217,8 @@ async def main():
         update_health_status("database", f"error: {e}")
         raise
 
-    # Синхронизируем пользователей из переменной окружения ALLOWED_USERS в базу данных
-    if BotConfig.ALLOWED_USERS:
-        from bot.database.access_manager import AccessManager
-        access_manager = AccessManager()
-        access_manager.sync_from_env()
-        logger.info("✅ Пользователи из ALLOWED_USERS синхронизированы с базой данных")
+    # ОТКРЫТЫЙ ДОСТУП: все пользователи регистрируются автоматически
+    # Блокировка и управление тарифами через админ-панель (/admin)
 
     # Инициализируем бота и диспетчер
     bot = Bot(token=BotConfig.BOT_TOKEN)
@@ -241,13 +237,13 @@ async def main():
     logger.info("✅ Rate Limiting активирован")
 
     # Логируем информацию о контроле доступа
-    if BotConfig.ALLOWED_USERS:
-        logger.info(f"🔐 Контроль доступа: включен ({len(BotConfig.ALLOWED_USERS)} пользователей)")
+    logger.info("🔓 Режим доступа: ОТКРЫТЫЙ (все пользователи регистрируются автоматически)")
+    if BotConfig.ADMIN_USER_ID:
+        logger.info(f"👑 Админ: {BotConfig.ADMIN_USER_ID}")
     else:
-        logger.info("⚠️ Контроль доступа: выключен (бот доступен всем)")
+        logger.warning("⚠️ ADMIN_USER_ID не задан - управление пользователями недоступно")
 
     # Регистрируем роутеры
-    dp.include_router(access_requests.router)  # Запросы доступа регистрируем первыми
     dp.include_router(admin.router)  # Админ-панель
     dp.include_router(admin_sniper.router)  # Расширенная админ-панель Tender Sniper
     dp.include_router(onboarding.router)  # Онбординг для новых пользователей

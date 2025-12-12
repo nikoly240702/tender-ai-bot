@@ -56,6 +56,7 @@ class TenderSniperDB:
                     username TEXT,
                     first_name TEXT,
                     last_name TEXT,
+                    status TEXT DEFAULT 'active',
                     subscription_tier TEXT DEFAULT 'free',
                     subscription_status TEXT DEFAULT 'active',
                     subscription_start TEXT,
@@ -64,9 +65,33 @@ class TenderSniperDB:
                     notifications_enabled INTEGER DEFAULT 1,
                     created_at TEXT NOT NULL,
                     last_activity TEXT,
-                    settings TEXT
+                    settings TEXT,
+                    blocked_reason TEXT,
+                    blocked_at TEXT,
+                    blocked_by INTEGER
                 )
             """)
+
+            # Миграция: добавляем поле status если его нет (для существующих БД)
+            try:
+                await db.execute("ALTER TABLE sniper_users ADD COLUMN status TEXT DEFAULT 'active'")
+            except:
+                pass  # Поле уже существует
+
+            try:
+                await db.execute("ALTER TABLE sniper_users ADD COLUMN blocked_reason TEXT")
+            except:
+                pass
+
+            try:
+                await db.execute("ALTER TABLE sniper_users ADD COLUMN blocked_at TEXT")
+            except:
+                pass
+
+            try:
+                await db.execute("ALTER TABLE sniper_users ADD COLUMN blocked_by INTEGER")
+            except:
+                pass
 
             # Таблица тарифных планов
             await db.execute("""
@@ -391,6 +416,228 @@ class TenderSniperDB:
         if user:
             return bool(user.get('notifications_enabled', 1))
         return False
+
+    # ============================================
+    # МЕТОДЫ ДЛЯ УПРАВЛЕНИЯ ДОСТУПОМ
+    # ============================================
+
+    async def is_user_blocked(self, telegram_id: int) -> bool:
+        """Проверить, заблокирован ли пользователь."""
+        user = await self.get_user_by_telegram_id(telegram_id)
+        if user:
+            return user.get('status') == 'blocked'
+        return False
+
+    async def block_user(
+        self,
+        telegram_id: int,
+        reason: Optional[str] = None,
+        blocked_by: Optional[int] = None
+    ) -> bool:
+        """
+        Заблокировать пользователя.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            reason: Причина блокировки
+            blocked_by: Telegram ID админа, который заблокировал
+
+        Returns:
+            True если успешно заблокирован
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now().isoformat()
+
+            result = await db.execute("""
+                UPDATE sniper_users
+                SET status = 'blocked',
+                    blocked_reason = ?,
+                    blocked_at = ?,
+                    blocked_by = ?
+                WHERE telegram_id = ?
+            """, (reason, now, blocked_by, telegram_id))
+
+            await db.commit()
+            return result.rowcount > 0
+
+    async def unblock_user(self, telegram_id: int) -> bool:
+        """
+        Разблокировать пользователя.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+
+        Returns:
+            True если успешно разблокирован
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            result = await db.execute("""
+                UPDATE sniper_users
+                SET status = 'active',
+                    blocked_reason = NULL,
+                    blocked_at = NULL,
+                    blocked_by = NULL
+                WHERE telegram_id = ?
+            """, (telegram_id,))
+
+            await db.commit()
+            return result.rowcount > 0
+
+    async def set_subscription_tier(
+        self,
+        telegram_id: int,
+        tier: str,
+        months: int = 1
+    ) -> bool:
+        """
+        Установить тарифный план пользователю.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            tier: Тарифный план (free/basic/premium)
+            months: Срок подписки в месяцах (0 = бессрочно)
+
+        Returns:
+            True если успешно обновлено
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            now = datetime.now()
+
+            if tier == 'free':
+                # Для бесплатного тарифа сбрасываем даты подписки
+                await db.execute("""
+                    UPDATE sniper_users
+                    SET subscription_tier = 'free',
+                        subscription_status = 'active',
+                        subscription_start = NULL,
+                        subscription_end = NULL
+                    WHERE telegram_id = ?
+                """, (telegram_id,))
+            else:
+                start = now.isoformat()
+                end = (now + timedelta(days=30 * months)).isoformat() if months > 0 else None
+
+                await db.execute("""
+                    UPDATE sniper_users
+                    SET subscription_tier = ?,
+                        subscription_status = 'active',
+                        subscription_start = ?,
+                        subscription_end = ?
+                    WHERE telegram_id = ?
+                """, (tier, start, end, telegram_id))
+
+            await db.commit()
+            return True
+
+    async def get_all_users(
+        self,
+        status: Optional[str] = None,
+        tier: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить список всех пользователей с фильтрацией.
+
+        Args:
+            status: Фильтр по статусу (active/blocked)
+            tier: Фильтр по тарифу (free/basic/premium)
+            limit: Максимальное количество записей
+            offset: Смещение для пагинации
+
+        Returns:
+            Список пользователей
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            query = "SELECT * FROM sniper_users WHERE 1=1"
+            params = []
+
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+
+            if tier:
+                query += " AND subscription_tier = ?"
+                params.append(tier)
+
+            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+
+    async def get_users_count(
+        self,
+        status: Optional[str] = None,
+        tier: Optional[str] = None
+    ) -> int:
+        """
+        Получить количество пользователей с фильтрацией.
+
+        Args:
+            status: Фильтр по статусу (active/blocked)
+            tier: Фильтр по тарифу (free/basic/premium)
+
+        Returns:
+            Количество пользователей
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            query = "SELECT COUNT(*) FROM sniper_users WHERE 1=1"
+            params = []
+
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+
+            if tier:
+                query += " AND subscription_tier = ?"
+                params.append(tier)
+
+            async with db.execute(query, params) as cursor:
+                row = await cursor.fetchone()
+                return row[0]
+
+    async def get_users_stats(self) -> Dict[str, Any]:
+        """
+        Получить статистику по пользователям.
+
+        Returns:
+            Словарь со статистикой
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            stats = {}
+
+            # Общее количество пользователей
+            async with db.execute("SELECT COUNT(*) FROM sniper_users") as cursor:
+                row = await cursor.fetchone()
+                stats['total'] = row[0]
+
+            # По статусам
+            async with db.execute("""
+                SELECT status, COUNT(*) FROM sniper_users GROUP BY status
+            """) as cursor:
+                rows = await cursor.fetchall()
+                stats['by_status'] = {row[0] or 'active': row[1] for row in rows}
+
+            # По тарифам
+            async with db.execute("""
+                SELECT subscription_tier, COUNT(*) FROM sniper_users GROUP BY subscription_tier
+            """) as cursor:
+                rows = await cursor.fetchall()
+                stats['by_tier'] = {row[0] or 'free': row[1] for row in rows}
+
+            # Активные сегодня
+            today = datetime.now().date().isoformat()
+            async with db.execute("""
+                SELECT COUNT(*) FROM sniper_users WHERE last_activity LIKE ?
+            """, (f"{today}%",)) as cursor:
+                row = await cursor.fetchone()
+                stats['active_today'] = row[0]
+
+            return stats
 
     # ============================================
     # МЕТОДЫ ДЛЯ ФИЛЬТРОВ

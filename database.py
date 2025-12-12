@@ -71,6 +71,16 @@ class SniperUser(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
     username = Column(String(255), nullable=True)
+    first_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+
+    # Статус доступа (active/blocked)
+    status = Column(String(50), default='active', nullable=False)
+    blocked_reason = Column(Text, nullable=True)
+    blocked_at = Column(DateTime, nullable=True)
+    blocked_by = Column(BigInteger, nullable=True)  # Telegram ID админа
+
+    # Тарифный план
     subscription_tier = Column(String(50), default='free', nullable=False)  # free, basic, premium
     filters_limit = Column(Integer, default=5, nullable=False)
     notifications_limit = Column(Integer, default=15, nullable=False)

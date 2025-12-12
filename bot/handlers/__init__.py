@@ -2,6 +2,32 @@
 Модуль обработчиков команд и сообщений бота.
 """
 
-from . import start, search, history, admin, access_requests, sniper, sniper_search
+from . import (
+    start,
+    search,
+    history,
+    admin,
+    sniper,
+    sniper_search,
+    admin_sniper,
+    onboarding,
+    inline_search,
+    all_tenders,
+    tender_actions,
+    user_management
+)
 
-__all__ = ['start', 'search', 'history', 'admin', 'access_requests', 'sniper', 'sniper_search']
+__all__ = [
+    'start',
+    'search',
+    'history',
+    'admin',
+    'sniper',
+    'sniper_search',
+    'admin_sniper',
+    'onboarding',
+    'inline_search',
+    'all_tenders',
+    'tender_actions',
+    'user_management'
+]
