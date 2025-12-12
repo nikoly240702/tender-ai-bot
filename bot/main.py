@@ -25,7 +25,10 @@ from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 # Импортируем Tender Sniper Service
 from tender_sniper.service import TenderSniperService
 from tender_sniper.config import is_tender_sniper_enabled
-from tender_sniper.monitoring import init_sentry, capture_exception, flush_events
+from tender_sniper.monitoring import (
+    init_sentry, capture_exception, flush_events,
+    init_telegram_error_alerts, send_error_to_telegram
+)
 
 # Импортируем production infrastructure
 from bot.health_check import start_health_check_server, update_health_status
@@ -176,6 +179,14 @@ async def main():
         logger.info("ℹ️  Sentry мониторинг отключен (SENTRY_DSN не указан)")
         update_health_status("sentry", "disabled")
 
+    # Инициализируем Telegram уведомления об ошибках для админа
+    admin_id = int(os.getenv('ADMIN_TELEGRAM_ID', '0'))
+    if admin_id:
+        init_telegram_error_alerts(admin_chat_id=admin_id)
+        logger.info(f"✅ Telegram error alerts настроены для админа {admin_id}")
+    else:
+        logger.info("ℹ️  Telegram error alerts отключены (ADMIN_TELEGRAM_ID не указан)")
+
     # Проверяем конфигурацию
     try:
         BotConfig.validate()
@@ -306,6 +317,8 @@ async def main():
         logger.error(f"❌ Ошибка при запуске бота: {e}", exc_info=True)
         update_health_status("bot", f"error: {e}")
         capture_exception(e, level="fatal", tags={"component": "main"})
+        # Отправляем критическую ошибку в Telegram админу
+        await send_error_to_telegram(e, context="Запуск бота (main)")
     finally:
         # Останавливаем Tender Sniper если запущен
         if sniper_service:

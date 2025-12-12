@@ -104,13 +104,47 @@ def _before_send_filter(event: Dict[str, Any], hint: Dict[str, Any]) -> Optional
     # Игнорируем некоторые типы ошибок
     if 'exc_info' in hint:
         exc_type, exc_value, tb = hint['exc_info']
+        error_str = str(exc_value).lower()
+        error_type = exc_type.__name__ if exc_type else ''
 
         # Игнорируем KeyboardInterrupt
         if isinstance(exc_value, KeyboardInterrupt):
             return None
 
-        # Игнорируем таймауты Telegram (не критично)
-        if 'Timeout' in str(exc_value):
+        # Некритичные сетевые ошибки Telegram (происходят периодически)
+        non_critical_patterns = [
+            'timeout',
+            'request timeout',
+            'timed out',
+            'connection reset',
+            'connection refused',
+            'network is unreachable',
+            'temporary failure',
+            'retry',
+            'flood',  # FloodWait от Telegram
+            'too many requests',
+            'bad gateway',
+            'service unavailable',
+            'getaddrinfo failed',
+            'ssl: unexpected eof',
+        ]
+
+        # Проверяем текст ошибки
+        if any(pattern in error_str for pattern in non_critical_patterns):
+            logger.debug(f"Sentry: игнорируем некритичную ошибку: {error_str[:100]}")
+            return None
+
+        # Проверяем тип ошибки
+        non_critical_types = [
+            'TelegramNetworkError',
+            'TimeoutError',
+            'ConnectionError',
+            'NetworkError',
+            'RetryAfter',
+            'FloodWait',
+        ]
+        if error_type in non_critical_types:
+            logger.debug(f"Sentry: игнорируем {error_type}")
             return None
 
     # Удаляем чувствительные данные из breadcrumbs
@@ -363,6 +397,178 @@ def flush_events(timeout: int = 2):
 
     except Exception as e:
         logger.error(f"❌ Ошибка отправки событий: {e}")
+
+
+# ============================================
+# TELEGRAM УВЕДОМЛЕНИЯ ОБ ОШИБКАХ
+# ============================================
+
+_telegram_error_bot = None
+_admin_chat_id = None
+
+
+def init_telegram_error_alerts(bot_token: str = None, admin_chat_id: int = None):
+    """
+    Инициализация Telegram уведомлений об ошибках.
+
+    Args:
+        bot_token: Токен бота (если None, берется из TELEGRAM_BOT_TOKEN)
+        admin_chat_id: ID чата админа (если None, берется из ADMIN_TELEGRAM_ID)
+    """
+    global _telegram_error_bot, _admin_chat_id
+
+    token = bot_token or os.getenv('TELEGRAM_BOT_TOKEN')
+    _admin_chat_id = admin_chat_id or int(os.getenv('ADMIN_TELEGRAM_ID', '0'))
+
+    if not token or not _admin_chat_id:
+        logger.warning("Telegram error alerts не настроены (нет токена или admin_chat_id)")
+        return False
+
+    try:
+        import httpx
+        _telegram_error_bot = token
+        logger.info(f"✅ Telegram error alerts настроены (admin: {_admin_chat_id})")
+        return True
+    except ImportError:
+        logger.warning("httpx не установлен для Telegram alerts")
+        return False
+
+
+async def send_error_to_telegram(
+    error: Exception,
+    context: str = "",
+    user_id: int = None,
+    extra_info: Dict[str, Any] = None
+):
+    """
+    Отправляет уведомление об ошибке в Telegram админу.
+
+    Args:
+        error: Исключение
+        context: Контекст где произошла ошибка
+        user_id: ID пользователя (если применимо)
+        extra_info: Дополнительная информация
+    """
+    global _telegram_error_bot, _admin_chat_id
+
+    if not _telegram_error_bot or not _admin_chat_id:
+        return
+
+    try:
+        import httpx
+        import traceback
+        from datetime import datetime
+
+        # Формируем сообщение
+        error_type = type(error).__name__
+        error_msg = str(error)[:500]  # Ограничиваем длину
+
+        # Получаем краткий traceback
+        tb_lines = traceback.format_exception(type(error), error, error.__traceback__)
+        short_tb = ''.join(tb_lines[-3:])[:1000]  # Последние 3 строки
+
+        message = f"""🚨 <b>ОШИБКА В БОТЕ</b>
+
+<b>Тип:</b> <code>{error_type}</code>
+<b>Время:</b> {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
+<b>Контекст:</b> {context or 'Не указан'}
+"""
+
+        if user_id:
+            message += f"<b>User ID:</b> {user_id}\n"
+
+        message += f"""
+<b>Ошибка:</b>
+<code>{error_msg}</code>
+
+<b>Traceback:</b>
+<pre>{short_tb}</pre>
+"""
+
+        if extra_info:
+            info_str = '\n'.join(f"• {k}: {v}" for k, v in extra_info.items())
+            message += f"\n<b>Доп. инфо:</b>\n{info_str}"
+
+        # Отправляем
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"https://api.telegram.org/bot{_telegram_error_bot}/sendMessage",
+                json={
+                    "chat_id": _admin_chat_id,
+                    "text": message[:4000],  # Лимит Telegram
+                    "parse_mode": "HTML",
+                    "disable_notification": False
+                },
+                timeout=10
+            )
+
+        logger.info(f"📤 Ошибка отправлена в Telegram админу")
+
+    except Exception as e:
+        logger.error(f"❌ Не удалось отправить ошибку в Telegram: {e}")
+
+
+def send_error_to_telegram_sync(
+    error: Exception,
+    context: str = "",
+    user_id: int = None,
+    extra_info: Dict[str, Any] = None
+):
+    """
+    Синхронная версия отправки ошибки в Telegram.
+    """
+    global _telegram_error_bot, _admin_chat_id
+
+    if not _telegram_error_bot or not _admin_chat_id:
+        return
+
+    try:
+        import httpx
+        import traceback
+        from datetime import datetime
+
+        error_type = type(error).__name__
+        error_msg = str(error)[:500]
+
+        tb_lines = traceback.format_exception(type(error), error, error.__traceback__)
+        short_tb = ''.join(tb_lines[-3:])[:1000]
+
+        message = f"""🚨 <b>ОШИБКА В БОТЕ</b>
+
+<b>Тип:</b> <code>{error_type}</code>
+<b>Время:</b> {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
+<b>Контекст:</b> {context or 'Не указан'}
+"""
+
+        if user_id:
+            message += f"<b>User ID:</b> {user_id}\n"
+
+        message += f"""
+<b>Ошибка:</b>
+<code>{error_msg}</code>
+
+<b>Traceback:</b>
+<pre>{short_tb}</pre>
+"""
+
+        if extra_info:
+            info_str = '\n'.join(f"• {k}: {v}" for k, v in extra_info.items())
+            message += f"\n<b>Доп. инфо:</b>\n{info_str}"
+
+        with httpx.Client() as client:
+            client.post(
+                f"https://api.telegram.org/bot{_telegram_error_bot}/sendMessage",
+                json={
+                    "chat_id": _admin_chat_id,
+                    "text": message[:4000],
+                    "parse_mode": "HTML",
+                    "disable_notification": False
+                },
+                timeout=10
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Не удалось отправить ошибку в Telegram: {e}")
 
 
 # ============================================

@@ -25,6 +25,7 @@ from tender_sniper.database import get_sniper_db, init_subscription_plans, get_p
 from tender_sniper.notifications.telegram_notifier import TelegramNotifier
 from tender_sniper.config import is_tender_sniper_enabled, is_component_enabled
 from tender_sniper.instant_search import InstantSearch
+from tender_sniper.monitoring import send_error_to_telegram
 from bot.config import BotConfig  # Для проверки админа
 import json
 
@@ -170,6 +171,8 @@ class TenderSniperService:
         except Exception as e:
             logger.error(f"❌ Критическая ошибка сервиса: {e}", exc_info=True)
             self.stats['errors'] += 1
+            # Отправляем критическую ошибку в Telegram админу
+            await send_error_to_telegram(e, context="Tender Sniper Service")
         finally:
             await self.stop()
 
