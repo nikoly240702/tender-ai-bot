@@ -14,7 +14,8 @@ from . import (
     inline_search,
     all_tenders,
     tender_actions,
-    user_management
+    user_management,
+    menu_priority
 )
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     'inline_search',
     'all_tenders',
     'tender_actions',
-    'user_management'
+    'user_management',
+    'menu_priority'
 ]

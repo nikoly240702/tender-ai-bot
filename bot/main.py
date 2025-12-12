@@ -18,7 +18,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from bot.config import BotConfig
-from bot.handlers import start, search, history, admin, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management
+from bot.handlers import start, search, history, admin, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management, menu_priority
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 
@@ -244,6 +244,8 @@ async def main():
         logger.warning("⚠️ ADMIN_USER_ID не задан - управление пользователями недоступно")
 
     # Регистрируем роутеры
+    # ВАЖНО: menu_priority ПЕРВЫМ - для обработки кнопок меню в любом FSM состоянии
+    dp.include_router(menu_priority.router)
     dp.include_router(admin.router)  # Админ-панель
     dp.include_router(admin_sniper.router)  # Расширенная админ-панель Tender Sniper
     dp.include_router(onboarding.router)  # Онбординг для новых пользователей
