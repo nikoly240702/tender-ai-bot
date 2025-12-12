@@ -14,6 +14,7 @@ import os
 import html
 import time
 from threading import Lock
+from bs4 import BeautifulSoup
 
 # Отключаем предупреждения SSL (для zakupki.gov.ru)
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -559,14 +560,55 @@ class ZakupkiRSSParser:
         return ""
 
     def _extract_purchase_object(self, summary: str) -> Optional[str]:
-        """Извлекает объект закупки из summary."""
-        # Ищем "Наименование объекта закупки:" в HTML
-        match = re.search(r'<strong>Наименование объекта закупки:\s*</strong>([^<]+)', summary)
-        if match:
-            purchase_object = match.group(1).strip()
-            # Убираем лишние пробелы
-            purchase_object = re.sub(r'\s+', ' ', purchase_object)
-            return purchase_object
+        """
+        Извлекает объект закупки из RSS summary.
+        Пробует несколько паттернов для разных форматов RSS.
+        """
+        # Бюрократические фразы которые нужно отфильтровать
+        bureaucratic_phrases = [
+            'в соответствии с',
+            'статьи 93',
+            'закона № 44',
+            'закона №44',
+            'осуществляемая в соответствии',
+            'частью 12'
+        ]
+
+        def is_valid(text: str) -> bool:
+            """Проверяет что текст не бюрократический."""
+            if not text or len(text) < 10:
+                return False
+            text_lower = text.lower()
+            return not any(phrase in text_lower for phrase in bureaucratic_phrases)
+
+        # Паттерны для извлечения объекта закупки из RSS summary
+        patterns = [
+            # Основной паттерн
+            r'<strong>Наименование объекта закупки:\s*</strong>([^<]+)',
+            # Альтернативный с двоеточием
+            r'Наименование объекта закупки:\s*</strong>([^<]+)',
+            # Объект закупки
+            r'<strong>Объект закупки:\s*</strong>([^<]+)',
+            r'Объект закупки:\s*</strong>([^<]+)',
+            # Предмет контракта/закупки
+            r'<strong>Предмет (?:контракта|закупки):\s*</strong>([^<]+)',
+            # Краткое описание
+            r'<strong>Краткое описание:\s*</strong>([^<]+)',
+            # Наименование товара
+            r'<strong>Наименование товара[^:]*:\s*</strong>([^<]+)',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, summary, re.IGNORECASE)
+            if match:
+                purchase_object = match.group(1).strip()
+                # Убираем лишние пробелы и HTML entities
+                purchase_object = re.sub(r'\s+', ' ', purchase_object)
+                purchase_object = html.unescape(purchase_object)
+
+                if is_valid(purchase_object):
+                    return purchase_object
+
         return None
 
     def _extract_tender_type(self, summary: str) -> Optional[str]:
@@ -778,6 +820,20 @@ class ZakupkiRSSParser:
             if is_bureaucratic:
                 print(f"   ⚠️ Обнаружено бюрократическое название, попытка заменить...")
                 purchase_object = self._extract_purchase_object_from_page(html_content)
+
+                # Если не нашли на common-info, пробуем вкладку purchase-objects
+                if not purchase_object or len(purchase_object) <= 10:
+                    purchase_objects_url = url.replace('common-info.html', 'purchase-objects.html')
+                    if purchase_objects_url != url:
+                        print(f"   🔄 Пробуем вкладку purchase-objects...")
+                        try:
+                            self._wait_for_rate_limit()
+                            po_response = self.session.get(purchase_objects_url, timeout=30, verify=False)
+                            if po_response.status_code == 200:
+                                purchase_object = self._extract_purchase_object_from_page(po_response.text)
+                        except Exception as e:
+                            print(f"   ⚠️ Ошибка загрузки purchase-objects: {e}")
+
                 if purchase_object and len(purchase_object) > 10:
                     old_name = tender['name']
                     tender['name'] = purchase_object
@@ -789,6 +845,20 @@ class ZakupkiRSSParser:
             elif len(current_name) < 20:
                 print(f"   ⚠️ Название слишком короткое ({len(current_name)} символов), попытка заменить...")
                 purchase_object = self._extract_purchase_object_from_page(html_content)
+
+                # Если не нашли на common-info, пробуем вкладку purchase-objects
+                if not purchase_object or len(purchase_object) <= 10:
+                    purchase_objects_url = url.replace('common-info.html', 'purchase-objects.html')
+                    if purchase_objects_url != url:
+                        print(f"   🔄 Пробуем вкладку purchase-objects...")
+                        try:
+                            self._wait_for_rate_limit()
+                            po_response = self.session.get(purchase_objects_url, timeout=30, verify=False)
+                            if po_response.status_code == 200:
+                                purchase_object = self._extract_purchase_object_from_page(po_response.text)
+                        except Exception as e:
+                            print(f"   ⚠️ Ошибка загрузки purchase-objects: {e}")
+
                 if purchase_object and len(purchase_object) > 10:
                     tender['name'] = purchase_object
                     print(f"   ✅ Заменено короткое название на: {purchase_object[:60]}...")
@@ -1007,52 +1077,66 @@ class ZakupkiRSSParser:
 
         return None
 
-    def _extract_purchase_object_from_page(self, html: str) -> Optional[str]:
+    def _extract_purchase_object_from_page(self, html_content: str) -> Optional[str]:
         """
         Извлекает описание объекта закупки из раздела "Информация об объекте закупки" на странице.
+
+        Использует несколько методов:
+        1. Regex паттерны для быстрого извлечения из известных мест
+        2. BeautifulSoup парсинг для более сложных случаев (таблица позиций)
 
         Returns:
             Описание объекта закупки или None если не найдено
         """
         print(f"   🔍 Попытка извлечь объект закупки из страницы...")
 
-        # Паттерны для извлечения из раздела "Информация об объекте закупки"
+        # Бюрократические фразы которые нужно отфильтровать
+        bureaucratic_phrases = [
+            'в соответствии с',
+            'статьи 93',
+            'закона № 44',
+            'закона №44',
+            'осуществляемая в соответствии',
+            'частью 12'
+        ]
+
+        def is_valid_purchase_object(text: str) -> bool:
+            """Проверяет что текст является валидным объектом закупки."""
+            if not text or len(text) < 10:
+                return False
+            text_lower = text.lower()
+            return not any(phrase in text_lower for phrase in bureaucratic_phrases)
+
+        def clean_text(text: str) -> str:
+            """Очищает текст от лишних пробелов и HTML entities."""
+            text = re.sub(r'\s+', ' ', text).strip()
+            text = html.unescape(text)
+            return text
+
+        # === МЕТОД 1: Regex паттерны ===
         patterns = [
-            # Наименование объекта закупки в section__info
+            # Наименование объекта закупки в section__info (с пробелами и переносами)
             r'Наименование объекта закупки\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            # Объект закупки в section__info
             r'Объект закупки\s*</span>\s*<span[^>]*class="section__info"[^>]*>\s*([^<]+)',
+            # cardMainInfo - title + content
+            r'<span[^>]*class="cardMainInfo__title"[^>]*>\s*Объект закупки\s*</span>\s*<span[^>]*class="cardMainInfo__content"[^>]*>\s*([^<]+)',
+            # Более гибкий паттерн для cardMainInfo
+            r'cardMainInfo__title[^>]*>\s*Объект закупки\s*</span>\s*<span[^>]*cardMainInfo__content[^>]*>\s*([^<]+)',
             # В табличной структуре
             r'<td[^>]*>Наименование объекта закупки</td>\s*<td[^>]*>([^<]+)',
             r'<td[^>]*>Объект закупки</td>\s*<td[^>]*>([^<]+)',
-            # В cardMainInfo (иногда там тоже есть)
-            r'Объект закупки.*?cardMainInfo__content[^>]*>\s*([^<]+)',
-            # Общий паттерн для поиска в блоках
+            # Общий паттерн
             r'(?:Наименование|Объект)\s+(?:объекта\s+)?закупки[:\s]*</span>\s*<[^>]*>\s*([^<]+)',
         ]
 
         for i, pattern in enumerate(patterns, 1):
-            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
             if match:
-                purchase_object = match.group(1).strip()
-                print(f"      ✓ Паттерн #{i} нашел: {purchase_object[:80]}...")
+                purchase_object = clean_text(match.group(1))
+                print(f"      ✓ Regex #{i} нашел: {purchase_object[:80]}...")
 
-                # Очищаем от лишних пробелов и HTML entities
-                purchase_object = re.sub(r'\s+', ' ', purchase_object)
-                purchase_object = html.unescape(purchase_object)
-
-                # Валидация: минимум 10 символов, не должно быть бюрократией
-                bureaucratic_phrases = [
-                    'в соответствии с',
-                    'статьи 93',
-                    'закона № 44',
-                    'закона №44'
-                ]
-                is_valid = (
-                    len(purchase_object) > 10 and
-                    not any(phrase in purchase_object.lower() for phrase in bureaucratic_phrases)
-                )
-
-                if is_valid:
+                if is_valid_purchase_object(purchase_object):
                     print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
                     return purchase_object
                 else:
@@ -1061,7 +1145,92 @@ class ZakupkiRSSParser:
                     else:
                         print(f"      ⚠️ Объект содержит бюрократические фразы, пропускаем")
 
-        print(f"      ❌ Объект закупки не найден ни одним паттерном")
+        # === МЕТОД 2: BeautifulSoup парсинг ===
+        print(f"      🔄 Regex не нашел, пробуем BeautifulSoup...")
+
+        try:
+            soup = BeautifulSoup(html_content, 'html.parser')
+
+            # 2.1 Ищем в cardMainInfo__section
+            for section in soup.find_all(class_='cardMainInfo__section'):
+                title = section.find(class_='cardMainInfo__title')
+                content = section.find(class_='cardMainInfo__content')
+                if title and content:
+                    title_text = title.get_text(strip=True).lower()
+                    if 'объект закупки' in title_text:
+                        purchase_object = clean_text(content.get_text(strip=True))
+                        print(f"      ✓ BS cardMainInfo нашел: {purchase_object[:80]}...")
+                        if is_valid_purchase_object(purchase_object):
+                            print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
+                            return purchase_object
+
+            # 2.2 Ищем в section__title + section__info
+            for title_span in soup.find_all(class_='section__title'):
+                title_text = title_span.get_text(strip=True).lower()
+                if 'наименование объекта закупки' in title_text or 'объект закупки' in title_text:
+                    info_span = title_span.find_next_sibling(class_='section__info')
+                    if info_span:
+                        purchase_object = clean_text(info_span.get_text(strip=True))
+                        print(f"      ✓ BS section__info нашел: {purchase_object[:80]}...")
+                        if is_valid_purchase_object(purchase_object):
+                            print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
+                            return purchase_object
+
+            # 2.3 Ищем в таблице позиций закупки (fallback)
+            # Находим раздел "Информация об объекте закупки"
+            obj_header = soup.find('h2', string=re.compile('Информация об объекте закупки', re.I))
+            if obj_header:
+                # Ищем таблицу в этом разделе
+                parent = obj_header.find_parent('div', class_='col')
+                if parent:
+                    table = parent.find('table', class_='blockInfo__table')
+                    if table:
+                        # Ищем строку данных (не заголовок)
+                        tbody = table.find('tbody')
+                        if tbody:
+                            first_row = tbody.find('tr', class_='tableBlock__row')
+                            if first_row:
+                                # Третья колонка (td) содержит наименование товара
+                                tds = first_row.find_all('td', class_='tableBlock__col')
+                                if len(tds) >= 3:
+                                    # Берём текст из третьей колонки (наименование товара)
+                                    # Но только первую строку, без характеристик
+                                    product_cell = tds[2]
+                                    # Получаем только прямой текст, без вложенных div
+                                    product_text = ''
+                                    for content in product_cell.children:
+                                        if isinstance(content, str):
+                                            product_text += content
+                                        elif content.name not in ['div', 'span', 'table']:
+                                            product_text += content.get_text()
+                                        # Прерываем после первого текстового блока (до div с характеристиками)
+                                        if content.name == 'div':
+                                            break
+
+                                    product_name = clean_text(product_text)
+                                    if product_name and len(product_name) > 5:
+                                        print(f"      ✓ BS таблица позиций нашла: {product_name[:80]}...")
+                                        if is_valid_purchase_object(product_name):
+                                            print(f"      ✅ Объект закупки из таблицы: {product_name[:80]}...")
+                                            return product_name
+
+        except Exception as e:
+            print(f"      ⚠️ Ошибка BeautifulSoup: {e}")
+
+        print(f"      ❌ Объект закупки не найден ни одним методом")
+
+        # Сохраняем debug HTML для анализа проблемных страниц
+        try:
+            debug_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output")
+            os.makedirs(debug_dir, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            debug_file = os.path.join(debug_dir, f"debug_purchase_object_not_found_{timestamp}.html")
+            with open(debug_file, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            print(f"      💾 Debug HTML сохранен: {debug_file}")
+        except Exception as e:
+            print(f"      ⚠️ Не удалось сохранить debug HTML: {e}")
+
         return None
 
     def get_tender_categories_rss(self) -> List[str]:
