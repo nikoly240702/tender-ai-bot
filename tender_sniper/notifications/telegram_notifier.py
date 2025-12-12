@@ -183,8 +183,8 @@ class TelegramNotifier:
 
 <b>💰 Цена:</b> {price_str}
 <b>📅 Опубликован:</b> {pub_str}
-<b>📍 Регион:</b> {tender.get('region', 'Не указан')}
-<b>🏢 Заказчик:</b> {tender.get('customer_name', 'Не указан')[:100]}
+<b>📍 Регион:</b> {tender.get('customer_region', tender.get('region', 'Не указан'))}
+<b>🏢 Заказчик:</b> {tender.get('customer', tender.get('customer_name', 'Не указан'))[:100]}
 
 <b>🔑 Совпадения:</b> {', '.join(matched_keywords[:5]) if matched_keywords else 'Базовый фильтр'}
 """

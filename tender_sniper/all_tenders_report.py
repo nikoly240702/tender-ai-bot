@@ -22,6 +22,24 @@ except ImportError:
         return name[:80] + '...' if len(name) > 80 else name
 
 
+def _fast_short_name(original_name: str, max_length: int = 80) -> str:
+    """
+    Быстрое создание короткого названия БЕЗ AI.
+    Используется для bulk-операций (HTML отчёты) для скорости.
+    """
+    if not original_name:
+        return "Без названия"
+    if len(original_name) <= max_length:
+        return original_name
+
+    # Обрезаем по словам
+    words = original_name[:max_length].split()
+    if len(' '.join(words)) + 3 <= max_length:
+        return ' '.join(words) + '...'
+    else:
+        return ' '.join(words[:-1]) + '...' if len(words) > 1 else original_name[:max_length-3] + '...'
+
+
 def format_price(price: float) -> str:
     """Форматирование цены."""
     if not price:
@@ -58,7 +76,8 @@ def format_date(date_str: str) -> str:
 def generate_html_report(
     tenders: List[Dict[str, Any]],
     username: str = "Пользователь",
-    total_count: int = None
+    total_count: int = None,
+    use_ai_naming: bool = False  # По умолчанию отключено для скорости
 ) -> str:
     """
     Генерация HTML отчета всех тендеров.
@@ -67,6 +86,7 @@ def generate_html_report(
         tenders: Список тендеров
         username: Имя пользователя
         total_count: Общее количество тендеров (если отображена только часть)
+        use_ai_naming: Использовать AI для генерации названий (медленно, по умолчанию False)
 
     Returns:
         HTML строка
@@ -520,12 +540,16 @@ def generate_html_report(
 
                 # Подготавливаем данные для фильтрации
                 original_name = tender.get('name', 'Без названия')
-                # Генерируем короткое AI-название
-                tender_name = generate_tender_name(
-                    original_name,
-                    tender_data=tender,
-                    max_length=80
-                )
+                # Генерируем короткое название (AI или быстрый fallback)
+                if use_ai_naming:
+                    tender_name = generate_tender_name(
+                        original_name,
+                        tender_data=tender,
+                        max_length=80
+                    )
+                else:
+                    # Быстрая генерация без API вызовов
+                    tender_name = _fast_short_name(original_name, max_length=80)
                 tender_price = tender.get('price', 0) or 0
                 tender_region = tender.get('region', 'Не указан')
                 tender_date = tender.get('published_date', '')

@@ -269,10 +269,16 @@ class TenderSniperDB:
         """Получение всех активных фильтров с информацией о пользователе."""
         async with DatabaseSession() as session:
             # JOIN с SniperUser чтобы получить telegram_id и subscription_tier
+            # ВАЖНО: проверяем и is_active фильтра И notifications_enabled пользователя
             result = await session.execute(
                 select(SniperFilterModel, SniperUserModel)
                 .join(SniperUserModel, SniperFilterModel.user_id == SniperUserModel.id)
-                .where(SniperFilterModel.is_active == True)
+                .where(
+                    and_(
+                        SniperFilterModel.is_active == True,
+                        SniperUserModel.notifications_enabled == True  # Пауза автомониторинга
+                    )
+                )
             )
             filter_user_pairs = result.all()
 
