@@ -1,7 +1,7 @@
 """Add user status and blocking fields
 
-Revision ID: e5f6g7h8i9j0
-Revises: 20251210_create_user_actions
+Revision ID: add_user_status_blocking
+Revises: user_actions_log
 Create Date: 2024-12-12
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = 'e5f6g7h8i9j0'
-down_revision = '20251210_create_user_actions'
+revision = 'add_user_status_blocking'
+down_revision = 'user_actions_log'
 branch_labels = None
 depends_on = None
 
