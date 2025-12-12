@@ -120,15 +120,38 @@ async def priority_tender_sniper(message: Message, state: FSMContext):
         logger.info(f"Прерывание FSM состояния {current_state} для Tender Sniper")
         await state.clear()
 
+    # Получаем статус автомониторинга для динамической кнопки паузы
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+    is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
+
+    # Кнопка паузы/возобновления
+    if is_monitoring_enabled:
+        monitoring_button = InlineKeyboardButton(
+            text="⏸️ Пауза автомониторинга",
+            callback_data="sniper_pause_monitoring"
+        )
+        monitoring_status = "🟢 <b>Автомониторинг активен</b>"
+    else:
+        monitoring_button = InlineKeyboardButton(
+            text="▶️ Возобновить автомониторинг",
+            callback_data="sniper_resume_monitoring"
+        )
+        monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+        [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
         [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")]
+        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+        [monitoring_button],
+        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     sent = await message.answer(
-        "🎯 <b>Tender Sniper</b>\n\nВыберите действие:",
+        f"🎯 <b>Tender Sniper</b>\n\n"
+        f"{monitoring_status}\n\n"
+        f"Выберите действие:",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
@@ -314,34 +337,11 @@ async def priority_my_filters_callback(callback: CallbackQuery, state: FSMContex
 @router.callback_query(StateFilter("*"), F.data == "sniper_menu")
 async def priority_sniper_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Callback меню Sniper - работает в любом состоянии."""
-    await callback.answer()
-
     current_state = await state.get_state()
     if current_state:
         logger.info(f"Прерывание FSM состояния {current_state} для sniper_menu callback")
         await state.clear()
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
-
-    try:
-        await callback.message.edit_text(
-            "🎯 <b>Tender Sniper</b>\n\n"
-            "Выберите действие:",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-    except Exception:
-        sent = await callback.message.answer(
-            "🎯 <b>Tender Sniper</b>\n\n"
-            "Выберите действие:",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-        await track_message(state, sent.message_id)
+    # Вызываем оригинальный handler с динамической кнопкой паузы
+    from bot.handlers.sniper import show_sniper_menu
+    await show_sniper_menu(callback)
