@@ -481,9 +481,18 @@ class TenderSniperDB:
             Словарь со статистикой:
             - notifications_today: уведомлений сегодня
             - total_notifications: всего уведомлений
+            - total_matches: всего совпадений (алиас для total_notifications)
             - active_filters: активных фильтров
+            - notifications_limit: лимит уведомлений пользователя
         """
         async with DatabaseSession() as session:
+            # Получаем данные пользователя для лимита
+            user_result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.id == user_id)
+            )
+            user = user_result.scalar_one_or_none()
+            notifications_limit = user.notifications_limit if user else 15
+
             # Общее количество уведомлений
             total_result = await session.execute(
                 select(func.count()).select_from(SniperNotificationModel).where(
@@ -518,7 +527,9 @@ class TenderSniperDB:
             return {
                 'notifications_today': notifications_today,
                 'total_notifications': total_notifications,
-                'active_filters': active_filters
+                'total_matches': total_notifications,  # алиас для совместимости
+                'active_filters': active_filters,
+                'notifications_limit': notifications_limit
             }
 
     # ============================================
