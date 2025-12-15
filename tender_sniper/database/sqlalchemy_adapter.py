@@ -139,6 +139,17 @@ class TenderSniperDB:
             await session.commit()
             return True
 
+    async def set_monitoring_status(self, telegram_id: int, enabled: bool) -> bool:
+        """Установить статус автомониторинга для пользователя."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperUserModel)
+                .where(SniperUserModel.telegram_id == telegram_id)
+                .values(notifications_enabled=enabled)
+            )
+            await session.commit()
+            return True
+
     async def reset_daily_notifications(self, user_id: int):
         """Сброс счетчика уведомлений."""
         async with DatabaseSession() as session:
