@@ -19,7 +19,7 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     """
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🏠 Главное меню")],
+            [KeyboardButton(text="🏠 Главное меню"), KeyboardButton(text="⏯️ Мониторинг")],
             [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Мои фильтры")],
             [KeyboardButton(text="📊 Все мои тендеры")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="📈 Статистика")]

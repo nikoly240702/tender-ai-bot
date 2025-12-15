@@ -317,6 +317,35 @@ async def priority_stats(message: Message, state: FSMContext):
         )
 
 
+@router.message(StateFilter("*"), F.text == "⏯️ Мониторинг")
+async def priority_toggle_monitoring(message: Message, state: FSMContext):
+    """Переключение автомониторинга - работает в любом состоянии."""
+    try:
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+
+        # Получаем текущий статус
+        is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
+
+        # Переключаем статус
+        new_status = not is_monitoring_enabled
+        await db.set_monitoring_status(message.from_user.id, new_status)
+
+        if new_status:
+            status_text = "🟢 <b>Автомониторинг включён!</b>\n\nВы будете получать уведомления о новых тендерах по вашим фильтрам."
+        else:
+            status_text = "🔴 <b>Автомониторинг приостановлен</b>\n\nУведомления временно отключены. Нажмите ещё раз, чтобы возобновить."
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await message.answer(status_text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка переключения мониторинга: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+
+
 # ============================================
 # INLINE CALLBACKS - РАБОТАЮТ В ЛЮБОМ СОСТОЯНИИ FSM
 # ============================================
