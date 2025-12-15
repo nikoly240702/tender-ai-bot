@@ -470,6 +470,57 @@ class TenderSniperDB:
             )
             return result.scalar_one_or_none() is not None
 
+    async def get_user_stats(self, user_id: int) -> Dict[str, Any]:
+        """
+        Получение статистики пользователя.
+
+        Args:
+            user_id: Внутренний ID пользователя (не telegram_id)
+
+        Returns:
+            Словарь со статистикой:
+            - notifications_today: уведомлений сегодня
+            - total_notifications: всего уведомлений
+            - active_filters: активных фильтров
+        """
+        async with DatabaseSession() as session:
+            # Общее количество уведомлений
+            total_result = await session.execute(
+                select(func.count()).select_from(SniperNotificationModel).where(
+                    SniperNotificationModel.user_id == user_id
+                )
+            )
+            total_notifications = total_result.scalar() or 0
+
+            # Уведомлений за сегодня (с начала дня UTC)
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            today_result = await session.execute(
+                select(func.count()).select_from(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.user_id == user_id,
+                        SniperNotificationModel.sent_at >= today_start
+                    )
+                )
+            )
+            notifications_today = today_result.scalar() or 0
+
+            # Количество активных фильтров
+            filters_result = await session.execute(
+                select(func.count()).select_from(SniperFilterModel).where(
+                    and_(
+                        SniperFilterModel.user_id == user_id,
+                        SniperFilterModel.is_active == True
+                    )
+                )
+            )
+            active_filters = filters_result.scalar() or 0
+
+            return {
+                'notifications_today': notifications_today,
+                'total_notifications': total_notifications,
+                'active_filters': active_filters
+            }
+
     # ============================================
     # TENDER CACHE
     # ============================================
