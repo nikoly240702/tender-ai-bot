@@ -91,18 +91,39 @@ async def priority_main_menu(message: Message, state: FSMContext):
             logger.info(f"Прерывание FSM состояния {current_state} для главного меню")
             await state.clear()
 
+        # Получаем статус автомониторинга для динамической кнопки паузы
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
+
+        # Кнопка паузы/возобновления
+        if is_monitoring_enabled:
+            monitoring_button = InlineKeyboardButton(
+                text="⏸️ Пауза автомониторинга",
+                callback_data="sniper_pause_monitoring"
+            )
+            monitoring_status = "🟢 Автомониторинг активен"
+        else:
+            monitoring_button = InlineKeyboardButton(
+                text="▶️ Возобновить автомониторинг",
+                callback_data="sniper_resume_monitoring"
+            )
+            monitoring_status = "🔴 Автомониторинг на паузе"
+
         # Показываем главное меню
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
             [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [monitoring_button],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
         ])
 
         sent = await message.answer(
-            "🏠 <b>Главное меню</b>\n\n"
-            "Выберите действие:",
+            f"🏠 <b>Главное меню</b>\n\n"
+            f"{monitoring_status}\n\n"
+            f"Выберите действие:",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -303,37 +324,63 @@ async def priority_stats(message: Message, state: FSMContext):
 @router.callback_query(StateFilter("*"), F.data == "main_menu")
 async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Callback главного меню - работает в любом состоянии."""
-    await callback.answer()
-
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для main_menu callback")
-        await state.clear()
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-    ])
-
     try:
-        await callback.message.edit_text(
-            "🏠 <b>Главное меню</b>\n\n"
-            "Выберите действие:",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-    except Exception:
-        # Если не удалось отредактировать - отправляем новое
-        sent = await callback.message.answer(
-            "🏠 <b>Главное меню</b>\n\n"
-            "Выберите действие:",
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-        await track_message(state, sent.message_id)
+        await callback.answer()
+
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для main_menu callback")
+            await state.clear()
+
+        # Получаем статус автомониторинга для динамической кнопки паузы
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        is_monitoring_enabled = await db.get_monitoring_status(callback.from_user.id)
+
+        # Кнопка паузы/возобновления
+        if is_monitoring_enabled:
+            monitoring_button = InlineKeyboardButton(
+                text="⏸️ Пауза автомониторинга",
+                callback_data="sniper_pause_monitoring"
+            )
+            monitoring_status = "🟢 Автомониторинг активен"
+        else:
+            monitoring_button = InlineKeyboardButton(
+                text="▶️ Возобновить автомониторинг",
+                callback_data="sniper_resume_monitoring"
+            )
+            monitoring_status = "🔴 Автомониторинг на паузе"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [monitoring_button],
+            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+        ])
+
+        try:
+            await callback.message.edit_text(
+                f"🏠 <b>Главное меню</b>\n\n"
+                f"{monitoring_status}\n\n"
+                f"Выберите действие:",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        except Exception:
+            # Если не удалось отредактировать - отправляем новое
+            sent = await callback.message.answer(
+                f"🏠 <b>Главное меню</b>\n\n"
+                f"{monitoring_status}\n\n"
+                f"Выберите действие:",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            await track_message(state, sent.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка в main_menu callback: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(StateFilter("*"), F.data == "sniper_my_filters")
