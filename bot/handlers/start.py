@@ -12,14 +12,23 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
-def get_main_keyboard() -> ReplyKeyboardMarkup:
+def get_main_keyboard(is_monitoring_enabled: bool = True) -> ReplyKeyboardMarkup:
     """
     Возвращает постоянную клавиатуру управления ботом.
     Отображается справа от текстовой строки.
+
+    Args:
+        is_monitoring_enabled: Статус автомониторинга для динамической кнопки
     """
+    # Динамическая кнопка мониторинга
+    if is_monitoring_enabled:
+        monitoring_btn = KeyboardButton(text="⏸️ Пауза мониторинга")
+    else:
+        monitoring_btn = KeyboardButton(text="▶️ Вкл. мониторинг")
+
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🏠 Главное меню"), KeyboardButton(text="⏯️ Мониторинг")],
+            [KeyboardButton(text="🏠 Главное меню"), monitoring_btn],
             [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Мои фильтры")],
             [KeyboardButton(text="📊 Все мои тендеры")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="📈 Статистика")]
@@ -28,6 +37,19 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
         persistent=True  # Клавиатура остается видимой всегда
     )
     return keyboard
+
+
+async def get_main_keyboard_for_user(telegram_id: int) -> ReplyKeyboardMarkup:
+    """
+    Возвращает клавиатуру с актуальным статусом мониторинга для пользователя.
+    """
+    from tender_sniper.database import get_sniper_db
+    try:
+        db = await get_sniper_db()
+        is_monitoring_enabled = await db.get_monitoring_status(telegram_id)
+    except Exception:
+        is_monitoring_enabled = True  # По умолчанию включен
+    return get_main_keyboard(is_monitoring_enabled)
 
 
 @router.message(CommandStart())
@@ -88,9 +110,12 @@ async def cmd_start(message: Message, state: FSMContext):
         [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
     ])
 
+    # Получаем клавиатуру с актуальным статусом мониторинга
+    reply_keyboard = await get_main_keyboard_for_user(message.from_user.id)
+
     await message.answer(
         welcome_text,
-        reply_markup=get_main_keyboard(),
+        reply_markup=reply_keyboard,
         parse_mode="HTML"
     )
 
