@@ -365,7 +365,7 @@ async def show_tenders_menu(message: Message, tenders: List[Dict], filter_params
 
     # Кнопки навигации и фильтрации
     keyboard_rows = [
-        [InlineKeyboardButton(text="📥 Скачать HTML отчет", callback_data="alltenders_download_html")],
+        [InlineKeyboardButton(text="📥 Скачать HTML отчет", callback_data="alltenders_download_menu")],
         [
             InlineKeyboardButton(text="📅 Сортировка", callback_data="alltenders_sort"),
             InlineKeyboardButton(text="💰 Цена", callback_data="alltenders_filter_price")
@@ -395,7 +395,40 @@ async def show_tenders_menu(message: Message, tenders: List[Dict], filter_params
         await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
-@router.callback_query(F.data == "alltenders_download_html")
+@router.callback_query(F.data == "alltenders_download_menu")
+async def show_download_menu(callback: CallbackQuery, state: FSMContext):
+    """Показать меню выбора типа отчёта для скачивания."""
+    try:
+        await callback.answer()
+
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+
+        # Получаем список уникальных фильтров
+        filter_names = set(t.get('filter_name') or 'Без фильтра' for t in tenders)
+        filters_count = len(filter_names)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"📊 Все тендеры ({len(tenders)} шт.)", callback_data="alltenders_download_all")],
+            [InlineKeyboardButton(text=f"🎨 По фильтру ({filters_count} фильтров)", callback_data="alltenders_download_by_filter")],
+            [InlineKeyboardButton(text="📅 За период", callback_data="alltenders_download_by_period")],
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
+        ])
+
+        await callback.message.edit_text(
+            "📥 <b>Скачать HTML отчёт</b>\n\n"
+            "Выберите какие тендеры включить в отчёт:\n\n"
+            f"📊 <b>Всего тендеров:</b> {len(tenders)}\n"
+            f"🎨 <b>Фильтров:</b> {filters_count}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_download_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "alltenders_download_all")
 async def download_all_tenders_html(callback: CallbackQuery, state: FSMContext):
     """Скачать HTML отчет всех тендеров."""
     await callback.answer("Генерирую HTML отчет...")
@@ -430,6 +463,191 @@ async def download_all_tenders_html(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка генерации HTML: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка при генерации отчета")
+
+
+@router.callback_query(F.data == "alltenders_download_by_filter")
+async def show_filter_selection(callback: CallbackQuery, state: FSMContext):
+    """Показать список фильтров для выбора."""
+    try:
+        await callback.answer()
+
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+
+        # Группируем тендеры по фильтрам и считаем количество
+        filter_counts = {}
+        for tender in tenders:
+            filter_name = tender.get('filter_name') or 'Без фильтра'
+            filter_counts[filter_name] = filter_counts.get(filter_name, 0) + 1
+
+        # Создаём кнопки для каждого фильтра
+        keyboard_rows = []
+        for filter_name, count in sorted(filter_counts.items(), key=lambda x: -x[1]):
+            # Обрезаем длинные названия
+            display_name = filter_name[:25] + "..." if len(filter_name) > 25 else filter_name
+            callback_data = f"alltenders_dl_filter:{filter_name[:50]}"
+            keyboard_rows.append([
+                InlineKeyboardButton(
+                    text=f"🎨 {display_name} ({count})",
+                    callback_data=callback_data
+                )
+            ])
+
+        keyboard_rows.append([InlineKeyboardButton(text="« Назад", callback_data="alltenders_download_menu")])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+        await callback.message.edit_text(
+            "🎨 <b>Выберите фильтр для отчёта</b>\n\n"
+            "Нажмите на фильтр, чтобы скачать отчёт только по нему:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_filter_selection: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("alltenders_dl_filter:"))
+async def download_by_filter(callback: CallbackQuery, state: FSMContext):
+    """Скачать HTML отчет по выбранному фильтру."""
+    await callback.answer("Генерирую HTML отчет...")
+
+    try:
+        # Получаем название фильтра
+        selected_filter = callback.data.replace("alltenders_dl_filter:", "")
+
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+
+        # Фильтруем тендеры по выбранному фильтру
+        if selected_filter == "Без фильтра":
+            filtered_tenders = [t for t in tenders if not t.get('filter_name')]
+        else:
+            filtered_tenders = [t for t in tenders if (t.get('filter_name') or '').startswith(selected_filter)]
+
+        if not filtered_tenders:
+            await callback.message.answer("❌ Нет тендеров по выбранному фильтру")
+            return
+
+        # Генерируем HTML
+        report_path = await generate_all_tenders_html(
+            filtered_tenders,
+            callback.from_user.id,
+            {'filter': selected_filter}
+        )
+
+        # Отправляем файл
+        await callback.message.answer_document(
+            document=FSInputFile(report_path),
+            caption=f"📊 <b>Тендеры по фильтру</b>\n\n"
+                    f"🎨 Фильтр: {selected_filter}\n"
+                    f"📋 Тендеров: {len(filtered_tenders)}",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка генерации HTML по фильтру: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка при генерации отчета")
+
+
+@router.callback_query(F.data == "alltenders_download_by_period")
+async def show_period_selection(callback: CallbackQuery, state: FSMContext):
+    """Показать выбор временного периода."""
+    try:
+        await callback.answer()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📅 Сегодня", callback_data="alltenders_dl_period:1")],
+            [InlineKeyboardButton(text="📅 Последние 3 дня", callback_data="alltenders_dl_period:3")],
+            [InlineKeyboardButton(text="📅 Последняя неделя", callback_data="alltenders_dl_period:7")],
+            [InlineKeyboardButton(text="📅 Последние 2 недели", callback_data="alltenders_dl_period:14")],
+            [InlineKeyboardButton(text="📅 Последний месяц", callback_data="alltenders_dl_period:30")],
+            [InlineKeyboardButton(text="📅 Последние 3 месяца", callback_data="alltenders_dl_period:90")],
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_download_menu")]
+        ])
+
+        await callback.message.edit_text(
+            "📅 <b>Выберите период для отчёта</b>\n\n"
+            "За какой период включить тендеры в отчёт?",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_period_selection: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("alltenders_dl_period:"))
+async def download_by_period(callback: CallbackQuery, state: FSMContext):
+    """Скачать HTML отчет за выбранный период."""
+    await callback.answer("Генерирую HTML отчет...")
+
+    try:
+        # Получаем количество дней
+        days = int(callback.data.replace("alltenders_dl_period:", ""))
+
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+
+        # Вычисляем дату отсечки
+        from datetime import datetime, timedelta, timezone
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+        # Фильтруем тендеры по дате
+        filtered_tenders = []
+        for tender in tenders:
+            sent_at = tender.get('sent_at')
+            if sent_at:
+                try:
+                    if isinstance(sent_at, str):
+                        # Парсим строку даты
+                        tender_date = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
+                    else:
+                        tender_date = sent_at
+
+                    if tender_date >= cutoff_date:
+                        filtered_tenders.append(tender)
+                except Exception:
+                    # Если не можем распарсить дату - включаем тендер
+                    filtered_tenders.append(tender)
+            else:
+                # Если нет даты - включаем тендер
+                filtered_tenders.append(tender)
+
+        if not filtered_tenders:
+            await callback.message.answer(f"❌ Нет тендеров за последние {days} дней")
+            return
+
+        # Название периода для отчёта
+        period_names = {
+            1: "сегодня",
+            3: "последние 3 дня",
+            7: "последнюю неделю",
+            14: "последние 2 недели",
+            30: "последний месяц",
+            90: "последние 3 месяца"
+        }
+        period_name = period_names.get(days, f"последние {days} дней")
+
+        # Генерируем HTML
+        report_path = await generate_all_tenders_html(
+            filtered_tenders,
+            callback.from_user.id,
+            {'period_days': days}
+        )
+
+        # Отправляем файл
+        await callback.message.answer_document(
+            document=FSInputFile(report_path),
+            caption=f"📊 <b>Тендеры за {period_name}</b>\n\n"
+                    f"📋 Тендеров: {len(filtered_tenders)}",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка генерации HTML за период: {e}", exc_info=True)
         await callback.message.answer("❌ Ошибка при генерации отчета")
 
 
