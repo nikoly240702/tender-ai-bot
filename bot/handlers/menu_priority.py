@@ -81,97 +81,109 @@ async def track_message(state: FSMContext, message_id: int):
 @router.message(StateFilter("*"), F.text == "🏠 В главное меню")
 async def priority_main_menu(message: Message, state: FSMContext):
     """Главное меню - работает в любом состоянии."""
-    # Удаляем предыдущие отслеживаемые сообщения
-    await delete_tracked_messages(state, message.bot, message.chat.id)
+    try:
+        # Удаляем предыдущие отслеживаемые сообщения
+        await delete_tracked_messages(state, message.bot, message.chat.id)
 
-    # Очищаем FSM состояние
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для главного меню")
-        await state.clear()
+        # Очищаем FSM состояние
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для главного меню")
+            await state.clear()
 
-    # Показываем главное меню
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-    ])
+        # Показываем главное меню
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+        ])
 
-    sent = await message.answer(
-        "🏠 <b>Главное меню</b>\n\n"
-        "Выберите действие:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-    # Отслеживаем новое сообщение
-    await track_message(state, sent.message_id)
+        sent = await message.answer(
+            "🏠 <b>Главное меню</b>\n\n"
+            "Выберите действие:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        # Отслеживаем новое сообщение
+        await track_message(state, sent.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка в главном меню: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(StateFilter("*"), F.text == "🎯 Tender Sniper")
 async def priority_tender_sniper(message: Message, state: FSMContext):
     """Tender Sniper меню - работает в любом состоянии."""
-    # Удаляем предыдущие отслеживаемые сообщения
-    await delete_tracked_messages(state, message.bot, message.chat.id)
+    try:
+        # Удаляем предыдущие отслеживаемые сообщения
+        await delete_tracked_messages(state, message.bot, message.chat.id)
 
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для Tender Sniper")
-        await state.clear()
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для Tender Sniper")
+            await state.clear()
 
-    # Получаем статус автомониторинга для динамической кнопки паузы
-    from tender_sniper.database import get_sniper_db
-    db = await get_sniper_db()
-    is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
+        # Получаем статус автомониторинга для динамической кнопки паузы
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
 
-    # Кнопка паузы/возобновления
-    if is_monitoring_enabled:
-        monitoring_button = InlineKeyboardButton(
-            text="⏸️ Пауза автомониторинга",
-            callback_data="sniper_pause_monitoring"
+        # Кнопка паузы/возобновления
+        if is_monitoring_enabled:
+            monitoring_button = InlineKeyboardButton(
+                text="⏸️ Пауза автомониторинга",
+                callback_data="sniper_pause_monitoring"
+            )
+            monitoring_status = "🟢 <b>Автомониторинг активен</b>"
+        else:
+            monitoring_button = InlineKeyboardButton(
+                text="▶️ Возобновить автомониторинг",
+                callback_data="sniper_resume_monitoring"
+            )
+            monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [monitoring_button],
+            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        sent = await message.answer(
+            f"🎯 <b>Tender Sniper</b>\n\n"
+            f"{monitoring_status}\n\n"
+            f"Выберите действие:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
         )
-        monitoring_status = "🟢 <b>Автомониторинг активен</b>"
-    else:
-        monitoring_button = InlineKeyboardButton(
-            text="▶️ Возобновить автомониторинг",
-            callback_data="sniper_resume_monitoring"
-        )
-        monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
-        [monitoring_button],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
-
-    sent = await message.answer(
-        f"🎯 <b>Tender Sniper</b>\n\n"
-        f"{monitoring_status}\n\n"
-        f"Выберите действие:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
-    await track_message(state, sent.message_id)
+        await track_message(state, sent.message_id)
+    except Exception as e:
+        logger.error(f"Ошибка в Tender Sniper меню: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(StateFilter("*"), F.text.in_(["📊 Мои фильтры", "📋 Мои фильтры"]))
 async def priority_my_filters(message: Message, state: FSMContext):
     """Мои фильтры - работает в любом состоянии."""
-    # Удаляем предыдущие отслеживаемые сообщения
-    await delete_tracked_messages(state, message.bot, message.chat.id)
+    try:
+        # Удаляем предыдущие отслеживаемые сообщения
+        await delete_tracked_messages(state, message.bot, message.chat.id)
 
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для Мои фильтры")
-        await state.clear()
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для Мои фильтры")
+            await state.clear()
 
-    # Импортируем и вызываем handler
-    from bot.handlers.sniper import show_my_filters_message
-    await show_my_filters_message(message)
+        # Импортируем и вызываем handler
+        from bot.handlers.sniper import show_my_filters_message
+        await show_my_filters_message(message)
+    except Exception as e:
+        logger.error(f"Ошибка в Мои фильтры: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(StateFilter("*"), F.text == "📊 Все мои тендеры")
@@ -211,17 +223,21 @@ async def priority_all_tenders(message: Message, state: FSMContext):
 @router.message(StateFilter("*"), F.text == "⭐ Избранное")
 async def priority_favorites(message: Message, state: FSMContext):
     """Избранное - работает в любом состоянии."""
-    # Удаляем предыдущие отслеживаемые сообщения
-    await delete_tracked_messages(state, message.bot, message.chat.id)
+    try:
+        # Удаляем предыдущие отслеживаемые сообщения
+        await delete_tracked_messages(state, message.bot, message.chat.id)
 
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для Избранное")
-        await state.clear()
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для Избранное")
+            await state.clear()
 
-    # Импортируем и вызываем handler
-    from bot.handlers.user_management import cmd_favorites
-    await cmd_favorites(message)
+        # Импортируем и вызываем handler
+        from bot.handlers.user_management import favorites_command
+        await favorites_command(message)
+    except Exception as e:
+        logger.error(f"Ошибка в Избранное: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(StateFilter("*"), F.text == "📈 Статистика")
@@ -323,25 +339,33 @@ async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext
 @router.callback_query(StateFilter("*"), F.data == "sniper_my_filters")
 async def priority_my_filters_callback(callback: CallbackQuery, state: FSMContext):
     """Callback Мои фильтры - работает в любом состоянии."""
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для sniper_my_filters callback")
-        await state.clear()
+    try:
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для sniper_my_filters callback")
+            await state.clear()
 
-    # Импортируем и вызываем handler для отображения фильтров
-    # НЕ вызываем callback.answer() - это сделает show_my_filters
-    from bot.handlers.sniper import show_my_filters
-    await show_my_filters(callback)
+        # Импортируем и вызываем handler для отображения фильтров
+        # НЕ вызываем callback.answer() - это сделает show_my_filters
+        from bot.handlers.sniper import show_my_filters
+        await show_my_filters(callback)
+    except Exception as e:
+        logger.error(f"Ошибка в callback sniper_my_filters: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(StateFilter("*"), F.data == "sniper_menu")
 async def priority_sniper_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Callback меню Sniper - работает в любом состоянии."""
-    current_state = await state.get_state()
-    if current_state:
-        logger.info(f"Прерывание FSM состояния {current_state} для sniper_menu callback")
-        await state.clear()
+    try:
+        current_state = await state.get_state()
+        if current_state:
+            logger.info(f"Прерывание FSM состояния {current_state} для sniper_menu callback")
+            await state.clear()
 
-    # Вызываем оригинальный handler с динамической кнопкой паузы
-    from bot.handlers.sniper import show_sniper_menu
-    await show_sniper_menu(callback)
+        # Вызываем оригинальный handler с динамической кнопкой паузы
+        from bot.handlers.sniper import show_sniper_menu
+        await show_sniper_menu(callback)
+    except Exception as e:
+        logger.error(f"Ошибка в callback sniper_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)

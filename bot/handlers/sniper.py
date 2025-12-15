@@ -52,93 +52,100 @@ class SniperStates(StatesGroup):
 @router.message(F.text == "🎯 Tender Sniper")
 async def cmd_sniper_menu(message: Message):
     """Главное меню Tender Sniper."""
+    try:
+        # Проверяем, включен ли Tender Sniper
+        if not is_tender_sniper_enabled():
+            await message.answer(
+                "⚠️ <b>Tender Sniper временно недоступен</b>\n\n"
+                "Функция находится в стадии внедрения. "
+                "Используйте обычный поиск через /start",
+                parse_mode="HTML"
+            )
+            return
 
-    # Проверяем, включен ли Tender Sniper
-    if not is_tender_sniper_enabled():
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
         await message.answer(
-            "⚠️ <b>Tender Sniper временно недоступен</b>\n\n"
-            "Функция находится в стадии внедрения. "
-            "Используйте обычный поиск через /start",
+            "🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            "<b>Новый workflow:</b>\n"
+            "1️⃣ Создаете фильтр с критериями\n"
+            "2️⃣ AI расширяет ваш запрос\n"
+            "3️⃣ Получаете HTML отчет с тендерами\n"
+            "4️⃣ Включаете автомониторинг (опционально)\n\n"
+            "<b>Возможности:</b>\n"
+            "• 🤖 AI расширение критериев поиска\n"
+            "• 📊 Мгновенный поиск до 25 тендеров\n"
+            "• 📄 Красивые HTML отчеты\n"
+            "• 🔔 Автоматические уведомления\n\n"
+            "Начните с создания фильтра!",
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
-        return
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-        [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
-
-    await message.answer(
-        "🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
-        "<b>Новый workflow:</b>\n"
-        "1️⃣ Создаете фильтр с критериями\n"
-        "2️⃣ AI расширяет ваш запрос\n"
-        "3️⃣ Получаете HTML отчет с тендерами\n"
-        "4️⃣ Включаете автомониторинг (опционально)\n\n"
-        "<b>Возможности:</b>\n"
-        "• 🤖 AI расширение критериев поиска\n"
-        "• 📊 Мгновенный поиск до 25 тендеров\n"
-        "• 📄 Красивые HTML отчеты\n"
-        "• 🔔 Автоматические уведомления\n\n"
-        "Начните с создания фильтра!",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+    except Exception as e:
+        logger.error(f"Ошибка в cmd_sniper_menu: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.callback_query(F.data == "sniper_menu")
 async def show_sniper_menu(callback: CallbackQuery):
     """Callback для возврата в главное меню Sniper."""
-    await callback.answer()
+    try:
+        await callback.answer()
 
-    # Проверяем статус автомониторинга
-    db = await get_sniper_db()
-    is_monitoring_enabled = await db.get_monitoring_status(callback.from_user.id)
+        # Проверяем статус автомониторинга
+        db = await get_sniper_db()
+        is_monitoring_enabled = await db.get_monitoring_status(callback.from_user.id)
 
-    # Кнопка паузы/возобновления
-    if is_monitoring_enabled:
-        monitoring_button = InlineKeyboardButton(text="⏸️ Пауза автомониторинга", callback_data="sniper_pause_monitoring")
-        monitoring_status = "🟢 <b>Автомониторинг активен</b>"
-    else:
-        monitoring_button = InlineKeyboardButton(text="▶️ Возобновить автомониторинг", callback_data="sniper_resume_monitoring")
-        monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
+        # Кнопка паузы/возобновления
+        if is_monitoring_enabled:
+            monitoring_button = InlineKeyboardButton(text="⏸️ Пауза автомониторинга", callback_data="sniper_pause_monitoring")
+            monitoring_status = "🟢 <b>Автомониторинг активен</b>"
+        else:
+            monitoring_button = InlineKeyboardButton(text="▶️ Возобновить автомониторинг", callback_data="sniper_resume_monitoring")
+            monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
-        [monitoring_button],
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-        [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [monitoring_button],
+            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
 
-    await callback.message.edit_text(
-        f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
-        f"{monitoring_status}\n\n"
-        f"<b>Два режима работы:</b>\n\n"
-        f"🔍 <b>Новый поиск</b> (мгновенный)\n"
-        f"→ Разовый поиск по критериям\n"
-        f"→ Получаете HTML отчет сразу\n"
-        f"→ Нет автоматических уведомлений\n\n"
-        f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
-        f"→ Создаете постоянные фильтры\n"
-        f"→ Бот автоматически ищет новые тендеры\n"
-        f"→ Получаете уведомления 24/7\n\n"
-        f"<b>Возможности:</b>\n"
-        f"• 🤖 AI расширение критериев\n"
-        f"• 📄 Красивые HTML отчеты\n"
-        f"• 🔔 Умные уведомления\n\n"
-        f"<i>Выберите режим работы ниже</i>",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+        await callback.message.edit_text(
+            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"{monitoring_status}\n\n"
+            f"<b>Два режима работы:</b>\n\n"
+            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
+            f"→ Разовый поиск по критериям\n"
+            f"→ Получаете HTML отчет сразу\n"
+            f"→ Нет автоматических уведомлений\n\n"
+            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
+            f"→ Создаете постоянные фильтры\n"
+            f"→ Бот автоматически ищет новые тендеры\n"
+            f"→ Получаете уведомления 24/7\n\n"
+            f"<b>Возможности:</b>\n"
+            f"• 🤖 AI расширение критериев\n"
+            f"• 📄 Красивые HTML отчеты\n"
+            f"• 🔔 Умные уведомления\n\n"
+            f"<i>Выберите режим работы ниже</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_sniper_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 # ============================================

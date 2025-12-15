@@ -436,106 +436,189 @@ async def download_all_tenders_html(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "alltenders_sort")
 async def show_sort_menu(callback: CallbackQuery, state: FSMContext):
     """Показать меню сортировки."""
-    await callback.answer()
+    try:
+        await callback.answer()
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📅 Новые первые", callback_data="alltenders_sort_date_desc")],
-        [InlineKeyboardButton(text="📅 Старые первые", callback_data="alltenders_sort_date_asc")],
-        [InlineKeyboardButton(text="💰 Цена ↓ (дорогие первые)", callback_data="alltenders_sort_price_desc")],
-        [InlineKeyboardButton(text="💰 Цена ↑ (дешевые первые)", callback_data="alltenders_sort_price_asc")],
-        [InlineKeyboardButton(text="⭐ Релевантность", callback_data="alltenders_sort_score_desc")],
-        [InlineKeyboardButton(text="⏰ По дедлайну (скоро истекают)", callback_data="alltenders_sort_deadline_asc")],
-        [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
-    ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📅 Новые первые", callback_data="alltenders_sort_date_desc")],
+            [InlineKeyboardButton(text="📅 Старые первые", callback_data="alltenders_sort_date_asc")],
+            [InlineKeyboardButton(text="💰 Цена ↓ (дорогие первые)", callback_data="alltenders_sort_price_desc")],
+            [InlineKeyboardButton(text="💰 Цена ↑ (дешевые первые)", callback_data="alltenders_sort_price_asc")],
+            [InlineKeyboardButton(text="⭐ Релевантность", callback_data="alltenders_sort_score_desc")],
+            [InlineKeyboardButton(text="⏰ По дедлайну (скоро истекают)", callback_data="alltenders_sort_deadline_asc")],
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
+        ])
 
-    await callback.message.edit_text(
-        "📊 <b>Сортировка тендеров</b>\n\nВыберите тип сортировки:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+        await callback.message.edit_text(
+            "📊 <b>Сортировка тендеров</b>\n\nВыберите тип сортировки:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_sort_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("alltenders_sort_"))
 async def apply_sort(callback: CallbackQuery, state: FSMContext):
     """Применить сортировку."""
-    await callback.answer()
+    try:
+        await callback.answer()
 
-    sort_type = callback.data.replace("alltenders_sort_", "")
+        sort_type = callback.data.replace("alltenders_sort_", "")
 
-    data = await state.get_data()
-    filter_params = data.get('filter_params', {})
-    filter_params['sort_by'] = sort_type
+        data = await state.get_data()
+        filter_params = data.get('filter_params', {})
+        filter_params['sort_by'] = sort_type
 
-    await state.update_data(filter_params=filter_params)
+        await state.update_data(filter_params=filter_params)
 
-    # Обновляем меню (сбрасываем на первую страницу при изменении сортировки)
-    tenders = data.get('all_tenders', [])
-    await show_tenders_menu(callback.message, tenders, filter_params, state, page=0)
+        # Обновляем меню (сбрасываем на первую страницу при изменении сортировки)
+        tenders = data.get('all_tenders', [])
+        await show_tenders_menu(callback.message, tenders, filter_params, state, page=0)
+    except Exception as e:
+        logger.error(f"Ошибка в apply_sort: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data == "alltenders_reset_filters")
 async def reset_filters(callback: CallbackQuery, state: FSMContext):
     """Сбросить все фильтры."""
-    await callback.answer("Фильтры сброшены")
+    try:
+        await callback.answer("Фильтры сброшены")
 
-    data = await state.get_data()
-    tenders = data.get('all_tenders', [])
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
 
-    await state.update_data(filter_params={'sort_by': 'date_desc'})
+        await state.update_data(filter_params={'sort_by': 'date_desc'})
 
-    await show_tenders_menu(callback.message, tenders, {'sort_by': 'date_desc'}, state, page=0)
+        await show_tenders_menu(callback.message, tenders, {'sort_by': 'date_desc'}, state, page=0)
+    except Exception as e:
+        logger.error(f"Ошибка в reset_filters: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "alltenders_filter_price")
+async def show_price_filter_menu(callback: CallbackQuery, state: FSMContext):
+    """Показать меню фильтрации по цене."""
+    try:
+        await callback.answer()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="До 500 000 ₽", callback_data="alltenders_price_0_500000")],
+            [InlineKeyboardButton(text="500 000 - 1 млн ₽", callback_data="alltenders_price_500000_1000000")],
+            [InlineKeyboardButton(text="1 - 5 млн ₽", callback_data="alltenders_price_1000000_5000000")],
+            [InlineKeyboardButton(text="5 - 10 млн ₽", callback_data="alltenders_price_5000000_10000000")],
+            [InlineKeyboardButton(text="Более 10 млн ₽", callback_data="alltenders_price_10000000_0")],
+            [InlineKeyboardButton(text="🔄 Без фильтра по цене", callback_data="alltenders_price_reset")],
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
+        ])
+
+        await callback.message.edit_text(
+            "💰 <b>Фильтр по цене</b>\n\n"
+            "Выберите ценовой диапазон для отображения тендеров:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_price_filter_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("alltenders_price_"))
+async def apply_price_filter(callback: CallbackQuery, state: FSMContext):
+    """Применить фильтр по цене."""
+    try:
+        await callback.answer("Применяю фильтр...")
+
+        price_data = callback.data.replace("alltenders_price_", "")
+
+        data = await state.get_data()
+        filter_params = data.get('filter_params', {})
+        tenders = data.get('all_tenders', [])
+
+        if price_data == "reset":
+            # Убираем фильтр по цене
+            filter_params.pop('price_min', None)
+            filter_params.pop('price_max', None)
+        else:
+            # Парсим диапазон
+            parts = price_data.split("_")
+            price_min = int(parts[0])
+            price_max = int(parts[1]) if parts[1] != "0" else None
+
+            filter_params['price_min'] = price_min if price_min > 0 else None
+            filter_params['price_max'] = price_max
+
+        await state.update_data(filter_params=filter_params)
+        await show_tenders_menu(callback.message, tenders, filter_params, state, page=0)
+    except Exception as e:
+        logger.error(f"Ошибка в apply_price_filter: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data == "alltenders_back")
 async def back_to_tenders(callback: CallbackQuery, state: FSMContext):
     """Вернуться к списку тендеров."""
-    await callback.answer()
+    try:
+        await callback.answer()
 
-    data = await state.get_data()
-    tenders = data.get('all_tenders', [])
-    filter_params = data.get('filter_params', {})
-    page = data.get('current_page', 0)
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+        filter_params = data.get('filter_params', {})
+        page = data.get('current_page', 0)
 
-    await show_tenders_menu(callback.message, tenders, filter_params, state, page)
+        await show_tenders_menu(callback.message, tenders, filter_params, state, page)
+    except Exception as e:
+        logger.error(f"Ошибка в back_to_tenders: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("alltenders_page_"))
 async def navigate_page(callback: CallbackQuery, state: FSMContext):
     """Навигация по страницам тендеров."""
-    # Показываем уведомление пользователю что запрос обрабатывается
-    await callback.answer("⏳ Загрузка страницы...", show_alert=False)
+    try:
+        # Показываем уведомление пользователю что запрос обрабатывается
+        await callback.answer("⏳ Загрузка страницы...", show_alert=False)
 
-    # Получаем номер страницы из callback_data
-    page = int(callback.data.replace("alltenders_page_", ""))
+        # Получаем номер страницы из callback_data
+        page = int(callback.data.replace("alltenders_page_", ""))
 
-    data = await state.get_data()
-    tenders = data.get('all_tenders', [])
-    filter_params = data.get('filter_params', {})
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+        filter_params = data.get('filter_params', {})
 
-    await show_tenders_menu(callback.message, tenders, filter_params, state, page)
+        await show_tenders_menu(callback.message, tenders, filter_params, state, page)
+    except Exception as e:
+        logger.error(f"Ошибка в navigate_page: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data == "alltenders_clear_history")
 async def show_clear_history_menu(callback: CallbackQuery, state: FSMContext):
     """Показать меню очистки истории."""
-    await callback.answer()
+    try:
+        await callback.answer()
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑️ Очистить все", callback_data="alltenders_clear_all")],
-        [InlineKeyboardButton(text="📅 Старше 30 дней", callback_data="alltenders_clear_30")],
-        [InlineKeyboardButton(text="📅 Старше 60 дней", callback_data="alltenders_clear_60")],
-        [InlineKeyboardButton(text="📅 Старше 90 дней", callback_data="alltenders_clear_90")],
-        [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
-    ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑️ Очистить все", callback_data="alltenders_clear_all")],
+            [InlineKeyboardButton(text="📅 Старше 30 дней", callback_data="alltenders_clear_30")],
+            [InlineKeyboardButton(text="📅 Старше 60 дней", callback_data="alltenders_clear_60")],
+            [InlineKeyboardButton(text="📅 Старше 90 дней", callback_data="alltenders_clear_90")],
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
+        ])
 
-    await callback.message.edit_text(
-        "🗑️ <b>Очистка истории тендеров</b>\n\n"
-        "Выберите период для удаления:\n\n"
-        "⚠️ <b>Внимание:</b> это действие необратимо!\n"
-        "После удаления тендеры нельзя будет восстановить.",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+        await callback.message.edit_text(
+            "🗑️ <b>Очистка истории тендеров</b>\n\n"
+            "Выберите период для удаления:\n\n"
+            "⚠️ <b>Внимание:</b> это действие необратимо!\n"
+            "После удаления тендеры нельзя будет восстановить.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_clear_history_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data == "alltenders_clear_all")

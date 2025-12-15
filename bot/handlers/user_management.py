@@ -388,5 +388,175 @@ async def reset_hidden_callback(callback_query):
         await callback_query.answer("❌ Произошла ошибка", show_alert=True)
 
 
+# ============================================
+# ДОПОЛНИТЕЛЬНЫЕ ОБРАБОТЧИКИ НАСТРОЕК
+# ============================================
+
+@router.callback_query(F.data == "settings_criteria")
+async def settings_criteria_handler(callback: CallbackQuery):
+    """Показывает настройки критериев отбора."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        # Получаем фильтры пользователя
+        filters = await db.get_user_filters(sniper_user['id'])
+        active_filters = [f for f in filters if f.get('is_active')]
+
+        if filters:
+            filters_text = "\n".join([
+                f"• <b>{f['name']}</b> {'✅' if f.get('is_active') else '⏸'}"
+                for f in filters[:10]
+            ])
+        else:
+            filters_text = "<i>У вас пока нет фильтров</i>"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_back")]
+        ])
+
+        await callback.message.edit_text(
+            f"🎯 <b>КРИТЕРИИ ОТБОРА</b>\n\n"
+            f"Фильтры определяют, какие тендеры вы будете получать.\n\n"
+            f"<b>Ваши фильтры ({len(active_filters)} активных):</b>\n"
+            f"{filters_text}\n\n"
+            f"💡 Создайте фильтры для автоматического мониторинга тендеров",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка настроек критериев: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings_notifications")
+async def settings_notifications_handler(callback: CallbackQuery):
+    """Показывает настройки уведомлений."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        monitoring_enabled = sniper_user.get('notifications_enabled', True)
+        notifications_limit = sniper_user.get('notifications_limit', 15)
+        notifications_today = sniper_user.get('notifications_sent_today', 0)
+
+        status_emoji = "✅" if monitoring_enabled else "⏸"
+        status_text = "Включен" if monitoring_enabled else "На паузе"
+
+        toggle_text = "⏸ Приостановить" if monitoring_enabled else "▶️ Возобновить"
+        toggle_callback = "sniper_pause_monitoring" if monitoring_enabled else "sniper_resume_monitoring"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=toggle_text, callback_data=toggle_callback)],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_back")]
+        ])
+
+        await callback.message.edit_text(
+            f"🔔 <b>НАСТРОЙКИ УВЕДОМЛЕНИЙ</b>\n\n"
+            f"<b>Автомониторинг:</b> {status_emoji} {status_text}\n"
+            f"<b>Лимит уведомлений:</b> {notifications_limit}/день\n"
+            f"<b>Отправлено сегодня:</b> {notifications_today}/{notifications_limit}\n\n"
+            f"💡 Автомониторинг проверяет новые тендеры каждые 5 минут",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка настроек уведомлений: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings_back")
+async def settings_back_handler(callback: CallbackQuery):
+    """Возврат к настройкам."""
+    await callback.answer()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏢 Профиль компании", callback_data="settings_profile")],
+        [InlineKeyboardButton(text="🎯 Критерии отбора", callback_data="settings_criteria")],
+        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")]
+    ])
+
+    await callback.message.edit_text(
+        text="⚙️ <b>НАСТРОЙКИ</b>\n\nВыберите раздел:",
+        reply_markup=keyboard,
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(F.data == "html_favorites")
+async def html_favorites_handler(callback: CallbackQuery):
+    """Генерация HTML отчета избранных тендеров."""
+    await callback.answer("Генерирую отчет...")
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        favorites = await get_user_favorites(sniper_user['id'])
+
+        if not favorites:
+            await callback.message.answer("❌ У вас нет избранных тендеров")
+            return
+
+        # Генерируем HTML отчет
+        from tender_sniper.all_tenders_report import generate_all_tenders_html
+
+        # Преобразуем формат данных
+        tenders_for_report = []
+        for fav in favorites:
+            tenders_for_report.append({
+                'number': fav.get('tender_number', ''),
+                'name': fav.get('tender_name', ''),
+                'price': fav.get('tender_price'),
+                'url': fav.get('tender_url', ''),
+                'filter_name': '⭐ Избранное',
+                'score': 100,
+                'region': '',
+                'customer_name': ''
+            })
+
+        html_content = generate_all_tenders_html(
+            tenders_for_report,
+            username=callback.from_user.username or "Пользователь"
+        )
+
+        # Отправляем файл
+        from aiogram.types import BufferedInputFile
+        import io
+
+        html_bytes = html_content.encode('utf-8')
+        file = BufferedInputFile(html_bytes, filename="favorites_report.html")
+
+        await callback.message.answer_document(
+            file,
+            caption=f"⭐ <b>Избранные тендеры</b>\n\nВсего: {len(favorites)} тендеров",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка генерации HTML избранных: {e}", exc_info=True)
+        await callback.message.answer("❌ Произошла ошибка при генерации отчета")
+
+
 # Экспортируем router
 __all__ = ['router']

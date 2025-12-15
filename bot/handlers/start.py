@@ -104,40 +104,43 @@ async def cmd_start(message: Message, state: FSMContext):
 @router.message(Command("help"))
 async def cmd_help(message: Message):
     """Обработчик команды /help."""
+    try:
+        help_text = (
+            "❓ <b>Справка Tender Sniper</b>\n\n"
 
-    help_text = (
-        "❓ <b>Справка Tender Sniper</b>\n\n"
+            "<b>Что такое Tender Sniper?</b>\n"
+            "Это система автоматического мониторинга новых тендеров на zakupki.gov.ru. "
+            "Вы создаете фильтры с вашими критериями, и бот автоматически уведомляет вас "
+            "о подходящих тендерах.\n\n"
 
-        "<b>Что такое Tender Sniper?</b>\n"
-        "Это система автоматического мониторинга новых тендеров на zakupki.gov.ru. "
-        "Вы создаете фильтры с вашими критериями, и бот автоматически уведомляет вас "
-        "о подходящих тендерах.\n\n"
+            "<b>Как это работает?</b>\n"
+            "1. Создайте фильтр с ключевыми словами и критериями\n"
+            "2. Бот проверяет новые тендеры каждые 5 минут\n"
+            "3. При совпадении вы получаете уведомление\n"
+            "4. Можете сразу перейти к анализу или открыть на zakupki.gov.ru\n\n"
 
-        "<b>Как это работает?</b>\n"
-        "1. Создайте фильтр с ключевыми словами и критериями\n"
-        "2. Бот проверяет новые тендеры каждые 5 минут\n"
-        "3. При совпадении вы получаете уведомление\n"
-        "4. Можете сразу перейти к анализу или открыть на zakupki.gov.ru\n\n"
+            "<b>Scoring (релевантность)</b>\n"
+            "Каждый тендер оценивается по шкале 0-100:\n"
+            "• 80-100: Отличное совпадение 🔥\n"
+            "• 60-79: Хорошее совпадение ✨\n"
+            "• 40-59: Среднее совпадение 📌\n\n"
 
-        "<b>Scoring (релевантность)</b>\n"
-        "Каждый тендер оценивается по шкале 0-100:\n"
-        "• 80-100: Отличное совпадение 🔥\n"
-        "• 60-79: Хорошее совпадение ✨\n"
-        "• 40-59: Среднее совпадение 📌\n\n"
+            "<b>Квоты и лимиты</b>\n"
+            "Зависят от вашего тарифа:\n"
+            "• Free: 5 фильтров, 10 уведомлений/день\n"
+            "• Basic: 15 фильтров, 50 уведомлений/день\n"
+            "• Premium: Unlimited"
+        )
 
-        "<b>Квоты и лимиты</b>\n"
-        "Зависят от вашего тарифа:\n"
-        "• Free: 5 фильтров, 10 уведомлений/день\n"
-        "• Basic: 15 фильтров, 50 уведомлений/день\n"
-        "• Premium: Unlimited"
-    )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎯 Открыть Tender Sniper", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎯 Открыть Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
-
-    await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
+        await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Ошибка в cmd_help: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.callback_query(F.data == "main_menu")
@@ -146,44 +149,52 @@ async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
     Возврат в главное меню из любого состояния.
     Очищает FSM state и показывает стартовое сообщение.
     """
-    await callback.answer()
+    try:
+        await callback.answer()
 
-    # Очищаем любое состояние
-    await state.clear()
+        # Очищаем любое состояние
+        await state.clear()
 
-    welcome_text = (
-        "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
-        "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
-        "<b>Что я умею:</b>\n"
-        "🔍 Мгновенный поиск по вашим критериям\n"
-        "🎯 Умное сопоставление (scoring 0-100)\n"
-        "📱 Автоматические уведомления о новых тендерах\n"
-        "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
-        "<b>Ваш тариф:</b> 🆓 Бесплатный\n"
-        "• 5 фильтров мониторинга\n"
-        "• 15 уведомлений в день\n\n"
-        "<i>Нажмите кнопку ниже для начала!</i>"
-    )
+        welcome_text = (
+            "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
+            "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
+            "<b>Что я умею:</b>\n"
+            "🔍 Мгновенный поиск по вашим критериям\n"
+            "🎯 Умное сопоставление (scoring 0-100)\n"
+            "📱 Автоматические уведомления о новых тендерах\n"
+            "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
+            "<b>Ваш тариф:</b> 🆓 Бесплатный\n"
+            "• 5 фильтров мониторинга\n"
+            "• 15 уведомлений в день\n\n"
+            "<i>Нажмите кнопку ниже для начала!</i>"
+        )
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
-    ])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+        ])
 
-    await callback.message.edit_text(
-        welcome_text,
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+        await callback.message.edit_text(
+            welcome_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в return_to_main_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 @router.callback_query(F.data == "start_onboarding")
 async def callback_start_onboarding(callback: CallbackQuery, state: FSMContext):
     """Запуск онбординга по кнопке."""
-    await callback.answer("👋 Запускаю экскурсию...")
+    try:
+        await callback.answer("👋 Запускаю экскурсию...")
 
-    from bot.handlers.onboarding import start_onboarding
-    await start_onboarding(callback.message, state)
+        from bot.handlers.onboarding import start_onboarding
+        await start_onboarding(callback.message, state)
+    except Exception as e:
+        logger.error(f"Ошибка в callback_start_onboarding: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 # ============================================
@@ -200,26 +211,34 @@ async def keyboard_main_menu(message: Message, state: FSMContext):
 @router.message(F.text == "🎯 Tender Sniper")
 async def keyboard_tender_sniper(message: Message):
     """Обработчик кнопки 'Tender Sniper' из постоянной клавиатуры."""
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-        [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
-        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-        [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")]
-    ])
+    try:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")]
+        ])
 
-    await message.answer(
-        "🎯 <b>Tender Sniper</b>\n\nВыберите действие:",
-        reply_markup=keyboard,
-        parse_mode="HTML"
-    )
+        await message.answer(
+            "🎯 <b>Tender Sniper</b>\n\nВыберите действие:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в keyboard_tender_sniper: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(F.text == "📊 Мои фильтры")
 async def keyboard_my_filters(message: Message):
     """Обработчик кнопки 'Мои фильтры' из постоянной клавиатуры."""
-    # Импортируем и вызываем напрямую handler из sniper.py
-    from bot.handlers.sniper import show_my_filters_message
-    await show_my_filters_message(message)
+    try:
+        # Импортируем и вызываем напрямую handler из sniper.py
+        from bot.handlers.sniper import show_my_filters_message
+        await show_my_filters_message(message)
+    except Exception as e:
+        logger.error(f"Ошибка в keyboard_my_filters: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(F.text == "📊 Все мои тендеры")
@@ -267,20 +286,22 @@ async def keyboard_all_tenders(message: Message, state: FSMContext):
 @router.message(F.text == "⭐ Избранное")
 async def keyboard_favorites(message: Message):
     """Обработчик кнопки 'Избранное' из постоянной клавиатуры."""
-    # Импортируем обработчик из user_management
-    from bot.handlers.user_management import favorites_command
-    await favorites_command(message)
+    try:
+        # Импортируем обработчик из user_management
+        from bot.handlers.user_management import favorites_command
+        await favorites_command(message)
+    except Exception as e:
+        logger.error(f"Ошибка в keyboard_favorites: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
 @router.message(F.text == "📈 Статистика")
 async def keyboard_stats(message: Message):
     """Обработчик кнопки 'Статистика' из постоянной клавиатуры."""
-    # Импортируем обработчик из user_management
-    from bot.handlers.user_management import stats_command
-    await stats_command(message)
-
-
-# Старые handlers отключены - теперь используем только Tender Sniper
-# @router.message(F.text == "🔍 Новый поиск")
-# async def start_new_search(message: Message, state: FSMContext):
-#     pass
+    try:
+        # Импортируем обработчик из user_management
+        from bot.handlers.user_management import stats_command
+        await stats_command(message)
+    except Exception as e:
+        logger.error(f"Ошибка в keyboard_stats: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка. Попробуйте /start")
