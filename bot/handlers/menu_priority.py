@@ -16,6 +16,18 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Контакт для связи
+DEVELOPER_CONTACT = "@nikolai_chizhik"
+
+# Сообщение об ошибке для бета-теста
+BETA_ERROR_MESSAGE = (
+    "❌ <b>Произошла ошибка</b>\n\n"
+    "🧪 Бот находится в стадии бета-тестирования.\n\n"
+    f"Если вы столкнулись с ошибкой или багом, пожалуйста, "
+    f"свяжитесь с разработчиком: {DEVELOPER_CONTACT}\n\n"
+    "Попробуйте нажать /start для перезапуска."
+)
+
 # Создаем роутер с высоким приоритетом
 router = Router(name="menu_priority")
 
@@ -131,7 +143,7 @@ async def priority_main_menu(message: Message, state: FSMContext):
         await track_message(state, sent.message_id)
     except Exception as e:
         logger.error(f"Ошибка в главном меню: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(StateFilter("*"), F.text == "🎯 Tender Sniper")
@@ -184,7 +196,7 @@ async def priority_tender_sniper(message: Message, state: FSMContext):
         await track_message(state, sent.message_id)
     except Exception as e:
         logger.error(f"Ошибка в Tender Sniper меню: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(StateFilter("*"), F.text.in_(["📊 Мои фильтры", "📋 Мои фильтры"]))
@@ -204,7 +216,7 @@ async def priority_my_filters(message: Message, state: FSMContext):
         await show_my_filters_message(message)
     except Exception as e:
         logger.error(f"Ошибка в Мои фильтры: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(StateFilter("*"), F.text == "📊 Все мои тендеры")
@@ -258,7 +270,7 @@ async def priority_favorites(message: Message, state: FSMContext):
         await favorites_command(message)
     except Exception as e:
         logger.error(f"Ошибка в Избранное: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(StateFilter("*"), F.text == "📈 Статистика")
@@ -345,7 +357,7 @@ async def priority_toggle_monitoring(message: Message, state: FSMContext):
         await message.answer(status_text, reply_markup=reply_keyboard, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка переключения мониторинга: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 # ============================================

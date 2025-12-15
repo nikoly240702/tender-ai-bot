@@ -11,6 +11,18 @@ from aiogram.fsm.context import FSMContext
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Контакт для связи
+DEVELOPER_CONTACT = "@nikolai_chizhik"
+
+# Сообщение об ошибке для бета-теста
+BETA_ERROR_MESSAGE = (
+    "❌ <b>Произошла ошибка</b>\n\n"
+    "🧪 Бот находится в стадии бета-тестирования.\n\n"
+    f"Если вы столкнулись с ошибкой или багом, пожалуйста, "
+    f"свяжитесь с разработчиком: {DEVELOPER_CONTACT}\n\n"
+    "Попробуйте нажать /start для перезапуска."
+)
+
 
 def get_main_keyboard(is_monitoring_enabled: bool = True) -> ReplyKeyboardMarkup:
     """
@@ -133,6 +145,8 @@ async def cmd_help(message: Message):
         help_text = (
             "❓ <b>Справка Tender Sniper</b>\n\n"
 
+            "🧪 <i>Бот находится в стадии бета-тестирования</i>\n\n"
+
             "<b>Что такое Tender Sniper?</b>\n"
             "Это система автоматического мониторинга новых тендеров на zakupki.gov.ru. "
             "Вы создаете фильтры с вашими критериями, и бот автоматически уведомляет вас "
@@ -154,7 +168,12 @@ async def cmd_help(message: Message):
             "Зависят от вашего тарифа:\n"
             "• Free: 5 фильтров, 10 уведомлений/день\n"
             "• Basic: 15 фильтров, 50 уведомлений/день\n"
-            "• Premium: Unlimited"
+            "• Premium: Unlimited\n\n"
+
+            "━━━━━━━━━━━━━━━━━━━━━\n"
+            "<b>📬 Контакты</b>\n\n"
+            "Вопросы, предложения или нашли баг?\n"
+            f"Свяжитесь с разработчиком: {DEVELOPER_CONTACT}"
         )
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -165,7 +184,7 @@ async def cmd_help(message: Message):
         await message.answer(help_text, reply_markup=keyboard, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Ошибка в cmd_help: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "main_menu")
@@ -251,7 +270,7 @@ async def keyboard_tender_sniper(message: Message):
         )
     except Exception as e:
         logger.error(f"Ошибка в keyboard_tender_sniper: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(F.text == "📊 Мои фильтры")
@@ -263,7 +282,7 @@ async def keyboard_my_filters(message: Message):
         await show_my_filters_message(message)
     except Exception as e:
         logger.error(f"Ошибка в keyboard_my_filters: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(F.text == "📊 Все мои тендеры")
@@ -317,7 +336,7 @@ async def keyboard_favorites(message: Message):
         await favorites_command(message)
     except Exception as e:
         logger.error(f"Ошибка в keyboard_favorites: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.message(F.text == "📈 Статистика")
@@ -329,4 +348,4 @@ async def keyboard_stats(message: Message):
         await stats_command(message)
     except Exception as e:
         logger.error(f"Ошибка в keyboard_stats: {e}", exc_info=True)
-        await message.answer("❌ Произошла ошибка. Попробуйте /start")
+        await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")

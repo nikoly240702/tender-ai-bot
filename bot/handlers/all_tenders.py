@@ -35,6 +35,18 @@ except ImportError:
 logger = logging.getLogger(__name__)
 router = Router()
 
+# Контакт для связи
+DEVELOPER_CONTACT = "@nikolai_chizhik"
+
+# Сообщение об ошибке для бета-теста
+BETA_ERROR_MESSAGE = (
+    "❌ <b>Произошла ошибка</b>\n\n"
+    "🧪 Бот находится в стадии бета-тестирования.\n\n"
+    f"Если вы столкнулись с ошибкой или багом, пожалуйста, "
+    f"свяжитесь с разработчиком: {DEVELOPER_CONTACT}\n\n"
+    "Попробуйте нажать /start для перезапуска."
+)
+
 
 class AllTendersStates(StatesGroup):
     """Состояния для просмотра всех тендеров."""
@@ -283,7 +295,7 @@ async def show_all_tenders(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка загрузки тендеров: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при загрузке тендеров")
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 async def show_tenders_menu(message: Message, tenders: List[Dict], filter_params: Dict, state: FSMContext, page: int = 0):
@@ -463,7 +475,7 @@ async def download_all_tenders_html(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка генерации HTML: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при генерации отчета")
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "alltenders_download_by_filter")
@@ -549,7 +561,7 @@ async def download_by_filter(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка генерации HTML по фильтру: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при генерации отчета")
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "alltenders_download_by_period")
@@ -648,7 +660,7 @@ async def download_by_period(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка генерации HTML за период: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при генерации отчета")
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.callback_query(F.data == "alltenders_sort")
@@ -860,7 +872,7 @@ async def clear_all_history(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка при очистке истории: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при очистке истории")
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 @router.callback_query(F.data.startswith("alltenders_clear_"))
@@ -897,7 +909,7 @@ async def clear_old_history(callback: CallbackQuery, state: FSMContext):
 
     except Exception as e:
         logger.error(f"Ошибка при очистке истории: {e}", exc_info=True)
-        await callback.message.answer("❌ Ошибка при очистке истории")
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
 __all__ = ['router']
