@@ -230,7 +230,7 @@ async def priority_all_tenders(message: Message, state: FSMContext):
         except:
             pass
 
-        await show_tenders_menu(message, tenders, state)
+        await show_tenders_menu(message, tenders, {'sort_by': 'date_desc'}, state)
     except Exception as e:
         logger.error(f"Ошибка загрузки тендеров: {e}")
         await message.answer(
