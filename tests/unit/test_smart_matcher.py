@@ -109,21 +109,21 @@ class TestKeywordMatching:
         assert result is not None
 
     def test_no_keywords_match(self, matcher, sample_tender, sample_filter):
-        """Без совпадений по ключевым словам всё равно даёт базовый score."""
+        """Без совпадений по ключевым словам возвращает None (улучшена релевантность)."""
         sample_filter['keywords'] = json.dumps(['медицина', 'больница'], ensure_ascii=False)
         result = matcher.match_tender(sample_tender, sample_filter)
 
-        # Даёт базовый скор (30), т.к. RSS уже отфильтровал
-        assert result is not None
-        assert result['score'] >= 30
+        # ИЗМЕНЕНО: Теперь без совпадений тендер не включается
+        # Это предотвращает нерелевантные результаты
+        assert result is None
 
     def test_empty_keywords(self, matcher, sample_tender, sample_filter):
-        """Фильтр без ключевых слов."""
+        """Фильтр без ключевых слов возвращает None (некорректный фильтр)."""
         sample_filter['keywords'] = json.dumps([], ensure_ascii=False)
         result = matcher.match_tender(sample_tender, sample_filter)
 
-        assert result is not None
-        assert result['score'] >= 50  # Базовый score + бонусы за цену/дату
+        # ИЗМЕНЕНО: Фильтр без ключевых слов некорректен
+        assert result is None
 
 
 @pytest.mark.unit
@@ -215,7 +215,7 @@ class TestPriceFilters:
         """Тендер без цены."""
         tender_no_price = {
             'number': '999',
-            'name': 'Тендер без цены',
+            'name': 'Поставка компьютеров и ноутбуков',  # Должны совпасть ключевые слова
             'price': None
         }
 
@@ -395,8 +395,8 @@ class TestBatchMatching:
             },
             {
                 'id': 2,
-                'name': 'Низкий score',
-                'keywords': json.dumps(['медицина'], ensure_ascii=False),
+                'name': 'Средний score',
+                'keywords': json.dumps(['оборудование'], ensure_ascii=False),  # Есть в sample_tender
                 'exclude_keywords': json.dumps([], ensure_ascii=False)
             }
         ]
@@ -461,16 +461,16 @@ class TestStatistics:
             'exclude_keywords': json.dumps([], ensure_ascii=False)
         }
 
-        # Низкий score
-        filter_low = {
+        # Средний score
+        filter_medium = {
             'id': 2,
-            'name': 'Low',
-            'keywords': json.dumps(['xyz123'], ensure_ascii=False),
+            'name': 'Medium',
+            'keywords': json.dumps(['оборудование'], ensure_ascii=False),  # Есть в sample_tender
             'exclude_keywords': json.dumps([], ensure_ascii=False)
         }
 
         matcher.match_tender(sample_tender, filter_high)
-        matcher.match_tender(sample_tender, filter_low)
+        matcher.match_tender(sample_tender, filter_medium)
 
         stats = matcher.get_stats()
 

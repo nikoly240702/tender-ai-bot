@@ -5,6 +5,7 @@ Instant Search - мгновенный поиск тендеров по крит�
 """
 
 import sys
+import re
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -151,11 +152,13 @@ class InstantSearch:
                         tender_text = f"{tender.get('name', '')} {tender.get('summary', '')}".lower()
                         customer_name = tender.get('customer', '') or tender.get('customer_name', '')
 
-                        # Проверяем исключающие слова
+                        # Проверяем исключающие слова (с границами слов для точности)
                         if exclude_keywords:
                             skip = False
                             for exclude_word in exclude_keywords:
-                                if exclude_word.lower() in tender_text:
+                                # Используем regex с границами слов для избежания ложных срабатываний
+                                pattern = r'\b' + re.escape(exclude_word.lower()) + r'\b' if len(exclude_word) < 4 else r'\b' + re.escape(exclude_word.lower())
+                                if re.search(pattern, tender_text, re.IGNORECASE):
                                     logger.debug(f"      ⛔ Исключен (содержит '{exclude_word}'): {tender.get('name', '')[:50]}")
                                     skip = True
                                     break
@@ -289,7 +292,8 @@ class InstantSearch:
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
                 # Проверяем что match_result не None
-                if match_result and match_result.get('score', 0) >= 25:  # Минимальный порог (снижен для большего охвата)
+                # ВАЖНО: порог синхронизирован с smart_matcher.py (50)
+                if match_result and match_result.get('score', 0) >= 50:  # Минимальный порог для качественных результатов
                     tender_with_score = tender.copy()
                     tender_with_score['match_score'] = match_result['score']
                     tender_with_score['match_reasons'] = match_result.get('reasons', [])
@@ -298,7 +302,7 @@ class InstantSearch:
             # Сортируем по скору
             matches.sort(key=lambda x: x['match_score'], reverse=True)
 
-            logger.info(f"   🎯 Совпадений (score ≥ 25): {len(matches)}")
+            logger.info(f"   🎯 Совпадений (score ≥ 50): {len(matches)}")
 
             return {
                 'tenders': search_results,
