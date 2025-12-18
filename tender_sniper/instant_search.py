@@ -291,19 +291,27 @@ class InstantSearch:
 
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
-                # Проверяем что match_result не None
-                # Порог 30 - базовый уровень для показа результатов
-                # Если SmartMatcher вернул результат - значит есть хоть какое-то совпадение
-                if match_result and match_result.get('score', 0) >= 30:
-                    tender_with_score = tender.copy()
+                # Для instant search показываем ВСЕ тендеры от RSS
+                # SmartMatcher только добавляет score для сортировки
+                tender_with_score = tender.copy()
+
+                if match_result and match_result.get('score', 0) > 0:
+                    # Есть совпадение - используем score от matcher
                     tender_with_score['match_score'] = match_result['score']
                     tender_with_score['match_reasons'] = match_result.get('reasons', [])
-                    matches.append(tender_with_score)
+                else:
+                    # Нет совпадения по SmartMatcher, но тендер найден RSS по ключевым словам
+                    # Даём базовый score 20 чтобы показать пользователю
+                    tender_with_score['match_score'] = 20
+                    tender_with_score['match_reasons'] = ['Найден по поисковому запросу RSS']
+
+                matches.append(tender_with_score)
 
             # Сортируем по скору
             matches.sort(key=lambda x: x['match_score'], reverse=True)
 
-            logger.info(f"   🎯 Совпадений (score ≥ 30): {len(matches)}")
+            high_score = len([m for m in matches if m['match_score'] >= 50])
+            logger.info(f"   🎯 Всего тендеров: {len(matches)} (высокий score ≥50: {high_score})")
 
             return {
                 'tenders': search_results,
