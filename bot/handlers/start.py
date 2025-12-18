@@ -477,35 +477,83 @@ async def admin_send_apology(message: Message):
 
 @router.message(Command("send_apology_all"))
 async def admin_send_apology_all(message: Message):
-    """Админская команда для отправки извинений + отчетов всем пользователям."""
+    """Админская команда для отправки извинений + отчетов пользователям за сегодня.
+
+    Использование:
+        /send_apology_all - отправить тем, кто был активен сегодня
+        /send_apology_all 2 - отправить тем, кто был активен за последние 2 дня
+    """
     from bot.config import BotConfig
     from tender_sniper.database import get_sniper_db
     from tender_sniper.instant_search import InstantSearch
     from aiogram.types import BufferedInputFile
-    from datetime import datetime
+    from datetime import datetime, timedelta
     import asyncio
     import json
 
     if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
         return  # Только для админа
 
-    await message.answer("📋 Получаю список фильтров пользователей...")
+    # Парсим количество дней из команды
+    parts = message.text.split()
+    days = 1  # По умолчанию - только сегодня
+    if len(parts) > 1:
+        try:
+            days = int(parts[1])
+        except ValueError:
+            days = 1
+
+    await message.answer(f"📋 Получаю список пользователей за последние {days} дн...")
 
     try:
         db = await get_sniper_db()
         filters = await db.get_all_active_filters()
 
+        # Фильтруем по last_activity - только активные за указанный период
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+
         # Группируем фильтры по пользователям
         user_filters = {}
+        skipped_inactive = 0
+
         for f in filters:
             tid = f.get('telegram_id')
-            if tid:
-                if tid not in user_filters:
-                    user_filters[tid] = []
-                user_filters[tid].append(f)
+            if not tid:
+                continue
+
+            # Получаем данные пользователя для проверки last_activity
+            user = await db.get_user_by_telegram_id(tid)
+            if not user:
+                continue
+
+            last_activity = user.get('last_activity')
+            if last_activity:
+                # Преобразуем строку в datetime если нужно
+                if isinstance(last_activity, str):
+                    try:
+                        last_activity = datetime.fromisoformat(last_activity.replace('Z', '+00:00'))
+                    except:
+                        last_activity = None
+
+                # Проверяем активность
+                if last_activity and last_activity < cutoff_date:
+                    skipped_inactive += 1
+                    continue
+
+            if tid not in user_filters:
+                user_filters[tid] = []
+            user_filters[tid].append(f)
 
         total_users = len(user_filters)
-        await message.answer(f"📊 Найдено {total_users} пользователей с {len(filters)} фильтрами.\n\nНачинаю обработку...")
+        total_filters_active = sum(len(fl) for fl in user_filters.values())
+        await message.answer(
+            f"📊 <b>Статистика:</b>\n\n"
+            f"• Активных за {days} дн: <b>{total_users}</b> пользователей\n"
+            f"• Фильтров у них: <b>{total_filters_active}</b>\n"
+            f"• Пропущено неактивных: {skipped_inactive}\n\n"
+            f"Начинаю отправку...",
+            parse_mode="HTML"
+        )
 
         searcher = InstantSearch()
         success_users = 0
