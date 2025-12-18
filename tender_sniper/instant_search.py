@@ -292,8 +292,9 @@ class InstantSearch:
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
                 # Проверяем что match_result не None
-                # ВАЖНО: порог синхронизирован с smart_matcher.py (50)
-                if match_result and match_result.get('score', 0) >= 50:  # Минимальный порог для качественных результатов
+                # Порог 30 - базовый уровень для показа результатов
+                # Если SmartMatcher вернул результат - значит есть хоть какое-то совпадение
+                if match_result and match_result.get('score', 0) >= 30:
                     tender_with_score = tender.copy()
                     tender_with_score['match_score'] = match_result['score']
                     tender_with_score['match_reasons'] = match_result.get('reasons', [])
@@ -302,7 +303,7 @@ class InstantSearch:
             # Сортируем по скору
             matches.sort(key=lambda x: x['match_score'], reverse=True)
 
-            logger.info(f"   🎯 Совпадений (score ≥ 50): {len(matches)}")
+            logger.info(f"   🎯 Совпадений (score ≥ 30): {len(matches)}")
 
             return {
                 'tenders': search_results,
