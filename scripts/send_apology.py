@@ -157,9 +157,9 @@ async def main():
 
     args = parser.parse_args()
 
-    bot_token = os.getenv('BOT_TOKEN')
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
     if not bot_token:
-        print("❌ BOT_TOKEN не найден в .env")
+        print("❌ TELEGRAM_BOT_TOKEN не найден в .env")
         return
 
     bot = Bot(token=bot_token)

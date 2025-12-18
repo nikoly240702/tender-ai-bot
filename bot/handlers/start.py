@@ -349,3 +349,154 @@ async def keyboard_stats(message: Message):
     except Exception as e:
         logger.error(f"Ошибка в keyboard_stats: {e}", exc_info=True)
         await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
+
+
+# ============================================
+# АДМИНСКИЕ КОМАНДЫ
+# ============================================
+
+APOLOGY_MESSAGE = """
+🔧 <b>Технические работы завершены</b>
+
+Уважаемый пользователь!
+
+Приносим извинения за временные неполадки. В период 17-18 декабря некоторые HTML-отчеты формировались некорректно.
+
+✅ <b>Проблема устранена</b>
+
+Мы улучшили алгоритм поиска для повышения точности результатов.
+
+Спасибо за понимание! 🙏
+
+<i>С уважением, команда Tender Sniper</i>
+"""
+
+
+@router.message(Command("send_apology"))
+async def admin_send_apology(message: Message):
+    """Админская команда для отправки извинения себе (тест)."""
+    from bot.config import BotConfig
+
+    if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
+        return  # Только для админа
+
+    await message.answer(APOLOGY_MESSAGE, parse_mode="HTML")
+    await message.answer("✅ Тестовое сообщение отправлено вам")
+
+
+@router.message(Command("send_apology_all"))
+async def admin_send_apology_all(message: Message):
+    """Админская команда для отправки извинений всем пользователям."""
+    from bot.config import BotConfig
+    from tender_sniper.database import get_sniper_db
+    import asyncio
+
+    if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
+        return  # Только для админа
+
+    await message.answer("📋 Получаю список пользователей...")
+
+    try:
+        db = await get_sniper_db()
+        filters = await db.get_all_active_filters()
+
+        # Уникальные telegram_id
+        user_ids = set()
+        for f in filters:
+            if f.get('telegram_id'):
+                user_ids.add(f['telegram_id'])
+
+        await message.answer(f"📊 Найдено {len(user_ids)} пользователей. Начинаю отправку...")
+
+        success = 0
+        failed = 0
+
+        for uid in user_ids:
+            try:
+                await message.bot.send_message(uid, APOLOGY_MESSAGE, parse_mode="HTML")
+                success += 1
+            except Exception as e:
+                logger.error(f"Ошибка отправки пользователю {uid}: {e}")
+                failed += 1
+            await asyncio.sleep(0.3)  # Задержка
+
+        await message.answer(f"✅ Готово!\n\nУспешно: {success}\nОшибок: {failed}")
+
+    except Exception as e:
+        logger.error(f"Ошибка в send_apology_all: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@router.message(Command("test_search"))
+async def admin_test_search(message: Message):
+    """Админская команда для тестового поиска с HTML отчетом.
+
+    Использование: /test_search компьютеры, ноутбуки
+    """
+    from bot.config import BotConfig
+    from tender_sniper.instant_search import InstantSearch
+    from aiogram.types import BufferedInputFile
+    from datetime import datetime
+
+    if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
+        return  # Только для админа
+
+    # Парсим ключевые слова из команды
+    text = message.text.replace('/test_search', '').strip()
+    if not text:
+        await message.answer("Использование: /test_search компьютеры, ноутбуки")
+        return
+
+    keywords = [k.strip() for k in text.split(',')]
+
+    await message.answer(f"🔍 Ищу по: {', '.join(keywords)}...")
+
+    try:
+        searcher = InstantSearch()
+
+        temp_filter = {
+            'id': 0,
+            'name': 'Тестовый поиск',
+            'keywords': keywords,
+            'exclude_keywords': [],
+            'price_min': None,
+            'price_max': None,
+            'regions': [],
+            'tender_types': [],
+            'law_types': []
+        }
+
+        results = await searcher.search_by_filter(
+            filter_data=temp_filter,
+            max_tenders=20,
+            expanded_keywords=[]
+        )
+
+        matches = results.get('matches', [])
+        total_found = results.get('total_found', 0)
+
+        await message.answer(f"📊 RSS: {total_found} тендеров\n🎯 После скоринга: {len(matches)}")
+
+        if matches:
+            html_content = searcher.generate_html_report(
+                tenders=matches,
+                filter_name='Тестовый поиск',
+                stats=results.get('stats', {})
+            )
+
+            filename = f"test_{datetime.now().strftime('%H%M%S')}.html"
+            file = BufferedInputFile(
+                html_content.encode('utf-8'),
+                filename=filename
+            )
+
+            await message.answer_document(
+                document=file,
+                caption=f"📄 Отчет: {len(matches)} тендеров"
+            )
+        else:
+            await message.answer("⚠️ Нет результатов после скоринга")
+
+    except Exception as e:
+        logger.error(f"Ошибка test_search: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
