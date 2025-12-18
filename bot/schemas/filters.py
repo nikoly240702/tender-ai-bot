@@ -38,7 +38,7 @@ class FilterCreate(BaseModel):
     )
     regions: Optional[List[str]] = Field(
         None,
-        max_length=20,
+        max_length=100,  # В России 89 регионов, даём запас
         description="Регионы для фильтрации"
     )
 
@@ -141,7 +141,7 @@ class FilterUpdate(BaseModel):
     )
     regions: Optional[List[str]] = Field(
         None,
-        max_length=20
+        max_length=100  # В России 89 регионов, даём запас
     )
     is_active: Optional[bool] = None
 
