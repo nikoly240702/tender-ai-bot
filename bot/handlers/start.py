@@ -374,53 +374,212 @@ APOLOGY_MESSAGE = """
 
 @router.message(Command("send_apology"))
 async def admin_send_apology(message: Message):
-    """Админская команда для отправки извинения себе (тест)."""
+    """Админская команда для отправки извинения + отчетов СЕБЕ (тест перед рассылкой)."""
     from bot.config import BotConfig
+    from tender_sniper.database import get_sniper_db
+    from tender_sniper.instant_search import InstantSearch
+    from aiogram.types import BufferedInputFile
+    from datetime import datetime
+    import json
 
     if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
         return  # Только для админа
 
+    telegram_id = message.from_user.id
+
+    # Отправляем извинение
     await message.answer(APOLOGY_MESSAGE, parse_mode="HTML")
-    await message.answer("✅ Тестовое сообщение отправлено вам")
+
+    # Получаем фильтры текущего пользователя
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(telegram_id)
+
+        if not user:
+            await message.answer("⚠️ Пользователь не найден в базе")
+            return
+
+        user_id = user['id']
+        filters = await db.get_user_filters(user_id)
+
+        if not filters:
+            await message.answer("⚠️ У вас нет активных фильтров")
+            return
+
+        await message.answer(f"📋 Найдено {len(filters)} фильтров. Генерирую отчеты...")
+
+        searcher = InstantSearch()
+        reports_sent = 0
+
+        for filter_data in filters:
+            filter_name = filter_data.get('name', 'Без названия')
+            keywords = filter_data.get('keywords', [])
+
+            if isinstance(keywords, str):
+                try:
+                    keywords = json.loads(keywords)
+                except:
+                    keywords = []
+
+            if not keywords:
+                continue
+
+            try:
+                results = await searcher.search_by_filter(
+                    filter_data=filter_data,
+                    max_tenders=20,
+                    expanded_keywords=[]
+                )
+
+                matches = results.get('matches', [])
+                total_found = results.get('total_found', 0)
+
+                if matches:
+                    html_content = searcher.generate_html_report(
+                        tenders=matches,
+                        filter_name=filter_name,
+                        stats=results.get('stats', {})
+                    )
+
+                    filename = f"{filter_name[:20]}_{datetime.now().strftime('%H%M%S')}.html"
+                    file = BufferedInputFile(
+                        html_content.encode('utf-8'),
+                        filename=filename
+                    )
+
+                    await message.answer_document(
+                        document=file,
+                        caption=f"📄 <b>{filter_name}</b>\n\n"
+                               f"RSS: {total_found} → После скоринга: {len(matches)}\n"
+                               f"Ключевые слова: {', '.join(keywords[:3])}",
+                        parse_mode="HTML"
+                    )
+                    reports_sent += 1
+                else:
+                    await message.answer(
+                        f"⚠️ <b>{filter_name}</b>\n"
+                        f"RSS: {total_found}, после скоринга: 0",
+                        parse_mode="HTML"
+                    )
+
+            except Exception as e:
+                logger.error(f"Ошибка для фильтра {filter_name}: {e}")
+                await message.answer(f"❌ Ошибка для фильтра {filter_name}: {e}")
+
+        await message.answer(f"✅ Тест завершен! Отправлено отчетов: {reports_sent}")
+
+    except Exception as e:
+        logger.error(f"Ошибка в send_apology: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
 
 
 @router.message(Command("send_apology_all"))
 async def admin_send_apology_all(message: Message):
-    """Админская команда для отправки извинений всем пользователям."""
+    """Админская команда для отправки извинений + отчетов всем пользователям."""
     from bot.config import BotConfig
     from tender_sniper.database import get_sniper_db
+    from tender_sniper.instant_search import InstantSearch
+    from aiogram.types import BufferedInputFile
+    from datetime import datetime
     import asyncio
+    import json
 
     if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
         return  # Только для админа
 
-    await message.answer("📋 Получаю список пользователей...")
+    await message.answer("📋 Получаю список фильтров пользователей...")
 
     try:
         db = await get_sniper_db()
         filters = await db.get_all_active_filters()
 
-        # Уникальные telegram_id
-        user_ids = set()
+        # Группируем фильтры по пользователям
+        user_filters = {}
         for f in filters:
-            if f.get('telegram_id'):
-                user_ids.add(f['telegram_id'])
+            tid = f.get('telegram_id')
+            if tid:
+                if tid not in user_filters:
+                    user_filters[tid] = []
+                user_filters[tid].append(f)
 
-        await message.answer(f"📊 Найдено {len(user_ids)} пользователей. Начинаю отправку...")
+        total_users = len(user_filters)
+        await message.answer(f"📊 Найдено {total_users} пользователей с {len(filters)} фильтрами.\n\nНачинаю обработку...")
 
-        success = 0
-        failed = 0
+        searcher = InstantSearch()
+        success_users = 0
+        failed_users = 0
+        total_reports = 0
 
-        for uid in user_ids:
+        for telegram_id, user_filter_list in user_filters.items():
             try:
-                await message.bot.send_message(uid, APOLOGY_MESSAGE, parse_mode="HTML")
-                success += 1
-            except Exception as e:
-                logger.error(f"Ошибка отправки пользователю {uid}: {e}")
-                failed += 1
-            await asyncio.sleep(0.3)  # Задержка
+                # Отправляем извинение
+                await message.bot.send_message(telegram_id, APOLOGY_MESSAGE, parse_mode="HTML")
 
-        await message.answer(f"✅ Готово!\n\nУспешно: {success}\nОшибок: {failed}")
+                # Для каждого фильтра пользователя делаем поиск и отправляем отчет
+                for filter_data in user_filter_list:
+                    filter_name = filter_data.get('name', 'Без названия')
+                    keywords_raw = filter_data.get('keywords', '[]')
+
+                    try:
+                        keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else keywords_raw
+                    except:
+                        keywords = []
+
+                    if not keywords:
+                        continue
+
+                    # Выполняем поиск
+                    try:
+                        results = await searcher.search_by_filter(
+                            filter_data=filter_data,
+                            max_tenders=20,
+                            expanded_keywords=[]
+                        )
+
+                        matches = results.get('matches', [])
+
+                        if matches:
+                            html_content = searcher.generate_html_report(
+                                tenders=matches,
+                                filter_name=filter_name,
+                                stats=results.get('stats', {})
+                            )
+
+                            filename = f"{filter_name[:20]}_{datetime.now().strftime('%H%M%S')}.html"
+                            file = BufferedInputFile(
+                                html_content.encode('utf-8'),
+                                filename=filename
+                            )
+
+                            await message.bot.send_document(
+                                chat_id=telegram_id,
+                                document=file,
+                                caption=f"📄 <b>{filter_name}</b>\n\n"
+                                       f"Найдено тендеров: {len(matches)}\n"
+                                       f"Ключевые слова: {', '.join(keywords[:3])}{'...' if len(keywords) > 3 else ''}",
+                                parse_mode="HTML"
+                            )
+                            total_reports += 1
+
+                    except Exception as search_err:
+                        logger.error(f"Ошибка поиска для фильтра {filter_name}: {search_err}")
+
+                    await asyncio.sleep(0.5)  # Задержка между отчетами
+
+                success_users += 1
+
+            except Exception as e:
+                logger.error(f"Ошибка отправки пользователю {telegram_id}: {e}")
+                failed_users += 1
+
+            await asyncio.sleep(0.3)  # Задержка между пользователями
+
+        await message.answer(
+            f"✅ <b>Готово!</b>\n\n"
+            f"Пользователей: {success_users} успешно, {failed_users} ошибок\n"
+            f"Отчетов отправлено: {total_reports}",
+            parse_mode="HTML"
+        )
 
     except Exception as e:
         logger.error(f"Ошибка в send_apology_all: {e}", exc_info=True)
