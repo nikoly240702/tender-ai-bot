@@ -1163,6 +1163,23 @@ async def process_tender_count(message: Message, state: FSMContext):
     data = await state.get_data()
     with_instant_search = data.get('with_instant_search', True)
 
+    # ВАЖНО: Проверяем что ключевые слова не потерялись
+    keywords = data.get('keywords', [])
+    if not keywords:
+        logger.error(f"❌ Keywords потеряны! Data: {data}")
+        await message.answer(
+            "⚠️ <b>Произошла ошибка</b>\n\n"
+            "Данные сессии были потеряны (возможно, бот перезапускался).\n\n"
+            "Пожалуйста, начните заново:\n"
+            "• Нажмите 🎯 <b>Tender Sniper</b>\n"
+            "• Затем <b>Мгновенный поиск</b>",
+            parse_mode="HTML"
+        )
+        await state.clear()
+        return
+
+    logger.info(f"✅ Keywords сохранены: {keywords}")
+
     # Показываем прогресс
     if with_instant_search:
         progress_msg = await message.answer(
