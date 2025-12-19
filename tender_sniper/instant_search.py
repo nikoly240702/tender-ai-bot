@@ -136,7 +136,21 @@ class InstantSearch:
                     logger.info(f"   🔎 Поиск: '{variant}'" + (" (транслит)" if variant != query else ""))
 
                     # Определяем тип закупки для RSS
-                    tender_type_for_rss = tender_types[0] if tender_types else None
+                    # Если выбраны все типы (3) или ничего не выбрано - не фильтруем
+                    # Если выбран 1 тип - фильтруем по нему
+                    # Если выбрано 2 типа - не фильтруем на RSS уровне (фильтрация на клиенте)
+                    all_types = {'товары', 'услуги', 'работы'}
+                    selected_types_set = set(tender_types) if tender_types else set()
+
+                    if len(selected_types_set) == 1:
+                        # Только 1 тип выбран - фильтруем по нему
+                        tender_type_for_rss = tender_types[0]
+                    elif len(selected_types_set) >= 3 or len(selected_types_set) == 0:
+                        # Все типы или ничего - без фильтрации
+                        tender_type_for_rss = None
+                    else:
+                        # 2 типа - без фильтрации на RSS уровне
+                        tender_type_for_rss = None
 
                     results = self.parser.search_tenders_rss(
                         keywords=variant,
