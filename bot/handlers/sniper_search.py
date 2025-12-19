@@ -55,6 +55,7 @@ class FilterSearchStates(StatesGroup):
     waiting_for_okpd2 = State()
     waiting_for_min_deadline = State()
     waiting_for_customer_keywords = State()
+    waiting_for_search_mode = State()  # Выбор режима поиска (точный/расширенный)
     waiting_for_tender_count = State()
     confirm_auto_monitoring = State()
 
@@ -539,6 +540,13 @@ async def back_to_okpd2(callback: CallbackQuery, state: FSMContext):
     """Вернуться к выбору ОКПД2."""
     await callback.answer("« Возвращаемся к ОКПД2")
     await ask_for_okpd2(callback.message, state)
+
+
+@router.callback_query(F.data == "back_to_search_mode")
+async def back_to_search_mode(callback: CallbackQuery, state: FSMContext):
+    """Вернуться к выбору режима поиска."""
+    await callback.answer("« Возвращаемся к режиму поиска")
+    await ask_for_search_mode(callback.message, state)
 
 
 async def ask_for_regions(message: Message, state: FSMContext):
@@ -1099,7 +1107,7 @@ async def process_okpd2_callback(callback: CallbackQuery, state: FSMContext):
         }
         okpd2_codes = okpd_map.get(okpd_value, [okpd_value])
         await state.update_data(okpd2_codes=okpd2_codes)
-        await ask_for_tender_count(callback.message, state)
+        await ask_for_search_mode(callback.message, state)
 
 
 @router.message(FilterSearchStates.waiting_for_okpd2)
@@ -1118,7 +1126,62 @@ async def process_okpd2_text(message: Message, state: FSMContext):
         okpd2_codes = []
 
     await state.update_data(okpd2_codes=okpd2_codes)
-    await ask_for_tender_count(message, state)
+    await ask_for_search_mode(message, state)
+
+
+async def ask_for_search_mode(message: Message, state: FSMContext):
+    """Запрос режима поиска (точный или расширенный)."""
+    await state.set_state(FilterSearchStates.waiting_for_search_mode)
+
+    # Получаем ключевые слова для подсказки
+    data = await state.get_data()
+    keywords = data.get('keywords', [])
+    keywords_str = ', '.join(keywords[:3])
+    if len(keywords) > 3:
+        keywords_str += f' (+{len(keywords) - 3})'
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="🔍 Расширенный поиск (рекомендуется)",
+            callback_data="search_mode_expanded"
+        )],
+        [InlineKeyboardButton(
+            text="🎯 Точный поиск",
+            callback_data="search_mode_exact"
+        )],
+        [InlineKeyboardButton(text="« Назад к ОКПД2", callback_data="back_to_okpd2")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    await message.answer(
+        f"<b>Шаг 13/14:</b> Режим поиска\n\n"
+        f"Ваши ключевые слова: <code>{keywords_str}</code>\n\n"
+        f"<b>🔍 Расширенный поиск</b>\n"
+        f"AI добавит синонимы и связанные термины.\n"
+        f"Подходит для: <i>компьютеры, мебель, канцелярия</i>\n\n"
+        f"<b>🎯 Точный поиск</b>\n"
+        f"Только указанные вами слова, без расширения.\n"
+        f"Подходит для: <i>Atlas Copco, Komatsu, Linux, SAP</i>\n\n"
+        f"💡 Для брендов и узкоспециализированных терминов выбирайте точный поиск",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "search_mode_expanded", FilterSearchStates.waiting_for_search_mode)
+async def process_search_mode_expanded(callback: CallbackQuery, state: FSMContext):
+    """Выбран расширенный поиск."""
+    await callback.answer()
+    await state.update_data(exact_match=False)
+    await ask_for_tender_count(callback.message, state)
+
+
+@router.callback_query(F.data == "search_mode_exact", FilterSearchStates.waiting_for_search_mode)
+async def process_search_mode_exact(callback: CallbackQuery, state: FSMContext):
+    """Выбран точный поиск."""
+    await callback.answer("🎯 Точный поиск выбран")
+    await state.update_data(exact_match=True)
+    await ask_for_tender_count(callback.message, state)
 
 
 async def ask_for_tender_count(message: Message, state: FSMContext):
@@ -1126,12 +1189,12 @@ async def ask_for_tender_count(message: Message, state: FSMContext):
     await state.set_state(FilterSearchStates.waiting_for_tender_count)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="« Назад к ОКПД2", callback_data="back_to_okpd2")],
+        [InlineKeyboardButton(text="« Назад к режиму поиска", callback_data="back_to_search_mode")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
     await message.answer(
-        f"<b>Шаг 13/13:</b> Количество тендеров\n\n"
+        f"<b>Шаг 14/14:</b> Количество тендеров\n\n"
         f"Сколько тендеров найти?\n"
         f"Введите число от <code>1</code> до <code>25</code>\n\n"
         f"💡 Рекомендуем 10-15 для быстрого результата",
@@ -1241,6 +1304,7 @@ async def process_tender_count(message: Message, state: FSMContext):
         # 1. Сохраняем фильтр в БД с новыми критериями
         # is_active=False для with_instant_search (требует подтверждения)
         # is_active=True для прямого создания (сразу активен)
+        exact_match = data.get('exact_match', False)
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=filter_name,
@@ -1256,31 +1320,45 @@ async def process_tender_count(message: Message, state: FSMContext):
             okpd2_codes=data.get('okpd2_codes', []),
             min_deadline_days=data.get('min_deadline_days'),
             customer_keywords=data.get('customer_keywords', []),
+            exact_match=exact_match,  # Режим поиска
             is_active=False if with_instant_search else True  # Активен только если без поиска
         )
 
         # РЕЖИМ 1: С мгновенным поиском
         if with_instant_search:
-            # 2. AI расширение критериев
-            await progress_msg.edit_text(
-                "🔄 <b>Обработка вашего запроса...</b>\n\n"
-                "✅ Шаг 1/4: Фильтр сохранен\n"
-                "⏳ Шаг 2/4: AI расширяет критерии поиска...",
-                parse_mode="HTML"
-            )
+            # 2. AI расширение критериев (только если не точный поиск)
+            expanded_keywords = []
 
-            expander = QueryExpander()
-            expansion = await expander.expand_keywords(data.get('keywords', []))
-            expanded_keywords = expansion.get('expanded_keywords', [])
+            if exact_match:
+                # Точный поиск - без AI расширения
+                await progress_msg.edit_text(
+                    "🔄 <b>Обработка вашего запроса...</b>\n\n"
+                    "✅ Шаг 1/3: Фильтр сохранен\n"
+                    "🎯 Режим: Точный поиск (без расширения)\n"
+                    "⏳ Шаг 2/3: Поиск тендеров на zakupki.gov.ru...",
+                    parse_mode="HTML"
+                )
+            else:
+                # Расширенный поиск - с AI
+                await progress_msg.edit_text(
+                    "🔄 <b>Обработка вашего запроса...</b>\n\n"
+                    "✅ Шаг 1/4: Фильтр сохранен\n"
+                    "⏳ Шаг 2/4: AI расширяет критерии поиска...",
+                    parse_mode="HTML"
+                )
 
-            # 3. Мгновенный поиск
-            await progress_msg.edit_text(
-                "🔄 <b>Обработка вашего запроса...</b>\n\n"
-                "✅ Шаг 1/4: Фильтр сохранен\n"
-                "✅ Шаг 2/4: AI расширил запрос (+{} терминов)\n"
-                "⏳ Шаг 3/4: Поиск тендеров на zakupki.gov.ru...".format(len(expanded_keywords)),
-                parse_mode="HTML"
-            )
+                expander = QueryExpander()
+                expansion = await expander.expand_keywords(data.get('keywords', []))
+                expanded_keywords = expansion.get('expanded_keywords', [])
+
+                # 3. Мгновенный поиск
+                await progress_msg.edit_text(
+                    "🔄 <b>Обработка вашего запроса...</b>\n\n"
+                    "✅ Шаг 1/4: Фильтр сохранен\n"
+                    "✅ Шаг 2/4: AI расширил запрос (+{} терминов)\n"
+                    "⏳ Шаг 3/4: Поиск тендеров на zakupki.gov.ru...".format(len(expanded_keywords)),
+                    parse_mode="HTML"
+                )
 
             searcher = InstantSearch()
             filter_data = {

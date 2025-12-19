@@ -221,6 +221,7 @@ class TenderSniperDB:
                 okpd2_codes=kwargs.get('okpd2_codes', []),
                 min_deadline_days=kwargs.get('min_deadline_days'),
                 customer_keywords=kwargs.get('customer_keywords', []),
+                exact_match=kwargs.get('exact_match', False),  # Режим поиска
                 is_active=kwargs.get('is_active', True)  # По умолчанию активен
             )
             session.add(filter_obj)

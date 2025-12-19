@@ -74,6 +74,10 @@ class FilterCreate(BaseModel):
         max_length=50,
         description="Коды ОКПД2 для фильтрации"
     )
+    exact_match: bool = Field(
+        default=False,
+        description="Точный поиск (без AI расширения ключевых слов)"
+    )
 
     @field_validator('name')
     @classmethod

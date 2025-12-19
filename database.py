@@ -115,6 +115,7 @@ class SniperFilter(Base):
     okpd2_codes = Column(JSON, default=list)  # List[str]
     min_deadline_days = Column(Integer, nullable=True)
     customer_keywords = Column(JSON, default=list)  # List[str]
+    exact_match = Column(Boolean, default=False, nullable=False)  # Точный поиск (без AI расширения)
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
