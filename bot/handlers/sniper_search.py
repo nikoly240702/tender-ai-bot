@@ -1088,7 +1088,7 @@ async def process_okpd2_callback(callback: CallbackQuery, state: FSMContext):
 
     if okpd_value == "skip":
         await state.update_data(okpd2_codes=[])
-        await ask_for_tender_count(callback.message, state)
+        await ask_for_search_mode(callback.message, state)
     elif okpd_value == "custom":
         await callback.message.answer(
             "Введите код ОКПД2:\n"
