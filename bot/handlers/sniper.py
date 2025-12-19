@@ -108,6 +108,7 @@ async def show_sniper_menu(callback: CallbackQuery):
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [monitoring_button],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
             [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
@@ -1163,6 +1164,629 @@ async def mark_tender_skipped(callback: CallbackQuery):
 async def noop_callback(callback: CallbackQuery):
     """Handler для отключенных/информационных кнопок."""
     await callback.answer("✅ Уже отмечено")
+
+
+# ============================================
+# 🧪 БЕТА: РАСШИРЕННЫЕ НАСТРОЙКИ ФИЛЬТРОВ
+# ============================================
+
+@router.callback_query(F.data == "sniper_extended_settings")
+async def show_extended_settings(callback: CallbackQuery):
+    """Меню расширенных настроек фильтров (БЕТА)."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.edit_text(
+                "❌ Пользователь не найден. Попробуйте /start",
+                parse_mode="HTML"
+            )
+            return
+
+        # Получаем фильтры пользователя
+        filters = await db.get_user_filters(user['id'], active_only=False)
+
+        keyboard_buttons = []
+
+        if filters:
+            # Показываем кнопки для каждого фильтра
+            for f in filters[:10]:  # Максимум 10 фильтров
+                status = "🟢" if f['is_active'] else "🔴"
+                keyboard_buttons.append([
+                    InlineKeyboardButton(
+                        text=f"{status} {f['name'][:30]}",
+                        callback_data=f"ext_filter_{f['id']}"
+                    )
+                ])
+
+        # Кнопки навигации
+        keyboard_buttons.extend([
+            [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+        features_text = (
+            "⚙️ <b>Расширенные настройки</b> 🧪 БЕТА\n\n"
+            "Здесь вы можете настроить дополнительные параметры фильтров:\n\n"
+            "📌 <b>Доступные функции:</b>\n"
+            "• 🔢 Поиск по номеру закупки\n"
+            "• 🏢 Фильтр по ИНН заказчика\n"
+            "• 🚫 Черный список заказчиков\n"
+            "• 📅 Фильтр по дате публикации\n"
+            "• ⭐ Приоритет ключевых слов\n\n"
+        )
+
+        if filters:
+            features_text += f"📋 <b>Ваши фильтры ({len(filters)}):</b>\n"
+            features_text += "Выберите фильтр для настройки:"
+        else:
+            features_text += "📋 <i>У вас нет фильтров.</i>\n"
+            features_text += "Сначала создайте фильтр через \"Новый поиск\"."
+
+        await callback.message.edit_text(
+            features_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_extended_settings: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("ext_filter_"))
+async def show_filter_extended_options(callback: CallbackQuery):
+    """Показать расширенные опции для конкретного фильтра."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text(
+                "❌ Фильтр не найден",
+                parse_mode="HTML"
+            )
+            return
+
+        # Формируем информацию о текущих настройках
+        settings_info = f"⚙️ <b>Настройки фильтра:</b> {filter_data['name']}\n\n"
+
+        # Номер закупки
+        purchase_num = filter_data.get('purchase_number')
+        settings_info += f"🔢 <b>Номер закупки:</b> {purchase_num or '—'}\n"
+
+        # ИНН заказчиков
+        customer_inns = filter_data.get('customer_inn', [])
+        if customer_inns:
+            settings_info += f"🏢 <b>ИНН заказчиков:</b> {', '.join(customer_inns[:3])}"
+            if len(customer_inns) > 3:
+                settings_info += f" (+{len(customer_inns)-3})"
+            settings_info += "\n"
+        else:
+            settings_info += "🏢 <b>ИНН заказчиков:</b> —\n"
+
+        # Черный список
+        excluded_inns = filter_data.get('excluded_customer_inns', [])
+        excluded_keywords = filter_data.get('excluded_customer_keywords', [])
+        blacklist_count = len(excluded_inns) + len(excluded_keywords)
+        settings_info += f"🚫 <b>Черный список:</b> {blacklist_count} записей\n"
+
+        # Дата публикации
+        pub_days = filter_data.get('publication_days')
+        if pub_days:
+            settings_info += f"📅 <b>Публикация:</b> за {pub_days} дней\n"
+        else:
+            settings_info += "📅 <b>Публикация:</b> без ограничений\n"
+
+        # Приоритетные ключевые слова
+        primary_kw = filter_data.get('primary_keywords', [])
+        secondary_kw = filter_data.get('secondary_keywords', [])
+        if primary_kw or secondary_kw:
+            settings_info += f"⭐ <b>Приоритет:</b> {len(primary_kw)} главных, {len(secondary_kw)} доп.\n"
+        else:
+            settings_info += "⭐ <b>Приоритет:</b> не настроен\n"
+
+        settings_info += "\n<i>Выберите параметр для настройки:</i>"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔢 Номер закупки", callback_data=f"ext_pnum_{filter_id}")],
+            [InlineKeyboardButton(text="🏢 ИНН заказчиков", callback_data=f"ext_inn_{filter_id}")],
+            [InlineKeyboardButton(text="🚫 Черный список", callback_data=f"ext_blacklist_{filter_id}")],
+            [InlineKeyboardButton(text="📅 Дата публикации", callback_data=f"ext_pubdate_{filter_id}")],
+            [InlineKeyboardButton(text="⭐ Приоритет ключевых слов", callback_data=f"ext_priority_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад к списку", callback_data="sniper_extended_settings")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            settings_info,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_filter_extended_options: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("ext_pubdate_"))
+async def show_publication_date_options(callback: CallbackQuery):
+    """Выбор фильтра по дате публикации."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_pubdate_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден")
+            return
+
+        current_days = filter_data.get('publication_days')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"{'✅ ' if current_days == 3 else ''}3 дня",
+                    callback_data=f"set_pubdays_{filter_id}_3"
+                ),
+                InlineKeyboardButton(
+                    text=f"{'✅ ' if current_days == 7 else ''}7 дней",
+                    callback_data=f"set_pubdays_{filter_id}_7"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"{'✅ ' if current_days == 14 else ''}14 дней",
+                    callback_data=f"set_pubdays_{filter_id}_14"
+                ),
+                InlineKeyboardButton(
+                    text=f"{'✅ ' if current_days == 30 else ''}30 дней",
+                    callback_data=f"set_pubdays_{filter_id}_30"
+                )
+            ],
+            [InlineKeyboardButton(
+                text=f"{'✅ ' if current_days is None else ''}Без ограничений",
+                callback_data=f"set_pubdays_{filter_id}_0"
+            )],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"📅 <b>Фильтр по дате публикации</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+            f"Выберите, за сколько дней искать тендеры:\n\n"
+            f"<i>Текущее значение: {f'{current_days} дней' if current_days else 'без ограничений'}</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_publication_date_options: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("set_pubdays_"))
+async def set_publication_days(callback: CallbackQuery):
+    """Установить фильтр по дате публикации."""
+    await callback.answer()
+
+    try:
+        parts = callback.data.split("_")
+        filter_id = int(parts[2])
+        days = int(parts[3])
+
+        db = await get_sniper_db()
+
+        # Устанавливаем значение (0 означает None)
+        pub_days = days if days > 0 else None
+        await db.update_filter(filter_id, publication_days=pub_days)
+
+        await callback.answer(
+            f"✅ Установлено: {f'{days} дней' if days > 0 else 'без ограничений'}",
+            show_alert=True
+        )
+
+        # Возвращаемся к настройкам фильтра
+        callback.data = f"ext_filter_{filter_id}"
+        await show_filter_extended_options(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка в set_publication_days: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# --- Номер закупки ---
+
+@router.callback_query(F.data.startswith("ext_pnum_"))
+async def show_purchase_number_input(callback: CallbackQuery, state: FSMContext):
+    """Показать форму ввода номера закупки."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_pnum_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден")
+            return
+
+        current_num = filter_data.get('purchase_number') or "не указан"
+
+        # Сохраняем filter_id в состоянии
+        await state.update_data(ext_filter_id=filter_id, ext_setting='purchase_number')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑️ Очистить", callback_data=f"clear_pnum_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"🔢 <b>Номер закупки</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n"
+            f"Текущее значение: <code>{current_num}</code>\n\n"
+            f"Введите номер закупки для поиска:\n"
+            f"<i>Например: 0123456789012345</i>\n\n"
+            f"💡 Это позволит искать конкретную закупку по её номеру.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_purchase_number_input: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("clear_pnum_"))
+async def clear_purchase_number(callback: CallbackQuery):
+    """Очистить номер закупки."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("clear_pnum_", ""))
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id, purchase_number=None)
+
+        await callback.answer("✅ Номер закупки очищен", show_alert=True)
+
+        callback.data = f"ext_filter_{filter_id}"
+        await show_filter_extended_options(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка в clear_purchase_number: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# --- ИНН заказчиков ---
+
+@router.callback_query(F.data.startswith("ext_inn_"))
+async def show_customer_inn_input(callback: CallbackQuery, state: FSMContext):
+    """Показать форму ввода ИНН заказчиков."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_inn_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден")
+            return
+
+        current_inns = filter_data.get('customer_inn', [])
+        inns_text = ", ".join(current_inns) if current_inns else "не указаны"
+
+        await state.update_data(ext_filter_id=filter_id, ext_setting='customer_inn')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑️ Очистить все", callback_data=f"clear_inn_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"🏢 <b>ИНН заказчиков</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n"
+            f"Текущие ИНН: <code>{inns_text}</code>\n\n"
+            f"Введите ИНН заказчиков через запятую:\n"
+            f"<i>Например: 7707083893, 7710140679</i>\n\n"
+            f"💡 ИНН должен содержать 10 или 12 цифр.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_customer_inn_input: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("clear_inn_"))
+async def clear_customer_inn(callback: CallbackQuery):
+    """Очистить ИНН заказчиков."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("clear_inn_", ""))
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id, customer_inn=[])
+
+        await callback.answer("✅ ИНН заказчиков очищены", show_alert=True)
+
+        callback.data = f"ext_filter_{filter_id}"
+        await show_filter_extended_options(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка в clear_customer_inn: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# --- Черный список ---
+
+@router.callback_query(F.data.startswith("ext_blacklist_"))
+async def show_blacklist_menu(callback: CallbackQuery):
+    """Показать меню черного списка."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_blacklist_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден")
+            return
+
+        excluded_inns = filter_data.get('excluded_customer_inns', [])
+        excluded_keywords = filter_data.get('excluded_customer_keywords', [])
+
+        inns_text = ", ".join(excluded_inns[:5]) if excluded_inns else "—"
+        if len(excluded_inns) > 5:
+            inns_text += f" (+{len(excluded_inns)-5})"
+
+        keywords_text = ", ".join(excluded_keywords[:5]) if excluded_keywords else "—"
+        if len(excluded_keywords) > 5:
+            keywords_text += f" (+{len(excluded_keywords)-5})"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏢 Добавить ИНН", callback_data=f"bl_add_inn_{filter_id}")],
+            [InlineKeyboardButton(text="📝 Добавить ключевые слова", callback_data=f"bl_add_kw_{filter_id}")],
+            [InlineKeyboardButton(text="🗑️ Очистить черный список", callback_data=f"bl_clear_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"🚫 <b>Черный список заказчиков</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+            f"<b>Исключенные ИНН ({len(excluded_inns)}):</b>\n"
+            f"<code>{inns_text}</code>\n\n"
+            f"<b>Исключенные слова ({len(excluded_keywords)}):</b>\n"
+            f"<code>{keywords_text}</code>\n\n"
+            f"💡 Заказчики из черного списка будут исключены из результатов поиска.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_blacklist_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("bl_add_inn_"))
+async def show_blacklist_inn_input(callback: CallbackQuery, state: FSMContext):
+    """Показать форму добавления ИНН в черный список."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("bl_add_inn_", ""))
+        await state.update_data(ext_filter_id=filter_id, ext_setting='excluded_customer_inns')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_blacklist_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"🚫 <b>Добавить ИНН в черный список</b>\n\n"
+            f"Введите ИНН заказчиков через запятую:\n"
+            f"<i>Например: 7707083893, 7710140679</i>\n\n"
+            f"Эти заказчики будут исключены из результатов поиска.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("bl_add_kw_"))
+async def show_blacklist_keywords_input(callback: CallbackQuery, state: FSMContext):
+    """Показать форму добавления ключевых слов в черный список."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("bl_add_kw_", ""))
+        await state.update_data(ext_filter_id=filter_id, ext_setting='excluded_customer_keywords')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_blacklist_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"🚫 <b>Добавить слова в черный список</b>\n\n"
+            f"Введите ключевые слова через запятую:\n"
+            f"<i>Например: Газпром, РЖД, Сбербанк</i>\n\n"
+            f"Заказчики, содержащие эти слова в названии, будут исключены.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("bl_clear_"))
+async def clear_blacklist(callback: CallbackQuery):
+    """Очистить черный список."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("bl_clear_", ""))
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id, excluded_customer_inns=[], excluded_customer_keywords=[])
+
+        await callback.answer("✅ Черный список очищен", show_alert=True)
+
+        callback.data = f"ext_blacklist_{filter_id}"
+        await show_blacklist_menu(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка в clear_blacklist: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# --- Приоритет ключевых слов ---
+
+@router.callback_query(F.data.startswith("ext_priority_"))
+async def show_priority_keywords_menu(callback: CallbackQuery, state: FSMContext):
+    """Показать меню приоритета ключевых слов."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_priority_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден")
+            return
+
+        primary_kw = filter_data.get('primary_keywords', [])
+        secondary_kw = filter_data.get('secondary_keywords', [])
+
+        primary_text = ", ".join(primary_kw[:5]) if primary_kw else "—"
+        if len(primary_kw) > 5:
+            primary_text += f" (+{len(primary_kw)-5})"
+
+        secondary_text = ", ".join(secondary_kw[:5]) if secondary_kw else "—"
+        if len(secondary_kw) > 5:
+            secondary_text += f" (+{len(secondary_kw)-5})"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Главные (вес 2x)", callback_data=f"prio_primary_{filter_id}")],
+            [InlineKeyboardButton(text="📌 Дополнительные (вес 1x)", callback_data=f"prio_secondary_{filter_id}")],
+            [InlineKeyboardButton(text="🗑️ Очистить приоритеты", callback_data=f"prio_clear_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"⭐ <b>Приоритет ключевых слов</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+            f"<b>Главные слова (вес 2x):</b>\n"
+            f"<code>{primary_text}</code>\n\n"
+            f"<b>Дополнительные (вес 1x):</b>\n"
+            f"<code>{secondary_text}</code>\n\n"
+            f"💡 Главные слова имеют приоритет при ранжировании результатов.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_priority_keywords_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("prio_primary_"))
+async def show_primary_keywords_input(callback: CallbackQuery, state: FSMContext):
+    """Показать форму ввода главных ключевых слов."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("prio_primary_", ""))
+        await state.update_data(ext_filter_id=filter_id, ext_setting='primary_keywords')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_priority_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"⭐ <b>Главные ключевые слова</b>\n\n"
+            f"Введите главные ключевые слова через запятую:\n"
+            f"<i>Например: сервер, компьютер, ноутбук</i>\n\n"
+            f"💡 Эти слова будут иметь повышенный вес (2x) при поиске.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("prio_secondary_"))
+async def show_secondary_keywords_input(callback: CallbackQuery, state: FSMContext):
+    """Показать форму ввода дополнительных ключевых слов."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("prio_secondary_", ""))
+        await state.update_data(ext_filter_id=filter_id, ext_setting='secondary_keywords')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_priority_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"📌 <b>Дополнительные ключевые слова</b>\n\n"
+            f"Введите дополнительные ключевые слова через запятую:\n"
+            f"<i>Например: монитор, клавиатура, мышь</i>\n\n"
+            f"💡 Эти слова будут иметь обычный вес (1x) при поиске.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("prio_clear_"))
+async def clear_priority_keywords(callback: CallbackQuery):
+    """Очистить приоритеты ключевых слов."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("prio_clear_", ""))
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id, primary_keywords=[], secondary_keywords=[])
+
+        await callback.answer("✅ Приоритеты очищены", show_alert=True)
+
+        callback.data = f"ext_priority_{filter_id}"
+        await show_priority_keywords_menu(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка в clear_priority_keywords: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
 # ============================================
