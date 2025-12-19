@@ -830,9 +830,14 @@ async def ask_for_law_type(message: Message, state: FSMContext):
     law_44_text = "✅ 44-ФЗ (госзакупки)" if "44-ФЗ" in selected_laws else "☐ 44-ФЗ (госзакупки)"
     law_223_text = "✅ 223-ФЗ (корпоративные)" if "223-ФЗ" in selected_laws else "☐ 223-ФЗ (корпоративные)"
 
+    # Кнопка "Выбрать все" / "Снять все"
+    all_selected = len(selected_laws) == 2
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=law_44_text, callback_data="law_toggle_44")],
         [InlineKeyboardButton(text=law_223_text, callback_data="law_toggle_223")],
+        [InlineKeyboardButton(text=select_all_text, callback_data="law_select_all")],
         [InlineKeyboardButton(text="✅ Продолжить", callback_data="law_confirm")],
         [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -876,9 +881,62 @@ async def process_law_toggle(callback: CallbackQuery, state: FSMContext):
     law_44_text = "✅ 44-ФЗ (госзакупки)" if "44-ФЗ" in selected_laws else "☐ 44-ФЗ (госзакупки)"
     law_223_text = "✅ 223-ФЗ (корпоративные)" if "223-ФЗ" in selected_laws else "☐ 223-ФЗ (корпоративные)"
 
+    # Кнопка "Выбрать все" / "Снять все"
+    all_selected = len(selected_laws) == 2
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=law_44_text, callback_data="law_toggle_44")],
         [InlineKeyboardButton(text=law_223_text, callback_data="law_toggle_223")],
+        [InlineKeyboardButton(text=select_all_text, callback_data="law_select_all")],
+        [InlineKeyboardButton(text="✅ Продолжить", callback_data="law_confirm")],
+        [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    status_text = ""
+    if selected_laws:
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_laws)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны оба закона)</i>"
+
+    await callback.message.edit_text(
+        f"<b>Шаг 6/14:</b> Тип закона\n\n"
+        f"<b>44-ФЗ</b> — государственные закупки (бюджетные организации)\n"
+        f"<b>223-ФЗ</b> — закупки госкомпаний (Газпром, РЖД и др.)\n\n"
+        f"💡 Нажмите на закон для выбора. Можно выбрать оба.{status_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "law_select_all", FilterSearchStates.waiting_for_law_type)
+async def process_law_select_all(callback: CallbackQuery, state: FSMContext):
+    """Выбрать все / Снять все для типа закона."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected_laws = data.get('selected_laws', [])
+
+    # Если все выбраны - снимаем все, иначе выбираем все
+    if len(selected_laws) == 2:
+        selected_laws = []
+    else:
+        selected_laws = ["44-ФЗ", "223-ФЗ"]
+
+    await state.update_data(selected_laws=selected_laws)
+
+    # Обновляем клавиатуру
+    law_44_text = "✅ 44-ФЗ (госзакупки)" if "44-ФЗ" in selected_laws else "☐ 44-ФЗ (госзакупки)"
+    law_223_text = "✅ 223-ФЗ (корпоративные)" if "223-ФЗ" in selected_laws else "☐ 223-ФЗ (корпоративные)"
+
+    all_selected = len(selected_laws) == 2
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=law_44_text, callback_data="law_toggle_44")],
+        [InlineKeyboardButton(text=law_223_text, callback_data="law_toggle_223")],
+        [InlineKeyboardButton(text=select_all_text, callback_data="law_select_all")],
         [InlineKeyboardButton(text="✅ Продолжить", callback_data="law_confirm")],
         [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -974,6 +1032,11 @@ async def ask_for_purchase_method(message: Message, state: FSMContext):
         text = f"✅ {method_name.split(' ', 1)[1]}" if is_selected else f"☐ {method_name.split(' ', 1)[1]}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=f"method_toggle_{method_id}")])
 
+    # Кнопка "Выбрать все" / "Снять все"
+    all_selected = len(selected_methods) == len(methods)
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+    buttons.append([InlineKeyboardButton(text=select_all_text, callback_data="method_select_all")])
+
     buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="method_confirm")])
     buttons.append([InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")])
     buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
@@ -1030,6 +1093,73 @@ async def process_method_toggle(callback: CallbackQuery, state: FSMContext):
         is_selected = mid in selected_methods
         text = f"✅ {mname}" if is_selected else f"☐ {mname}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=f"method_toggle_{mid}")])
+
+    # Кнопка "Выбрать все" / "Снять все"
+    all_selected = len(selected_methods) == len(methods)
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+    buttons.append([InlineKeyboardButton(text=select_all_text, callback_data="method_select_all")])
+
+    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="method_confirm")])
+    buttons.append([InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")])
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    status_text = ""
+    if selected_methods:
+        method_names = {"auction": "Аукцион", "tender": "Конкурс", "quotation": "Котировки", "request": "Запрос предложений"}
+        selected_names = [method_names.get(m, m) for m in selected_methods]
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_names)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны все способы)</i>"
+
+    await callback.message.edit_text(
+        f"<b>Шаг 8/14:</b> Способ закупки\n\n"
+        f"<b>Электронный аукцион</b> — побеждает минимальная цена\n"
+        f"<b>Открытый конкурс</b> — оценка по критериям\n"
+        f"<b>Запрос котировок</b> — до 3 млн руб\n"
+        f"<b>Запрос предложений</b> — сложные закупки\n\n"
+        f"💡 Нажмите для выбора. Можно выбрать несколько.{status_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "method_select_all", FilterSearchStates.waiting_for_purchase_method)
+async def process_method_select_all(callback: CallbackQuery, state: FSMContext):
+    """Выбрать все / Снять все для способа закупки."""
+    await callback.answer()
+
+    all_methods = ["auction", "tender", "quotation", "request"]
+
+    data = await state.get_data()
+    selected_methods = data.get('selected_methods', [])
+
+    # Если все выбраны - снимаем все, иначе выбираем все
+    if len(selected_methods) == len(all_methods):
+        selected_methods = []
+    else:
+        selected_methods = all_methods.copy()
+
+    await state.update_data(selected_methods=selected_methods)
+
+    # Обновляем клавиатуру
+    methods = [
+        ("auction", "Электронный аукцион"),
+        ("tender", "Открытый конкурс"),
+        ("quotation", "Запрос котировок"),
+        ("request", "Запрос предложений"),
+    ]
+
+    buttons = []
+    for mid, mname in methods:
+        is_selected = mid in selected_methods
+        text = f"✅ {mname}" if is_selected else f"☐ {mname}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"method_toggle_{mid}")])
+
+    all_selected = len(selected_methods) == len(methods)
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+    buttons.append([InlineKeyboardButton(text=select_all_text, callback_data="method_select_all")])
 
     buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="method_confirm")])
     buttons.append([InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")])
@@ -1097,6 +1227,11 @@ async def ask_for_tender_type(message: Message, state: FSMContext):
         text = f"✅ {type_name.split(' ', 1)[1]}" if is_selected else f"☐ {type_name.split(' ', 1)[1]}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=f"ttype_toggle_{type_id}")])
 
+    # Кнопка "Выбрать все" / "Снять все"
+    all_selected = len(selected_types) == len(types)
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+    buttons.append([InlineKeyboardButton(text=select_all_text, callback_data="ttype_select_all")])
+
     buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="ttype_confirm")])
     buttons.append([InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")])
     buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
@@ -1151,6 +1286,71 @@ async def process_ttype_toggle(callback: CallbackQuery, state: FSMContext):
         is_selected = tid in selected_types
         text = f"✅ {tname}" if is_selected else f"☐ {tname}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=f"ttype_toggle_{tid}")])
+
+    # Кнопка "Выбрать все" / "Снять все"
+    all_selected = len(selected_types) == len(types)
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+    buttons.append([InlineKeyboardButton(text=select_all_text, callback_data="ttype_select_all")])
+
+    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="ttype_confirm")])
+    buttons.append([InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")])
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    status_text = ""
+    if selected_types:
+        type_names = {"goods": "Товары", "services": "Услуги", "works": "Работы"}
+        selected_names = [type_names.get(t, t) for t in selected_types]
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_names)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны все типы)</i>"
+
+    await callback.message.edit_text(
+        f"<b>Шаг 9/14:</b> Тип закупки\n\n"
+        f"<b>Товары</b> — поставка продукции\n"
+        f"<b>Услуги</b> — обслуживание, консалтинг\n"
+        f"<b>Работы</b> — строительство, ремонт\n\n"
+        f"💡 Нажмите для выбора. Можно выбрать несколько.{status_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "ttype_select_all", FilterSearchStates.waiting_for_tender_type)
+async def process_ttype_select_all(callback: CallbackQuery, state: FSMContext):
+    """Выбрать все / Снять все для типа закупки."""
+    await callback.answer()
+
+    all_types = ["goods", "services", "works"]
+
+    data = await state.get_data()
+    selected_types = data.get('selected_tender_types', [])
+
+    # Если все выбраны - снимаем все, иначе выбираем все
+    if len(selected_types) == len(all_types):
+        selected_types = []
+    else:
+        selected_types = all_types.copy()
+
+    await state.update_data(selected_tender_types=selected_types)
+
+    # Обновляем клавиатуру
+    types = [
+        ("goods", "Товары (поставка)"),
+        ("services", "Услуги"),
+        ("works", "Работы"),
+    ]
+
+    buttons = []
+    for tid, tname in types:
+        is_selected = tid in selected_types
+        text = f"✅ {tname}" if is_selected else f"☐ {tname}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"ttype_toggle_{tid}")])
+
+    all_selected = len(selected_types) == len(types)
+    select_all_text = "❌ Снять все" if all_selected else "☑️ Выбрать все"
+    buttons.append([InlineKeyboardButton(text=select_all_text, callback_data="ttype_select_all")])
 
     buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="ttype_confirm")])
     buttons.append([InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")])
