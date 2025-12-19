@@ -222,6 +222,16 @@ class TenderSniperDB:
                 min_deadline_days=kwargs.get('min_deadline_days'),
                 customer_keywords=kwargs.get('customer_keywords', []),
                 exact_match=kwargs.get('exact_match', False),  # Режим поиска
+                # 🧪 БЕТА: Фаза 2 - Расширенные фильтры
+                purchase_number=kwargs.get('purchase_number'),
+                customer_inn=kwargs.get('customer_inn', []),
+                excluded_customer_inns=kwargs.get('excluded_customer_inns', []),
+                excluded_customer_keywords=kwargs.get('excluded_customer_keywords', []),
+                execution_regions=kwargs.get('execution_regions', []),
+                publication_days=kwargs.get('publication_days'),
+                primary_keywords=kwargs.get('primary_keywords', []),
+                secondary_keywords=kwargs.get('secondary_keywords', []),
+                search_in=kwargs.get('search_in', []),
                 is_active=kwargs.get('is_active', True)  # По умолчанию активен
             )
             session.add(filter_obj)
@@ -336,6 +346,17 @@ class TenderSniperDB:
             'okpd2_codes': safe_list(filter_obj.okpd2_codes),
             'min_deadline_days': filter_obj.min_deadline_days,
             'customer_keywords': safe_list(filter_obj.customer_keywords),
+            'exact_match': getattr(filter_obj, 'exact_match', False),
+            # 🧪 БЕТА: Фаза 2 - Расширенные фильтры
+            'purchase_number': getattr(filter_obj, 'purchase_number', None),
+            'customer_inn': safe_list(getattr(filter_obj, 'customer_inn', [])),
+            'excluded_customer_inns': safe_list(getattr(filter_obj, 'excluded_customer_inns', [])),
+            'excluded_customer_keywords': safe_list(getattr(filter_obj, 'excluded_customer_keywords', [])),
+            'execution_regions': safe_list(getattr(filter_obj, 'execution_regions', [])),
+            'publication_days': getattr(filter_obj, 'publication_days', None),
+            'primary_keywords': safe_list(getattr(filter_obj, 'primary_keywords', [])),
+            'secondary_keywords': safe_list(getattr(filter_obj, 'secondary_keywords', [])),
+            'search_in': safe_list(getattr(filter_obj, 'search_in', [])),
             'is_active': filter_obj.is_active,
             'created_at': filter_obj.created_at.isoformat() if filter_obj.created_at else None,
             'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None

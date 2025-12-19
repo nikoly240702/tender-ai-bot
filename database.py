@@ -116,6 +116,18 @@ class SniperFilter(Base):
     min_deadline_days = Column(Integer, nullable=True)
     customer_keywords = Column(JSON, default=list)  # List[str]
     exact_match = Column(Boolean, default=False, nullable=False)  # Точный поиск (без AI расширения)
+
+    # 🧪 БЕТА: Фаза 2 - Расширенные фильтры
+    purchase_number = Column(String(100), nullable=True)  # Поиск по номеру закупки
+    customer_inn = Column(JSON, default=list)  # List[str] - ИНН заказчиков
+    excluded_customer_inns = Column(JSON, default=list)  # List[str] - Черный список ИНН
+    excluded_customer_keywords = Column(JSON, default=list)  # List[str] - Черный список ключевых слов заказчика
+    execution_regions = Column(JSON, default=list)  # List[str] - Регионы исполнения
+    publication_days = Column(Integer, nullable=True)  # Дней с публикации (3, 7, 14, 30)
+    primary_keywords = Column(JSON, default=list)  # List[str] - Главные ключевые слова (вес 2x)
+    secondary_keywords = Column(JSON, default=list)  # List[str] - Дополнительные ключевые слова (вес 1x)
+    search_in = Column(JSON, default=list)  # List[str] - Где искать: ['title', 'description', 'documents', 'customer_name']
+
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
