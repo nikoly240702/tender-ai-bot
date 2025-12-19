@@ -1,7 +1,7 @@
 """add exact_match to sniper_filters
 
 Revision ID: add_exact_match
-Revises: add_error_count
+Revises: add_user_status_blocking
 Create Date: 2024-12-19
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'add_exact_match'
-down_revision = 'add_error_count'
+down_revision = 'add_user_status_blocking'
 branch_labels = None
 depends_on = None
 
