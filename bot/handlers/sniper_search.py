@@ -110,7 +110,7 @@ async def start_create_filter_only(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.edit_text(
             "➕ <b>Создание фильтра для автомониторинга</b>\n\n"
-            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "<b>Шаг 1/14:</b> Название фильтра\n\n"
             "Придумайте короткое название для вашего фильтра.\n"
             "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
             "💡 Это название поможет вам управлять фильтрами в будущем.\n\n"
@@ -169,7 +169,7 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
 
         await callback.message.edit_text(
             "🎯 <b>Создание фильтра с мгновенным поиском</b>\n\n"
-            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "<b>Шаг 1/14:</b> Название фильтра\n\n"
             "Придумайте короткое название для вашего фильтра.\n"
             "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
             "💡 Это название поможет вам управлять фильтрами в будущем.",
@@ -217,7 +217,7 @@ async def ask_for_keywords(message: Message, state: FSMContext):
 
     await message.answer(
         f"✅ Название: <b>{filter_name}</b>\n\n"
-        f"<b>Шаг 2/13:</b> Ключевые слова\n\n"
+        f"<b>Шаг 2/14:</b> Ключевые слова\n\n"
         f"Введите ключевые слова через запятую.\n"
         f"Например: <i>компьютеры, ноутбуки, серверы</i>\n\n"
         f"🤖 <b>AI автоматически расширит ваш запрос</b>\n"
@@ -288,7 +288,7 @@ async def ask_for_exclude_keywords(message: Message, state: FSMContext):
 
     await message.answer(
         f"✅ Ключевые слова: <b>{', '.join(keywords)}</b>\n\n"
-        f"<b>Шаг 3/13:</b> Исключающие слова\n\n"
+        f"<b>Шаг 3/14:</b> Исключающие слова\n\n"
         f"Введите слова, которые НЕ должны быть в тендере:\n"
         f"Например: <i>ремонт, б/у, аренда, лизинг</i>\n\n"
         f"Или нажмите «Пропустить»",
@@ -339,7 +339,7 @@ async def ask_for_price_range(message: Message, state: FSMContext):
 
     await message.answer(
         f"{exclude_text}"
-        f"<b>Шаг 4/13:</b> Ценовой диапазон\n\n"
+        f"<b>Шаг 4/14:</b> Ценовой диапазон\n\n"
         f"Введите диапазон цен в формате: <code>мин макс</code>\n"
         f"Например: <code>100000 5000000</code> (от 100 тыс до 5 млн)\n\n"
         f"Или нажмите «Любая цена»",
@@ -461,7 +461,7 @@ async def back_to_filter_name(callback: CallbackQuery, state: FSMContext):
     if with_instant_search:
         text = (
             "🎯 <b>Создание фильтра с мгновенным поиском</b>\n\n"
-            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "<b>Шаг 1/14:</b> Название фильтра\n\n"
             "Придумайте короткое название для вашего фильтра.\n"
             "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
             "💡 Это название поможет вам управлять фильтрами в будущем."
@@ -469,7 +469,7 @@ async def back_to_filter_name(callback: CallbackQuery, state: FSMContext):
     else:
         text = (
             "➕ <b>Создание фильтра для автомониторинга</b>\n\n"
-            "<b>Шаг 1/13:</b> Название фильтра\n\n"
+            "<b>Шаг 1/14:</b> Название фильтра\n\n"
             "Придумайте короткое название для вашего фильтра.\n"
             "Например: <i>IT оборудование</i>, <i>Медицинские товары</i>\n\n"
             "💡 Это название поможет вам управлять фильтрами в будущем.\n\n"
@@ -572,7 +572,7 @@ async def ask_for_regions(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 5/13:</b> Регион заказчика\n\n"
+        f"<b>Шаг 5/14:</b> Регион заказчика\n\n"
         f"Выберите способ указания регионов:\n\n"
         f"📍 <b>Федеральные округа</b> — выбрать один или несколько ФО\n"
         f"🏙️ <b>Отдельные регионы</b> — Москва, СПб и др.\n"
@@ -819,41 +819,102 @@ async def process_region_text(message: Message, state: FSMContext):
 
 
 async def ask_for_law_type(message: Message, state: FSMContext):
-    """Запрос типа закона."""
+    """Запрос типа закона (множественный выбор)."""
     await state.set_state(FilterSearchStates.waiting_for_law_type)
 
+    # Получаем текущий выбор
+    data = await state.get_data()
+    selected_laws = data.get('selected_laws', [])
+
+    # Формируем кнопки с галочками
+    law_44_text = "✅ 44-ФЗ (госзакупки)" if "44-ФЗ" in selected_laws else "☐ 44-ФЗ (госзакупки)"
+    law_223_text = "✅ 223-ФЗ (корпоративные)" if "223-ФЗ" in selected_laws else "☐ 223-ФЗ (корпоративные)"
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📚 Оба закона", callback_data="law_all")],
-        [InlineKeyboardButton(text="📜 44-ФЗ (госзакупки)", callback_data="law_44")],
-        [InlineKeyboardButton(text="📋 223-ФЗ (корпоративные)", callback_data="law_223")],
+        [InlineKeyboardButton(text=law_44_text, callback_data="law_toggle_44")],
+        [InlineKeyboardButton(text=law_223_text, callback_data="law_toggle_223")],
+        [InlineKeyboardButton(text="✅ Продолжить", callback_data="law_confirm")],
         [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
 
+    status_text = ""
+    if selected_laws:
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_laws)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны оба закона)</i>"
+
     await message.answer(
-        f"<b>Шаг 6/13:</b> Тип закона\n\n"
+        f"<b>Шаг 6/14:</b> Тип закона\n\n"
         f"<b>44-ФЗ</b> — государственные закупки (бюджетные организации)\n"
         f"<b>223-ФЗ</b> — закупки госкомпаний (Газпром, РЖД и др.)\n\n"
-        f"Выберите:",
+        f"💡 Нажмите на закон для выбора. Можно выбрать оба.{status_text}",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data.startswith("law_"), FilterSearchStates.waiting_for_law_type)
-async def process_law_type(callback: CallbackQuery, state: FSMContext):
-    """Обработка выбора типа закона."""
+@router.callback_query(F.data.startswith("law_toggle_"), FilterSearchStates.waiting_for_law_type)
+async def process_law_toggle(callback: CallbackQuery, state: FSMContext):
+    """Переключение выбора типа закона."""
     await callback.answer()
 
-    law_value = callback.data.replace("law_", "")
-    law_type = None
-    if law_value == "44":
-        law_type = "44-ФЗ"
-    elif law_value == "223":
-        law_type = "223-ФЗ"
-    # "all" оставляем None
+    law_value = callback.data.replace("law_toggle_", "")
+    law_name = "44-ФЗ" if law_value == "44" else "223-ФЗ"
 
-    await state.update_data(law_type=law_type)
+    data = await state.get_data()
+    selected_laws = data.get('selected_laws', [])
+
+    if law_name in selected_laws:
+        selected_laws.remove(law_name)
+    else:
+        selected_laws.append(law_name)
+
+    await state.update_data(selected_laws=selected_laws)
+
+    # Обновляем клавиатуру
+    law_44_text = "✅ 44-ФЗ (госзакупки)" if "44-ФЗ" in selected_laws else "☐ 44-ФЗ (госзакупки)"
+    law_223_text = "✅ 223-ФЗ (корпоративные)" if "223-ФЗ" in selected_laws else "☐ 223-ФЗ (корпоративные)"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=law_44_text, callback_data="law_toggle_44")],
+        [InlineKeyboardButton(text=law_223_text, callback_data="law_toggle_223")],
+        [InlineKeyboardButton(text="✅ Продолжить", callback_data="law_confirm")],
+        [InlineKeyboardButton(text="« Назад к регионам", callback_data="back_to_regions")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    status_text = ""
+    if selected_laws:
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_laws)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны оба закона)</i>"
+
+    await callback.message.edit_text(
+        f"<b>Шаг 6/14:</b> Тип закона\n\n"
+        f"<b>44-ФЗ</b> — государственные закупки (бюджетные организации)\n"
+        f"<b>223-ФЗ</b> — закупки госкомпаний (Газпром, РЖД и др.)\n\n"
+        f"💡 Нажмите на закон для выбора. Можно выбрать оба.{status_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "law_confirm", FilterSearchStates.waiting_for_law_type)
+async def process_law_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение выбора типа закона."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected_laws = data.get('selected_laws', [])
+
+    # Сохраняем law_type для совместимости (None если оба или ничего не выбрано)
+    if len(selected_laws) == 1:
+        law_type = selected_laws[0]
+    else:
+        law_type = None  # Оба закона или ничего
+
+    await state.update_data(law_type=law_type, law_types=selected_laws)
     await ask_for_purchase_stage(callback.message, state)
 
 
@@ -869,7 +930,7 @@ async def ask_for_purchase_stage(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 7/13:</b> Этап закупки\n\n"
+        f"<b>Шаг 7/14:</b> Этап закупки\n\n"
         f"<b>Подача заявок</b> — можно подать заявку прямо сейчас\n"
         f"<b>Все этапы</b> — включая завершённые и на рассмотрении\n\n"
         f"💡 Рекомендуем «Только подача заявок»",
@@ -891,80 +952,242 @@ async def process_purchase_stage(callback: CallbackQuery, state: FSMContext):
 
 
 async def ask_for_purchase_method(message: Message, state: FSMContext):
-    """Запрос способа закупки."""
+    """Запрос способа закупки (множественный выбор)."""
     await state.set_state(FilterSearchStates.waiting_for_purchase_method)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Все способы", callback_data="method_all")],
-        [InlineKeyboardButton(text="🔨 Электронный аукцион", callback_data="method_auction")],
-        [InlineKeyboardButton(text="📋 Открытый конкурс", callback_data="method_tender")],
-        [InlineKeyboardButton(text="💬 Запрос котировок", callback_data="method_quotation")],
-        [InlineKeyboardButton(text="📝 Запрос предложений", callback_data="method_request")],
-        [InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
+    # Получаем текущий выбор
+    data = await state.get_data()
+    selected_methods = data.get('selected_methods', [])
+
+    # Определяем методы
+    methods = [
+        ("auction", "🔨 Электронный аукцион"),
+        ("tender", "📋 Открытый конкурс"),
+        ("quotation", "💬 Запрос котировок"),
+        ("request", "📝 Запрос предложений"),
+    ]
+
+    # Формируем кнопки с галочками
+    buttons = []
+    for method_id, method_name in methods:
+        is_selected = method_id in selected_methods
+        text = f"✅ {method_name.split(' ', 1)[1]}" if is_selected else f"☐ {method_name.split(' ', 1)[1]}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"method_toggle_{method_id}")])
+
+    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="method_confirm")])
+    buttons.append([InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")])
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    status_text = ""
+    if selected_methods:
+        method_names = {"auction": "Аукцион", "tender": "Конкурс", "quotation": "Котировки", "request": "Запрос предложений"}
+        selected_names = [method_names.get(m, m) for m in selected_methods]
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_names)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны все способы)</i>"
 
     await message.answer(
-        f"<b>Шаг 8/13:</b> Способ закупки\n\n"
+        f"<b>Шаг 8/14:</b> Способ закупки\n\n"
         f"<b>Электронный аукцион</b> — побеждает минимальная цена\n"
         f"<b>Открытый конкурс</b> — оценка по критериям\n"
         f"<b>Запрос котировок</b> — до 3 млн руб\n"
         f"<b>Запрос предложений</b> — сложные закупки\n\n"
-        f"Выберите:",
+        f"💡 Нажмите для выбора. Можно выбрать несколько.{status_text}",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data.startswith("method_"), FilterSearchStates.waiting_for_purchase_method)
-async def process_purchase_method(callback: CallbackQuery, state: FSMContext):
-    """Обработка выбора способа закупки."""
+@router.callback_query(F.data.startswith("method_toggle_"), FilterSearchStates.waiting_for_purchase_method)
+async def process_method_toggle(callback: CallbackQuery, state: FSMContext):
+    """Переключение выбора способа закупки."""
     await callback.answer()
 
-    method_value = callback.data.replace("method_", "")
-    purchase_method = None if method_value == "all" else method_value
+    method_id = callback.data.replace("method_toggle_", "")
 
-    await state.update_data(purchase_method=purchase_method)
+    data = await state.get_data()
+    selected_methods = data.get('selected_methods', [])
+
+    if method_id in selected_methods:
+        selected_methods.remove(method_id)
+    else:
+        selected_methods.append(method_id)
+
+    await state.update_data(selected_methods=selected_methods)
+
+    # Обновляем клавиатуру
+    methods = [
+        ("auction", "Электронный аукцион"),
+        ("tender", "Открытый конкурс"),
+        ("quotation", "Запрос котировок"),
+        ("request", "Запрос предложений"),
+    ]
+
+    buttons = []
+    for mid, mname in methods:
+        is_selected = mid in selected_methods
+        text = f"✅ {mname}" if is_selected else f"☐ {mname}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"method_toggle_{mid}")])
+
+    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="method_confirm")])
+    buttons.append([InlineKeyboardButton(text="« Назад к этапу закупки", callback_data="back_to_purchase_stage")])
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    status_text = ""
+    if selected_methods:
+        method_names = {"auction": "Аукцион", "tender": "Конкурс", "quotation": "Котировки", "request": "Запрос предложений"}
+        selected_names = [method_names.get(m, m) for m in selected_methods]
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_names)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны все способы)</i>"
+
+    await callback.message.edit_text(
+        f"<b>Шаг 8/14:</b> Способ закупки\n\n"
+        f"<b>Электронный аукцион</b> — побеждает минимальная цена\n"
+        f"<b>Открытый конкурс</b> — оценка по критериям\n"
+        f"<b>Запрос котировок</b> — до 3 млн руб\n"
+        f"<b>Запрос предложений</b> — сложные закупки\n\n"
+        f"💡 Нажмите для выбора. Можно выбрать несколько.{status_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "method_confirm", FilterSearchStates.waiting_for_purchase_method)
+async def process_method_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение выбора способа закупки."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected_methods = data.get('selected_methods', [])
+
+    # Сохраняем purchase_method для совместимости
+    if len(selected_methods) == 1:
+        purchase_method = selected_methods[0]
+    else:
+        purchase_method = None
+
+    await state.update_data(purchase_method=purchase_method, purchase_methods=selected_methods)
     await ask_for_tender_type(callback.message, state)
 
 
 async def ask_for_tender_type(message: Message, state: FSMContext):
-    """Запрос типа закупки."""
+    """Запрос типа закупки (множественный выбор)."""
     await state.set_state(FilterSearchStates.waiting_for_tender_type)
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔍 Все типы", callback_data="ttype_all")],
-        [InlineKeyboardButton(text="📦 Товары (поставка)", callback_data="ttype_goods")],
-        [InlineKeyboardButton(text="🔧 Услуги", callback_data="ttype_services")],
-        [InlineKeyboardButton(text="🏗️ Работы", callback_data="ttype_works")],
-        [InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")],
-        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-    ])
+    # Получаем текущий выбор
+    data = await state.get_data()
+    selected_types = data.get('selected_tender_types', [])
+
+    # Определяем типы
+    types = [
+        ("goods", "📦 Товары (поставка)"),
+        ("services", "🔧 Услуги"),
+        ("works", "🏗️ Работы"),
+    ]
+
+    # Формируем кнопки с галочками
+    buttons = []
+    for type_id, type_name in types:
+        is_selected = type_id in selected_types
+        text = f"✅ {type_name.split(' ', 1)[1]}" if is_selected else f"☐ {type_name.split(' ', 1)[1]}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"ttype_toggle_{type_id}")])
+
+    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="ttype_confirm")])
+    buttons.append([InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")])
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    status_text = ""
+    if selected_types:
+        type_names = {"goods": "Товары", "services": "Услуги", "works": "Работы"}
+        selected_names = [type_names.get(t, t) for t in selected_types]
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_names)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны все типы)</i>"
 
     await message.answer(
-        f"<b>Шаг 9/13:</b> Тип закупки\n\n"
+        f"<b>Шаг 9/14:</b> Тип закупки\n\n"
         f"<b>Товары</b> — поставка продукции\n"
         f"<b>Услуги</b> — обслуживание, консалтинг\n"
         f"<b>Работы</b> — строительство, ремонт\n\n"
-        f"Выберите:",
+        f"💡 Нажмите для выбора. Можно выбрать несколько.{status_text}",
         reply_markup=keyboard,
         parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data.startswith("ttype_"), FilterSearchStates.waiting_for_tender_type)
-async def process_tender_type(callback: CallbackQuery, state: FSMContext):
-    """Обработка выбора типа закупки."""
+@router.callback_query(F.data.startswith("ttype_toggle_"), FilterSearchStates.waiting_for_tender_type)
+async def process_ttype_toggle(callback: CallbackQuery, state: FSMContext):
+    """Переключение выбора типа закупки."""
     await callback.answer()
 
-    ttype_value = callback.data.replace("ttype_", "")
-    tender_types_map = {
-        "goods": ["товары"],
-        "services": ["услуги"],
-        "works": ["работы"],
-        "all": []
-    }
-    tender_types = tender_types_map.get(ttype_value, [])
+    type_id = callback.data.replace("ttype_toggle_", "")
+
+    data = await state.get_data()
+    selected_types = data.get('selected_tender_types', [])
+
+    if type_id in selected_types:
+        selected_types.remove(type_id)
+    else:
+        selected_types.append(type_id)
+
+    await state.update_data(selected_tender_types=selected_types)
+
+    # Обновляем клавиатуру
+    types = [
+        ("goods", "Товары (поставка)"),
+        ("services", "Услуги"),
+        ("works", "Работы"),
+    ]
+
+    buttons = []
+    for tid, tname in types:
+        is_selected = tid in selected_types
+        text = f"✅ {tname}" if is_selected else f"☐ {tname}"
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"ttype_toggle_{tid}")])
+
+    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="ttype_confirm")])
+    buttons.append([InlineKeyboardButton(text="« Назад к способу закупки", callback_data="back_to_purchase_method")])
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    status_text = ""
+    if selected_types:
+        type_names = {"goods": "Товары", "services": "Услуги", "works": "Работы"}
+        selected_names = [type_names.get(t, t) for t in selected_types]
+        status_text = f"\n\n<b>Выбрано:</b> {', '.join(selected_names)}"
+    else:
+        status_text = "\n\n<i>Не выбрано (будут показаны все типы)</i>"
+
+    await callback.message.edit_text(
+        f"<b>Шаг 9/14:</b> Тип закупки\n\n"
+        f"<b>Товары</b> — поставка продукции\n"
+        f"<b>Услуги</b> — обслуживание, консалтинг\n"
+        f"<b>Работы</b> — строительство, ремонт\n\n"
+        f"💡 Нажмите для выбора. Можно выбрать несколько.{status_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "ttype_confirm", FilterSearchStates.waiting_for_tender_type)
+async def process_ttype_confirm(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение выбора типа закупки."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected_types = data.get('selected_tender_types', [])
+
+    # Преобразуем в формат для сохранения
+    tender_types_map = {"goods": "товары", "services": "услуги", "works": "работы"}
+    tender_types = [tender_types_map.get(t, t) for t in selected_types]
 
     await state.update_data(tender_types=tender_types)
     await ask_for_min_deadline(callback.message, state)
@@ -985,7 +1208,7 @@ async def ask_for_min_deadline(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 10/13:</b> Минимум дней до дедлайна\n\n"
+        f"<b>Шаг 10/14:</b> Минимум дней до дедлайна\n\n"
         f"Сколько дней минимум должно оставаться до окончания подачи заявок?\n\n"
         f"💡 Это поможет отфильтровать тендеры, на которые не успеете подать заявку",
         reply_markup=keyboard,
@@ -1016,7 +1239,7 @@ async def ask_for_customer_keywords(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 11/13:</b> Фильтр по заказчику\n\n"
+        f"<b>Шаг 11/14:</b> Фильтр по заказчику\n\n"
         f"Введите ключевые слова для фильтрации по названию заказчика:\n"
         f"Например: <i>больница, школа, университет</i>\n\n"
         f"Или нажмите «Пропустить» для поиска среди всех заказчиков",
@@ -1069,7 +1292,7 @@ async def ask_for_okpd2(message: Message, state: FSMContext):
     ])
 
     await message.answer(
-        f"<b>Шаг 12/13:</b> Код ОКПД2\n\n"
+        f"<b>Шаг 12/14:</b> Код ОКПД2\n\n"
         f"ОКПД2 — классификатор продукции для точного поиска.\n\n"
         f"Выберите категорию или введите код вручную:\n"
         f"Например: <code>26.20</code> (компьютеры)\n\n"
