@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.parsers.zakupki_rss_parser import ZakupkiRSSParser
 from tender_sniper.matching import SmartMatcher
+from src.utils.transliterator import Transliterator
 
 logger = logging.getLogger(__name__)
 
@@ -128,83 +129,91 @@ class InstantSearch:
             results_per_query = max(10, max_tenders // len(search_queries) + 5)
 
             for query in search_queries:
-                logger.info(f"   🔎 Поиск: '{query}'...")
+                # 🧪 БЕТА: Генерация вариантов транслитерации (латиница → кириллица)
+                query_variants = Transliterator.generate_variants(query)
 
-                # Определяем тип закупки для RSS
-                tender_type_for_rss = tender_types[0] if tender_types else None
+                for variant in query_variants:
+                    logger.info(f"   🔎 Поиск: '{variant}'" + (" (транслит)" if variant != query else ""))
 
-                results = self.parser.search_tenders_rss(
-                    keywords=query,
-                    price_min=price_min,
-                    price_max=price_max,
-                    regions=regions,
-                    max_results=results_per_query,
-                    tender_type=tender_type_for_rss,
-                    law_type=law_type,
-                    purchase_stage=purchase_stage,
-                    purchase_method=purchase_method,
-                )
+                    # Определяем тип закупки для RSS
+                    tender_type_for_rss = tender_types[0] if tender_types else None
 
-                # Дедупликация по номеру тендера + client-side фильтрация
-                for tender in results:
-                    number = tender.get('number')
-                    if number and number not in seen_numbers:
-                        tender_text = f"{tender.get('name', '')} {tender.get('summary', '')}".lower()
-                        customer_name = tender.get('customer', '') or tender.get('customer_name', '')
+                    results = self.parser.search_tenders_rss(
+                        keywords=variant,
+                        price_min=price_min,
+                        price_max=price_max,
+                        regions=regions,
+                        max_results=results_per_query,
+                        tender_type=tender_type_for_rss,
+                        law_type=law_type,
+                        purchase_stage=purchase_stage,
+                        purchase_method=purchase_method,
+                    )
 
-                        # Проверяем исключающие слова (с границами слов для точности)
-                        if exclude_keywords:
-                            skip = False
-                            for exclude_word in exclude_keywords:
-                                # Используем regex с границами слов для избежания ложных срабатываний
-                                pattern = r'\b' + re.escape(exclude_word.lower()) + r'\b' if len(exclude_word) < 4 else r'\b' + re.escape(exclude_word.lower())
-                                if re.search(pattern, tender_text, re.IGNORECASE):
-                                    logger.debug(f"      ⛔ Исключен (содержит '{exclude_word}'): {tender.get('name', '')[:50]}")
-                                    skip = True
-                                    break
-                            if skip:
-                                continue
+                    # Дедупликация по номеру тендера + client-side фильтрация
+                    for tender in results:
+                        number = tender.get('number')
+                        if number and number not in seen_numbers:
+                            tender_text = f"{tender.get('name', '')} {tender.get('summary', '')}".lower()
+                            customer_name = tender.get('customer', '') or tender.get('customer_name', '')
 
-                        # Проверяем ключевые слова заказчика
-                        if customer_keywords and customer_name:
-                            customer_match = False
-                            for kw in customer_keywords:
-                                if kw.lower() in customer_name.lower():
-                                    customer_match = True
-                                    break
-                            if not customer_match:
-                                logger.debug(f"      ⛔ Заказчик не совпадает: {customer_name[:50]}")
-                                continue
+                            # Проверяем исключающие слова (с границами слов для точности)
+                            if exclude_keywords:
+                                skip = False
+                                for exclude_word in exclude_keywords:
+                                    # Используем regex с границами слов для избежания ложных срабатываний
+                                    pattern = r'\b' + re.escape(exclude_word.lower()) + r'\b' if len(exclude_word) < 4 else r'\b' + re.escape(exclude_word.lower())
+                                    if re.search(pattern, tender_text, re.IGNORECASE):
+                                        logger.debug(f"      ⛔ Исключен (содержит '{exclude_word}'): {tender.get('name', '')[:50]}")
+                                        skip = True
+                                        break
+                                if skip:
+                                    continue
 
-                        # Проверяем минимум дней до дедлайна
-                        if min_deadline_days:
-                            deadline = tender.get('deadline') or tender.get('end_date')
-                            if deadline:
-                                try:
-                                    from datetime import datetime, timedelta
-                                    # Пробуем разные форматы даты
-                                    deadline_date = None
-                                    for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M']:
-                                        try:
-                                            deadline_date = datetime.strptime(deadline[:10], fmt[:len(deadline[:10])])
-                                            break
-                                        except:
-                                            continue
+                            # Проверяем ключевые слова заказчика
+                            if customer_keywords and customer_name:
+                                customer_match = False
+                                for kw in customer_keywords:
+                                    if kw.lower() in customer_name.lower():
+                                        customer_match = True
+                                        break
+                                if not customer_match:
+                                    logger.debug(f"      ⛔ Заказчик не совпадает: {customer_name[:50]}")
+                                    continue
 
-                                    if deadline_date:
-                                        days_left = (deadline_date - datetime.now()).days
-                                        if days_left < min_deadline_days:
-                                            logger.debug(f"      ⛔ Мало дней до дедлайна ({days_left}): {tender.get('name', '')[:50]}")
-                                            continue
-                                except Exception as e:
-                                    logger.debug(f"      ⚠️ Не удалось проверить дедлайн: {e}")
+                            # Проверяем минимум дней до дедлайна
+                            if min_deadline_days:
+                                deadline = tender.get('deadline') or tender.get('end_date')
+                                if deadline:
+                                    try:
+                                        from datetime import datetime, timedelta
+                                        # Пробуем разные форматы даты
+                                        deadline_date = None
+                                        for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M']:
+                                            try:
+                                                deadline_date = datetime.strptime(deadline[:10], fmt[:len(deadline[:10])])
+                                                break
+                                            except:
+                                                continue
 
-                        seen_numbers.add(number)
-                        all_results.append(tender)
+                                        if deadline_date:
+                                            days_left = (deadline_date - datetime.now()).days
+                                            if days_left < min_deadline_days:
+                                                logger.debug(f"      ⛔ Мало дней до дедлайна ({days_left}): {tender.get('name', '')[:50]}")
+                                                continue
+                                    except Exception as e:
+                                        logger.debug(f"      ⚠️ Не удалось проверить дедлайн: {e}")
 
-                logger.info(f"      Найдено: {len(results)}, уникальных всего: {len(all_results)}")
+                            seen_numbers.add(number)
+                            all_results.append(tender)
 
-                # Достаточно результатов
+                    logger.info(f"      Найдено: {len(results)}, уникальных всего: {len(all_results)}")
+
+                    # Достаточно результатов - выходим из обоих циклов
+                    if len(all_results) >= max_tenders:
+                        break
+
+                # Проверка после внутреннего цикла
                 if len(all_results) >= max_tenders:
                     break
 
