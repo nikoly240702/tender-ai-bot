@@ -1866,69 +1866,66 @@ async def process_tender_count(message: Message, state: FSMContext):
                 expanded_keywords=expanded_keywords
             )
 
-            # Сохраняем результаты мгновенного поиска в БД
-            # 🧪 БЕТА: Для архивного поиска НЕ сохраняем в БД (это разовый анализ)
-            if not archive_mode:
-                logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД...")
-                saved_count = 0
-                skipped_count = 0
-                error_count = 0
+            # Сохраняем результаты поиска в БД (включая архивные тендеры)
+            source_type = 'archive_search' if archive_mode else 'instant_search'
+            logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД (источник: {source_type})...")
+            saved_count = 0
+            skipped_count = 0
+            error_count = 0
 
-                for i, match in enumerate(search_results['matches'], 1):
-                    tender_number = match.get('number', '')
+            for i, match in enumerate(search_results['matches'], 1):
+                tender_number = match.get('number', '')
 
-                    # DEBUG: Показываем первый тендер полностью
-                    if i == 1:
-                        logger.info(f"   🔍 DEBUG первого тендера:")
-                        logger.info(f"      number: {match.get('number')}")
-                        logger.info(f"      name: {match.get('name', '')[:50]}...")
-                        logger.info(f"      customer: {match.get('customer')}")
-                        logger.info(f"      customer_name: {match.get('customer_name')}")
-                        logger.info(f"      customer_region: {match.get('customer_region')}")
-                        logger.info(f"      region: {match.get('region')}")
-                        logger.info(f"      price: {match.get('price')}")
-                        logger.info(f"      published: {match.get('published')}")
+                # DEBUG: Показываем первый тендер полностью
+                if i == 1:
+                    logger.info(f"   🔍 DEBUG первого тендера:")
+                    logger.info(f"      number: {match.get('number')}")
+                    logger.info(f"      name: {match.get('name', '')[:50]}...")
+                    logger.info(f"      customer: {match.get('customer')}")
+                    logger.info(f"      customer_name: {match.get('customer_name')}")
+                    logger.info(f"      customer_region: {match.get('customer_region')}")
+                    logger.info(f"      region: {match.get('region')}")
+                    logger.info(f"      price: {match.get('price')}")
+                    logger.info(f"      published: {match.get('published')}")
 
-                    # Проверяем дубликат
-                    already_saved = await db.is_tender_notified(tender_number, user['id'])
-                    if already_saved:
-                        logger.debug(f"   ⏭️  {tender_number} уже сохранен, пропускаем")
-                        skipped_count += 1
-                        continue
+                # Проверяем дубликат
+                already_saved = await db.is_tender_notified(tender_number, user['id'])
+                if already_saved:
+                    logger.debug(f"   ⏭️  {tender_number} уже сохранен, пропускаем")
+                    skipped_count += 1
+                    continue
 
-                    try:
-                        # Формируем данные тендера
-                        tender_data = {
-                            'number': tender_number,
-                            'name': match.get('name', ''),
-                            'price': match.get('price'),
-                            'url': match.get('url', ''),
-                            'region': match.get('customer_region', match.get('region', '')),
-                            'customer_name': match.get('customer', match.get('customer_name', '')),
-                            'published_date': match.get('published', match.get('published_date', ''))
-                        }
+                try:
+                    # Формируем данные тендера
+                    tender_data = {
+                        'number': tender_number,
+                        'name': match.get('name', ''),
+                        'price': match.get('price'),
+                        'url': match.get('url', ''),
+                        'region': match.get('customer_region', match.get('region', '')),
+                        'customer_name': match.get('customer', match.get('customer_name', '')),
+                        'published_date': match.get('published', match.get('published_date', ''))
+                    }
 
-                        logger.info(f"   💾 [{i}/{len(search_results['matches'])}] {tender_number}: "
-                                  f"region='{tender_data['region']}', customer='{tender_data['customer_name'][:30] if tender_data['customer_name'] else 'None'}...'")
+                    logger.info(f"   💾 [{i}/{len(search_results['matches'])}] {tender_number}: "
+                              f"region='{tender_data['region']}', customer='{tender_data['customer_name'][:30] if tender_data['customer_name'] else 'None'}...'")
 
-                        await db.save_notification(
-                            user_id=user['id'],
-                            filter_id=filter_id,
-                            filter_name=filter_name,
-                            tender_data=tender_data,
-                            score=match.get('match_score', 0),
-                            matched_keywords=match.get('match_reasons', []),
-                            source='instant_search'
-                        )
-                        saved_count += 1
+                    await db.save_notification(
+                        user_id=user['id'],
+                        filter_id=filter_id,
+                        filter_name=filter_name,
+                        tender_data=tender_data,
+                        score=match.get('match_score', 0),
+                        matched_keywords=match.get('match_reasons', []),
+                        source=source_type
+                    )
+                    saved_count += 1
 
-                    except Exception as e:
-                        logger.error(f"   ❌ Не удалось сохранить {tender_number}: {e}", exc_info=True)
-                        error_count += 1
+                except Exception as e:
+                    logger.error(f"   ❌ Не удалось сохранить {tender_number}: {e}", exc_info=True)
+                    error_count += 1
 
-                logger.info(f"✅ Тендеры обработаны: сохранено {saved_count}, пропущено {skipped_count}, ошибок {error_count}")
-            else:
-                logger.info(f"📦 Архивный поиск: пропускаем сохранение {len(search_results['matches'])} тендеров в БД")
+            logger.info(f"✅ Тендеры обработаны: сохранено {saved_count}, пропущено {skipped_count}, ошибок {error_count}")
 
             # 4. Генерация HTML отчета
             await progress_msg.edit_text(
@@ -1969,15 +1966,20 @@ async def process_tender_count(message: Message, state: FSMContext):
                     caption=(
                         f"📦 <b>Результаты поиска в архиве</b> 🧪 БЕТА\n\n"
                         f"Поиск: <b>{filter_name}</b>\n"
-                        f"Найдено: {search_results['total_found']} архивных тендеров\n\n"
+                        f"Найдено: {search_results['total_found']} архивных тендеров\n"
+                        f"💾 Сохранено в базу: {saved_count}\n\n"
                         f"💡 Это завершённые тендеры с прошедшим сроком подачи заявок.\n"
                         f"Используйте для анализа цен и конкурентов."
                     ),
                     parse_mode="HTML"
                 )
 
-                # Для архивного поиска - только ссылки на новый поиск
+                # Для архивного поиска - ссылки на все тендеры и новый поиск
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="📊 Все мои тендеры",
+                        callback_data="sniper_all_tenders"
+                    )],
                     [InlineKeyboardButton(
                         text="📦 Новый поиск в архиве",
                         callback_data="sniper_archive_search"
@@ -1994,8 +1996,9 @@ async def process_tender_count(message: Message, state: FSMContext):
 
                 await message.answer(
                     "📦 <b>Поиск в архиве завершён</b>\n\n"
-                    "Это завершённые тендеры - мониторинг для них недоступен.\n"
-                    "Используйте данные для анализа рынка.",
+                    f"✅ Тендеры сохранены в базу данных.\n"
+                    "Мониторинг для архивных тендеров недоступен.\n\n"
+                    "Используйте данные для анализа рынка и конкурентов.",
                     reply_markup=keyboard,
                     parse_mode="HTML"
                 )
