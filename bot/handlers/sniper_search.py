@@ -296,7 +296,7 @@ async def ask_for_exclude_keywords(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data == "skip_exclude_keywords")
+@router.callback_query(F.data == "skip_exclude_keywords", FilterSearchStates.waiting_for_exclude_keywords)
 async def skip_exclude_keywords(callback: CallbackQuery, state: FSMContext):
     """Пропуск исключающих слов."""
     await callback.answer()
@@ -347,7 +347,7 @@ async def ask_for_price_range(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data == "skip_price_range")
+@router.callback_query(F.data == "skip_price_range", FilterSearchStates.waiting_for_price_range)
 async def skip_price_range(callback: CallbackQuery, state: FSMContext):
     """Пропуск ценового диапазона."""
     await callback.answer("🌍 Выбрана любая цена")
@@ -420,14 +420,14 @@ async def show_price_confirmation(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data == "confirm_price_continue")
+@router.callback_query(F.data == "confirm_price_continue", FilterSearchStates.confirm_price_range)
 async def confirm_price_continue(callback: CallbackQuery, state: FSMContext):
     """Подтверждение цены - продолжаем к регионам."""
     await callback.answer("✅ Цена подтверждена")
     await ask_for_regions(callback.message, state)
 
 
-@router.callback_query(F.data == "confirm_price_edit")
+@router.callback_query(F.data == "confirm_price_edit", FilterSearchStates.confirm_price_range)
 async def confirm_price_edit(callback: CallbackQuery, state: FSMContext):
     """Вернуться к редактированию цены."""
     await callback.answer("✏️ Возвращаемся к выбору цены")
@@ -632,7 +632,7 @@ async def show_federal_districts_selection(callback: CallbackQuery, state: FSMCo
     )
 
 
-@router.callback_query(F.data.startswith("region_toggle_fo_"))
+@router.callback_query(F.data.startswith("region_toggle_fo_"), FilterSearchStates.waiting_for_regions)
 async def toggle_federal_district(callback: CallbackQuery, state: FSMContext):
     """Переключение выбора федерального округа."""
     fo_code = callback.data.replace("region_toggle_fo_", "")
@@ -651,7 +651,7 @@ async def toggle_federal_district(callback: CallbackQuery, state: FSMContext):
     await show_federal_districts_selection(callback, state)
 
 
-@router.callback_query(F.data == "region_confirm_federal")
+@router.callback_query(F.data == "region_confirm_federal", FilterSearchStates.waiting_for_regions)
 async def confirm_federal_districts(callback: CallbackQuery, state: FSMContext):
     """Подтверждение выбора федеральных округов."""
     await callback.answer()
@@ -716,7 +716,7 @@ async def back_to_region_modes(callback: CallbackQuery, state: FSMContext):
     await ask_for_regions(callback.message, state)
 
 
-@router.callback_query(F.data.startswith("region_"))
+@router.callback_query(F.data.startswith("region_"), FilterSearchStates.waiting_for_regions)
 async def process_region_callback(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора региона."""
     await callback.answer()
@@ -832,7 +832,7 @@ async def ask_for_law_type(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("law_"))
+@router.callback_query(F.data.startswith("law_"), FilterSearchStates.waiting_for_law_type)
 async def process_law_type(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора типа закона."""
     await callback.answer()
@@ -870,7 +870,7 @@ async def ask_for_purchase_stage(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("stage_"))
+@router.callback_query(F.data.startswith("stage_"), FilterSearchStates.waiting_for_purchase_stage)
 async def process_purchase_stage(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора этапа закупки."""
     await callback.answer()
@@ -908,7 +908,7 @@ async def ask_for_purchase_method(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("method_"))
+@router.callback_query(F.data.startswith("method_"), FilterSearchStates.waiting_for_purchase_method)
 async def process_purchase_method(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора способа закупки."""
     await callback.answer()
@@ -944,7 +944,7 @@ async def ask_for_tender_type(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("ttype_"))
+@router.callback_query(F.data.startswith("ttype_"), FilterSearchStates.waiting_for_tender_type)
 async def process_tender_type(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора типа закупки."""
     await callback.answer()
@@ -985,7 +985,7 @@ async def ask_for_min_deadline(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("deadline_"))
+@router.callback_query(F.data.startswith("deadline_"), FilterSearchStates.waiting_for_min_deadline)
 async def process_min_deadline(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора минимального дедлайна."""
     await callback.answer()
@@ -1017,7 +1017,7 @@ async def ask_for_customer_keywords(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data == "customer_skip")
+@router.callback_query(F.data == "customer_skip", FilterSearchStates.waiting_for_customer_keywords)
 async def skip_customer_keywords(callback: CallbackQuery, state: FSMContext):
     """Пропуск фильтра по заказчику."""
     await callback.answer()
@@ -1071,7 +1071,7 @@ async def ask_for_okpd2(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("okpd_"))
+@router.callback_query(F.data.startswith("okpd_"), FilterSearchStates.waiting_for_okpd2)
 async def process_okpd2_callback(callback: CallbackQuery, state: FSMContext):
     """Обработка выбора ОКПД2."""
     await callback.answer()

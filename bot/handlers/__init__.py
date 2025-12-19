@@ -1,11 +1,11 @@
 """
 Модуль обработчиков команд и сообщений бота.
+
+ПРИМЕЧАНИЕ: search и history перенесены в _archive/ (рефакторинг 2024-12-19)
 """
 
 from . import (
     start,
-    search,
-    history,
     admin,
     sniper,
     sniper_search,
@@ -20,8 +20,6 @@ from . import (
 
 __all__ = [
     'start',
-    'search',
-    'history',
     'admin',
     'sniper',
     'sniper_search',

@@ -18,7 +18,8 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand
 
 from bot.config import BotConfig
-from bot.handlers import start, search, history, admin, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management, menu_priority
+# search и history удалены - их функционал заменён на sniper_search
+from bot.handlers import start, admin, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management, menu_priority
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 
@@ -256,10 +257,33 @@ async def main():
     dp.include_router(sniper_search.router)  # Tender Sniper Search (новый workflow)
     dp.include_router(sniper.router)  # Tender Sniper (приоритет)
     dp.include_router(start.router)
-    # Старые handlers временно отключены
-    # dp.include_router(search.router)
-    # dp.include_router(history.router)
 
+    # Глобальный обработчик ошибок
+    @dp.error()
+    async def error_handler(event, exception):
+        """Глобальный обработчик необработанных исключений."""
+        logger.error(f"❌ Необработанная ошибка: {exception}", exc_info=True)
+        capture_exception(exception, level="error", tags={"component": "handler"})
+
+        # Пытаемся уведомить пользователя
+        try:
+            if hasattr(event, 'update') and event.update:
+                update = event.update
+                if update.message:
+                    await update.message.answer(
+                        "❌ Произошла ошибка. Попробуйте /start для перезапуска."
+                    )
+                elif update.callback_query:
+                    await update.callback_query.answer(
+                        "❌ Ошибка. Попробуйте /start",
+                        show_alert=True
+                    )
+        except Exception as notify_error:
+            logger.error(f"Не удалось уведомить пользователя об ошибке: {notify_error}")
+
+        return True  # Ошибка обработана
+
+    logger.info("✅ Глобальный error handler зарегистрирован")
     logger.info("🤖 Бот запускается...")
 
     # Инициализируем Tender Sniper Service (если включен)
