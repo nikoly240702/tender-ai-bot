@@ -53,6 +53,7 @@ async def cmd_sniper_menu(message: Message):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
@@ -72,7 +73,8 @@ async def cmd_sniper_menu(message: Message):
             "• 🤖 AI расширение критериев поиска\n"
             "• 📊 Мгновенный поиск до 25 тендеров\n"
             "• 📄 Красивые HTML отчеты\n"
-            "• 🔔 Автоматические уведомления\n\n"
+            "• 🔔 Автоматические уведомления\n"
+            "• 📦 Поиск в архиве завершённых тендеров\n\n"
             "Начните с создания фильтра!",
             reply_markup=keyboard,
             parse_mode="HTML"
@@ -102,6 +104,7 @@ async def show_sniper_menu(callback: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [monitoring_button],
@@ -119,6 +122,9 @@ async def show_sniper_menu(callback: CallbackQuery):
             f"→ Разовый поиск по критериям\n"
             f"→ Получаете HTML отчет сразу\n"
             f"→ Нет автоматических уведомлений\n\n"
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
+            f"→ Поиск завершённых тендеров\n"
+            f"→ Анализ цен и конкурентов\n\n"
             f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
             f"→ Создаете постоянные фильтры\n"
             f"→ Бот автоматически ищет новые тендеры\n"

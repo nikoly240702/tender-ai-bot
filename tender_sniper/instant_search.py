@@ -249,6 +249,67 @@ class InstantSearch:
                 search_results = enriched_results
                 logger.info(f"   ✅ Данные обогащены")
 
+            # === CLIENT-SIDE ФИЛЬТРАЦИЯ ПО СТАТУСУ ЗАКУПКИ ===
+            # Режим "archive" - ищем ТОЛЬКО архивные тендеры (с прошедшим дедлайном)
+            # Режим "submission" - исключаем архивные тендеры
+            archive_mode = purchase_stage == "archive"
+
+            if (purchase_stage == "submission" or archive_mode) and search_results:
+                from datetime import datetime as dt
+                active_results = []
+                archived_count = 0
+
+                for tender in search_results:
+                    deadline_str = tender.get('submission_deadline', '')
+                    if deadline_str:
+                        try:
+                            # Парсим дату дедлайна (форматы: "DD.MM.YYYY HH:MM" или "DD.MM.YYYY")
+                            deadline_date = None
+                            deadline_str_clean = deadline_str.strip()
+
+                            # Пробуем разные форматы
+                            if len(deadline_str_clean) >= 16:  # "DD.MM.YYYY HH:MM"
+                                try:
+                                    deadline_date = dt.strptime(deadline_str_clean[:16], '%d.%m.%Y %H:%M')
+                                except ValueError:
+                                    pass
+
+                            if not deadline_date and len(deadline_str_clean) >= 10:  # "DD.MM.YYYY"
+                                try:
+                                    deadline_date = dt.strptime(deadline_str_clean[:10], '%d.%m.%Y')
+                                except ValueError:
+                                    try:
+                                        deadline_date = dt.strptime(deadline_str_clean[:10], '%Y-%m-%d')
+                                    except ValueError:
+                                        pass
+
+                            if deadline_date:
+                                is_archived = deadline_date < dt.now()
+
+                                if archive_mode:
+                                    # Режим архива: ОСТАВЛЯЕМ только архивные
+                                    if not is_archived:
+                                        logger.debug(f"      ⛔ Не архивный (дедлайн {deadline_str}): {tender.get('name', '')[:50]}")
+                                        continue
+                                    archived_count += 1
+                                else:
+                                    # Режим подачи заявок: ИСКЛЮЧАЕМ архивные
+                                    if is_archived:
+                                        archived_count += 1
+                                        logger.debug(f"      ⛔ Архивный (дедлайн {deadline_str}): {tender.get('name', '')[:50]}")
+                                        continue
+                        except Exception as e:
+                            logger.debug(f"      ⚠️ Не удалось проверить дедлайн: {e}")
+
+                    active_results.append(tender)
+
+                if archive_mode:
+                    logger.info(f"   📦 Найдено архивных тендеров: {archived_count}")
+                elif archived_count > 0:
+                    logger.info(f"   📦 Исключено архивных тендеров: {archived_count}")
+                search_results = active_results
+                logger.info(f"   ✅ Итого после фильтрации: {len(search_results)}")
+
             # Если RSS не вернул результатов - возвращаем пустой ответ
             if not search_results:
                 logger.warning("⚠️ RSS feed не вернул результаты")

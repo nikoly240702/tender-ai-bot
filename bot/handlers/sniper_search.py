@@ -181,6 +181,56 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
 
+@router.callback_query(F.data == "sniper_archive_search")
+async def start_archive_search(callback: CallbackQuery, state: FSMContext):
+    """
+    🧪 БЕТА: Поиск в архиве - поиск завершённых тендеров.
+
+    Этот режим ищет тендеры с прошедшим сроком подачи заявок.
+    Полезно для анализа цен и конкурентов.
+    """
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+
+        # Получаем или создаем пользователя
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not user:
+            await db.create_or_update_user(
+                telegram_id=callback.from_user.id,
+                username=callback.from_user.username,
+                first_name=callback.from_user.first_name,
+                subscription_tier='free'
+            )
+            user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        # Для архивного поиска не проверяем квоту - это разовый поиск
+
+        # Сохраняем режим архивного поиска
+        await state.update_data(
+            with_instant_search=True,
+            archive_mode=True  # 🧪 БЕТА: Флаг архивного поиска
+        )
+
+        # Запускаем процесс создания фильтра
+        await state.set_state(FilterSearchStates.waiting_for_filter_name)
+
+        await callback.message.edit_text(
+            "📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+            "<b>Шаг 1/14:</b> Название поиска\n\n"
+            "Придумайте короткое название для вашего поиска.\n"
+            "Например: <i>Архив IT оборудование 2024</i>\n\n"
+            "💡 Этот режим ищет <b>завершённые</b> тендеры.\n"
+            "Полезно для анализа цен и конкурентов.",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Error starting archive search: {e}", exc_info=True)
+        await callback.message.answer("❌ Произошла ошибка. Попробуйте позже.")
+
+
 @router.message(FilterSearchStates.waiting_for_filter_name)
 async def process_filter_name_new(message: Message, state: FSMContext):
     """Обработка названия фильтра."""
@@ -1784,6 +1834,15 @@ async def process_tender_count(message: Message, state: FSMContext):
                 )
 
             searcher = InstantSearch()
+
+            # 🧪 БЕТА: Для архивного поиска используем purchase_stage='archive'
+            archive_mode = data.get('archive_mode', False)
+            if archive_mode:
+                purchase_stage = 'archive'
+                logger.info("📦 Режим архивного поиска активирован")
+            else:
+                purchase_stage = data.get('purchase_stage')
+
             filter_data = {
                 'id': filter_id,
                 'name': filter_name,
@@ -1794,7 +1853,7 @@ async def process_tender_count(message: Message, state: FSMContext):
                 'regions': json.dumps(data.get('regions', []), ensure_ascii=False),
                 'tender_types': json.dumps(data.get('tender_types', []), ensure_ascii=False),
                 'law_type': data.get('law_type'),
-                'purchase_stage': data.get('purchase_stage'),
+                'purchase_stage': purchase_stage,
                 'purchase_method': data.get('purchase_method'),
                 'okpd2_codes': json.dumps(data.get('okpd2_codes', []), ensure_ascii=False),
                 'min_deadline_days': data.get('min_deadline_days'),
@@ -1808,64 +1867,68 @@ async def process_tender_count(message: Message, state: FSMContext):
             )
 
             # Сохраняем результаты мгновенного поиска в БД
-            logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД...")
-            saved_count = 0
-            skipped_count = 0
-            error_count = 0
+            # 🧪 БЕТА: Для архивного поиска НЕ сохраняем в БД (это разовый анализ)
+            if not archive_mode:
+                logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД...")
+                saved_count = 0
+                skipped_count = 0
+                error_count = 0
 
-            for i, match in enumerate(search_results['matches'], 1):
-                tender_number = match.get('number', '')
+                for i, match in enumerate(search_results['matches'], 1):
+                    tender_number = match.get('number', '')
 
-                # DEBUG: Показываем первый тендер полностью
-                if i == 1:
-                    logger.info(f"   🔍 DEBUG первого тендера:")
-                    logger.info(f"      number: {match.get('number')}")
-                    logger.info(f"      name: {match.get('name', '')[:50]}...")
-                    logger.info(f"      customer: {match.get('customer')}")
-                    logger.info(f"      customer_name: {match.get('customer_name')}")
-                    logger.info(f"      customer_region: {match.get('customer_region')}")
-                    logger.info(f"      region: {match.get('region')}")
-                    logger.info(f"      price: {match.get('price')}")
-                    logger.info(f"      published: {match.get('published')}")
+                    # DEBUG: Показываем первый тендер полностью
+                    if i == 1:
+                        logger.info(f"   🔍 DEBUG первого тендера:")
+                        logger.info(f"      number: {match.get('number')}")
+                        logger.info(f"      name: {match.get('name', '')[:50]}...")
+                        logger.info(f"      customer: {match.get('customer')}")
+                        logger.info(f"      customer_name: {match.get('customer_name')}")
+                        logger.info(f"      customer_region: {match.get('customer_region')}")
+                        logger.info(f"      region: {match.get('region')}")
+                        logger.info(f"      price: {match.get('price')}")
+                        logger.info(f"      published: {match.get('published')}")
 
-                # Проверяем дубликат
-                already_saved = await db.is_tender_notified(tender_number, user['id'])
-                if already_saved:
-                    logger.debug(f"   ⏭️  {tender_number} уже сохранен, пропускаем")
-                    skipped_count += 1
-                    continue
+                    # Проверяем дубликат
+                    already_saved = await db.is_tender_notified(tender_number, user['id'])
+                    if already_saved:
+                        logger.debug(f"   ⏭️  {tender_number} уже сохранен, пропускаем")
+                        skipped_count += 1
+                        continue
 
-                try:
-                    # Формируем данные тендера
-                    tender_data = {
-                        'number': tender_number,
-                        'name': match.get('name', ''),
-                        'price': match.get('price'),
-                        'url': match.get('url', ''),
-                        'region': match.get('customer_region', match.get('region', '')),
-                        'customer_name': match.get('customer', match.get('customer_name', '')),
-                        'published_date': match.get('published', match.get('published_date', ''))
-                    }
+                    try:
+                        # Формируем данные тендера
+                        tender_data = {
+                            'number': tender_number,
+                            'name': match.get('name', ''),
+                            'price': match.get('price'),
+                            'url': match.get('url', ''),
+                            'region': match.get('customer_region', match.get('region', '')),
+                            'customer_name': match.get('customer', match.get('customer_name', '')),
+                            'published_date': match.get('published', match.get('published_date', ''))
+                        }
 
-                    logger.info(f"   💾 [{i}/{len(search_results['matches'])}] {tender_number}: "
-                              f"region='{tender_data['region']}', customer='{tender_data['customer_name'][:30] if tender_data['customer_name'] else 'None'}...'")
+                        logger.info(f"   💾 [{i}/{len(search_results['matches'])}] {tender_number}: "
+                                  f"region='{tender_data['region']}', customer='{tender_data['customer_name'][:30] if tender_data['customer_name'] else 'None'}...'")
 
-                    await db.save_notification(
-                        user_id=user['id'],
-                        filter_id=filter_id,
-                        filter_name=filter_name,
-                        tender_data=tender_data,
-                        score=match.get('match_score', 0),
-                        matched_keywords=match.get('match_reasons', []),
-                        source='instant_search'
-                    )
-                    saved_count += 1
+                        await db.save_notification(
+                            user_id=user['id'],
+                            filter_id=filter_id,
+                            filter_name=filter_name,
+                            tender_data=tender_data,
+                            score=match.get('match_score', 0),
+                            matched_keywords=match.get('match_reasons', []),
+                            source='instant_search'
+                        )
+                        saved_count += 1
 
-                except Exception as e:
-                    logger.error(f"   ❌ Не удалось сохранить {tender_number}: {e}", exc_info=True)
-                    error_count += 1
+                    except Exception as e:
+                        logger.error(f"   ❌ Не удалось сохранить {tender_number}: {e}", exc_info=True)
+                        error_count += 1
 
-            logger.info(f"✅ Тендеры обработаны: сохранено {saved_count}, пропущено {skipped_count}, ошибок {error_count}")
+                logger.info(f"✅ Тендеры обработаны: сохранено {saved_count}, пропущено {skipped_count}, ошибок {error_count}")
+            else:
+                logger.info(f"📦 Архивный поиск: пропускаем сохранение {len(search_results['matches'])} тендеров в БД")
 
             # 4. Генерация HTML отчета
             await progress_msg.edit_text(
@@ -1898,46 +1961,93 @@ async def process_tender_count(message: Message, state: FSMContext):
                 parse_mode="HTML"
             )
 
-            # Отправляем HTML файл
-            await message.answer_document(
-                document=FSInputFile(report_path),
-                caption=(
-                    f"📊 <b>Результаты поиска</b>\n\n"
-                    f"Фильтр: <b>{filter_name}</b>\n"
-                    f"Найдено: {search_results['total_found']} тендеров\n\n"
-                    f"🤖 AI расширил ваш запрос с {len(data.get('keywords', []))} до {len(data.get('keywords', [])) + len(expanded_keywords)} терминов"
-                ),
-                parse_mode="HTML"
-            )
+            # 🧪 БЕТА: Разные сообщения для архива и обычного поиска
+            if archive_mode:
+                # Архивный поиск - тендеры уже завершены
+                await message.answer_document(
+                    document=FSInputFile(report_path),
+                    caption=(
+                        f"📦 <b>Результаты поиска в архиве</b> 🧪 БЕТА\n\n"
+                        f"Поиск: <b>{filter_name}</b>\n"
+                        f"Найдено: {search_results['total_found']} архивных тендеров\n\n"
+                        f"💡 Это завершённые тендеры с прошедшим сроком подачи заявок.\n"
+                        f"Используйте для анализа цен и конкурентов."
+                    ),
+                    parse_mode="HTML"
+                )
 
-            # Предлагаем включить автоматический мониторинг
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(
-                    text="🔔 Включить автомониторинг",
-                    callback_data=f"enable_monitoring_{filter_id}"
-                )],
-                [InlineKeyboardButton(
-                    text="📋 Мои фильтры",
-                    callback_data="sniper_my_filters"
-                )],
-                [InlineKeyboardButton(
-                    text="🎯 Новый поиск",
-                    callback_data="sniper_new_search"
-                )],
-                [InlineKeyboardButton(
-                    text="🏠 Главное меню",
-                    callback_data="main_menu"
-                )]
-            ])
+                # Для архивного поиска - только ссылки на новый поиск
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="📦 Новый поиск в архиве",
+                        callback_data="sniper_archive_search"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🔍 Поиск актуальных",
+                        callback_data="sniper_new_search"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🏠 Главное меню",
+                        callback_data="main_menu"
+                    )]
+                ])
 
-            await message.answer(
-                "💡 <b>Хотите получать автоматические уведомления?</b>\n\n"
-                "Включите автоматический мониторинг, и бот будет присылать вам\n"
-                "уведомления о новых тендерах по этим критериям каждые 5 минут.\n\n"
-                f"🆓 Ваш лимит: {daily_limit} уведомлений в день",
-                reply_markup=keyboard,
-                parse_mode="HTML"
-            )
+                await message.answer(
+                    "📦 <b>Поиск в архиве завершён</b>\n\n"
+                    "Это завершённые тендеры - мониторинг для них недоступен.\n"
+                    "Используйте данные для анализа рынка.",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+
+                # Удаляем временный фильтр (архивный поиск - разовый)
+                try:
+                    await db.delete_filter(filter_id)
+                    logger.info(f"🗑️ Временный фильтр {filter_id} удален (архивный поиск)")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить временный фильтр: {e}")
+
+            else:
+                # Обычный поиск - предлагаем мониторинг
+                await message.answer_document(
+                    document=FSInputFile(report_path),
+                    caption=(
+                        f"📊 <b>Результаты поиска</b>\n\n"
+                        f"Фильтр: <b>{filter_name}</b>\n"
+                        f"Найдено: {search_results['total_found']} тендеров\n\n"
+                        f"🤖 AI расширил ваш запрос с {len(data.get('keywords', []))} до {len(data.get('keywords', [])) + len(expanded_keywords)} терминов"
+                    ),
+                    parse_mode="HTML"
+                )
+
+                # Предлагаем включить автоматический мониторинг
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="🔔 Включить автомониторинг",
+                        callback_data=f"enable_monitoring_{filter_id}"
+                    )],
+                    [InlineKeyboardButton(
+                        text="📋 Мои фильтры",
+                        callback_data="sniper_my_filters"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🎯 Новый поиск",
+                        callback_data="sniper_new_search"
+                    )],
+                    [InlineKeyboardButton(
+                        text="🏠 Главное меню",
+                        callback_data="main_menu"
+                    )]
+                ])
+
+                await message.answer(
+                    "💡 <b>Хотите получать автоматические уведомления?</b>\n\n"
+                    "Включите автоматический мониторинг, и бот будет присылать вам\n"
+                    "уведомления о новых тендерах по этим критериям каждые 5 минут.\n\n"
+                    f"🆓 Ваш лимит: {daily_limit} уведомлений в день",
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
 
             await state.clear()
 
