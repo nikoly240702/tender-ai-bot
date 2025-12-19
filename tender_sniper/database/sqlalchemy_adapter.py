@@ -269,9 +269,14 @@ class TenderSniperDB:
             return self._filter_to_dict(filter_obj)
 
     async def update_filter(self, filter_id: int, **kwargs):
-        """Обновление фильтра."""
+        """Обновление фильтра.
+
+        Все переданные kwargs будут обновлены (включая None для очистки поля).
+        Если поле не должно обновляться, просто не передавайте его.
+        """
         async with DatabaseSession() as session:
-            values = {k: v for k, v in kwargs.items() if v is not None}
+            # Включаем все переданные kwargs (включая None для очистки полей)
+            values = dict(kwargs)
             values['updated_at'] = datetime.utcnow()
 
             await session.execute(

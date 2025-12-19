@@ -15,7 +15,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import sys
 import logging
+import re
 from pathlib import Path
+
+
+# 🧪 БЕТА: Состояния для расширенных настроек
+class ExtendedSettingsStates(StatesGroup):
+    waiting_for_input = State()
+
 
 # Добавляем путь для импорта Tender Sniper
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -51,11 +58,25 @@ async def cmd_sniper_menu(message: Message):
             )
             return
 
+        # Проверяем статус автомониторинга
+        db = await get_sniper_db()
+        is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
+
+        # Кнопка паузы/возобновления
+        if is_monitoring_enabled:
+            monitoring_button = InlineKeyboardButton(text="⏸️ Пауза автомониторинга", callback_data="sniper_pause_monitoring")
+            monitoring_status = "🟢 <b>Автомониторинг активен</b>"
+        else:
+            monitoring_button = InlineKeyboardButton(text="▶️ Возобновить автомониторинг", callback_data="sniper_resume_monitoring")
+            monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
             [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [monitoring_button],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
             [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
@@ -63,19 +84,25 @@ async def cmd_sniper_menu(message: Message):
         ])
 
         await message.answer(
-            "🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
-            "<b>Новый workflow:</b>\n"
-            "1️⃣ Создаете фильтр с критериями\n"
-            "2️⃣ AI расширяет ваш запрос\n"
-            "3️⃣ Получаете HTML отчет с тендерами\n"
-            "4️⃣ Включаете автомониторинг (опционально)\n\n"
-            "<b>Возможности:</b>\n"
-            "• 🤖 AI расширение критериев поиска\n"
-            "• 📊 Мгновенный поиск до 25 тендеров\n"
-            "• 📄 Красивые HTML отчеты\n"
-            "• 🔔 Автоматические уведомления\n"
-            "• 📦 Поиск в архиве завершённых тендеров\n\n"
-            "Начните с создания фильтра!",
+            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"{monitoring_status}\n\n"
+            f"<b>Два режима работы:</b>\n\n"
+            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
+            f"→ Разовый поиск по критериям\n"
+            f"→ Получаете HTML отчет сразу\n"
+            f"→ Нет автоматических уведомлений\n\n"
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
+            f"→ Поиск завершённых тендеров\n"
+            f"→ Анализ цен и конкурентов\n\n"
+            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
+            f"→ Создаете постоянные фильтры\n"
+            f"→ Бот автоматически ищет новые тендеры\n"
+            f"→ Получаете уведомления 24/7\n\n"
+            f"<b>Возможности:</b>\n"
+            f"• 🤖 AI расширение критериев\n"
+            f"• 📄 Красивые HTML отчеты\n"
+            f"• 🔔 Умные уведомления\n\n"
+            f"<i>Выберите режим работы ниже</i>",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -1426,12 +1453,13 @@ async def show_purchase_number_input(callback: CallbackQuery, state: FSMContext)
 
         current_num = filter_data.get('purchase_number') or "не указан"
 
-        # Сохраняем filter_id в состоянии
+        # Сохраняем filter_id в состоянии и устанавливаем состояние ожидания ввода
         await state.update_data(ext_filter_id=filter_id, ext_setting='purchase_number')
+        await state.set_state(ExtendedSettingsStates.waiting_for_input)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗑️ Очистить", callback_data=f"clear_pnum_{filter_id}")],
-            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"ext_cancel_{filter_id}")]
         ])
 
         await callback.message.edit_text(
@@ -1492,10 +1520,11 @@ async def show_customer_inn_input(callback: CallbackQuery, state: FSMContext):
         inns_text = ", ".join(current_inns) if current_inns else "не указаны"
 
         await state.update_data(ext_filter_id=filter_id, ext_setting='customer_inn')
+        await state.set_state(ExtendedSettingsStates.waiting_for_input)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🗑️ Очистить все", callback_data=f"clear_inn_{filter_id}")],
-            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"ext_cancel_{filter_id}")]
         ])
 
         await callback.message.edit_text(
@@ -1595,9 +1624,10 @@ async def show_blacklist_inn_input(callback: CallbackQuery, state: FSMContext):
     try:
         filter_id = int(callback.data.replace("bl_add_inn_", ""))
         await state.update_data(ext_filter_id=filter_id, ext_setting='excluded_customer_inns')
+        await state.set_state(ExtendedSettingsStates.waiting_for_input)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_blacklist_{filter_id}")]
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"ext_cancel_{filter_id}")]
         ])
 
         await callback.message.edit_text(
@@ -1622,9 +1652,10 @@ async def show_blacklist_keywords_input(callback: CallbackQuery, state: FSMConte
     try:
         filter_id = int(callback.data.replace("bl_add_kw_", ""))
         await state.update_data(ext_filter_id=filter_id, ext_setting='excluded_customer_keywords')
+        await state.set_state(ExtendedSettingsStates.waiting_for_input)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_blacklist_{filter_id}")]
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"ext_cancel_{filter_id}")]
         ])
 
         await callback.message.edit_text(
@@ -1722,9 +1753,10 @@ async def show_primary_keywords_input(callback: CallbackQuery, state: FSMContext
     try:
         filter_id = int(callback.data.replace("prio_primary_", ""))
         await state.update_data(ext_filter_id=filter_id, ext_setting='primary_keywords')
+        await state.set_state(ExtendedSettingsStates.waiting_for_input)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_priority_{filter_id}")]
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"ext_cancel_{filter_id}")]
         ])
 
         await callback.message.edit_text(
@@ -1749,9 +1781,10 @@ async def show_secondary_keywords_input(callback: CallbackQuery, state: FSMConte
     try:
         filter_id = int(callback.data.replace("prio_secondary_", ""))
         await state.update_data(ext_filter_id=filter_id, ext_setting='secondary_keywords')
+        await state.set_state(ExtendedSettingsStates.waiting_for_input)
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_priority_{filter_id}")]
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"ext_cancel_{filter_id}")]
         ])
 
         await callback.message.edit_text(
@@ -1787,6 +1820,173 @@ async def clear_priority_keywords(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка в clear_priority_keywords: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# --- Отмена ввода расширенных настроек ---
+
+@router.callback_query(F.data.startswith("ext_cancel_"))
+async def cancel_extended_input(callback: CallbackQuery, state: FSMContext):
+    """Отменить ввод и вернуться к настройкам фильтра."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_cancel_", ""))
+        await state.clear()
+
+        # Возвращаемся к настройкам фильтра
+        callback.data = f"ext_filter_{filter_id}"
+        await show_filter_extended_options(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка в cancel_extended_input: {e}", exc_info=True)
+        await state.clear()
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# --- Обработка текстового ввода расширенных настроек ---
+
+def validate_inn(inn: str) -> bool:
+    """Проверить корректность ИНН (10 или 12 цифр)."""
+    return inn.isdigit() and len(inn) in (10, 12)
+
+
+@router.message(ExtendedSettingsStates.waiting_for_input)
+async def process_extended_settings_input(message: Message, state: FSMContext):
+    """Обработка текстового ввода для расширенных настроек."""
+    try:
+        data = await state.get_data()
+        filter_id = data.get('ext_filter_id')
+        setting = data.get('ext_setting')
+
+        if not filter_id or not setting:
+            await message.answer("❌ Ошибка: настройка не определена")
+            await state.clear()
+            return
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await message.answer("❌ Фильтр не найден")
+            await state.clear()
+            return
+
+        text = message.text.strip()
+        update_data = {}
+        success_message = ""
+
+        # Обработка разных типов настроек
+        if setting == 'purchase_number':
+            # Номер закупки - одно значение
+            update_data['purchase_number'] = text
+            success_message = f"✅ Номер закупки установлен: <code>{text}</code>"
+
+        elif setting == 'customer_inn':
+            # ИНН заказчиков - список через запятую
+            inns = [inn.strip() for inn in text.split(',') if inn.strip()]
+            valid_inns = []
+            invalid_inns = []
+
+            for inn in inns:
+                if validate_inn(inn):
+                    valid_inns.append(inn)
+                else:
+                    invalid_inns.append(inn)
+
+            if invalid_inns:
+                await message.answer(
+                    f"⚠️ Некорректные ИНН (должны быть 10 или 12 цифр):\n"
+                    f"<code>{', '.join(invalid_inns)}</code>\n\n"
+                    f"Введите ИНН заново или нажмите «Отмена».",
+                    parse_mode="HTML"
+                )
+                return
+
+            update_data['customer_inn'] = valid_inns
+            success_message = f"✅ Добавлено ИНН: {len(valid_inns)}"
+
+        elif setting == 'excluded_customer_inns':
+            # Черный список ИНН - список через запятую
+            inns = [inn.strip() for inn in text.split(',') if inn.strip()]
+            valid_inns = []
+            invalid_inns = []
+
+            for inn in inns:
+                if validate_inn(inn):
+                    valid_inns.append(inn)
+                else:
+                    invalid_inns.append(inn)
+
+            if invalid_inns:
+                await message.answer(
+                    f"⚠️ Некорректные ИНН (должны быть 10 или 12 цифр):\n"
+                    f"<code>{', '.join(invalid_inns)}</code>\n\n"
+                    f"Введите ИНН заново или нажмите «Отмена».",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Добавляем к существующим
+            existing = filter_data.get('excluded_customer_inns', []) or []
+            combined = list(set(existing + valid_inns))
+            update_data['excluded_customer_inns'] = combined
+            success_message = f"✅ В черный список добавлено ИНН: {len(valid_inns)}"
+
+        elif setting == 'excluded_customer_keywords':
+            # Ключевые слова черного списка
+            keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+
+            # Добавляем к существующим
+            existing = filter_data.get('excluded_customer_keywords', []) or []
+            combined = list(set(existing + keywords))
+            update_data['excluded_customer_keywords'] = combined
+            success_message = f"✅ В черный список добавлено слов: {len(keywords)}"
+
+        elif setting == 'primary_keywords':
+            # Главные ключевые слова
+            keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+            update_data['primary_keywords'] = keywords
+            success_message = f"✅ Главные слова установлены: {len(keywords)}"
+
+        elif setting == 'secondary_keywords':
+            # Дополнительные ключевые слова
+            keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+            update_data['secondary_keywords'] = keywords
+            success_message = f"✅ Дополнительные слова установлены: {len(keywords)}"
+
+        else:
+            await message.answer("❌ Неизвестный тип настройки")
+            await state.clear()
+            return
+
+        # Обновляем фильтр в БД
+        await db.update_filter(filter_id, **update_data)
+        await state.clear()
+
+        # Определяем куда вернуться
+        if setting in ('excluded_customer_inns', 'excluded_customer_keywords'):
+            back_callback = f"ext_blacklist_{filter_id}"
+        elif setting in ('primary_keywords', 'secondary_keywords'):
+            back_callback = f"ext_priority_{filter_id}"
+        else:
+            back_callback = f"ext_filter_{filter_id}"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад к настройкам", callback_data=back_callback)],
+            [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")]
+        ])
+
+        await message.answer(
+            f"{success_message}\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в process_extended_settings_input: {e}", exc_info=True)
+        await message.answer("❌ Произошла ошибка при сохранении")
+        await state.clear()
 
 
 # ============================================
