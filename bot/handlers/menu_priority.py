@@ -122,20 +122,34 @@ async def priority_main_menu(message: Message, state: FSMContext):
             )
             monitoring_status = "🔴 Автомониторинг на паузе"
 
-        # Показываем главное меню
+        # Показываем главное меню (унифицировано с Tender Sniper)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [monitoring_button],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
         ])
 
         sent = await message.answer(
-            f"🏠 <b>Главное меню</b>\n\n"
+            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
             f"{monitoring_status}\n\n"
-            f"Выберите действие:",
+            f"<b>Два режима работы:</b>\n\n"
+            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
+            f"→ Разовый поиск по критериям\n"
+            f"→ Получаете HTML отчет сразу\n\n"
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
+            f"→ Поиск завершённых тендеров\n"
+            f"→ Анализ цен и конкурентов\n\n"
+            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
+            f"→ Создаете постоянные фильтры\n"
+            f"→ Бот автоматически ищет новые тендеры\n"
+            f"→ Получаете уведомления 24/7\n\n"
+            f"<i>Выберите режим работы ниже</i>",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -394,29 +408,46 @@ async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext
             )
             monitoring_status = "🔴 Автомониторинг на паузе"
 
+        # Унифицированное меню с Tender Sniper
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [monitoring_button],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
+            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
         ])
+
+        menu_text = (
+            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"{monitoring_status}\n\n"
+            f"<b>Два режима работы:</b>\n\n"
+            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
+            f"→ Разовый поиск по критериям\n"
+            f"→ Получаете HTML отчет сразу\n\n"
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
+            f"→ Поиск завершённых тендеров\n"
+            f"→ Анализ цен и конкурентов\n\n"
+            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
+            f"→ Создаете постоянные фильтры\n"
+            f"→ Бот автоматически ищет новые тендеры\n"
+            f"→ Получаете уведомления 24/7\n\n"
+            f"<i>Выберите режим работы ниже</i>"
+        )
 
         try:
             await callback.message.edit_text(
-                f"🏠 <b>Главное меню</b>\n\n"
-                f"{monitoring_status}\n\n"
-                f"Выберите действие:",
+                menu_text,
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
         except Exception:
             # Если не удалось отредактировать - отправляем новое
             sent = await callback.message.answer(
-                f"🏠 <b>Главное меню</b>\n\n"
-                f"{monitoring_status}\n\n"
-                f"Выберите действие:",
+                menu_text,
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
