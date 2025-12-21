@@ -24,6 +24,64 @@ class ExtendedSettingsStates(StatesGroup):
     waiting_for_input = State()
 
 
+async def build_filter_extended_options_view(filter_id: int, db) -> tuple:
+    """
+    Вспомогательная функция для построения UI расширенных настроек фильтра.
+    Возвращает (settings_text, keyboard) или (None, None) если фильтр не найден.
+    """
+    filter_data = await db.get_filter_by_id(filter_id)
+
+    if not filter_data:
+        return None, None
+
+    # Формируем информацию о текущих настройках
+    settings_info = f"⚙️ <b>Настройки фильтра:</b> {filter_data['name']}\n\n"
+
+    purchase_num = filter_data.get('purchase_number')
+    settings_info += f"🔢 <b>Номер закупки:</b> {purchase_num or '—'}\n"
+
+    customer_inns = filter_data.get('customer_inn', [])
+    if customer_inns:
+        settings_info += f"🏢 <b>ИНН заказчиков:</b> {', '.join(customer_inns[:3])}"
+        if len(customer_inns) > 3:
+            settings_info += f" (+{len(customer_inns)-3})"
+        settings_info += "\n"
+    else:
+        settings_info += "🏢 <b>ИНН заказчиков:</b> —\n"
+
+    excluded_inns = filter_data.get('excluded_customer_inns', [])
+    excluded_keywords = filter_data.get('excluded_customer_keywords', [])
+    blacklist_count = len(excluded_inns) + len(excluded_keywords)
+    settings_info += f"🚫 <b>Черный список:</b> {blacklist_count} записей\n"
+
+    pub_days = filter_data.get('publication_days')
+    if pub_days:
+        settings_info += f"📅 <b>Публикация:</b> за {pub_days} дней\n"
+    else:
+        settings_info += "📅 <b>Публикация:</b> без ограничений\n"
+
+    primary_kw = filter_data.get('primary_keywords', [])
+    secondary_kw = filter_data.get('secondary_keywords', [])
+    if primary_kw or secondary_kw:
+        settings_info += f"⭐ <b>Приоритет:</b> {len(primary_kw)} главных, {len(secondary_kw)} доп.\n"
+    else:
+        settings_info += "⭐ <b>Приоритет:</b> не настроен\n"
+
+    settings_info += "\n<i>Выберите параметр для настройки:</i>"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔢 Номер закупки", callback_data=f"ext_pnum_{filter_id}")],
+        [InlineKeyboardButton(text="🏢 ИНН заказчиков", callback_data=f"ext_inn_{filter_id}")],
+        [InlineKeyboardButton(text="🚫 Черный список", callback_data=f"ext_blacklist_{filter_id}")],
+        [InlineKeyboardButton(text="📅 Дата публикации", callback_data=f"ext_pubdate_{filter_id}")],
+        [InlineKeyboardButton(text="⭐ Приоритет ключевых слов", callback_data=f"ext_priority_{filter_id}")],
+        [InlineKeyboardButton(text="« Назад к списку", callback_data="sniper_extended_settings")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ])
+
+    return settings_info, keyboard
+
+
 # Добавляем путь для импорта Tender Sniper
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
@@ -1407,8 +1465,6 @@ async def show_publication_date_options(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("set_pubdays_"))
 async def set_publication_days(callback: CallbackQuery):
     """Установить фильтр по дате публикации."""
-    await callback.answer()
-
     try:
         parts = callback.data.split("_")
         filter_id = int(parts[2])
@@ -1426,8 +1482,11 @@ async def set_publication_days(callback: CallbackQuery):
         )
 
         # Возвращаемся к настройкам фильтра
-        callback.data = f"ext_filter_{filter_id}"
-        await show_filter_extended_options(callback)
+        settings_text, keyboard = await build_filter_extended_options_view(filter_id, db)
+        if settings_text:
+            await callback.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в set_publication_days: {e}", exc_info=True)
@@ -1481,8 +1540,6 @@ async def show_purchase_number_input(callback: CallbackQuery, state: FSMContext)
 @router.callback_query(F.data.startswith("clear_pnum_"))
 async def clear_purchase_number(callback: CallbackQuery):
     """Очистить номер закупки."""
-    await callback.answer()
-
     try:
         filter_id = int(callback.data.replace("clear_pnum_", ""))
 
@@ -1491,8 +1548,12 @@ async def clear_purchase_number(callback: CallbackQuery):
 
         await callback.answer("✅ Номер закупки очищен", show_alert=True)
 
-        callback.data = f"ext_filter_{filter_id}"
-        await show_filter_extended_options(callback)
+        # Возвращаемся к настройкам фильтра
+        settings_text, keyboard = await build_filter_extended_options_view(filter_id, db)
+        if settings_text:
+            await callback.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в clear_purchase_number: {e}", exc_info=True)
@@ -1546,8 +1607,6 @@ async def show_customer_inn_input(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("clear_inn_"))
 async def clear_customer_inn(callback: CallbackQuery):
     """Очистить ИНН заказчиков."""
-    await callback.answer()
-
     try:
         filter_id = int(callback.data.replace("clear_inn_", ""))
 
@@ -1556,8 +1615,12 @@ async def clear_customer_inn(callback: CallbackQuery):
 
         await callback.answer("✅ ИНН заказчиков очищены", show_alert=True)
 
-        callback.data = f"ext_filter_{filter_id}"
-        await show_filter_extended_options(callback)
+        # Возвращаемся к настройкам фильтра
+        settings_text, keyboard = await build_filter_extended_options_view(filter_id, db)
+        if settings_text:
+            await callback.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в clear_customer_inn: {e}", exc_info=True)
@@ -1675,8 +1738,6 @@ async def show_blacklist_keywords_input(callback: CallbackQuery, state: FSMConte
 @router.callback_query(F.data.startswith("bl_clear_"))
 async def clear_blacklist(callback: CallbackQuery):
     """Очистить черный список."""
-    await callback.answer()
-
     try:
         filter_id = int(callback.data.replace("bl_clear_", ""))
 
@@ -1685,8 +1746,28 @@ async def clear_blacklist(callback: CallbackQuery):
 
         await callback.answer("✅ Черный список очищен", show_alert=True)
 
-        callback.data = f"ext_blacklist_{filter_id}"
-        await show_blacklist_menu(callback)
+        # Показываем обновленное меню черного списка
+        filter_data = await db.get_filter_by_id(filter_id)
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏢 Добавить ИНН", callback_data=f"bl_add_inn_{filter_id}")],
+            [InlineKeyboardButton(text="📝 Добавить ключевые слова", callback_data=f"bl_add_kw_{filter_id}")],
+            [InlineKeyboardButton(text="🗑️ Очистить черный список", callback_data=f"bl_clear_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"🚫 <b>Черный список заказчиков</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+            f"<b>Исключенные ИНН (0):</b>\n<code>—</code>\n\n"
+            f"<b>Исключенные слова (0):</b>\n<code>—</code>\n\n"
+            f"💡 Заказчики из черного списка будут исключены из результатов поиска.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
 
     except Exception as e:
         logger.error(f"Ошибка в clear_blacklist: {e}", exc_info=True)
@@ -1804,8 +1885,6 @@ async def show_secondary_keywords_input(callback: CallbackQuery, state: FSMConte
 @router.callback_query(F.data.startswith("prio_clear_"))
 async def clear_priority_keywords(callback: CallbackQuery):
     """Очистить приоритеты ключевых слов."""
-    await callback.answer()
-
     try:
         filter_id = int(callback.data.replace("prio_clear_", ""))
 
@@ -1814,8 +1893,28 @@ async def clear_priority_keywords(callback: CallbackQuery):
 
         await callback.answer("✅ Приоритеты очищены", show_alert=True)
 
-        callback.data = f"ext_priority_{filter_id}"
-        await show_priority_keywords_menu(callback)
+        # Показываем обновленное меню приоритетов
+        filter_data = await db.get_filter_by_id(filter_id)
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Главные (вес 2x)", callback_data=f"prio_primary_{filter_id}")],
+            [InlineKeyboardButton(text="📌 Дополнительные (вес 1x)", callback_data=f"prio_secondary_{filter_id}")],
+            [InlineKeyboardButton(text="🗑️ Очистить приоритеты", callback_data=f"prio_clear_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад", callback_data=f"ext_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"⭐ <b>Приоритет ключевых слов</b> 🧪 БЕТА\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+            f"<b>Главные слова (вес 2x):</b>\n<code>—</code>\n\n"
+            f"<b>Дополнительные (вес 1x):</b>\n<code>—</code>\n\n"
+            f"💡 Главные слова имеют приоритет при ранжировании результатов.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
 
     except Exception as e:
         logger.error(f"Ошибка в clear_priority_keywords: {e}", exc_info=True)
@@ -1827,20 +1926,31 @@ async def clear_priority_keywords(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("ext_cancel_"))
 async def cancel_extended_input(callback: CallbackQuery, state: FSMContext):
     """Отменить ввод и вернуться к настройкам фильтра."""
-    await callback.answer()
+    await callback.answer("↩️ Отменено")
 
     try:
         filter_id = int(callback.data.replace("ext_cancel_", ""))
         await state.clear()
 
-        # Возвращаемся к настройкам фильтра
-        callback.data = f"ext_filter_{filter_id}"
-        await show_filter_extended_options(callback)
+        # Возвращаемся к настройкам фильтра - используем helper функцию
+        db = await get_sniper_db()
+        settings_text, keyboard = await build_filter_extended_options_view(filter_id, db)
+
+        if settings_text:
+            await callback.message.edit_text(settings_text, reply_markup=keyboard, parse_mode="HTML")
+        else:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка в cancel_extended_input: {e}", exc_info=True)
         await state.clear()
-        await callback.answer("❌ Произошла ошибка", show_alert=True)
+        await callback.message.edit_text(
+            "❌ Произошла ошибка. Попробуйте ещё раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ]),
+            parse_mode="HTML"
+        )
 
 
 # --- Обработка текстового ввода расширенных настроек ---

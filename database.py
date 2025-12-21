@@ -176,6 +176,27 @@ class SniperNotification(Base):
     )
 
 
+class FilterDraft(Base):
+    """🧪 БЕТА: Черновик фильтра для восстановления прогресса при ошибках."""
+    __tablename__ = 'filter_drafts'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False)
+    telegram_id = Column(BigInteger, nullable=False, index=True)
+    draft_data = Column(JSON, nullable=False)  # FSM state data
+    current_step = Column(String(100), nullable=True)  # Текущий шаг wizard
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+    # Indexes - unique per user
+    __table_args__ = (
+        Index('ix_filter_drafts_user_unique', 'user_id', unique=True),
+    )
+
+
 class TenderCache(Base):
     """Кеш обработанных тендеров (для дедупликации)."""
     __tablename__ = 'tender_cache'

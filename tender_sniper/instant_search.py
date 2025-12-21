@@ -94,6 +94,7 @@ class InstantSearch:
         okpd2_codes = safe_json_parse(filter_data.get('okpd2_codes'), [])
         min_deadline_days = filter_data.get('min_deadline_days')
         customer_keywords = safe_json_parse(filter_data.get('customer_keywords'), [])
+        publication_days = filter_data.get('publication_days')  # 🧪 БЕТА: фильтр по дате публикации
 
         # Формируем список поисковых запросов
         # Каждое оригинальное ключевое слово - отдельный запрос (OR логика)
@@ -119,6 +120,8 @@ class InstantSearch:
             logger.info(f"   🏢 Заказчик содержит: {', '.join(customer_keywords)}")
         if exclude_keywords:
             logger.info(f"   ❌ Исключаем: {', '.join(exclude_keywords)}")
+        if publication_days:
+            logger.info(f"   📅 Публикация за: {publication_days} дней")
 
         try:
             # Выполняем ОТДЕЛЬНЫЙ поиск для каждого ключевого слова
@@ -401,7 +404,7 @@ class InstantSearch:
 
             matches = []
             for tender in search_results:
-                # ФИЛЬТР 1: Исключаем старые тендеры (старше 2 лет)
+                # ФИЛЬТР 1: Исключаем старые тендеры (старше 2 лет или старше publication_days)
                 published_str = tender.get('published', '')
                 if published_str:
                     try:
@@ -413,12 +416,20 @@ class InstantSearch:
                             from datetime import datetime as dt
                             published_dt = dt.strptime(published_str[:10], '%Y-%m-%d')
 
-                        # Проверяем что тендер не старше 2 лет
                         from datetime import datetime, timedelta
-                        two_years_ago = datetime.now() - timedelta(days=730)
-                        if published_dt < two_years_ago:
-                            logger.debug(f"      ⛔ Исключен (старый, {published_dt.year}): {tender.get('name', '')[:60]}")
-                            continue
+
+                        # 🧪 БЕТА: Фильтр по дате публикации (если указано)
+                        if publication_days:
+                            cutoff_date = datetime.now() - timedelta(days=publication_days)
+                            if published_dt < cutoff_date:
+                                logger.debug(f"      ⛔ Исключен (старше {publication_days} дней): {tender.get('name', '')[:60]}")
+                                continue
+                        else:
+                            # По умолчанию не старше 2 лет
+                            two_years_ago = datetime.now() - timedelta(days=730)
+                            if published_dt < two_years_ago:
+                                logger.debug(f"      ⛔ Исключен (старый, {published_dt.year}): {tender.get('name', '')[:60]}")
+                                continue
                     except:
                         pass  # Если не удалось распарсить - пропускаем проверку
 

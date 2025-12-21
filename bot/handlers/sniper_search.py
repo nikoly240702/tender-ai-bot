@@ -37,6 +37,75 @@ router = Router()
 
 
 # ============================================
+# 🧪 БЕТА: Сохранение черновиков фильтров
+# ============================================
+
+async def save_wizard_draft(telegram_id: int, state: FSMContext, current_step: str = None):
+    """
+    Сохранить текущее состояние wizard в БД.
+
+    Args:
+        telegram_id: Telegram ID пользователя
+        state: FSMContext с данными
+        current_step: Название текущего шага (для отображения)
+    """
+    try:
+        data = await state.get_data()
+        if not data:
+            return
+
+        db = await get_sniper_db()
+        await db.save_filter_draft(
+            telegram_id=telegram_id,
+            draft_data=data,
+            current_step=current_step
+        )
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить черновик: {e}")
+
+
+async def check_and_offer_draft(
+    callback: CallbackQuery,
+    state: FSMContext,
+    db,
+    with_instant_search: bool
+) -> bool:
+    """
+    Проверить наличие черновика и предложить продолжить.
+
+    Returns:
+        True если предложили продолжить, False если начинаем с нуля
+    """
+    try:
+        draft = await db.get_filter_draft(callback.from_user.id)
+        if draft and draft.get('draft_data'):
+            # Есть черновик - предлагаем продолжить
+            draft_data = draft['draft_data']
+            filter_name = draft_data.get('filter_name', 'Без названия')
+            current_step = draft.get('current_step', 'неизвестно')
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Продолжить", callback_data=f"draft_resume_{1 if with_instant_search else 0}")],
+                [InlineKeyboardButton(text="🔄 Начать заново", callback_data=f"draft_discard_{1 if with_instant_search else 0}")],
+                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+            ])
+
+            await callback.message.edit_text(
+                f"📝 <b>Найден незавершённый фильтр</b> 🧪 БЕТА\n\n"
+                f"Название: <b>{filter_name}</b>\n"
+                f"Последний шаг: <i>{current_step}</i>\n\n"
+                f"Хотите продолжить с места остановки?",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return True
+    except Exception as e:
+        logger.warning(f"Ошибка проверки черновика: {e}")
+
+    return False
+
+
+# ============================================
 # FSM States для нового процесса
 # ============================================
 
@@ -58,6 +127,14 @@ class FilterSearchStates(StatesGroup):
     waiting_for_search_mode = State()  # Выбор режима поиска (точный/расширенный)
     waiting_for_tender_count = State()
     confirm_auto_monitoring = State()
+
+
+class ArchiveSearchStates(StatesGroup):
+    """🧪 БЕТА: Упрощённые состояния для архивного поиска."""
+    waiting_for_period = State()      # Шаг 1: Выбор периода
+    waiting_for_keywords = State()    # Шаг 2: Ключевые слова
+    waiting_for_region = State()      # Шаг 3: Регион (опционально)
+    confirm_search = State()          # Шаг 4: Подтверждение
 
 
 # ============================================
@@ -181,13 +258,19 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
 
+# ============================================
+# 🧪 БЕТА: УПРОЩЁННЫЙ АРХИВНЫЙ ПОИСК
+# ============================================
+
 @router.callback_query(F.data == "sniper_archive_search")
 async def start_archive_search(callback: CallbackQuery, state: FSMContext):
     """
-    🧪 БЕТА: Поиск в архиве - поиск завершённых тендеров.
+    🧪 БЕТА: Поиск в архиве - упрощённый поток.
 
-    Этот режим ищет тендеры с прошедшим сроком подачи заявок.
-    Полезно для анализа цен и конкурентов.
+    Шаг 1: Выбор периода
+    Шаг 2: Ключевые слова
+    Шаг 3: Регион (опционально)
+    Шаг 4: Поиск
     """
     await callback.answer()
 
@@ -203,26 +286,29 @@ async def start_archive_search(callback: CallbackQuery, state: FSMContext):
                 first_name=callback.from_user.first_name,
                 subscription_tier='free'
             )
-            user = await db.get_user_by_telegram_id(callback.from_user.id)
 
-        # Для архивного поиска не проверяем квоту - это разовый поиск
+        # Инициализируем данные архивного поиска
+        await state.clear()
+        await state.update_data(archive_mode=True)
 
-        # Сохраняем режим архивного поиска
-        await state.update_data(
-            with_instant_search=True,
-            archive_mode=True  # 🧪 БЕТА: Флаг архивного поиска
-        )
+        # Шаг 1: Выбор периода
+        await state.set_state(ArchiveSearchStates.waiting_for_period)
 
-        # Запускаем процесс создания фильтра
-        await state.set_state(FilterSearchStates.waiting_for_filter_name)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📅 За 7 дней", callback_data="arch_period_7")],
+            [InlineKeyboardButton(text="📅 За 30 дней", callback_data="arch_period_30")],
+            [InlineKeyboardButton(text="📅 За 90 дней", callback_data="arch_period_90")],
+            [InlineKeyboardButton(text="📅 За 180 дней", callback_data="arch_period_180")],
+            [InlineKeyboardButton(text="📅 За всё время", callback_data="arch_period_0")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_menu")]
+        ])
 
         await callback.message.edit_text(
             "📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
-            "<b>Шаг 1/14:</b> Название поиска\n\n"
-            "Придумайте короткое название для вашего поиска.\n"
-            "Например: <i>Архив IT оборудование 2024</i>\n\n"
-            "💡 Этот режим ищет <b>завершённые</b> тендеры.\n"
-            "Полезно для анализа цен и конкурентов.",
+            "<b>Шаг 1/4:</b> Выберите период поиска\n\n"
+            "За какое время искать завершённые тендеры?\n\n"
+            "💡 Чем больше период, тем дольше поиск.",
+            reply_markup=keyboard,
             parse_mode="HTML"
         )
 
@@ -230,6 +316,477 @@ async def start_archive_search(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Error starting archive search: {e}", exc_info=True)
         await callback.message.answer("❌ Произошла ошибка. Попробуйте позже.")
 
+
+@router.callback_query(F.data.startswith("arch_period_"), ArchiveSearchStates.waiting_for_period)
+async def archive_select_period(callback: CallbackQuery, state: FSMContext):
+    """Шаг 1: Выбор периода для архивного поиска."""
+    await callback.answer()
+
+    period_days = int(callback.data.replace("arch_period_", ""))
+    await state.update_data(archive_period_days=period_days)
+
+    # Переходим к шагу 2: Ключевые слова
+    await state.set_state(ArchiveSearchStates.waiting_for_keywords)
+
+    period_text = f"за {period_days} дней" if period_days > 0 else "за всё время"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад", callback_data="sniper_archive_search")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_menu")]
+    ])
+
+    await callback.message.edit_text(
+        f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+        f"<b>Шаг 2/4:</b> Введите ключевые слова\n\n"
+        f"📅 Период: <b>{period_text}</b>\n\n"
+        f"Введите слова для поиска через запятую:\n"
+        f"<i>Например: компьютер, ноутбук, моноблок</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(ArchiveSearchStates.waiting_for_keywords)
+async def archive_process_keywords(message: Message, state: FSMContext):
+    """Шаг 2: Обработка ключевых слов."""
+    # Проверяем системные кнопки
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры"]:
+        await state.clear()
+        return
+
+    keywords_text = message.text.strip()
+    if not keywords_text:
+        await message.answer("⚠️ Введите хотя бы одно ключевое слово:")
+        return
+
+    keywords = [kw.strip() for kw in keywords_text.split(',') if kw.strip()]
+    if not keywords:
+        await message.answer("⚠️ Введите ключевые слова через запятую:")
+        return
+
+    await state.update_data(archive_keywords=keywords)
+
+    # Переходим к шагу 3: Выбор региона
+    await state.set_state(ArchiveSearchStates.waiting_for_region)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌍 Вся Россия", callback_data="arch_region_all")],
+        [InlineKeyboardButton(text="🏛️ Москва", callback_data="arch_region_77")],
+        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="arch_region_78")],
+        [InlineKeyboardButton(text="🏛️ Московская область", callback_data="arch_region_50")],
+        [InlineKeyboardButton(text="📝 Ввести код региона", callback_data="arch_region_custom")],
+        [InlineKeyboardButton(text="« Назад", callback_data="arch_back_to_keywords")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_menu")]
+    ])
+
+    data = await state.get_data()
+    period_days = data.get('archive_period_days', 30)
+    period_text = f"за {period_days} дней" if period_days > 0 else "за всё время"
+
+    await message.answer(
+        f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+        f"<b>Шаг 3/4:</b> Выберите регион\n\n"
+        f"📅 Период: <b>{period_text}</b>\n"
+        f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>"
+        f"{' (+' + str(len(keywords)-3) + ')' if len(keywords) > 3 else ''}\n\n"
+        f"Выберите регион или оставьте «Вся Россия»:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "arch_back_to_keywords", ArchiveSearchStates.waiting_for_region)
+async def archive_back_to_keywords(callback: CallbackQuery, state: FSMContext):
+    """Возврат к вводу ключевых слов."""
+    await callback.answer()
+
+    data = await state.get_data()
+    period_days = data.get('archive_period_days', 30)
+    period_text = f"за {period_days} дней" if period_days > 0 else "за всё время"
+
+    await state.set_state(ArchiveSearchStates.waiting_for_keywords)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Назад", callback_data="sniper_archive_search")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_menu")]
+    ])
+
+    await callback.message.edit_text(
+        f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+        f"<b>Шаг 2/4:</b> Введите ключевые слова\n\n"
+        f"📅 Период: <b>{period_text}</b>\n\n"
+        f"Введите слова для поиска через запятую:\n"
+        f"<i>Например: компьютер, ноутбук, моноблок</i>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("arch_region_"), ArchiveSearchStates.waiting_for_region)
+async def archive_select_region(callback: CallbackQuery, state: FSMContext):
+    """Шаг 3: Выбор региона."""
+    await callback.answer()
+
+    region_code = callback.data.replace("arch_region_", "")
+
+    if region_code == "custom":
+        # Запрашиваем ввод кода региона
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="arch_back_to_region_select")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_menu")]
+        ])
+
+        await callback.message.edit_text(
+            "📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+            "<b>Введите код региона</b>\n\n"
+            "Например: <code>77</code> - Москва, <code>78</code> - СПб\n\n"
+            "Можно ввести несколько через запятую:\n"
+            "<code>77, 50, 78</code>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await state.set_state(ArchiveSearchStates.confirm_search)
+        await state.update_data(waiting_for_region_input=True)
+        return
+
+    # Сохраняем регион
+    regions = [] if region_code == "all" else [region_code]
+    await state.update_data(archive_regions=regions)
+
+    # Запускаем поиск
+    await run_archive_search(callback.message, state, callback.from_user.id)
+
+
+@router.callback_query(F.data == "arch_back_to_region_select")
+async def archive_back_to_region_select(callback: CallbackQuery, state: FSMContext):
+    """Возврат к выбору региона."""
+    await callback.answer()
+    await state.update_data(waiting_for_region_input=False)
+    await state.set_state(ArchiveSearchStates.waiting_for_region)
+
+    data = await state.get_data()
+    period_days = data.get('archive_period_days', 30)
+    keywords = data.get('archive_keywords', [])
+    period_text = f"за {period_days} дней" if period_days > 0 else "за всё время"
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌍 Вся Россия", callback_data="arch_region_all")],
+        [InlineKeyboardButton(text="🏛️ Москва", callback_data="arch_region_77")],
+        [InlineKeyboardButton(text="🏛️ Санкт-Петербург", callback_data="arch_region_78")],
+        [InlineKeyboardButton(text="🏛️ Московская область", callback_data="arch_region_50")],
+        [InlineKeyboardButton(text="📝 Ввести код региона", callback_data="arch_region_custom")],
+        [InlineKeyboardButton(text="« Назад", callback_data="arch_back_to_keywords")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="sniper_menu")]
+    ])
+
+    await callback.message.edit_text(
+        f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+        f"<b>Шаг 3/4:</b> Выберите регион\n\n"
+        f"📅 Период: <b>{period_text}</b>\n"
+        f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>"
+        f"{' (+' + str(len(keywords)-3) + ')' if len(keywords) > 3 else ''}\n\n"
+        f"Выберите регион или оставьте «Вся Россия»:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(ArchiveSearchStates.confirm_search)
+async def archive_process_custom_region(message: Message, state: FSMContext):
+    """Обработка ввода кода региона."""
+    data = await state.get_data()
+
+    if not data.get('waiting_for_region_input'):
+        return
+
+    # Проверяем системные кнопки
+    if message.text in ["🏠 Главное меню", "🎯 Tender Sniper", "📊 Мои фильтры"]:
+        await state.clear()
+        return
+
+    # Парсим коды регионов
+    region_codes = [r.strip() for r in message.text.split(',') if r.strip().isdigit()]
+    if not region_codes:
+        await message.answer("⚠️ Введите числовой код региона (например: 77):")
+        return
+
+    await state.update_data(archive_regions=region_codes, waiting_for_region_input=False)
+
+    # Запускаем поиск
+    await run_archive_search(message, state, message.from_user.id)
+
+
+async def run_archive_search(message_or_callback, state: FSMContext, user_id: int):
+    """Выполнение архивного поиска."""
+    import json
+
+    data = await state.get_data()
+    period_days = data.get('archive_period_days', 30)
+    keywords = data.get('archive_keywords', [])
+    regions = data.get('archive_regions', [])
+
+    period_text = f"за {period_days} дней" if period_days > 0 else "за всё время"
+    region_text = ', '.join(regions) if regions else "Вся Россия"
+
+    # Показываем статус поиска
+    if hasattr(message_or_callback, 'edit_text'):
+        status_msg = await message_or_callback.edit_text(
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+            f"🔄 Выполняется поиск...\n\n"
+            f"📅 Период: <b>{period_text}</b>\n"
+            f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
+            f"🌍 Регион: <b>{region_text}</b>",
+            parse_mode="HTML"
+        )
+    else:
+        status_msg = await message_or_callback.answer(
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+            f"🔄 Выполняется поиск...\n\n"
+            f"📅 Период: <b>{period_text}</b>\n"
+            f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
+            f"🌍 Регион: <b>{region_text}</b>",
+            parse_mode="HTML"
+        )
+
+    try:
+        # Создаём временный фильтр для поиска
+        db = await get_sniper_db()
+
+        # Генерируем название
+        filter_name = f"Архив: {' '.join(keywords[:2])}"
+
+        user = await db.get_user_by_telegram_id(user_id)
+        if not user:
+            await status_msg.edit_text("❌ Пользователь не найден")
+            await state.clear()
+            return
+
+        filter_id = await db.create_filter(
+            user_id=user['id'],
+            name=filter_name,
+            keywords=keywords,
+            regions=regions if regions else None,
+            is_active=False  # Временный фильтр
+        )
+
+        # Формируем filter_data для поиска
+        filter_data = {
+            'id': filter_id,
+            'name': filter_name,
+            'keywords': json.dumps(keywords, ensure_ascii=False),
+            'exclude_keywords': json.dumps([], ensure_ascii=False),
+            'price_min': None,
+            'price_max': None,
+            'regions': json.dumps(regions, ensure_ascii=False) if regions else json.dumps([], ensure_ascii=False),
+            'tender_types': json.dumps([], ensure_ascii=False),
+            'law_type': None,
+            'purchase_stage': 'archive',  # Архивные тендеры
+            'purchase_method': None,
+            'okpd2_codes': json.dumps([], ensure_ascii=False),
+            'min_deadline_days': None,
+            'customer_keywords': json.dumps([], ensure_ascii=False),
+            'publication_days': period_days if period_days > 0 else None,
+        }
+
+        # Выполняем поиск
+        searcher = InstantSearch()
+        search_results = await searcher.search_by_filter(
+            filter_data=filter_data,
+            max_tenders=50,
+            expanded_keywords=[]
+        )
+
+        # Удаляем временный фильтр
+        await db.delete_filter(filter_id)
+        logger.info(f"🗑️ Временный архивный фильтр {filter_id} удален")
+
+        # Показываем результаты
+        matches = search_results.get('matches', [])
+        if matches:
+            total = search_results.get('total_found', len(matches))
+
+            result_text = (
+                f"📦 <b>Результаты поиска в архиве</b> 🧪 БЕТА\n\n"
+                f"📅 Период: <b>{period_text}</b>\n"
+                f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
+                f"📊 Найдено: <b>{total}</b> тендеров\n\n"
+            )
+
+            # Показываем первые 5 результатов
+            for i, match in enumerate(matches[:5], 1):
+                title = match.get('name', match.get('title', 'Без названия'))[:80]
+                price = match.get('price', 0)
+                price_str = f"{price:,.0f}".replace(',', ' ') if price else "Не указана"
+                number = match.get('number', match.get('tender_number', ''))
+
+                result_text += f"<b>{i}.</b> {title}...\n"
+                result_text += f"   💰 {price_str} ₽\n"
+                if number:
+                    result_text += f"   📋 <a href='https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={number}'>№{number}</a>\n"
+                result_text += "\n"
+
+            if len(matches) > 5:
+                result_text += f"<i>... и ещё {len(matches) - 5} тендеров</i>\n"
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📦 Новый поиск в архиве", callback_data="sniper_archive_search")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await status_msg.edit_text(result_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
+        else:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📦 Новый поиск в архиве", callback_data="sniper_archive_search")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await status_msg.edit_text(
+                f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+                f"😔 По вашему запросу ничего не найдено.\n\n"
+                f"📅 Период: <b>{period_text}</b>\n"
+                f"🔑 Слова: <b>{', '.join(keywords)}</b>\n\n"
+                f"Попробуйте изменить ключевые слова или период поиска.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+
+        await state.clear()
+
+    except Exception as e:
+        logger.error(f"Error in archive search: {e}", exc_info=True)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Попробовать снова", callback_data="sniper_archive_search")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+        await status_msg.edit_text(
+            "❌ Произошла ошибка при поиске.\n\nПопробуйте позже.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+        await state.clear()
+
+
+# ============================================
+# 🧪 БЕТА: Обработчики черновиков
+# ============================================
+
+@router.callback_query(F.data.startswith("draft_resume_"))
+async def resume_draft(callback: CallbackQuery, state: FSMContext):
+    """Восстановить черновик и продолжить wizard."""
+    await callback.answer("✅ Восстанавливаем...")
+
+    try:
+        with_instant_search = callback.data.endswith("_1")
+
+        db = await get_sniper_db()
+        draft = await db.get_filter_draft(callback.from_user.id)
+
+        if not draft or not draft.get('draft_data'):
+            await callback.message.edit_text(
+                "❌ Черновик не найден. Начните создание фильтра заново.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎯 Новый поиск", callback_data="sniper_new_search")],
+                    [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+                ])
+            )
+            return
+
+        # Восстанавливаем данные FSM
+        draft_data = draft['draft_data']
+        draft_data['with_instant_search'] = with_instant_search
+        await state.set_data(draft_data)
+
+        # Определяем текущий шаг и продолжаем с него
+        current_step = draft.get('current_step', '')
+
+        # Маппинг шагов на состояния и сообщения
+        step_mapping = {
+            'Название фильтра': (FilterSearchStates.waiting_for_filter_name, "Введите название фильтра:"),
+            'Ключевые слова': (FilterSearchStates.waiting_for_keywords, "Введите ключевые слова:"),
+            'Слова-исключения': (FilterSearchStates.waiting_for_exclude_keywords, "Введите слова-исключения:"),
+            'Цена': (FilterSearchStates.waiting_for_price_range, "Выберите ценовой диапазон:"),
+            'Регионы': (FilterSearchStates.waiting_for_regions, "Выберите регионы:"),
+            'Закон': (FilterSearchStates.waiting_for_law_type, "Выберите тип закона:"),
+            'Этап закупки': (FilterSearchStates.waiting_for_purchase_stage, "Выберите этап закупки:"),
+            'Способ закупки': (FilterSearchStates.waiting_for_purchase_method, "Выберите способ закупки:"),
+            'Тип тендера': (FilterSearchStates.waiting_for_tender_type, "Выберите тип тендера:"),
+        }
+
+        filter_name = draft_data.get('filter_name', 'Ваш фильтр')
+
+        # Восстанавливаем состояние
+        if current_step in step_mapping:
+            fsm_state, hint = step_mapping[current_step]
+            await state.set_state(fsm_state)
+
+            await callback.message.edit_text(
+                f"✅ <b>Черновик восстановлен</b>\n\n"
+                f"Фильтр: <b>{filter_name}</b>\n"
+                f"Шаг: <i>{current_step}</i>\n\n"
+                f"{hint}",
+                parse_mode="HTML"
+            )
+        else:
+            # По умолчанию - начинаем с ключевых слов (шаг 2)
+            await state.set_state(FilterSearchStates.waiting_for_keywords)
+
+            await callback.message.edit_text(
+                f"✅ <b>Черновик восстановлен</b>\n\n"
+                f"Фильтр: <b>{filter_name}</b>\n\n"
+                f"Продолжите ввод ключевых слов:",
+                parse_mode="HTML"
+            )
+
+        logger.info(f"📝 Черновик восстановлен для пользователя {callback.from_user.id}")
+
+    except Exception as e:
+        logger.error(f"Ошибка восстановления черновика: {e}", exc_info=True)
+        await callback.message.edit_text(
+            "❌ Ошибка при восстановлении черновика. Начните заново.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🎯 Новый поиск", callback_data="sniper_new_search")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+        )
+
+
+@router.callback_query(F.data.startswith("draft_discard_"))
+async def discard_draft(callback: CallbackQuery, state: FSMContext):
+    """Отклонить черновик и начать заново."""
+    await callback.answer("🗑️ Черновик удалён")
+
+    try:
+        with_instant_search = callback.data.endswith("_1")
+
+        # Удаляем черновик
+        db = await get_sniper_db()
+        await db.delete_filter_draft(callback.from_user.id)
+
+        # Очищаем FSM
+        await state.clear()
+
+        # Начинаем заново
+        await state.update_data(with_instant_search=with_instant_search)
+        await state.set_state(FilterSearchStates.waiting_for_filter_name)
+
+        title = "🎯 <b>Создание фильтра с мгновенным поиском</b>" if with_instant_search else "➕ <b>Создание фильтра для автомониторинга</b>"
+
+        await callback.message.edit_text(
+            f"{title}\n\n"
+            f"<b>Шаг 1/14:</b> Название фильтра\n\n"
+            f"Придумайте короткое название для вашего фильтра.\n"
+            f"Например: <i>IT оборудование</i>, <i>Медицинские товары</i>",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка удаления черновика: {e}", exc_info=True)
+        await callback.message.answer("❌ Ошибка. Попробуйте ещё раз.")
+
+
+# ============================================
+# WIZARD: Обработчики шагов
+# ============================================
 
 @router.message(FilterSearchStates.waiting_for_filter_name)
 async def process_filter_name_new(message: Message, state: FSMContext):
@@ -250,6 +807,10 @@ async def process_filter_name_new(message: Message, state: FSMContext):
         return
 
     await state.update_data(filter_name=filter_name)
+
+    # 🧪 БЕТА: Сохраняем черновик
+    await save_wizard_draft(message.from_user.id, state, "Ключевые слова")
+
     await ask_for_keywords(message, state)
 
 
@@ -320,6 +881,10 @@ async def process_keywords_new(message: Message, state: FSMContext):
             return
 
     await state.update_data(keywords=keywords)
+
+    # 🧪 БЕТА: Сохраняем черновик
+    await save_wizard_draft(message.from_user.id, state, "Слова-исключения")
+
     await ask_for_exclude_keywords(message, state)
 
 

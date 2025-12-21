@@ -17,6 +17,7 @@ from database import (
     SniperFilter as SniperFilterModel,
     SniperNotification as SniperNotificationModel,
     TenderCache as TenderCacheModel,
+    FilterDraft as FilterDraftModel,  # 🧪 БЕТА: Черновики фильтров
     get_session,
     DatabaseSession
 )
@@ -813,6 +814,120 @@ class TenderSniperDB:
                 .values(error_count=0)
             )
             await session.commit()
+
+    # ============================================
+    # 🧪 БЕТА: Черновики фильтров
+    # ============================================
+
+    async def save_filter_draft(
+        self,
+        telegram_id: int,
+        draft_data: Dict[str, Any],
+        current_step: str = None
+    ) -> int:
+        """
+        Сохранить черновик фильтра.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            draft_data: Данные состояния FSM
+            current_step: Текущий шаг wizard
+
+        Returns:
+            ID черновика
+        """
+        async with DatabaseSession() as session:
+            # Получаем user_id
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+
+            if not user:
+                logger.warning(f"User not found for telegram_id {telegram_id}")
+                return None
+
+            # Проверяем существующий черновик
+            result = await session.execute(
+                select(FilterDraftModel).where(FilterDraftModel.user_id == user.id)
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                # Обновляем существующий
+                await session.execute(
+                    update(FilterDraftModel)
+                    .where(FilterDraftModel.id == existing.id)
+                    .values(
+                        draft_data=serialize_for_json(draft_data),
+                        current_step=current_step,
+                        updated_at=datetime.utcnow()
+                    )
+                )
+                await session.commit()
+                logger.debug(f"📝 Черновик обновлен для пользователя {telegram_id}")
+                return existing.id
+            else:
+                # Создаём новый
+                draft = FilterDraftModel(
+                    user_id=user.id,
+                    telegram_id=telegram_id,
+                    draft_data=serialize_for_json(draft_data),
+                    current_step=current_step
+                )
+                session.add(draft)
+                await session.commit()
+                await session.refresh(draft)
+                logger.debug(f"📝 Черновик создан для пользователя {telegram_id}")
+                return draft.id
+
+    async def get_filter_draft(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Получить черновик фильтра пользователя.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+
+        Returns:
+            Dict с данными черновика или None
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(FilterDraftModel).where(FilterDraftModel.telegram_id == telegram_id)
+            )
+            draft = result.scalar_one_or_none()
+
+            if draft:
+                return {
+                    'id': draft.id,
+                    'user_id': draft.user_id,
+                    'telegram_id': draft.telegram_id,
+                    'draft_data': draft.draft_data,
+                    'current_step': draft.current_step,
+                    'created_at': draft.created_at,
+                    'updated_at': draft.updated_at
+                }
+            return None
+
+    async def delete_filter_draft(self, telegram_id: int) -> bool:
+        """
+        Удалить черновик фильтра.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+
+        Returns:
+            True если удалён, False если не найден
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                delete(FilterDraftModel).where(FilterDraftModel.telegram_id == telegram_id)
+            )
+            await session.commit()
+            deleted = result.rowcount > 0
+            if deleted:
+                logger.debug(f"🗑️ Черновик удалён для пользователя {telegram_id}")
+            return deleted
 
 
 # Глобальный singleton
