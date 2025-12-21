@@ -517,8 +517,9 @@ async def archive_process_custom_region(message: Message, state: FSMContext):
 
 
 async def run_archive_search(message_or_callback, state: FSMContext, user_id: int):
-    """Выполнение архивного поиска."""
+    """Выполнение архивного поиска с генерацией HTML отчёта."""
     import json
+    from aiogram.types import FSInputFile
 
     data = await state.get_data()
     period_days = data.get('archive_period_days', 30)
@@ -532,7 +533,7 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
     if hasattr(message_or_callback, 'edit_text'):
         status_msg = await message_or_callback.edit_text(
             f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
-            f"🔄 Выполняется поиск...\n\n"
+            f"🔄 <b>Шаг 1/3:</b> Поиск тендеров...\n\n"
             f"📅 Период: <b>{period_text}</b>\n"
             f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
             f"🌍 Регион: <b>{region_text}</b>",
@@ -541,7 +542,7 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
     else:
         status_msg = await message_or_callback.answer(
             f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
-            f"🔄 Выполняется поиск...\n\n"
+            f"🔄 <b>Шаг 1/3:</b> Поиск тендеров...\n\n"
             f"📅 Период: <b>{period_text}</b>\n"
             f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
             f"🌍 Регион: <b>{region_text}</b>",
@@ -549,7 +550,6 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
         )
 
     try:
-        # Создаём временный фильтр для поиска
         db = await get_sniper_db()
 
         # Генерируем название
@@ -561,12 +561,13 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
             await state.clear()
             return
 
+        # Создаём временный фильтр
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=filter_name,
             keywords=keywords,
             regions=regions if regions else None,
-            is_active=False  # Временный фильтр
+            is_active=False
         )
 
         # Формируем filter_data для поиска
@@ -580,7 +581,7 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
             'regions': json.dumps(regions, ensure_ascii=False) if regions else json.dumps([], ensure_ascii=False),
             'tender_types': json.dumps([], ensure_ascii=False),
             'law_type': None,
-            'purchase_stage': 'archive',  # Архивные тендеры
+            'purchase_stage': 'archive',
             'purchase_method': None,
             'okpd2_codes': json.dumps([], ensure_ascii=False),
             'min_deadline_days': None,
@@ -596,45 +597,12 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
             expanded_keywords=[]
         )
 
-        # Удаляем временный фильтр
-        await db.delete_filter(filter_id)
-        logger.info(f"🗑️ Временный архивный фильтр {filter_id} удален")
-
-        # Показываем результаты
         matches = search_results.get('matches', [])
-        if matches:
-            total = search_results.get('total_found', len(matches))
 
-            result_text = (
-                f"📦 <b>Результаты поиска в архиве</b> 🧪 БЕТА\n\n"
-                f"📅 Период: <b>{period_text}</b>\n"
-                f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
-                f"📊 Найдено: <b>{total}</b> тендеров\n\n"
-            )
+        if not matches:
+            # Удаляем временный фильтр
+            await db.delete_filter(filter_id)
 
-            # Показываем первые 5 результатов
-            for i, match in enumerate(matches[:5], 1):
-                title = match.get('name', match.get('title', 'Без названия'))[:80]
-                price = match.get('price', 0)
-                price_str = f"{price:,.0f}".replace(',', ' ') if price else "Не указана"
-                number = match.get('number', match.get('tender_number', ''))
-
-                result_text += f"<b>{i}.</b> {title}...\n"
-                result_text += f"   💰 {price_str} ₽\n"
-                if number:
-                    result_text += f"   📋 <a href='https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={number}'>№{number}</a>\n"
-                result_text += "\n"
-
-            if len(matches) > 5:
-                result_text += f"<i>... и ещё {len(matches) - 5} тендеров</i>\n"
-
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📦 Новый поиск в архиве", callback_data="sniper_archive_search")],
-                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-            ])
-
-            await status_msg.edit_text(result_text, reply_markup=keyboard, parse_mode="HTML", disable_web_page_preview=True)
-        else:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📦 Новый поиск в архиве", callback_data="sniper_archive_search")],
                 [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -649,6 +617,108 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
                 reply_markup=keyboard,
                 parse_mode="HTML"
             )
+            await state.clear()
+            return
+
+        # Шаг 2: Сохраняем тендеры в БД
+        await status_msg.edit_text(
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+            f"✅ <b>Шаг 1/3:</b> Найдено {len(matches)} тендеров\n"
+            f"🔄 <b>Шаг 2/3:</b> Сохранение в базу...",
+            parse_mode="HTML"
+        )
+
+        saved_count = 0
+        for match in matches:
+            try:
+                tender_number = match.get('number', '')
+                if not tender_number:
+                    continue
+
+                tender_data = {
+                    'number': tender_number,
+                    'name': match.get('name', ''),
+                    'price': match.get('price'),
+                    'region': match.get('customer_region') or match.get('region', ''),
+                    'customer': match.get('customer') or match.get('customer_name', ''),
+                    'published': match.get('published', ''),
+                    'deadline': match.get('deadline') or match.get('end_date', ''),
+                    'url': f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={tender_number}"
+                }
+
+                await db.save_notification(
+                    user_id=user['id'],
+                    filter_id=filter_id,
+                    filter_name=filter_name,
+                    tender_data=tender_data,
+                    score=match.get('match_score', 0),
+                    matched_keywords=match.get('match_reasons', []),
+                    source='archive_search'
+                )
+                saved_count += 1
+            except Exception as e:
+                logger.warning(f"Не удалось сохранить тендер: {e}")
+
+        # Шаг 3: Генерируем HTML отчёт
+        await status_msg.edit_text(
+            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n\n"
+            f"✅ <b>Шаг 1/3:</b> Найдено {len(matches)} тендеров\n"
+            f"✅ <b>Шаг 2/3:</b> Сохранено {saved_count} в базу\n"
+            f"🔄 <b>Шаг 3/3:</b> Генерация HTML отчёта...",
+            parse_mode="HTML"
+        )
+
+        report_path = await searcher.generate_html_report(
+            search_results=search_results,
+            filter_data=filter_data
+        )
+
+        # Удаляем временный фильтр
+        await db.delete_filter(filter_id)
+        logger.info(f"🗑️ Временный архивный фильтр {filter_id} удален")
+
+        # Отправляем HTML отчёт
+        await status_msg.edit_text(
+            f"📦 <b>Поиск в архиве завершён!</b> 🧪 БЕТА\n\n"
+            f"📊 Найдено: {len(matches)} тендеров\n"
+            f"💾 Сохранено: {saved_count}\n\n"
+            f"📄 Отправляю HTML отчёт...",
+            parse_mode="HTML"
+        )
+
+        # Получаем message объект для отправки файла
+        if hasattr(message_or_callback, 'answer_document'):
+            message = message_or_callback
+        else:
+            message = message_or_callback
+
+        await message.answer_document(
+            document=FSInputFile(report_path),
+            caption=(
+                f"📦 <b>Результаты поиска в архиве</b> 🧪 БЕТА\n\n"
+                f"📅 Период: <b>{period_text}</b>\n"
+                f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
+                f"📊 Найдено: {len(matches)} архивных тендеров\n"
+                f"💾 Сохранено в базу: {saved_count}\n\n"
+                f"💡 Это завершённые тендеры. Используйте для анализа цен и конкурентов."
+            ),
+            parse_mode="HTML"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="📦 Новый поиск в архиве", callback_data="sniper_archive_search")],
+            [InlineKeyboardButton(text="🔍 Поиск актуальных", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await message.answer(
+            "✅ <b>Поиск в архиве завершён!</b>\n\n"
+            "Тендеры сохранены в базу данных.\n"
+            "Откройте HTML отчёт для подробной информации.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
 
         await state.clear()
 
@@ -659,7 +729,7 @@ async def run_archive_search(message_or_callback, state: FSMContext, user_id: in
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
         await status_msg.edit_text(
-            "❌ Произошла ошибка при поиске.\n\nПопробуйте позже.",
+            f"❌ Произошла ошибка при поиске.\n\n{str(e)[:200]}\n\nПопробуйте позже.",
             reply_markup=keyboard,
             parse_mode="HTML"
         )

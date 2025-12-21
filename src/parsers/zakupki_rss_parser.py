@@ -412,6 +412,12 @@ class ZakupkiRSSParser:
             # Только подача заявок (активные)
             params['af'] = 'on'
             params['ca'] = 'on'  # Подача заявок
+        elif purchase_stage == "archive":
+            # Завершённые закупки (архив)
+            params['af'] = 'on'
+            params['pc'] = 'on'  # Завершённые
+            params['fz44Completed'] = 'on'  # Завершённые 44-ФЗ
+            params['fz223Completed'] = 'on'  # Завершённые 223-ФЗ
         else:
             # Все этапы
             params['af'] = 'on'
