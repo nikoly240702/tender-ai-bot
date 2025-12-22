@@ -143,9 +143,9 @@ class ExtendedWizardStates(StatesGroup):
     """Состояния для расширенного wizard (5-7 шагов)."""
     select_tender_type = State()    # Шаг 1: Тип закупки
     enter_keywords = State()        # Шаг 2: Ключевые слова
-    select_budget = State()         # Шаг 3: Бюджет (опционально)
-    enter_budget_min = State()      # Шаг 3a: Свой бюджет - мин
-    enter_budget_max = State()      # Шаг 3b: Свой бюджет - макс
+    enter_budget_min = State()      # Шаг 3a: Бюджет - минимум
+    enter_budget_max = State()      # Шаг 3b: Бюджет - максимум
+    confirm_budget = State()        # Шаг 3c: Подтверждение бюджета
     select_region = State()         # Шаг 4: Регион (опционально)
     select_law = State()            # Шаг 5: Закон (опционально)
     enter_excluded = State()        # Шаг 6: Исключения (опционально)
@@ -237,37 +237,6 @@ def get_tender_type_keyboard() -> InlineKeyboardMarkup:
 
     keyboard.append([
         InlineKeyboardButton(text="« Отмена", callback_data="sniper_menu")
-    ])
-
-    return InlineKeyboardMarkup(inline_keyboard=keyboard)
-
-
-def get_budget_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура выбора бюджета."""
-    keyboard = []
-
-    # Быстрые варианты по 2 в ряд
-    row = []
-    for i, preset in enumerate(BUDGET_PRESETS):
-        row.append(InlineKeyboardButton(
-            text=f"💰 {preset['label']}",
-            callback_data=f"ew_budget:{i}"
-        ))
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-
-    if row:
-        keyboard.append(row)
-
-    keyboard.append([
-        InlineKeyboardButton(text="✍️ Указать свой диапазон", callback_data="ew_budget:custom")
-    ])
-    keyboard.append([
-        InlineKeyboardButton(text="⏭ Без ограничений", callback_data="ew_budget:skip")
-    ])
-    keyboard.append([
-        InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")
     ])
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -547,8 +516,8 @@ async def handle_keywords_input(message: Message, state: FSMContext):
 
     await state.update_data(keywords=keywords, filter_name=filter_name)
 
-    # Переходим к шагу 3: бюджет
-    await state.set_state(ExtendedWizardStates.select_budget)
+    # Переходим к шагу 3: бюджет - сразу запрашиваем минимум
+    await state.set_state(ExtendedWizardStates.enter_budget_min)
 
     data = await state.get_data()
 
@@ -557,54 +526,30 @@ async def handle_keywords_input(message: Message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n\n"
         f"<b>Шаг 3/6:</b> Укажите бюджет\n\n"
-        f"Выберите диапазон или укажите свой:",
+        f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
+        f"Примеры:\n"
+        f"• 100000 (100 тыс)\n"
+        f"• 1000000 (1 млн)\n"
+        f"• 0 (без минимума)\n\n"
+        f"Или нажмите «Пропустить» для любого бюджета.",
         parse_mode="HTML",
-        reply_markup=get_budget_keyboard()
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+        ])
     )
 
 
 # ============================================
-# ШАГ 3: БЮДЖЕТ
+# ШАГ 3: БЮДЖЕТ (мин → макс → подтверждение)
 # ============================================
 
-@router.callback_query(F.data.startswith("ew_budget:"))
-async def handle_budget_selection(callback: CallbackQuery, state: FSMContext):
-    """Обработка выбора бюджета."""
+@router.callback_query(F.data == "ew_budget:skip_all")
+async def skip_budget_entirely(callback: CallbackQuery, state: FSMContext):
+    """Пропуск бюджета полностью - переход к региону."""
     await callback.answer()
-
-    choice = callback.data.split(":")[1]
-
-    if choice == "skip":
-        # Без ограничений
-        await state.update_data(price_min=None, price_max=None)
-        await go_to_region_step(callback.message, state)
-
-    elif choice == "custom":
-        # Свой диапазон - запрашиваем минимум
-        await state.set_state(ExtendedWizardStates.enter_budget_min)
-        await callback.message.edit_text(
-            "💰 <b>Укажите бюджет</b>\n\n"
-            "Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
-            "Примеры:\n"
-            "• 100000 (100 тыс)\n"
-            "• 1000000 (1 млн)\n"
-            "• 0 (без минимума)",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить минимум", callback_data="ew_budget_min:skip")],
-                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
-            ])
-        )
-
-    else:
-        # Выбран пресет
-        try:
-            preset_idx = int(choice)
-            preset = BUDGET_PRESETS[preset_idx]
-            await state.update_data(price_min=preset['min'], price_max=preset['max'])
-            await go_to_region_step(callback.message, state)
-        except (ValueError, IndexError):
-            await callback.answer("Ошибка выбора бюджета")
+    await state.update_data(price_min=None, price_max=None)
+    await go_to_region_step(callback.message, state)
 
 
 @router.message(ExtendedWizardStates.enter_budget_min)
@@ -622,7 +567,7 @@ async def handle_budget_min_input(message: Message, state: FSMContext):
         await message.answer(
             "⚠️ Введите число. Например: 100000",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="ew_budget_min:skip")],
+                [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
                 [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
             ])
         )
@@ -634,38 +579,21 @@ async def handle_budget_min_input(message: Message, state: FSMContext):
     await message.answer(
         f"💰 <b>Укажите бюджет</b>\n\n"
         f"✅ Минимум: <b>{format_price(price_min)}</b>\n\n"
-        f"Теперь введите <b>максимальную</b> сумму.\n"
-        f"Или нажмите «Пропустить» (без ограничения сверху).",
+        f"Теперь введите <b>максимальную</b> сумму контракта (в рублях).\n\n"
+        f"Примеры:\n"
+        f"• 1000000 (1 млн)\n"
+        f"• 10000000 (10 млн)\n"
+        f"• 0 (без максимума)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Без максимума", callback_data="ew_budget_max:skip")],
-            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:budget")]
-        ])
-    )
-
-
-@router.callback_query(F.data == "ew_budget_min:skip")
-async def skip_budget_min(callback: CallbackQuery, state: FSMContext):
-    """Пропуск минимального бюджета."""
-    await callback.answer()
-    await state.update_data(price_min=None)
-    await state.set_state(ExtendedWizardStates.enter_budget_max)
-
-    await callback.message.edit_text(
-        "💰 <b>Укажите бюджет</b>\n\n"
-        "Введите <b>максимальную</b> сумму контракта.\n"
-        "Или нажмите «Пропустить» (без ограничений).",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Без ограничений", callback_data="ew_budget_max:skip")],
-            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:budget")]
+            [InlineKeyboardButton(text="« Назад (изменить минимум)", callback_data="ew_back:budget_min")]
         ])
     )
 
 
 @router.message(ExtendedWizardStates.enter_budget_max)
 async def handle_budget_max_input(message: Message, state: FSMContext):
-    """Обработка ввода максимального бюджета."""
+    """Обработка ввода максимального бюджета → подтверждение."""
     text = message.text.strip().replace(" ", "").replace(",", "")
 
     try:
@@ -678,22 +606,124 @@ async def handle_budget_max_input(message: Message, state: FSMContext):
         await message.answer(
             "⚠️ Введите число. Например: 10000000",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="ew_budget_max:skip")],
-                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:budget")]
+                [InlineKeyboardButton(text="« Назад (изменить минимум)", callback_data="ew_back:budget_min")]
             ])
         )
         return
 
     await state.update_data(price_max=price_max)
-    await go_to_region_step(message, state)
+
+    # Проверка что max >= min
+    data = await state.get_data()
+    price_min = data.get('price_min')
+
+    if price_min and price_max and price_max < price_min:
+        await message.answer(
+            f"⚠️ Максимум ({format_price(price_max)}) меньше минимума ({format_price(price_min)}).\n\n"
+            f"Введите корректную максимальную сумму.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« Назад (изменить минимум)", callback_data="ew_back:budget_min")]
+            ])
+        )
+        return
+
+    # Показываем подтверждение
+    await show_budget_confirmation(message, state)
 
 
-@router.callback_query(F.data == "ew_budget_max:skip")
-async def skip_budget_max(callback: CallbackQuery, state: FSMContext):
-    """Пропуск максимального бюджета."""
+async def show_budget_confirmation(message, state: FSMContext):
+    """Показать подтверждение бюджета."""
+    await state.set_state(ExtendedWizardStates.confirm_budget)
+    data = await state.get_data()
+
+    price_min = data.get('price_min')
+    price_max = data.get('price_max')
+
+    # Форматируем диапазон
+    if price_min and price_max:
+        budget_text = f"от {format_price(price_min)} до {format_price(price_max)}"
+    elif price_max:
+        budget_text = f"до {format_price(price_max)}"
+    elif price_min:
+        budget_text = f"от {format_price(price_min)}"
+    else:
+        budget_text = "без ограничений"
+
+    text = (
+        f"💰 <b>Подтверждение бюджета</b>\n\n"
+        f"Вы указали диапазон:\n"
+        f"<b>{budget_text}</b>\n\n"
+        f"Всё верно?"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Да, продолжить", callback_data="ew_budget:confirm")],
+        [InlineKeyboardButton(text="✏️ Изменить минимум", callback_data="ew_back:budget_min")],
+        [InlineKeyboardButton(text="✏️ Изменить максимум", callback_data="ew_back:budget_max")],
+    ])
+
+    if hasattr(message, 'edit_text'):
+        await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+
+@router.callback_query(F.data == "ew_budget:confirm")
+async def confirm_budget(callback: CallbackQuery, state: FSMContext):
+    """Подтверждение бюджета → переход к региону."""
     await callback.answer()
-    await state.update_data(price_max=None)
     await go_to_region_step(callback.message, state)
+
+
+@router.callback_query(F.data == "ew_back:budget_min")
+async def back_to_budget_min(callback: CallbackQuery, state: FSMContext):
+    """Возврат к вводу минимума."""
+    await callback.answer()
+    await state.set_state(ExtendedWizardStates.enter_budget_min)
+
+    data = await state.get_data()
+
+    await callback.message.edit_text(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n\n"
+        f"<b>Шаг 3/6:</b> Укажите бюджет\n\n"
+        f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
+        f"Примеры:\n"
+        f"• 100000 (100 тыс)\n"
+        f"• 1000000 (1 млн)\n"
+        f"• 0 (без минимума)\n\n"
+        f"Или нажмите «Пропустить» для любого бюджета.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+        ])
+    )
+
+
+@router.callback_query(F.data == "ew_back:budget_max")
+async def back_to_budget_max(callback: CallbackQuery, state: FSMContext):
+    """Возврат к вводу максимума."""
+    await callback.answer()
+    await state.set_state(ExtendedWizardStates.enter_budget_max)
+
+    data = await state.get_data()
+    price_min = data.get('price_min')
+
+    await callback.message.edit_text(
+        f"💰 <b>Укажите бюджет</b>\n\n"
+        f"✅ Минимум: <b>{format_price(price_min)}</b>\n\n"
+        f"Введите <b>максимальную</b> сумму контракта (в рублях).\n\n"
+        f"Примеры:\n"
+        f"• 1000000 (1 млн)\n"
+        f"• 10000000 (10 млн)\n"
+        f"• 0 (без максимума)",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад (изменить минимум)", callback_data="ew_back:budget_min")]
+        ])
+    )
 
 
 async def go_to_region_step(message, state: FSMContext):
@@ -896,12 +926,19 @@ async def handle_edit_selection(callback: CallbackQuery, state: FSMContext):
             ])
         )
     elif param == "budget":
-        await state.set_state(ExtendedWizardStates.select_budget)
+        await state.set_state(ExtendedWizardStates.enter_budget_min)
         await callback.message.edit_text(
             "💰 <b>Изменить бюджет</b>\n\n"
-            "Выберите диапазон:",
+            "Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
+            "Примеры:\n"
+            "• 100000 (100 тыс)\n"
+            "• 1000000 (1 млн)\n"
+            "• 0 (без минимума)",
             parse_mode="HTML",
-            reply_markup=get_budget_keyboard()
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
+                [InlineKeyboardButton(text="« Отмена", callback_data="ew_back:confirm")]
+            ])
         )
     elif param == "region":
         await state.set_state(ExtendedWizardStates.select_region)
@@ -964,16 +1001,8 @@ async def handle_back_navigation(callback: CallbackQuery, state: FSMContext):
         )
 
     elif target == "budget":
-        data = await state.get_data()
-        await state.set_state(ExtendedWizardStates.select_budget)
-        await callback.message.edit_text(
-            f"🎯 <b>Создание фильтра</b>\n\n"
-            f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-            f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n\n"
-            f"<b>Шаг 3/6:</b> Укажите бюджет",
-            parse_mode="HTML",
-            reply_markup=get_budget_keyboard()
-        )
+        # Возврат к подтверждению бюджета из региона
+        await show_budget_confirmation(callback.message, state)
 
     elif target == "region":
         await go_to_region_step(callback.message, state)
