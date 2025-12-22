@@ -247,11 +247,13 @@ def get_region_keyboard() -> InlineKeyboardMarkup:
     federal_districts = get_all_federal_districts()
 
     keyboard = []
-    for fd_code, fd_name in federal_districts.items():
+    # federal_districts - это список словарей: [{"name": "Центральный", "code": "ЦФО", "regions_count": 18}, ...]
+    for fd in federal_districts:
+        fd_name = fd['name']  # "Центральный", "Северо-Западный", etc.
         keyboard.append([
             InlineKeyboardButton(
                 text=f"🗺 {fd_name}",
-                callback_data=f"ew_fd:{fd_code}"
+                callback_data=f"ew_fd:{fd_name}"  # Используем имя, т.к. get_regions_by_district ожидает имя
             )
         ])
 
@@ -547,7 +549,8 @@ async def handle_keywords_input(message: Message, state: FSMContext):
 @router.callback_query(F.data == "ew_budget:skip_all")
 async def skip_budget_entirely(callback: CallbackQuery, state: FSMContext):
     """Пропуск бюджета полностью - переход к региону."""
-    await callback.answer()
+    logger.info(f"[BUDGET] skip_all clicked by user {callback.from_user.id}")
+    await callback.answer("Пропускаю бюджет...")
     await state.update_data(price_min=None, price_max=None)
     await go_to_region_step(callback.message, state)
 
@@ -774,10 +777,9 @@ async def handle_federal_district(callback: CallbackQuery, state: FSMContext):
     """Выбор федерального округа."""
     await callback.answer()
 
-    fd_code = callback.data.split(":")[1]
-    regions = get_regions_by_district(fd_code)
-    federal_districts = get_all_federal_districts()
-    fd_name = federal_districts.get(fd_code, fd_code)
+    # fd_name теперь передается напрямую (например, "Центральный")
+    fd_name = callback.data.split(":")[1]
+    regions = get_regions_by_district(fd_name)
 
     await state.update_data(regions=regions, region_name=fd_name)
     await go_to_law_step(callback.message, state)
