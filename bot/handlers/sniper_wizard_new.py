@@ -420,18 +420,15 @@ async def handle_suggestion_selection(callback: CallbackQuery, state: FSMContext
     await state.update_data(keywords=keywords, filter_name=suggestion[:100])
     await state.set_state(SimplifiedWizardStates.refine_filter)
 
-    data = await state.get_data()
-    industry_code = data.get('industry')
-    industry = INDUSTRY_TEMPLATES.get(industry_code, {})
-
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ <b>Ключевые слова:</b> {suggestion}\n\n"
         f"<b>Шаг 3/3:</b> Хотите уточнить фильтр?\n\n"
-        f"<i>По умолчанию будут использованы настройки отрасли:</i>\n"
-        f"💰 Бюджет: {format_price(industry.get('default_price_min'))} - {format_price(industry.get('default_price_max'))}\n"
-        f"🌍 Регион: Вся Россия\n\n"
-        f"Это опционально - можно сразу создать фильтр.",
+        f"<i>Текущие настройки:</i>\n"
+        f"💰 Бюджет: <b>без ограничений</b>\n"
+        f"🌍 Регион: <b>Вся Россия</b>\n"
+        f"🚫 Исключения: <b>не заданы</b>\n\n"
+        f"Можете уточнить или сразу создать фильтр.",
         parse_mode="HTML",
         reply_markup=get_refinement_keyboard()
     )
@@ -490,21 +487,15 @@ async def handle_keywords_input(message: Message, state: FSMContext):
     await state.update_data(keywords=keywords, filter_name=filter_name)
     await state.set_state(SimplifiedWizardStates.refine_filter)
 
-    data = await state.get_data()
-    industry_code = data.get('industry')
-    industry = INDUSTRY_TEMPLATES.get(industry_code, {})
-
-    price_min = industry.get('default_price_min', 0) if industry else 0
-    price_max = industry.get('default_price_max', 100000000) if industry else 100000000
-
     await message.answer(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ <b>Ключевые слова:</b> {', '.join(keywords)}\n\n"
         f"<b>Шаг 3/3:</b> Хотите уточнить фильтр?\n\n"
         f"<i>Текущие настройки:</i>\n"
-        f"💰 Бюджет: {format_price(price_min)} - {format_price(price_max)}\n"
-        f"🌍 Регион: Вся Россия\n\n"
-        f"Это опционально - можно сразу создать фильтр.",
+        f"💰 Бюджет: <b>без ограничений</b>\n"
+        f"🌍 Регион: <b>Вся Россия</b>\n"
+        f"🚫 Исключения: <b>не заданы</b>\n\n"
+        f"Можете уточнить или сразу создать фильтр.",
         parse_mode="HTML",
         reply_markup=get_refinement_keyboard()
     )
@@ -785,22 +776,16 @@ async def handle_excluded_input(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "sw_skip_excluded")
 async def skip_excluded(callback: CallbackQuery, state: FSMContext):
-    """Пропуск исключённых слов."""
+    """Пропуск исключённых слов - НЕ применяем defaults автоматически."""
     await callback.answer()
     await state.set_state(SimplifiedWizardStates.refine_filter)
 
-    data = await state.get_data()
-    default_excluded = data.get('default_excluded_words', [])
-
-    if default_excluded:
-        await state.update_data(exclude_keywords=default_excluded)
-        text = f"✅ Исключены (по умолчанию): <b>{', '.join(default_excluded)}</b>"
-    else:
-        text = "✅ Исключённые слова: не указаны"
+    # НЕ применяем default_excluded_words - оставляем пустой список
+    await state.update_data(exclude_keywords=[])
 
     await callback.message.edit_text(
-        f"{text}\n\n"
-        f"Хотите ещё что-то уточнить?",
+        "✅ Исключённые слова: <b>не заданы</b>\n\n"
+        "Хотите ещё что-то уточнить?",
         parse_mode="HTML",
         reply_markup=get_refinement_keyboard()
     )
@@ -1177,13 +1162,12 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
     # Получаем настройки
     keywords = data.get('keywords', [])
     filter_name = data.get('filter_name', 'Мой фильтр')
-    industry_code = data.get('industry')
-    industry = INDUSTRY_TEMPLATES.get(industry_code, {})
 
-    # Defaults from industry
-    price_min = data.get('price_min') or industry.get('default_price_min')
-    price_max = data.get('price_max') or industry.get('default_price_max')
-    exclude_keywords = data.get('exclude_keywords') or data.get('default_excluded_words', [])
+    # ВАЖНО: НЕ применяем defaults из шаблона автоматически!
+    # Используем только то, что пользователь явно указал
+    price_min = data.get('price_min')  # None если не указано
+    price_max = data.get('price_max')  # None если не указано
+    exclude_keywords = data.get('exclude_keywords', [])  # Пустой список если не указано
     regions = data.get('regions', [])
 
     if not keywords:

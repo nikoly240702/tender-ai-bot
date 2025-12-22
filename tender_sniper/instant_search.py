@@ -334,62 +334,76 @@ class InstantSearch:
             # Применяется ТОЛЬКО для расширенного поиска (когда есть expanded_keywords)
             # Для точного поиска RSS уже ищет по точным ключевым словам
 
-            if expanded_keywords:
-                # Расширенный поиск - нужна фильтрация по оригинальным ключевым словам
-                def check_original_keyword_match(tender_text: str, original_kws: List[str]) -> Optional[str]:
-                    """Проверяет, содержит ли тендер хотя бы одно оригинальное ключевое слово."""
-                    tender_lower = tender_text.lower()
-                    for kw in original_kws:
-                        kw_lower = kw.lower().strip()
-                        # Пропускаем стоп-слова и короткие слова
-                        if len(kw_lower) < 3 or kw_lower in {'закупка', 'закупки', 'услуга', 'услуги',
-                                                              'поставка', 'поставки', 'работа', 'работы',
-                                                              'для', 'нужд', 'оказание', 'выполнение'}:
-                            continue
+            # ============================================
+            # ОБЯЗАТЕЛЬНАЯ ФИЛЬТРАЦИЯ ПО КЛЮЧЕВЫМ СЛОВАМ
+            # ============================================
+            # RSS API zakupki.gov.ru может возвращать нерелевантные результаты,
+            # поэтому ВСЕГДА проверяем что тендер содержит хотя бы одно ключевое слово
 
-                        # Прямое вхождение
-                        if kw_lower in tender_lower:
+            def check_keyword_match(tender_text: str, keywords_list: List[str]) -> Optional[str]:
+                """Проверяет, содержит ли тендер хотя бы одно ключевое слово."""
+                tender_lower = tender_text.lower()
+
+                for kw in keywords_list:
+                    kw_lower = kw.lower().strip()
+
+                    # Пропускаем стоп-слова и очень короткие слова
+                    if len(kw_lower) < 2 or kw_lower in {'закупка', 'закупки', 'услуга', 'услуги',
+                                                          'поставка', 'поставки', 'работа', 'работы',
+                                                          'для', 'нужд', 'оказание', 'выполнение'}:
+                        continue
+
+                    # Прямое вхождение (регистронезависимо)
+                    if kw_lower in tender_lower:
+                        return kw
+
+                    # Для латинских брендов также проверяем варианты транслитерации
+                    if kw.isascii():
+                        # Генерируем кириллические варианты
+                        cyrillic_variants = Transliterator.generate_variants(kw)
+                        for variant in cyrillic_variants:
+                            if variant.lower() != kw_lower and variant.lower() in tender_lower:
+                                return kw
+
+                    # Проверяем корень слова (для русской морфологии)
+                    if len(kw_lower) >= 5 and not kw.isascii():
+                        root = kw_lower[:max(5, len(kw_lower) - 2)]
+                        if root in tender_lower:
                             return kw
 
-                        # Проверяем корень слова (для морфологии)
-                        if len(kw_lower) >= 5:
-                            root = kw_lower[:max(5, len(kw_lower) - 2)]
-                            if root in tender_lower:
-                                return kw
+                    # Проверяем известные синонимы
+                    synonyms_map = {
+                        'linux': ['линукс', 'ubuntu', 'убунту', 'debian', 'centos', 'redhat', 'astra', 'астра', 'альт'],
+                        'линукс': ['linux', 'ubuntu', 'убунту', 'debian', 'centos', 'redhat', 'astra', 'астра'],
+                        'lenovo': ['леново', 'thinkpad', 'синкпад'],
+                        'dell': ['делл'],
+                        'hp': ['hewlett', 'packard', 'хьюлетт', 'паккард'],
+                        'cisco': ['циско'],
+                        'аутентификация': ['авторизация', '2fa', 'mfa', 'двухфакторн', 'многофакторн'],
+                        'сервер': ['серверн', 'blade'],
+                        'антивирус': ['касперский', 'dr.web', 'eset', 'антивирусн'],
+                    }
+                    for synonym in synonyms_map.get(kw_lower, []):
+                        if synonym in tender_lower:
+                            return kw
 
-                        # Проверяем синонимы из SmartMatcher
-                        synonyms_map = {
-                            'linux': ['линукс', 'ubuntu', 'убунту', 'debian', 'centos', 'redhat', 'astra', 'астра', 'альт'],
-                            'линукс': ['linux', 'ubuntu', 'убунту', 'debian', 'centos', 'redhat', 'astra', 'астра'],
-                            'аутентификация': ['авторизация', '2fa', 'mfa', 'двухфакторн', 'многофакторн', 'токен'],
-                            'двухфакторн': ['2fa', 'mfa', 'аутентификац', 'авторизац'],
-                            'каталог': ['ldap', 'active directory', 'directory', 'домен', 'ad ds'],
-                            'directory': ['каталог', 'ldap', 'active directory', 'домен'],
-                            'сервер': ['серверн', 'blade'],
-                            'антивирус': ['касперский', 'dr.web', 'eset', 'антивирусн'],
-                        }
-                        for synonym in synonyms_map.get(kw_lower, []):
-                            if synonym in tender_lower:
-                                return kw
+                return None
 
-                    return None
+            # ВСЕГДА фильтруем по ключевым словам (и для точного, и для расширенного поиска)
+            filtered_results = []
+            keywords_to_check = original_keywords if original_keywords else search_queries
 
-                # Фильтруем тендеры: оставляем только те, что содержат оригинальные ключевые слова
-                filtered_results = []
-                for tender in search_results:
-                    tender_text = f"{tender.get('name', '')} {tender.get('summary', '')} {tender.get('description', '')}"
-                    matched_kw = check_original_keyword_match(tender_text, original_keywords)
-                    if matched_kw:
-                        tender['_matched_original_keyword'] = matched_kw
-                        filtered_results.append(tender)
-                    else:
-                        logger.debug(f"   ⛔ Исключен (нет оригинальных ключевых слов): {tender.get('name', '')[:60]}")
+            for tender in search_results:
+                tender_text = f"{tender.get('name', '')} {tender.get('summary', '')} {tender.get('description', '')}"
+                matched_kw = check_keyword_match(tender_text, keywords_to_check)
+                if matched_kw:
+                    tender['_matched_original_keyword'] = matched_kw
+                    filtered_results.append(tender)
+                else:
+                    logger.debug(f"   ⛔ Исключен (нет ключевых слов): {tender.get('name', '')[:60]}")
 
-                logger.info(f"   🎯 После фильтрации по оригинальным ключевым словам: {len(filtered_results)}/{len(search_results)}")
-                search_results = filtered_results
-            else:
-                # Точный поиск - фильтрация не нужна, RSS уже искал по точным словам
-                logger.info(f"   🎯 Точный поиск: фильтрация не применяется, {len(search_results)} результатов")
+            logger.info(f"   🎯 После фильтрации по ключевым словам: {len(filtered_results)}/{len(search_results)}")
+            search_results = filtered_results
 
             # Ранжируем результаты через SmartMatcher
             # Создаем временный фильтр для матчинга
