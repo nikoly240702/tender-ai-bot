@@ -1,5 +1,5 @@
 """
-Extended Wizard - Расширенный wizard создания фильтров (5-7 шагов).
+Extended Wizard - Расширенный wizard создания фильтров (8 шагов).
 
 Процесс:
 1. Тип закупки (товары/услуги/работы/любые)
@@ -8,7 +8,8 @@ Extended Wizard - Расширенный wizard создания фильтро�
 4. Регион (опционально)
 5. Закон 44-ФЗ/223-ФЗ (опционально)
 6. Исключения (опционально)
-7. Создание фильтра + мгновенный поиск
+7. Настройки поиска (количество тендеров + автомониторинг)
+8. Подтверждение и создание фильтра
 
 Feature flag: simplified_wizard (config/features.yaml)
 """
@@ -70,6 +71,17 @@ BUDGET_PRESETS = [
     {'label': '10 - 50 млн', 'min': 10000000, 'max': 50000000},
     {'label': '50 - 100 млн', 'min': 50000000, 'max': 100000000},
     {'label': 'более 100 млн', 'min': 100000000, 'max': None},
+]
+
+# ============================================
+# ЛИМИТЫ ПОИСКА
+# ============================================
+
+SEARCH_LIMITS = [
+    {'value': 10, 'label': '10 тендеров', 'icon': '🔟'},
+    {'value': 25, 'label': '25 тендеров', 'icon': '📊'},
+    {'value': 50, 'label': '50 тендеров', 'icon': '📈'},
+    {'value': 100, 'label': '100 тендеров', 'icon': '💯'},
 ]
 
 
@@ -140,7 +152,7 @@ INDUSTRY_TEMPLATES = {
 # ============================================
 
 class ExtendedWizardStates(StatesGroup):
-    """Состояния для расширенного wizard (5-7 шагов)."""
+    """Состояния для расширенного wizard (8 шагов)."""
     select_tender_type = State()    # Шаг 1: Тип закупки
     enter_keywords = State()        # Шаг 2: Ключевые слова
     enter_budget_min = State()      # Шаг 3a: Бюджет - минимум
@@ -149,7 +161,9 @@ class ExtendedWizardStates(StatesGroup):
     select_region = State()         # Шаг 4: Регион (опционально)
     select_law = State()            # Шаг 5: Закон (опционально)
     enter_excluded = State()        # Шаг 6: Исключения (опционально)
-    confirm_create = State()        # Шаг 7: Подтверждение
+    select_search_limit = State()   # Шаг 7a: Количество тендеров
+    select_automonitor = State()    # Шаг 7b: Автомониторинг
+    confirm_create = State()        # Шаг 8: Подтверждение
 
 
 # Алиас для обратной совместимости
@@ -181,6 +195,8 @@ def get_current_settings_text(data: dict) -> str:
     regions = data.get('regions', [])
     law_type = data.get('law_type_name', 'Любой')
     exclude_keywords = data.get('exclude_keywords', [])
+    search_limit = data.get('search_limit', 25)
+    automonitor = data.get('automonitor', True)
 
     # Форматируем бюджет
     if price_min and price_max:
@@ -206,6 +222,9 @@ def get_current_settings_text(data: dict) -> str:
     else:
         exclude_text = "нет"
 
+    # Форматируем автомониторинг
+    automonitor_text = "включен 🔔" if automonitor else "выключен 🔕"
+
     return (
         f"<b>Текущие настройки:</b>\n"
         f"📦 Тип: <b>{tender_type}</b>\n"
@@ -213,7 +232,9 @@ def get_current_settings_text(data: dict) -> str:
         f"💰 Бюджет: <b>{budget_text}</b>\n"
         f"📍 Регион: <b>{region_text}</b>\n"
         f"📜 Закон: <b>{law_type}</b>\n"
-        f"🚫 Исключения: <b>{exclude_text}</b>"
+        f"🚫 Исключения: <b>{exclude_text}</b>\n"
+        f"🔍 Поиск: <b>{search_limit} тендеров</b>\n"
+        f"📡 Автомониторинг: <b>{automonitor_text}</b>"
     )
 
 
@@ -292,6 +313,40 @@ def get_exclusions_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def get_search_limit_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора количества тендеров для поиска."""
+    keyboard = []
+    row = []
+
+    for limit_info in SEARCH_LIMITS:
+        text = f"{limit_info['icon']} {limit_info['label']}"
+        row.append(InlineKeyboardButton(
+            text=text,
+            callback_data=f"ew_limit:{limit_info['value']}"
+        ))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
+
+    keyboard.append([
+        InlineKeyboardButton(text="« Назад", callback_data="ew_back:exclude")
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_automonitor_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора автомониторинга."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔔 Да, отслеживать новые тендеры", callback_data="ew_monitor:yes")],
+        [InlineKeyboardButton(text="🔕 Нет, только разовый поиск", callback_data="ew_monitor:no")],
+        [InlineKeyboardButton(text="« Назад", callback_data="ew_back:limit")],
+    ])
+
+
 def get_confirm_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура подтверждения создания."""
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -315,6 +370,10 @@ def get_edit_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="📜 Закон", callback_data="ew_edit:law"),
             InlineKeyboardButton(text="🚫 Исключения", callback_data="ew_edit:exclude"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Поиск", callback_data="ew_edit:limit"),
+            InlineKeyboardButton(text="📡 Мониторинг", callback_data="ew_edit:monitor"),
         ],
         [InlineKeyboardButton(text="🚀 Создать фильтр", callback_data="ew_confirm:create")],
         [InlineKeyboardButton(text="« Отмена", callback_data="sniper_menu")],
@@ -429,13 +488,15 @@ async def start_extended_wizard(callback: CallbackQuery, state: FSMContext):
             regions=[],
             law_type=None,
             law_type_name='Любой',
-            exclude_keywords=[]
+            exclude_keywords=[],
+            search_limit=25,
+            automonitor=True
         )
         await state.set_state(ExtendedWizardStates.select_tender_type)
 
         await callback.message.edit_text(
             "🎯 <b>Создание фильтра</b>\n\n"
-            "<b>Шаг 1/6:</b> Что ищем?\n\n"
+            "<b>Шаг 1/8:</b> Что ищем?\n\n"
             "Выберите тип закупки:",
             parse_mode="HTML",
             reply_markup=get_tender_type_keyboard()
@@ -471,7 +532,7 @@ async def handle_tender_type_selection(callback: CallbackQuery, state: FSMContex
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{type_info['icon']} {type_info['name']}</b>\n\n"
-        f"<b>Шаг 2/6:</b> Введите ключевые слова\n\n"
+        f"<b>Шаг 2/8:</b> Введите ключевые слова\n\n"
         f"Укажите через запятую, что вы ищете.\n"
         f"Например: <i>Lenovo, ноутбуки, ThinkPad</i>",
         parse_mode="HTML",
@@ -527,7 +588,7 @@ async def handle_keywords_input(message: Message, state: FSMContext):
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n\n"
-        f"<b>Шаг 3/6:</b> Укажите бюджет\n\n"
+        f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
         f"Примеры:\n"
         f"• 100000 (100 тыс)\n"
@@ -690,7 +751,7 @@ async def back_to_budget_min(callback: CallbackQuery, state: FSMContext):
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n\n"
-        f"<b>Шаг 3/6:</b> Укажите бюджет\n\n"
+        f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
         f"Примеры:\n"
         f"• 100000 (100 тыс)\n"
@@ -751,7 +812,7 @@ async def go_to_region_step(message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Бюджет: <b>{budget_text}</b>\n\n"
-        f"<b>Шаг 4/6:</b> Выберите регион"
+        f"<b>Шаг 4/8:</b> Выберите регион"
     )
 
     if hasattr(message, 'edit_text'):
@@ -795,7 +856,7 @@ async def go_to_law_step(message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Регион: <b>{data.get('region_name', 'Вся Россия')}</b>\n\n"
-        f"<b>Шаг 5/6:</b> Выберите закон"
+        f"<b>Шаг 5/8:</b> Выберите закон"
     )
 
     await message.edit_text(text, parse_mode="HTML", reply_markup=get_law_keyboard())
@@ -832,7 +893,7 @@ async def go_to_exclusions_step(message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Закон: <b>{data.get('law_type_name', 'Любой')}</b>\n\n"
-        f"<b>Шаг 6/6:</b> Исключить слова\n\n"
+        f"<b>Шаг 6/8:</b> Исключить слова\n\n"
         f"Введите слова, которые НЕ должны встречаться в тендерах.\n"
         f"Через запятую. Например: <i>медицин, ремонт, демонтаж</i>\n\n"
         f"Или пропустите этот шаг."
@@ -852,7 +913,7 @@ async def handle_exclusions_input(message: Message, state: FSMContext):
     excluded = [kw.strip() for kw in text.split(",") if kw.strip()]
 
     await state.update_data(exclude_keywords=excluded)
-    await go_to_confirm_step(message, state)
+    await go_to_search_settings_step(message, state)
 
 
 @router.callback_query(F.data == "ew_exclude:skip")
@@ -860,6 +921,76 @@ async def skip_exclusions(callback: CallbackQuery, state: FSMContext):
     """Пропуск исключений."""
     await callback.answer()
     await state.update_data(exclude_keywords=[])
+    await go_to_search_settings_step(callback.message, state)
+
+
+# ============================================
+# ШАГ 7: НАСТРОЙКИ ПОИСКА
+# ============================================
+
+async def go_to_search_settings_step(message, state: FSMContext):
+    """Переход к шагу настроек поиска (количество тендеров)."""
+    await state.set_state(ExtendedWizardStates.select_search_limit)
+    data = await state.get_data()
+
+    text = (
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n\n"
+        f"<b>Шаг 7/8:</b> Настройки поиска\n\n"
+        f"Сколько тендеров найти при мгновенном поиске?"
+    )
+
+    if hasattr(message, 'edit_text'):
+        await message.edit_text(text, parse_mode="HTML", reply_markup=get_search_limit_keyboard())
+    else:
+        await message.answer(text, parse_mode="HTML", reply_markup=get_search_limit_keyboard())
+
+
+@router.callback_query(F.data.startswith("ew_limit:"))
+async def handle_search_limit_selection(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора количества тендеров."""
+    await callback.answer()
+
+    limit_value = int(callback.data.split(":")[1])
+    await state.update_data(search_limit=limit_value)
+
+    # Переходим к выбору автомониторинга
+    await go_to_automonitor_step(callback.message, state)
+
+
+async def go_to_automonitor_step(message, state: FSMContext):
+    """Переход к шагу выбора автомониторинга."""
+    await state.set_state(ExtendedWizardStates.select_automonitor)
+    data = await state.get_data()
+
+    search_limit = data.get('search_limit', 25)
+
+    text = (
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Поиск: <b>{search_limit} тендеров</b>\n\n"
+        f"<b>Шаг 7/8:</b> Автомониторинг\n\n"
+        f"Хотите получать уведомления о новых тендерах по этому фильтру?\n\n"
+        f"🔔 <b>Да</b> — система будет автоматически искать новые тендеры и отправлять вам уведомления\n"
+        f"🔕 <b>Нет</b> — только разовый поиск без отслеживания"
+    )
+
+    if hasattr(message, 'edit_text'):
+        await message.edit_text(text, parse_mode="HTML", reply_markup=get_automonitor_keyboard())
+    else:
+        await message.answer(text, parse_mode="HTML", reply_markup=get_automonitor_keyboard())
+
+
+@router.callback_query(F.data.startswith("ew_monitor:"))
+async def handle_automonitor_selection(callback: CallbackQuery, state: FSMContext):
+    """Обработка выбора автомониторинга."""
+    await callback.answer()
+
+    choice = callback.data.split(":")[1]
+    automonitor = (choice == "yes")
+    await state.update_data(automonitor=automonitor)
+
+    # Переходим к подтверждению
     await go_to_confirm_step(callback.message, state)
 
 
@@ -872,6 +1003,7 @@ async def go_to_confirm_step(message, state: FSMContext):
 
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
+        f"<b>Шаг 8/8:</b> Подтверждение\n\n"
         f"{settings_text}\n\n"
         f"Всё верно? Нажмите «Создать» или измените настройки."
     )
@@ -966,6 +1098,36 @@ async def handle_edit_selection(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML",
             reply_markup=get_exclusions_keyboard()
         )
+    elif param == "limit":
+        await state.set_state(ExtendedWizardStates.select_search_limit)
+        await callback.message.edit_text(
+            "🔍 <b>Изменить количество тендеров</b>\n\n"
+            "Сколько тендеров найти при мгновенном поиске?",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🔟 10", callback_data="ew_limit:10"),
+                    InlineKeyboardButton(text="📊 25", callback_data="ew_limit:25"),
+                ],
+                [
+                    InlineKeyboardButton(text="📈 50", callback_data="ew_limit:50"),
+                    InlineKeyboardButton(text="💯 100", callback_data="ew_limit:100"),
+                ],
+                [InlineKeyboardButton(text="« Отмена", callback_data="ew_back:confirm")]
+            ])
+        )
+    elif param == "monitor":
+        await state.set_state(ExtendedWizardStates.select_automonitor)
+        await callback.message.edit_text(
+            "📡 <b>Изменить автомониторинг</b>\n\n"
+            "Отслеживать новые тендеры по этому фильтру?",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔔 Да, отслеживать", callback_data="ew_monitor:yes")],
+                [InlineKeyboardButton(text="🔕 Нет, только поиск", callback_data="ew_monitor:no")],
+                [InlineKeyboardButton(text="« Отмена", callback_data="ew_back:confirm")]
+            ])
+        )
 
 
 # ============================================
@@ -982,7 +1144,7 @@ async def handle_back_navigation(callback: CallbackQuery, state: FSMContext):
         await state.set_state(ExtendedWizardStates.select_tender_type)
         await callback.message.edit_text(
             "🎯 <b>Создание фильтра</b>\n\n"
-            "<b>Шаг 1/6:</b> Что ищем?\n\n"
+            "<b>Шаг 1/8:</b> Что ищем?\n\n"
             "Выберите тип закупки:",
             parse_mode="HTML",
             reply_markup=get_tender_type_keyboard()
@@ -994,7 +1156,7 @@ async def handle_back_navigation(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n\n"
-            f"<b>Шаг 2/6:</b> Введите ключевые слова\n\n"
+            f"<b>Шаг 2/8:</b> Введите ключевые слова\n\n"
             f"Укажите через запятую, что вы ищете:",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1011,6 +1173,14 @@ async def handle_back_navigation(callback: CallbackQuery, state: FSMContext):
 
     elif target == "law":
         await go_to_law_step(callback.message, state)
+
+    elif target == "exclude":
+        # Возврат к исключениям (из шага настроек поиска)
+        await go_to_exclusions_step(callback.message, state)
+
+    elif target == "limit":
+        # Возврат к выбору количества тендеров (из шага автомониторинга)
+        await go_to_search_settings_step(callback.message, state)
 
     elif target == "confirm":
         await go_to_confirm_step(callback.message, state)
@@ -1036,6 +1206,8 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
     regions = data.get('regions', [])
     law_type = data.get('law_type')
     exclude_keywords = data.get('exclude_keywords', [])
+    search_limit = data.get('search_limit', 25)
+    automonitor = data.get('automonitor', True)
 
     if not keywords:
         await callback.message.edit_text(
@@ -1067,6 +1239,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         )
 
         # Создаём фильтр в БД
+        # is_active зависит от выбора автомониторинга
         filter_id = await db.create_filter(
             user_id=user['id'],
             name=filter_name[:255],
@@ -1077,17 +1250,17 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             regions=regions if regions else None,
             tender_types=tender_types if tender_types else None,
             law_type=law_type,
-            is_active=True
+            is_active=automonitor  # False если пользователь выбрал "только поиск"
         )
 
-        logger.info(f"Created filter {filter_id} for user {callback.from_user.id}")
+        logger.info(f"Created filter {filter_id} for user {callback.from_user.id}, automonitor={automonitor}")
 
         # Запускаем мгновенный поиск
         await callback.message.edit_text(
             f"✅ <b>Фильтр создан!</b>\n\n"
             f"📝 Название: {filter_name}\n"
             f"🔑 Слова: {', '.join(keywords[:5])}\n\n"
-            f"🔍 Запускаю поиск тендеров...",
+            f"🔍 Запускаю поиск тендеров ({search_limit} шт.)...",
             parse_mode="HTML"
         )
 
@@ -1110,11 +1283,11 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             'customer_keywords': json_lib.dumps([], ensure_ascii=False),
         }
 
-        # Выполняем поиск
+        # Выполняем поиск с указанным лимитом
         searcher = InstantSearch()
         search_results = await searcher.search_by_filter(
             filter_data=filter_data,
-            max_tenders=25,
+            max_tenders=search_limit,
             expanded_keywords=[]
         )
 
@@ -1203,15 +1376,14 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
                 f"📝 Фильтр: {filter_name}\n"
                 f"🔑 Слова: {', '.join(keywords[:3])}\n"
                 f"📊 Найдено: {len(matches)} тендеров\n\n"
-                f"🔔 Автомониторинг активирован!"
+                f"{'🔔 Автомониторинг активирован!' if data.get('automonitor', True) else '🔕 Только разовый поиск'}"
             ),
             parse_mode="HTML"
         )
 
         await callback.message.answer(
             f"✅ <b>Готово!</b>\n\n"
-            f"Фильтр <b>{filter_name}</b> создан и активирован.\n"
-            f"Вы получите уведомления о новых подходящих тендерах.",
+            f"Фильтр <b>{filter_name}</b> создан" + (" и активирован.\n" + "Вы будете получать уведомления о новых тендерах." if data.get('automonitor', True) else ".\nАвтомониторинг отключен — только разовый поиск."),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
@@ -1780,15 +1952,14 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
                 f"📝 Фильтр: {filter_name}\n"
                 f"🔑 Слова: {', '.join(keywords[:3])}\n"
                 f"📊 Найдено: {len(matches)} тендеров\n\n"
-                f"🔔 Автомониторинг активирован!"
+                f"{'🔔 Автомониторинг активирован!' if data.get('automonitor', True) else '🔕 Только разовый поиск'}"
             ),
             parse_mode="HTML"
         )
 
         await callback.message.answer(
             f"✅ <b>Готово!</b>\n\n"
-            f"Фильтр <b>{filter_name}</b> создан и активирован.\n"
-            f"Вы получите уведомления о новых подходящих тендерах.",
+            f"Фильтр <b>{filter_name}</b> создан" + (" и активирован.\n" + "Вы будете получать уведомления о новых тендерах." if data.get('automonitor', True) else ".\nАвтомониторинг отключен — только разовый поиск."),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
