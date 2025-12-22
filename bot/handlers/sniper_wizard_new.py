@@ -74,6 +74,68 @@ BUDGET_PRESETS = [
 
 
 # ============================================
+# ШАБЛОНЫ ОТРАСЛЕЙ (для архивного поиска)
+# ============================================
+
+INDUSTRY_TEMPLATES = {
+    'it': {
+        'icon': '💻',
+        'name': 'IT и оборудование',
+        'default_keywords': ['компьютер', 'сервер', 'программное обеспечение'],
+        'suggestions': [
+            'Компьютеры, ноутбуки',
+            'Серверы, СХД',
+            'Программное обеспечение',
+            'Сетевое оборудование',
+        ]
+    },
+    'construction': {
+        'icon': '🏗',
+        'name': 'Строительство',
+        'default_keywords': ['строительство', 'ремонт', 'СМР'],
+        'suggestions': [
+            'Строительные работы',
+            'Капитальный ремонт',
+            'Стройматериалы',
+            'Проектирование',
+        ]
+    },
+    'medicine': {
+        'icon': '🏥',
+        'name': 'Медицина',
+        'default_keywords': ['медицинское оборудование', 'лекарства'],
+        'suggestions': [
+            'Медицинское оборудование',
+            'Лекарственные препараты',
+            'Расходные материалы',
+        ]
+    },
+    'transport': {
+        'icon': '🚗',
+        'name': 'Транспорт',
+        'default_keywords': ['автомобиль', 'транспорт', 'спецтехника'],
+        'suggestions': [
+            'Автомобили',
+            'Спецтехника',
+            'ГСМ, топливо',
+            'Запчасти',
+        ]
+    },
+    'services': {
+        'icon': '🔧',
+        'name': 'Услуги',
+        'default_keywords': ['услуги', 'обслуживание'],
+        'suggestions': [
+            'Охранные услуги',
+            'Клининг',
+            'Питание',
+            'Техническое обслуживание',
+        ]
+    },
+}
+
+
+# ============================================
 # FSM States для расширенного wizard
 # ============================================
 
@@ -286,6 +348,52 @@ def get_edit_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🚀 Создать фильтр", callback_data="ew_confirm:create")],
         [InlineKeyboardButton(text="« Отмена", callback_data="sniper_menu")],
     ])
+
+
+def get_industry_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора отрасли (для архивного поиска)."""
+    keyboard = []
+
+    for code, industry in INDUSTRY_TEMPLATES.items():
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"{industry['icon']} {industry['name']}",
+                callback_data=f"sw_industry:{code}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="🔍 Произвольный поиск", callback_data="sw_industry:custom")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_suggestions_keyboard(industry_code: str) -> InlineKeyboardMarkup:
+    """Клавиатура с предложениями ключевых слов для отрасли."""
+    industry = INDUSTRY_TEMPLATES.get(industry_code, {})
+    suggestions = industry.get('suggestions', [])
+
+    keyboard = []
+    for suggestion in suggestions:
+        keyboard.append([
+            InlineKeyboardButton(
+                text=f"🔎 {suggestion}",
+                callback_data=f"sw_suggest:{suggestion}"
+            )
+        ])
+
+    keyboard.append([
+        InlineKeyboardButton(text="✍️ Свои ключевые слова", callback_data="sw_custom_keywords")
+    ])
+    keyboard.append([
+        InlineKeyboardButton(text="« Назад", callback_data="arch_back_to_period")
+    ])
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 # ============================================
@@ -1096,407 +1204,6 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
 
-# ============================================
-# LEGACY HANDLERS (для обратной совместимости с архивным поиском)
-# ============================================
-
-@router.callback_query(F.data == "sw_back_to_industry")
-async def back_to_industry(callback: CallbackQuery, state: FSMContext):
-    """Возврат к выбору отрасли."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.select_industry)
-
-    await callback.message.edit_text(
-        "🎯 <b>Быстрое создание фильтра</b>\n\n"
-        "<b>Шаг 1/3:</b> Выберите вашу отрасль\n\n"
-        "Это поможет подобрать оптимальные настройки поиска.",
-        parse_mode="HTML",
-        reply_markup=get_industry_keyboard()
-    )
-
-
-@router.callback_query(F.data.startswith("sw_suggest:"))
-async def handle_suggestion_selection(callback: CallbackQuery, state: FSMContext):
-    """Обработка выбора готового suggestion."""
-    await callback.answer()
-
-    suggestion = callback.data.split(":", 1)[1]
-
-    # Парсим suggestion как keywords
-    keywords = [kw.strip() for kw in suggestion.replace("(", ",").replace(")", "").split(",") if kw.strip()]
-
-    await state.update_data(keywords=keywords, filter_name=suggestion[:100])
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    await callback.message.edit_text(
-        f"🎯 <b>Создание фильтра</b>\n\n"
-        f"✅ <b>Ключевые слова:</b> {suggestion}\n\n"
-        f"<b>Шаг 3/3:</b> Хотите уточнить фильтр?\n\n"
-        f"<i>Текущие настройки:</i>\n"
-        f"💰 Бюджет: <b>без ограничений</b>\n"
-        f"🌍 Регион: <b>Вся Россия</b>\n"
-        f"🚫 Исключения: <b>не заданы</b>\n\n"
-        f"Можете уточнить или сразу создать фильтр.",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_custom_keywords")
-async def prompt_custom_keywords(callback: CallbackQuery, state: FSMContext):
-    """Запрос ввода своих ключевых слов."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.enter_keywords)
-
-    await callback.message.edit_text(
-        "🎯 <b>Создание фильтра</b>\n\n"
-        "<b>Шаг 2/3:</b> Введите ключевые слова\n\n"
-        "Укажите через запятую, что вы ищете.\n"
-        "Например: <i>компьютеры, серверы, Dell</i>\n\n"
-        "💡 Можно указать бренды, модели, или общие категории.",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_industry")]
-        ])
-    )
-
-
-@router.message(SimplifiedWizardStates.enter_keywords)
-async def handle_keywords_input(message: Message, state: FSMContext):
-    """Обработка ввода ключевых слов."""
-    text = message.text.strip()
-
-    if len(text) < 2:
-        await message.answer(
-            "⚠️ Введите хотя бы одно ключевое слово.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_industry")]
-            ])
-        )
-        return
-
-    # Парсим keywords
-    keywords = [kw.strip() for kw in text.split(",") if kw.strip()]
-
-    if not keywords:
-        await message.answer(
-            "⚠️ Не удалось распознать ключевые слова. Попробуйте ещё раз.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_industry")]
-            ])
-        )
-        return
-
-    # Генерируем название фильтра
-    filter_name = ", ".join(keywords[:3])
-    if len(keywords) > 3:
-        filter_name += f" +{len(keywords) - 3}"
-
-    await state.update_data(keywords=keywords, filter_name=filter_name)
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    await message.answer(
-        f"🎯 <b>Создание фильтра</b>\n\n"
-        f"✅ <b>Ключевые слова:</b> {', '.join(keywords)}\n\n"
-        f"<b>Шаг 3/3:</b> Хотите уточнить фильтр?\n\n"
-        f"<i>Текущие настройки:</i>\n"
-        f"💰 Бюджет: <b>без ограничений</b>\n"
-        f"🌍 Регион: <b>Вся Россия</b>\n"
-        f"🚫 Исключения: <b>не заданы</b>\n\n"
-        f"Можете уточнить или сразу создать фильтр.",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_back_to_keywords")
-async def back_to_keywords(callback: CallbackQuery, state: FSMContext):
-    """Возврат к вводу ключевых слов."""
-    await callback.answer()
-
-    data = await state.get_data()
-    industry_code = data.get('industry')
-
-    if industry_code:
-        await state.set_state(SimplifiedWizardStates.enter_keywords)
-        await callback.message.edit_text(
-            f"🎯 <b>Создание фильтра</b>\n\n"
-            f"<b>Шаг 2/3:</b> Что вы ищете?\n\n"
-            f"Выберите готовый вариант или введите свои слова:",
-            parse_mode="HTML",
-            reply_markup=get_suggestions_keyboard(industry_code)
-        )
-    else:
-        await state.set_state(SimplifiedWizardStates.enter_keywords)
-        await callback.message.edit_text(
-            "🎯 <b>Создание фильтра</b>\n\n"
-            "<b>Шаг 2/3:</b> Введите ключевые слова\n\n"
-            "Укажите через запятую, что вы ищете.\n"
-            "Например: <i>компьютеры, серверы, Dell</i>",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_industry")]
-            ])
-        )
-
-
-# ============================================
-# REFINEMENT HANDLERS
-# ============================================
-
-@router.callback_query(F.data == "sw_refine:budget")
-async def refine_budget(callback: CallbackQuery, state: FSMContext):
-    """Уточнение бюджета - минимальная сумма."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.enter_price_min)
-
-    await callback.message.edit_text(
-        "💰 <b>Уточнение бюджета</b>\n\n"
-        "Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
-        "Примеры:\n"
-        "• 100000 (100 тыс)\n"
-        "• 1000000 (1 млн)\n"
-        "• 0 (без ограничения)\n\n"
-        "Или нажмите «Пропустить».",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="sw_skip_price_min")],
-            [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_refine")]
-        ])
-    )
-
-
-@router.message(SimplifiedWizardStates.enter_price_min)
-async def handle_price_min_input(message: Message, state: FSMContext):
-    """Обработка ввода минимальной цены."""
-    text = message.text.strip().replace(" ", "").replace(",", "")
-
-    try:
-        price_min = int(text)
-        if price_min < 0:
-            raise ValueError("Negative price")
-    except ValueError:
-        await message.answer(
-            "⚠️ Введите число. Например: 100000",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="sw_skip_price_min")],
-                [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_refine")]
-            ])
-        )
-        return
-
-    await state.update_data(price_min=price_min)
-    await state.set_state(SimplifiedWizardStates.enter_price_max)
-
-    await message.answer(
-        f"✅ Минимум: <b>{format_price(price_min)}</b>\n\n"
-        f"Теперь введите <b>максимальную</b> сумму контракта.\n\n"
-        f"Или нажмите «Пропустить» (без ограничения).",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="sw_skip_price_max")],
-            [InlineKeyboardButton(text="« Назад", callback_data="sw_refine:budget")]
-        ])
-    )
-
-
-@router.callback_query(F.data == "sw_skip_price_min")
-async def skip_price_min(callback: CallbackQuery, state: FSMContext):
-    """Пропуск минимальной цены."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.enter_price_max)
-
-    await callback.message.edit_text(
-        "💰 <b>Уточнение бюджета</b>\n\n"
-        "Введите <b>максимальную</b> сумму контракта.\n\n"
-        "Или нажмите «Пропустить» (без ограничения).",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="sw_skip_price_max")],
-            [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_refine")]
-        ])
-    )
-
-
-@router.message(SimplifiedWizardStates.enter_price_max)
-async def handle_price_max_input(message: Message, state: FSMContext):
-    """Обработка ввода максимальной цены."""
-    text = message.text.strip().replace(" ", "").replace(",", "")
-
-    try:
-        price_max = int(text)
-        if price_max < 0:
-            raise ValueError("Negative price")
-    except ValueError:
-        await message.answer(
-            "⚠️ Введите число. Например: 10000000",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="sw_skip_price_max")],
-                [InlineKeyboardButton(text="« Назад", callback_data="sw_refine:budget")]
-            ])
-        )
-        return
-
-    await state.update_data(price_max=price_max)
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    data = await state.get_data()
-    price_min = data.get('price_min', 0)
-
-    await message.answer(
-        f"✅ Бюджет: <b>{format_price(price_min)} - {format_price(price_max)}</b>\n\n"
-        f"Хотите ещё что-то уточнить?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_skip_price_max")
-async def skip_price_max(callback: CallbackQuery, state: FSMContext):
-    """Пропуск максимальной цены."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    await callback.message.edit_text(
-        "✅ Бюджет: без ограничений\n\n"
-        "Хотите ещё что-то уточнить?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_back_to_refine")
-async def back_to_refine(callback: CallbackQuery, state: FSMContext):
-    """Возврат к меню уточнений."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    data = await state.get_data()
-    keywords = data.get('keywords', [])
-
-    await callback.message.edit_text(
-        f"🎯 <b>Создание фильтра</b>\n\n"
-        f"✅ <b>Ключевые слова:</b> {', '.join(keywords)}\n\n"
-        f"<b>Шаг 3/3:</b> Хотите уточнить фильтр?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_refine:region")
-async def refine_region(callback: CallbackQuery, state: FSMContext):
-    """Уточнение региона."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.select_region)
-
-    await callback.message.edit_text(
-        "📍 <b>Выбор региона</b>\n\n"
-        "Выберите федеральный округ или всю Россию:",
-        parse_mode="HTML",
-        reply_markup=get_region_keyboard()
-    )
-
-
-@router.callback_query(F.data.startswith("sw_fd:"))
-async def handle_federal_district_selection(callback: CallbackQuery, state: FSMContext):
-    """Выбор федерального округа."""
-    await callback.answer()
-
-    fd_code = callback.data.split(":")[1]
-    regions = get_regions_by_district(fd_code)
-
-    await state.update_data(regions=regions, federal_district=fd_code)
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    federal_districts = get_all_federal_districts()
-    fd_name = federal_districts.get(fd_code, fd_code)
-
-    await callback.message.edit_text(
-        f"✅ Регион: <b>{fd_name}</b>\n"
-        f"({len(regions)} субъектов)\n\n"
-        f"Хотите ещё что-то уточнить?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_region:all")
-async def select_all_russia(callback: CallbackQuery, state: FSMContext):
-    """Выбор всей России."""
-    await callback.answer()
-
-    await state.update_data(regions=[], federal_district=None)
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    await callback.message.edit_text(
-        "✅ Регион: <b>Вся Россия</b>\n\n"
-        "Хотите ещё что-то уточнить?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_refine:exclude")
-async def refine_excluded(callback: CallbackQuery, state: FSMContext):
-    """Уточнение исключённых слов."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.enter_excluded)
-
-    data = await state.get_data()
-    default_excluded = data.get('default_excluded_words', [])
-
-    if default_excluded:
-        default_text = f"\n\n<i>По умолчанию исключаются: {', '.join(default_excluded)}</i>"
-    else:
-        default_text = ""
-
-    await callback.message.edit_text(
-        f"🚫 <b>Исключить слова</b>\n\n"
-        f"Введите слова, которые НЕ должны встречаться в тендерах.\n"
-        f"Через запятую.\n\n"
-        f"Примеры: <i>медицин, военн, оборонн</i>"
-        f"{default_text}",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⏭ Пропустить", callback_data="sw_skip_excluded")],
-            [InlineKeyboardButton(text="« Назад", callback_data="sw_back_to_refine")]
-        ])
-    )
-
-
-@router.message(SimplifiedWizardStates.enter_excluded)
-async def handle_excluded_input(message: Message, state: FSMContext):
-    """Обработка ввода исключённых слов."""
-    text = message.text.strip()
-
-    excluded = [kw.strip() for kw in text.split(",") if kw.strip()]
-
-    await state.update_data(exclude_keywords=excluded)
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    await message.answer(
-        f"✅ Исключены: <b>{', '.join(excluded)}</b>\n\n"
-        f"Хотите ещё что-то уточнить?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
-
-
-@router.callback_query(F.data == "sw_skip_excluded")
-async def skip_excluded(callback: CallbackQuery, state: FSMContext):
-    """Пропуск исключённых слов - НЕ применяем defaults автоматически."""
-    await callback.answer()
-    await state.set_state(SimplifiedWizardStates.refine_filter)
-
-    # НЕ применяем default_excluded_words - оставляем пустой список
-    await state.update_data(exclude_keywords=[])
-
-    await callback.message.edit_text(
-        "✅ Исключённые слова: <b>не заданы</b>\n\n"
-        "Хотите ещё что-то уточнить?",
-        parse_mode="HTML",
-        reply_markup=get_refinement_keyboard()
-    )
 
 
 # ============================================
