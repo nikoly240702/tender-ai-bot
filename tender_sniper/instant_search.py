@@ -187,6 +187,27 @@ class InstantSearch:
                                 if skip:
                                     continue
 
+                            # === ФИЛЬТРАЦИЯ ПО КЛЮЧЕВЫМ СЛОВАМ ===
+                            # RSS API может возвращать нерелевантные результаты
+                            # Проверяем, что тендер содержит хотя бы одно ключевое слово
+                            keyword_found = False
+                            for keyword in original_keywords:
+                                kw_lower = keyword.lower()
+                                # Проверяем точное вхождение слова (с границами для коротких слов)
+                                if len(kw_lower) <= 3:
+                                    pattern = r'\b' + re.escape(kw_lower) + r'\b'
+                                else:
+                                    # Для длинных слов - проверяем начало слова (для морфологии)
+                                    pattern = r'\b' + re.escape(kw_lower[:min(len(kw_lower), 5)])
+
+                                if re.search(pattern, tender_text, re.IGNORECASE):
+                                    keyword_found = True
+                                    break
+
+                            if not keyword_found:
+                                logger.debug(f"      ⛔ Не содержит ключевых слов: {tender.get('name', '')[:60]}")
+                                continue
+
                             # Проверяем ключевые слова заказчика
                             if customer_keywords and customer_name:
                                 customer_match = False
