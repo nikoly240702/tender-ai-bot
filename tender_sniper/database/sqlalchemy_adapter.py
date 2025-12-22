@@ -18,6 +18,12 @@ from database import (
     SniperNotification as SniperNotificationModel,
     TenderCache as TenderCacheModel,
     FilterDraft as FilterDraftModel,  # 🧪 БЕТА: Черновики фильтров
+    # Phase 2.1 models
+    SearchHistory as SearchHistoryModel,
+    UserFeedback as UserFeedbackModel,
+    Subscription as SubscriptionModel,
+    SatisfactionSurvey as SatisfactionSurveyModel,
+    ViewedTender as ViewedTenderModel,
     get_session,
     DatabaseSession
 )
@@ -928,6 +934,473 @@ class TenderSniperDB:
             if deleted:
                 logger.debug(f"🗑️ Черновик удалён для пользователя {telegram_id}")
             return deleted
+
+    # ============================================
+    # 🧪 БЕТА: Search History (Phase 2.1)
+    # ============================================
+
+    async def save_search_history(
+        self,
+        user_id: int,
+        search_type: str,
+        keywords: List[str],
+        results_count: int = 0,
+        filter_id: Optional[int] = None,
+        duration_ms: Optional[int] = None
+    ) -> int:
+        """
+        Сохранить историю поиска.
+
+        Args:
+            user_id: ID пользователя (sniper_users.id)
+            search_type: Тип поиска (instant_search, archive_search)
+            keywords: Список ключевых слов
+            results_count: Количество результатов
+            filter_id: ID фильтра (опционально)
+            duration_ms: Длительность в миллисекундах
+
+        Returns:
+            ID записи истории
+        """
+        async with DatabaseSession() as session:
+            history = SearchHistoryModel(
+                user_id=user_id,
+                filter_id=filter_id,
+                search_type=search_type,
+                keywords=keywords,
+                results_count=results_count,
+                duration_ms=duration_ms
+            )
+            session.add(history)
+            await session.flush()
+            logger.debug(f"📊 Search history saved: user={user_id}, type={search_type}, results={results_count}")
+            return history.id
+
+    async def get_search_history(
+        self,
+        user_id: int,
+        limit: int = 20,
+        search_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить историю поисков пользователя.
+
+        Args:
+            user_id: ID пользователя
+            limit: Максимальное количество записей
+            search_type: Фильтр по типу поиска
+
+        Returns:
+            Список записей истории
+        """
+        async with DatabaseSession() as session:
+            query = select(SearchHistoryModel).where(
+                SearchHistoryModel.user_id == user_id
+            )
+
+            if search_type:
+                query = query.where(SearchHistoryModel.search_type == search_type)
+
+            query = query.order_by(SearchHistoryModel.executed_at.desc()).limit(limit)
+
+            result = await session.execute(query)
+            history = result.scalars().all()
+
+            return [{
+                'id': h.id,
+                'search_type': h.search_type,
+                'keywords': h.keywords,
+                'results_count': h.results_count,
+                'executed_at': h.executed_at.isoformat() if h.executed_at else None,
+                'duration_ms': h.duration_ms
+            } for h in history]
+
+    async def get_popular_keywords(
+        self,
+        user_id: int,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить популярные ключевые слова пользователя.
+
+        Args:
+            user_id: ID пользователя
+            limit: Максимальное количество
+
+        Returns:
+            Список популярных ключевых слов с частотой
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SearchHistoryModel.keywords)
+                .where(SearchHistoryModel.user_id == user_id)
+                .order_by(SearchHistoryModel.executed_at.desc())
+                .limit(100)
+            )
+            rows = result.all()
+
+            # Подсчёт частоты ключевых слов
+            keyword_counts = {}
+            for row in rows:
+                keywords = row[0] or []
+                for kw in keywords:
+                    keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
+
+            # Сортировка по частоте
+            sorted_keywords = sorted(
+                keyword_counts.items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:limit]
+
+            return [{'keyword': kw, 'count': count} for kw, count in sorted_keywords]
+
+    # ============================================
+    # 🧪 БЕТА: User Feedback (Phase 2.1)
+    # ============================================
+
+    async def save_user_feedback(
+        self,
+        user_id: int,
+        tender_number: str,
+        feedback_type: str,
+        filter_id: Optional[int] = None,
+        tender_name: Optional[str] = None,
+        matched_keywords: Optional[List[str]] = None,
+        original_score: Optional[int] = None
+    ) -> int:
+        """
+        Сохранить feedback пользователя на тендер.
+
+        Args:
+            user_id: ID пользователя
+            tender_number: Номер тендера
+            feedback_type: Тип feedback (interesting, hidden, irrelevant)
+            filter_id: ID фильтра
+            tender_name: Название тендера
+            matched_keywords: Совпавшие ключевые слова
+            original_score: Исходный score
+
+        Returns:
+            ID записи feedback
+        """
+        async with DatabaseSession() as session:
+            feedback = UserFeedbackModel(
+                user_id=user_id,
+                filter_id=filter_id,
+                tender_number=tender_number,
+                feedback_type=feedback_type,
+                tender_name=tender_name,
+                matched_keywords=matched_keywords or [],
+                original_score=original_score
+            )
+            session.add(feedback)
+            await session.flush()
+            logger.debug(f"👍 Feedback saved: user={user_id}, tender={tender_number}, type={feedback_type}")
+            return feedback.id
+
+    async def get_user_feedback_stats(self, user_id: int) -> Dict[str, int]:
+        """
+        Получить статистику feedback пользователя.
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Словарь с количеством по типам feedback
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(
+                    UserFeedbackModel.feedback_type,
+                    func.count(UserFeedbackModel.id)
+                )
+                .where(UserFeedbackModel.user_id == user_id)
+                .group_by(UserFeedbackModel.feedback_type)
+            )
+            rows = result.all()
+
+            return {row[0]: row[1] for row in rows}
+
+    async def get_feedback_for_filter(
+        self,
+        filter_id: int,
+        feedback_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Получить feedback для конкретного фильтра.
+
+        Args:
+            filter_id: ID фильтра
+            feedback_type: Фильтр по типу feedback
+
+        Returns:
+            Список записей feedback
+        """
+        async with DatabaseSession() as session:
+            query = select(UserFeedbackModel).where(
+                UserFeedbackModel.filter_id == filter_id
+            )
+
+            if feedback_type:
+                query = query.where(UserFeedbackModel.feedback_type == feedback_type)
+
+            result = await session.execute(query.order_by(UserFeedbackModel.created_at.desc()))
+            feedbacks = result.scalars().all()
+
+            return [{
+                'id': f.id,
+                'tender_number': f.tender_number,
+                'feedback_type': f.feedback_type,
+                'tender_name': f.tender_name,
+                'matched_keywords': f.matched_keywords,
+                'original_score': f.original_score,
+                'created_at': f.created_at.isoformat() if f.created_at else None
+            } for f in feedbacks]
+
+    # ============================================
+    # 🧪 БЕТА: Subscriptions (Phase 2.1)
+    # ============================================
+
+    async def create_subscription(
+        self,
+        user_id: int,
+        tier: str = 'trial',
+        days: int = 14,
+        max_filters: int = 3,
+        max_notifications_per_day: int = 50
+    ) -> int:
+        """
+        Создать подписку для пользователя.
+
+        Args:
+            user_id: ID пользователя
+            tier: Тип подписки (trial, basic, premium)
+            days: Длительность в днях
+            max_filters: Максимум фильтров
+            max_notifications_per_day: Максимум уведомлений в день
+
+        Returns:
+            ID подписки
+        """
+        async with DatabaseSession() as session:
+            # Проверяем существующую подписку
+            result = await session.execute(
+                select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
+            )
+            existing = result.scalar_one_or_none()
+
+            expires_at = datetime.utcnow() + timedelta(days=days)
+
+            if existing:
+                # Обновляем существующую
+                existing.tier = tier
+                existing.status = 'active'
+                existing.expires_at = expires_at
+                existing.max_filters = max_filters
+                existing.max_notifications_per_day = max_notifications_per_day
+                await session.commit()
+                logger.info(f"📦 Subscription updated: user={user_id}, tier={tier}, expires={expires_at}")
+                return existing.id
+            else:
+                # Создаём новую
+                subscription = SubscriptionModel(
+                    user_id=user_id,
+                    tier=tier,
+                    status='active',
+                    expires_at=expires_at,
+                    max_filters=max_filters,
+                    max_notifications_per_day=max_notifications_per_day
+                )
+                session.add(subscription)
+                await session.flush()
+                logger.info(f"📦 Subscription created: user={user_id}, tier={tier}, expires={expires_at}")
+                return subscription.id
+
+    async def get_subscription(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Получить подписку пользователя.
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Данные подписки или None
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
+            )
+            sub = result.scalar_one_or_none()
+
+            if not sub:
+                return None
+
+            return {
+                'id': sub.id,
+                'user_id': sub.user_id,
+                'tier': sub.tier,
+                'status': sub.status,
+                'started_at': sub.started_at.isoformat() if sub.started_at else None,
+                'expires_at': sub.expires_at.isoformat() if sub.expires_at else None,
+                'max_filters': sub.max_filters,
+                'max_notifications_per_day': sub.max_notifications_per_day,
+                'is_active': sub.is_active(),
+                'is_trial': sub.is_trial(),
+                'days_remaining': sub.days_remaining()
+            }
+
+    async def check_subscription_active(self, user_id: int) -> bool:
+        """
+        Проверить активна ли подписка пользователя.
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            True если подписка активна
+        """
+        sub = await self.get_subscription(user_id)
+        return sub is not None and sub.get('is_active', False)
+
+    async def expire_subscription(self, user_id: int) -> bool:
+        """
+        Пометить подписку как истекшую.
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            True если успешно
+        """
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SubscriptionModel)
+                .where(SubscriptionModel.user_id == user_id)
+                .values(status='expired')
+            )
+            await session.commit()
+            logger.info(f"📦 Subscription expired: user={user_id}")
+            return True
+
+    # ============================================
+    # 🧪 БЕТА: Viewed Tenders (Phase 2.1)
+    # ============================================
+
+    async def mark_tender_viewed(self, user_id: int, tender_number: str) -> bool:
+        """
+        Пометить тендер как просмотренный.
+
+        Args:
+            user_id: ID пользователя
+            tender_number: Номер тендера
+
+        Returns:
+            True если успешно
+        """
+        async with DatabaseSession() as session:
+            try:
+                viewed = ViewedTenderModel(
+                    user_id=user_id,
+                    tender_number=tender_number
+                )
+                session.add(viewed)
+                await session.commit()
+                logger.debug(f"👁️ Tender marked as viewed: user={user_id}, tender={tender_number}")
+                return True
+            except IntegrityError:
+                # Уже помечен как просмотренный
+                await session.rollback()
+                return True
+
+    async def is_tender_viewed(self, user_id: int, tender_number: str) -> bool:
+        """
+        Проверить просмотрен ли тендер.
+
+        Args:
+            user_id: ID пользователя
+            tender_number: Номер тендера
+
+        Returns:
+            True если просмотрен
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(ViewedTenderModel).where(
+                    and_(
+                        ViewedTenderModel.user_id == user_id,
+                        ViewedTenderModel.tender_number == tender_number
+                    )
+                )
+            )
+            return result.scalar_one_or_none() is not None
+
+    async def get_viewed_tenders_count(self, user_id: int) -> int:
+        """
+        Получить количество просмотренных тендеров.
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Количество просмотренных тендеров
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(ViewedTenderModel)
+                .where(ViewedTenderModel.user_id == user_id)
+            )
+            return result.scalar() or 0
+
+    # ============================================
+    # 🧪 БЕТА: Satisfaction Surveys (Phase 2.1)
+    # ============================================
+
+    async def save_satisfaction_survey(
+        self,
+        user_id: int,
+        rating: int,
+        comment: Optional[str] = None,
+        trigger: str = 'manual'
+    ) -> int:
+        """
+        Сохранить опрос удовлетворённости.
+
+        Args:
+            user_id: ID пользователя
+            rating: Оценка 1-5
+            comment: Комментарий
+            trigger: Триггер опроса (after_10_notifications, weekly, manual)
+
+        Returns:
+            ID записи
+        """
+        async with DatabaseSession() as session:
+            survey = SatisfactionSurveyModel(
+                user_id=user_id,
+                rating=rating,
+                comment=comment,
+                trigger=trigger
+            )
+            session.add(survey)
+            await session.flush()
+            logger.info(f"⭐ Survey saved: user={user_id}, rating={rating}, trigger={trigger}")
+            return survey.id
+
+    async def get_average_rating(self) -> float:
+        """
+        Получить средний рейтинг удовлетворённости.
+
+        Returns:
+            Средний рейтинг
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(func.avg(SatisfactionSurveyModel.rating))
+            )
+            avg = result.scalar()
+            return round(avg, 2) if avg else 0.0
 
 
 # Глобальный singleton

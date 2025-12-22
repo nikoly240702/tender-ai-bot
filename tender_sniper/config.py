@@ -106,6 +106,20 @@ class FeatureConfig:
         """
         return self._config.get('experimental', {}).get(feature, False)
 
+    def is_new_feature_enabled(self, feature: str) -> bool:
+        """Check if new Phase 2.1 feature is enabled.
+
+        Args:
+            feature: Feature name (e.g., 'intent_classifier', 'simplified_wizard')
+
+        Returns:
+            True if feature is enabled, False otherwise
+        """
+        if not self.is_tender_sniper_enabled:
+            return False
+
+        return self._config.get('tender_sniper', {}).get('new_features', {}).get(feature, False)
+
     def get_all_config(self) -> Dict[str, Any]:
         """Get full configuration dictionary.
 
@@ -148,3 +162,8 @@ def is_development_mode() -> bool:
 def is_production_mode() -> bool:
     """Check if production mode is active."""
     return feature_config.is_mode_active('production')
+
+
+def is_new_feature_enabled(feature: str) -> bool:
+    """Check if new Phase 2.1 feature is enabled."""
+    return feature_config.is_new_feature_enabled(feature)

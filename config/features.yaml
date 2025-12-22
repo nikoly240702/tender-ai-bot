@@ -71,6 +71,40 @@ tender_sniper:
     # API для внешних интеграций
     external_api: false
 
+  # ============================================
+  # НОВЫЕ ФУНКЦИИ (Phase 2.1)
+  # ============================================
+  new_features:
+    # GPT Intent Classifier (EXACT/BROAD/HYBRID)
+    intent_classifier: true
+
+    # Упрощённый wizard (3-5 шагов вместо 14)
+    simplified_wizard: true
+
+    # Библиотека готовых фильтров
+    quick_filters: true
+
+    # История поисков
+    search_history: true
+
+    # Морфология русского языка (pymorphy2)
+    morphology: true
+
+    # Интеграция ОКПД2
+    okpd2_integration: false
+
+    # Feedback loop для улучшения поиска
+    feedback_tracking: true
+
+    # Опросы удовлетворённости (CSAT)
+    satisfaction_surveys: false
+
+    # Redis кэширование
+    redis_cache: false
+
+    # Retry logic для RSS
+    rss_retry: true
+
 # ============================================
 # PHASE 3: Enterprise Features (будущее)
 # ============================================

@@ -289,6 +289,168 @@ class UserProfile(Base):
 
 
 # ============================================
+# NEW MODELS (Phase 2.1)
+# ============================================
+
+class SearchHistory(Base):
+    """История поисков пользователя."""
+    __tablename__ = 'search_history'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    filter_id = Column(Integer, ForeignKey('sniper_filters.id', ondelete='SET NULL'), nullable=True)
+
+    # Search details
+    search_type = Column(String(50), nullable=False)  # instant_search, archive_search
+    keywords = Column(JSON, nullable=False)  # List[str]
+    results_count = Column(Integer, default=0)
+
+    # Execution
+    executed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    duration_ms = Column(Integer, nullable=True)  # Search duration in milliseconds
+
+    # Relationships
+    user = relationship("SniperUser")
+    filter = relationship("SniperFilter")
+
+    __table_args__ = (
+        Index('ix_search_history_user_time', 'user_id', 'executed_at'),
+    )
+
+
+class UserFeedback(Base):
+    """Feedback пользователей на тендеры."""
+    __tablename__ = 'user_feedback'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    filter_id = Column(Integer, ForeignKey('sniper_filters.id', ondelete='SET NULL'), nullable=True, index=True)
+    tender_number = Column(String(100), nullable=False, index=True)
+
+    # Feedback type: interesting, hidden, irrelevant
+    feedback_type = Column(String(50), nullable=False)
+
+    # Context for ML
+    tender_name = Column(Text, nullable=True)
+    matched_keywords = Column(JSON, default=list)  # List[str]
+    original_score = Column(Integer, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("SniperUser")
+    filter = relationship("SniperFilter")
+
+    __table_args__ = (
+        Index('ix_user_feedback_user_type', 'user_id', 'feedback_type'),
+    )
+
+
+class Subscription(Base):
+    """Подписки пользователей."""
+    __tablename__ = 'subscriptions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), unique=True, nullable=False, index=True)
+
+    # Subscription tier: trial, basic, premium
+    tier = Column(String(50), nullable=False, default='trial')
+    status = Column(String(50), nullable=False, default='active')  # active, expired, cancelled
+
+    # Dates
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    cancelled_at = Column(DateTime, nullable=True)
+
+    # Limits
+    max_filters = Column(Integer, default=3)
+    max_notifications_per_day = Column(Integer, default=50)
+
+    # Payment
+    last_payment_id = Column(String(255), nullable=True)
+    last_payment_at = Column(DateTime, nullable=True)
+    next_billing_date = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+    def is_active(self) -> bool:
+        """Check if subscription is active."""
+        return self.status == 'active' and self.expires_at > datetime.utcnow()
+
+    def is_trial(self) -> bool:
+        """Check if trial subscription."""
+        return self.tier == 'trial'
+
+    def days_remaining(self) -> int:
+        """Days until expiration."""
+        if not self.is_active():
+            return 0
+        delta = self.expires_at - datetime.utcnow()
+        return max(0, delta.days)
+
+
+class SatisfactionSurvey(Base):
+    """Опросы удовлетворённости (CSAT)."""
+    __tablename__ = 'satisfaction_surveys'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    rating = Column(Integer, nullable=True)  # 1-5 stars
+    comment = Column(Text, nullable=True)
+
+    # Context
+    trigger = Column(String(100), nullable=True)  # after_10_notifications, weekly, manual
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+
+class ViewedTender(Base):
+    """Просмотренные тендеры."""
+    __tablename__ = 'viewed_tenders'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tender_number = Column(String(100), nullable=False, index=True)
+    viewed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index('ix_viewed_tenders_user_tender', 'user_id', 'tender_number', unique=True),
+    )
+
+
+class QuickFilterTemplate(Base):
+    """Шаблоны готовых фильтров (для кастомных пользовательских шаблонов)."""
+    __tablename__ = 'quick_filter_templates'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=True, index=True)  # NULL = system template
+
+    name = Column(String(255), nullable=False)
+    icon = Column(String(10), nullable=True)
+    description = Column(Text, nullable=True)
+    industry = Column(String(100), nullable=True)
+
+    # Filter settings
+    keywords = Column(JSON, nullable=False)  # List[str]
+    exclude_keywords = Column(JSON, default=list)
+    price_min = Column(Float, nullable=True)
+    price_max = Column(Float, nullable=True)
+    regions = Column(JSON, default=list)
+
+    # Metadata
+    is_public = Column(Boolean, default=False)  # Доступен всем
+    usage_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+
+# ============================================
 # DATABASE ENGINE & SESSION
 # ============================================
 
@@ -426,6 +588,19 @@ __all__ = [
     'SniperFilter',
     'SniperNotification',
     'TenderCache',
+    'FilterDraft',
+    'TenderFavorite',
+    'HiddenTender',
+    'TenderReminder',
+    'UserProfile',
+    # Phase 2.1 models
+    'SearchHistory',
+    'UserFeedback',
+    'Subscription',
+    'SatisfactionSurvey',
+    'ViewedTender',
+    'QuickFilterTemplate',
+    # Functions
     'init_database',
     'get_session',
     'close_database',
