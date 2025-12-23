@@ -286,16 +286,24 @@ def get_current_settings_text(data: dict) -> str:
     )
 
 
-def get_tender_type_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура выбора типа закупки."""
+def get_tender_type_keyboard(selected: list = None) -> InlineKeyboardMarkup:
+    """Клавиатура выбора типа закупки с множественным выбором."""
+    if selected is None:
+        selected = []
+
     keyboard = []
     row = []
 
-    for type_code, type_info in TENDER_TYPES.items():
-        text = f"{type_info['icon']} {type_info['name']}"
+    # Типы без "any" - его обрабатываем отдельно
+    selectable_types = {k: v for k, v in TENDER_TYPES.items() if k != 'any'}
+
+    for type_code, type_info in selectable_types.items():
+        is_selected = type_code in selected
+        check = "✅ " if is_selected else ""
+        text = f"{check}{type_info['icon']} {type_info['name']}"
         row.append(InlineKeyboardButton(
             text=text,
-            callback_data=f"ew_type:{type_code}"
+            callback_data=f"ew_type_toggle:{type_code}"
         ))
         if len(row) == 2:
             keyboard.append(row)
@@ -304,6 +312,22 @@ def get_tender_type_keyboard() -> InlineKeyboardMarkup:
     if row:
         keyboard.append(row)
 
+    # Кнопка "Любые" - сбрасывает выбор
+    keyboard.append([
+        InlineKeyboardButton(
+            text="📋 Любые (сбросить выбор)",
+            callback_data="ew_type_toggle:any"
+        )
+    ])
+
+    # Кнопка продолжить (если что-то выбрано или идём с "любые")
+    keyboard.append([
+        InlineKeyboardButton(
+            text="➡️ Продолжить",
+            callback_data="ew_type_continue"
+        )
+    ])
+
     keyboard.append([
         InlineKeyboardButton(text="« Отмена", callback_data="sniper_menu")
     ])
@@ -311,24 +335,47 @@ def get_tender_type_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
-def get_region_keyboard() -> InlineKeyboardMarkup:
-    """Клавиатура для выбора региона."""
+def get_region_keyboard(selected_districts: list = None) -> InlineKeyboardMarkup:
+    """Клавиатура для выбора региона с множественным выбором."""
+    if selected_districts is None:
+        selected_districts = []
+
     federal_districts = get_all_federal_districts()
 
     keyboard = []
+    row = []
+
     # federal_districts - это список словарей: [{"name": "Центральный", "code": "ЦФО", "regions_count": 18}, ...]
     for fd in federal_districts:
-        fd_name = fd['name']  # "Центральный", "Северо-Западный", etc.
-        keyboard.append([
-            InlineKeyboardButton(
-                text=f"🗺 {fd_name}",
-                callback_data=f"ew_fd:{fd_name}"  # Используем имя, т.к. get_regions_by_district ожидает имя
-            )
-        ])
+        fd_name = fd['name']
+        is_selected = fd_name in selected_districts
+        check = "✅ " if is_selected else ""
+        text = f"{check}🗺 {fd_name}"
 
+        row.append(InlineKeyboardButton(
+            text=text,
+            callback_data=f"ew_fd_toggle:{fd_name}"
+        ))
+
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+
+    if row:
+        keyboard.append(row)
+
+    # Кнопка "Вся Россия" - сбрасывает выбор
     keyboard.append([
-        InlineKeyboardButton(text="🌍 Вся Россия", callback_data="ew_region:all")
+        InlineKeyboardButton(text="🌍 Вся Россия (сбросить)", callback_data="ew_region_toggle:all")
     ])
+
+    # Кнопка продолжить
+    selected_count = len(selected_districts)
+    continue_text = f"➡️ Продолжить ({selected_count} выбрано)" if selected_count else "➡️ Продолжить (вся Россия)"
+    keyboard.append([
+        InlineKeyboardButton(text=continue_text, callback_data="ew_region_continue")
+    ])
+
     keyboard.append([
         InlineKeyboardButton(text="« Назад", callback_data="ew_back:budget")
     ])
@@ -561,6 +608,8 @@ async def start_fresh_wizard(callback: CallbackQuery, state: FSMContext):
     await state.update_data(
         tender_type=None,
         tender_type_name='Любые',
+        selected_types=[],  # 🆕 Для множественного выбора типов
+        selected_districts=[],  # 🆕 Для множественного выбора округов
         keywords=[],
         price_min=None,
         price_max=None,
@@ -576,9 +625,9 @@ async def start_fresh_wizard(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "🎯 <b>Создание фильтра</b>\n\n"
         "<b>Шаг 1/8:</b> Что ищем?\n\n"
-        "Выберите тип закупки:",
+        "Выберите один или несколько типов закупки:",
         parse_mode="HTML",
-        reply_markup=get_tender_type_keyboard()
+        reply_markup=get_tender_type_keyboard([])
     )
 
 
@@ -640,12 +689,13 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
     settings_text = get_current_settings_text(data)
 
     if step == 'select_tender_type':
+        selected_types = data.get('selected_types', [])
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"<b>Шаг 1/8:</b> Что ищем?\n\n"
-            f"Выберите тип закупки:",
+            f"Выберите один или несколько типов закупки:",
             parse_mode="HTML",
-            reply_markup=get_tender_type_keyboard()
+            reply_markup=get_tender_type_keyboard(selected_types)
         )
     elif step == 'enter_keywords':
         await callback.message.edit_text(
@@ -668,13 +718,13 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
             reply_markup=get_budget_keyboard()
         )
     elif step == 'select_region':
+        selected_districts = data.get('selected_districts', [])
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 4/8:</b> Выберите регион\n\n"
-            f"Где искать тендеры?",
+            f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:",
             parse_mode="HTML",
-            reply_markup=get_region_keyboard()
+            reply_markup=get_region_keyboard(selected_districts)
         )
     elif step == 'select_law':
         await callback.message.edit_text(
@@ -732,7 +782,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
 
 @router.callback_query(F.data.startswith("ew_type:"))
 async def handle_tender_type_selection(callback: CallbackQuery, state: FSMContext):
-    """Обработка выбора типа закупки."""
+    """Обработка выбора типа закупки (legacy single-select)."""
     await callback.answer()
 
     type_code = callback.data.split(":")[1]
@@ -742,7 +792,8 @@ async def handle_tender_type_selection(callback: CallbackQuery, state: FSMContex
     tender_types_list = [type_info['value']] if type_info['value'] else []
     await state.update_data(
         tender_type=tender_types_list,
-        tender_type_name=type_info['name']
+        tender_type_name=type_info['name'],
+        selected_types=[type_code] if type_code != 'any' else []
     )
 
     # 🆕 Автосохранение черновика
@@ -755,6 +806,84 @@ async def handle_tender_type_selection(callback: CallbackQuery, state: FSMContex
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{type_info['icon']} {type_info['name']}</b>\n\n"
+        f"<b>Шаг 2/8:</b> Введите ключевые слова\n\n"
+        f"Укажите через запятую, что вы ищете.\n"
+        f"Например: <i>Lenovo, ноутбуки, ThinkPad</i>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:type")]
+        ])
+    )
+
+
+# ============================================
+# ШАГ 1: МНОЖЕСТВЕННЫЙ ВЫБОР ТИПОВ ЗАКУПКИ
+# ============================================
+
+@router.callback_query(F.data.startswith("ew_type_toggle:"))
+async def toggle_tender_type(callback: CallbackQuery, state: FSMContext):
+    """Переключение типа закупки (множественный выбор)."""
+    type_code = callback.data.split(":")[1]
+    data = await state.get_data()
+    selected = data.get('selected_types', [])
+
+    if type_code == 'any':
+        # "Любые" сбрасывает весь выбор
+        selected = []
+        await callback.answer("Выбор сброшен")
+    else:
+        # Toggle выбранного типа
+        if type_code in selected:
+            selected.remove(type_code)
+            await callback.answer(f"{TENDER_TYPES[type_code]['name']} убран")
+        else:
+            selected.append(type_code)
+            await callback.answer(f"{TENDER_TYPES[type_code]['name']} добавлен")
+
+    await state.update_data(selected_types=selected)
+
+    # Обновляем клавиатуру
+    await callback.message.edit_text(
+        "🎯 <b>Создание фильтра</b>\n\n"
+        "<b>Шаг 1/8:</b> Что ищем?\n\n"
+        "Выберите один или несколько типов закупки:",
+        parse_mode="HTML",
+        reply_markup=get_tender_type_keyboard(selected)
+    )
+
+
+@router.callback_query(F.data == "ew_type_continue")
+async def continue_after_type_selection(callback: CallbackQuery, state: FSMContext):
+    """Продолжить после выбора типов закупки."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected = data.get('selected_types', [])
+
+    # Формируем список значений для поиска
+    if selected:
+        tender_types_list = [TENDER_TYPES[code]['value'] for code in selected if TENDER_TYPES[code]['value']]
+        type_names = [TENDER_TYPES[code]['name'] for code in selected]
+        type_name_str = ', '.join(type_names)
+    else:
+        tender_types_list = []
+        type_name_str = 'Любые'
+
+    await state.update_data(
+        tender_type=tender_types_list,
+        tender_type_name=type_name_str
+    )
+
+    # 🆕 Автосохранение черновика
+    data = await state.get_data()
+    await save_draft(callback.from_user.id, data, 'enter_keywords')
+
+    # Переходим к шагу 2: ключевые слова
+    await state.set_state(ExtendedWizardStates.enter_keywords)
+
+    await callback.message.edit_text(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Тип: <b>{type_name_str}</b>\n\n"
         f"<b>Шаг 2/8:</b> Введите ключевые слова\n\n"
         f"Укажите через запятую, что вы ищете.\n"
         f"Например: <i>Lenovo, ноутбуки, ThinkPad</i>",
@@ -1037,18 +1166,21 @@ async def go_to_region_step(message, state: FSMContext):
     else:
         budget_text = "без ограничений"
 
+    # Получаем выбранные округа (если есть)
+    selected_districts = data.get('selected_districts', [])
+
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Бюджет: <b>{budget_text}</b>\n\n"
-        f"<b>Шаг 4/8:</b> Выберите регион"
+        f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:"
     )
 
     if hasattr(message, 'edit_text'):
-        await message.edit_text(text, parse_mode="HTML", reply_markup=get_region_keyboard())
+        await message.edit_text(text, parse_mode="HTML", reply_markup=get_region_keyboard(selected_districts))
     else:
-        await message.answer(text, parse_mode="HTML", reply_markup=get_region_keyboard())
+        await message.answer(text, parse_mode="HTML", reply_markup=get_region_keyboard(selected_districts))
 
 
 # ============================================
@@ -1065,15 +1197,115 @@ async def select_all_russia(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("ew_fd:"))
 async def handle_federal_district(callback: CallbackQuery, state: FSMContext):
-    """Выбор федерального округа."""
+    """Выбор федерального округа (legacy single-select)."""
     await callback.answer()
 
     # fd_name теперь передается напрямую (например, "Центральный")
     fd_name = callback.data.split(":")[1]
     regions = get_regions_by_district(fd_name)
 
-    await state.update_data(regions=regions, region_name=fd_name)
+    await state.update_data(regions=regions, region_name=fd_name, selected_districts=[fd_name])
     await go_to_law_step(callback.message, state)
+
+
+# ============================================
+# ШАГ 4: МНОЖЕСТВЕННЫЙ ВЫБОР РЕГИОНОВ
+# ============================================
+
+@router.callback_query(F.data.startswith("ew_fd_toggle:"))
+async def toggle_federal_district(callback: CallbackQuery, state: FSMContext):
+    """Переключение федерального округа (множественный выбор)."""
+    fd_name = callback.data.split(":")[1]
+    data = await state.get_data()
+    selected = data.get('selected_districts', [])
+
+    # Toggle выбранного округа
+    if fd_name in selected:
+        selected.remove(fd_name)
+        await callback.answer(f"{fd_name} убран")
+    else:
+        selected.append(fd_name)
+        await callback.answer(f"{fd_name} добавлен")
+
+    await state.update_data(selected_districts=selected)
+
+    # Обновляем клавиатуру
+    data = await state.get_data()
+    settings_text = (
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Бюджет: <b>{_format_budget_text(data)}</b>"
+    )
+
+    await callback.message.edit_text(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"{settings_text}\n\n"
+        f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:",
+        parse_mode="HTML",
+        reply_markup=get_region_keyboard(selected)
+    )
+
+
+@router.callback_query(F.data == "ew_region_toggle:all")
+async def reset_region_selection(callback: CallbackQuery, state: FSMContext):
+    """Сброс выбора регионов."""
+    await callback.answer("Выбор сброшен - вся Россия")
+    await state.update_data(selected_districts=[])
+
+    data = await state.get_data()
+    settings_text = (
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Бюджет: <b>{_format_budget_text(data)}</b>"
+    )
+
+    await callback.message.edit_text(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"{settings_text}\n\n"
+        f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:",
+        parse_mode="HTML",
+        reply_markup=get_region_keyboard([])
+    )
+
+
+@router.callback_query(F.data == "ew_region_continue")
+async def continue_after_region_selection(callback: CallbackQuery, state: FSMContext):
+    """Продолжить после выбора регионов."""
+    await callback.answer()
+
+    data = await state.get_data()
+    selected = data.get('selected_districts', [])
+
+    # Собираем все регионы из выбранных округов
+    all_regions = []
+    for fd_name in selected:
+        all_regions.extend(get_regions_by_district(fd_name))
+
+    # Формируем название для отображения
+    if selected:
+        if len(selected) == 1:
+            region_name = selected[0]
+        else:
+            region_name = f"{len(selected)} округов"
+    else:
+        region_name = "Вся Россия"
+
+    await state.update_data(regions=all_regions, region_name=region_name)
+    await go_to_law_step(callback.message, state)
+
+
+def _format_budget_text(data: dict) -> str:
+    """Вспомогательная функция для форматирования бюджета."""
+    price_min = data.get('price_min')
+    price_max = data.get('price_max')
+    if price_min and price_max:
+        return f"{format_price(price_min)} - {format_price(price_max)}"
+    elif price_max:
+        return f"до {format_price(price_max)}"
+    elif price_min:
+        return f"от {format_price(price_min)}"
+    else:
+        return "без ограничений"
 
 
 async def go_to_law_step(message, state: FSMContext):
@@ -1298,11 +1530,13 @@ async def handle_edit_selection(callback: CallbackQuery, state: FSMContext):
 
     if param == "type":
         await state.set_state(ExtendedWizardStates.select_tender_type)
+        data = await state.get_data()
+        selected_types = data.get('selected_types', [])
         await callback.message.edit_text(
             "📦 <b>Изменить тип закупки</b>\n\n"
-            "Выберите тип:",
+            "Выберите один или несколько типов:",
             parse_mode="HTML",
-            reply_markup=get_tender_type_keyboard()
+            reply_markup=get_tender_type_keyboard(selected_types)
         )
     elif param == "keywords":
         await state.set_state(ExtendedWizardStates.enter_keywords)
@@ -1331,11 +1565,13 @@ async def handle_edit_selection(callback: CallbackQuery, state: FSMContext):
         )
     elif param == "region":
         await state.set_state(ExtendedWizardStates.select_region)
+        data = await state.get_data()
+        selected_districts = data.get('selected_districts', [])
         await callback.message.edit_text(
             "📍 <b>Изменить регион</b>\n\n"
-            "Выберите регион:",
+            "Выберите один или несколько регионов:",
             parse_mode="HTML",
-            reply_markup=get_region_keyboard()
+            reply_markup=get_region_keyboard(selected_districts)
         )
     elif param == "law":
         await state.set_state(ExtendedWizardStates.select_law)
@@ -1397,12 +1633,14 @@ async def handle_back_navigation(callback: CallbackQuery, state: FSMContext):
 
     if target == "type":
         await state.set_state(ExtendedWizardStates.select_tender_type)
+        data = await state.get_data()
+        selected_types = data.get('selected_types', [])
         await callback.message.edit_text(
             "🎯 <b>Создание фильтра</b>\n\n"
             "<b>Шаг 1/8:</b> Что ищем?\n\n"
-            "Выберите тип закупки:",
+            "Выберите один или несколько типов закупки:",
             parse_mode="HTML",
-            reply_markup=get_tender_type_keyboard()
+            reply_markup=get_tender_type_keyboard(selected_types)
         )
 
     elif target == "keywords":
