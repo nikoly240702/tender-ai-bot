@@ -713,9 +713,17 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
             f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
-            f"Выберите диапазон или введите свой:",
+            f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
+            f"Примеры:\n"
+            f"• 100000 (100 тыс)\n"
+            f"• 1000000 (1 млн)\n"
+            f"• 0 (без минимума)\n\n"
+            f"Или нажмите «Пропустить» для любого бюджета.",
             parse_mode="HTML",
-            reply_markup=get_budget_keyboard()
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+            ])
         )
     elif step == 'select_region':
         selected_districts = data.get('selected_districts', [])
@@ -742,7 +750,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
             f"Какие слова исключить из поиска? (или пропустите)",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="ew_skip:excluded")],
+                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="ew_exclude:skip")],
                 [InlineKeyboardButton(text="« Назад", callback_data="ew_back:law")]
             ])
         )
@@ -770,7 +778,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
             f"<b>Шаг 8/8:</b> Всё верно?",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Создать и искать", callback_data="ew_confirm")],
+                [InlineKeyboardButton(text="✅ Создать и искать", callback_data="ew_confirm:create")],
                 [InlineKeyboardButton(text="« Назад", callback_data="ew_back:automonitor")]
             ])
         )
@@ -1674,6 +1682,10 @@ async def handle_back_navigation(callback: CallbackQuery, state: FSMContext):
     elif target == "limit":
         # Возврат к выбору количества тендеров (из шага автомониторинга)
         await go_to_search_settings_step(callback.message, state)
+
+    elif target == "automonitor":
+        # Возврат к выбору автомониторинга (из шага подтверждения)
+        await go_to_automonitor_step(callback.message, state)
 
     elif target == "confirm":
         await go_to_confirm_step(callback.message, state)
