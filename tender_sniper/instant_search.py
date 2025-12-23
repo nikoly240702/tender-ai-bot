@@ -226,7 +226,7 @@ class InstantSearch:
 
                             # === ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА: дедлайн не просрочен ===
                             # Отсекаем тендеры с просроченным дедлайном (баг zakupki.gov.ru)
-                            deadline = tender.get('deadline') or tender.get('end_date')
+                            deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
                             if deadline:
                                 try:
                                     # Пробуем разные форматы даты
