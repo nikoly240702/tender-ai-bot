@@ -1848,11 +1848,17 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             logger.warning(f"Не удалось сохранить историю поиска: {e}")
 
         if not matches:
+            # Разное сообщение в зависимости от автомониторинга
+            if automonitor:
+                notification_text = "🔔 Вы получите уведомление, когда появятся новые тендеры."
+            else:
+                notification_text = "ℹ️ Автомониторинг отключен. Вы можете включить его в настройках фильтра."
+
             await callback.message.edit_text(
                 f"✅ <b>Фильтр создан!</b>\n\n"
                 f"📝 Название: {filter_name}\n\n"
                 f"😔 Пока не найдено подходящих тендеров.\n\n"
-                f"🔔 Вы получите уведомление, когда появятся новые тендеры.",
+                f"{notification_text}",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
@@ -2427,11 +2433,17 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             logger.warning(f"Не удалось сохранить историю поиска: {e}")
 
         if not matches:
+            # Разное сообщение в зависимости от автомониторинга
+            if automonitor:
+                notification_text = "🔔 Вы получите уведомление, когда появятся новые тендеры."
+            else:
+                notification_text = "ℹ️ Автомониторинг отключен. Вы можете включить его в настройках фильтра."
+
             await callback.message.edit_text(
                 f"✅ <b>Фильтр создан!</b>\n\n"
                 f"📝 Название: {filter_name}\n\n"
                 f"😔 Пока не найдено подходящих тендеров.\n\n"
-                f"🔔 Вы получите уведомление, когда появятся новые тендеры.",
+                f"{notification_text}",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
