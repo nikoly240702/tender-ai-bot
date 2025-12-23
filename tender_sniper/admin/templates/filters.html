@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}Фильтры{% endblock %}
+
+{% block content %}
+<!-- Top Bar -->
+<div class="top-bar">
+    <h4 class="mb-0">🔍 Фильтры</h4>
+    <form class="d-flex gap-2" method="get" action="/filters">
+        <input type="text" class="form-control search-box" name="search"
+               placeholder="Поиск по названию или ключевым словам..." value="{{ search or '' }}">
+        <select class="form-select" name="status" style="width: auto;">
+            <option value="">Все статусы</option>
+            <option value="active" {% if status_filter == 'active' %}selected{% endif %}>Активные</option>
+            <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>Неактивные</option>
+        </select>
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-search"></i>
+        </button>
+    </form>
+</div>
+
+<!-- Stats Summary -->
+<div class="row g-3 mb-4">
+    <div class="col-auto">
+        <span class="badge bg-secondary p-2">
+            Всего: {{ total_filters }}
+        </span>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-success p-2">
+            Активных: {{ active_count }}
+        </span>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-light text-dark p-2">
+            Неактивных: {{ total_filters - active_count }}
+        </span>
+    </div>
+</div>
+
+<!-- Filters Table -->
+<div class="card card-custom">
+    <div class="card-body p-0">
+        <table class="table table-custom table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Название</th>
+                    <th>Ключевые слова</th>
+                    <th>Бюджет</th>
+                    <th>Регион</th>
+                    <th>Пользователь</th>
+                    <th>Статус</th>
+                    <th>Создан</th>
+                    <th>Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in filters %}
+                <tr>
+                    <td>
+                        <code>#{{ item.filter.id }}</code>
+                    </td>
+                    <td>
+                        <strong>{{ item.filter.name or 'Без названия' }}</strong>
+                    </td>
+                    <td>
+                        <span class="text-truncate d-inline-block" style="max-width: 200px;"
+                              title="{{ item.filter.keywords or '-' }}">
+                            {{ item.filter.keywords[:50] if item.filter.keywords else '-' }}{% if item.filter.keywords and item.filter.keywords|length > 50 %}...{% endif %}
+                        </span>
+                    </td>
+                    <td>
+                        {% if item.filter.min_price or item.filter.max_price %}
+                        {{ '{:,.0f}'.format(item.filter.min_price or 0).replace(',', ' ') }} -
+                        {{ '{:,.0f}'.format(item.filter.max_price or 0).replace(',', ' ') }} ₽
+                        {% else %}
+                        <span class="text-muted">Любой</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ item.filter.region_name or 'Все регионы' }}
+                    </td>
+                    <td>
+                        <a href="/users/{{ item.filter.user_id }}">
+                            {{ item.user_telegram_id }}
+                        </a>
+                    </td>
+                    <td>
+                        {% if item.filter.is_active %}
+                        <span class="badge badge-status badge-active">Активен</span>
+                        {% else %}
+                        <span class="badge badge-status badge-inactive">Неактивен</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ item.filter.created_at.strftime('%d.%m.%Y') if item.filter.created_at else '-' }}
+                    </td>
+                    <td>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary"
+                                    onclick="toggleFilter({{ item.filter.id }})"
+                                    title="{{ 'Деактивировать' if item.filter.is_active else 'Активировать' }}">
+                                <i class="bi bi-{{ 'pause' if item.filter.is_active else 'play' }}"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger"
+                                    onclick="deleteFilter({{ item.filter.id }})"
+                                    title="Удалить">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="text-center text-muted py-5">
+                        Фильтры не найдены
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<nav class="mt-4">
+    <ul class="pagination justify-content-center">
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+            <a class="page-link" href="?page={{ page - 1 }}&search={{ search or '' }}&status={{ status_filter or '' }}">
+                <i class="bi bi-chevron-left"></i>
+            </a>
+        </li>
+
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+                <a class="page-link" href="?page={{ p }}&search={{ search or '' }}&status={{ status_filter or '' }}">{{ p }}</a>
+            </li>
+            {% elif p == page - 3 or p == page + 3 %}
+            <li class="page-item disabled">
+                <span class="page-link">...</span>
+            </li>
+            {% endif %}
+        {% endfor %}
+
+        <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+            <a class="page-link" href="?page={{ page + 1 }}&search={{ search or '' }}&status={{ status_filter or '' }}">
+                <i class="bi bi-chevron-right"></i>
+            </a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function toggleFilter(filterId) {
+    if (!confirm(`Переключить статус фильтра #${filterId}?`)) return;
+
+    const resp = await fetch(`/filters/${filterId}/toggle`, {
+        method: 'POST'
+    });
+
+    if (resp.ok || resp.redirected) {
+        location.reload();
+    } else {
+        alert('Ошибка при изменении статуса');
+    }
+}
+
+async function deleteFilter(filterId) {
+    if (!confirm(`Вы уверены, что хотите удалить фильтр #${filterId}?`)) return;
+
+    const resp = await fetch(`/filters/${filterId}/delete`, {
+        method: 'POST'
+    });
+
+    if (resp.ok || resp.redirected) {
+        location.reload();
+    } else {
+        alert('Ошибка при удалении фильтра');
+    }
+}
+</script>
+{% endblock %}

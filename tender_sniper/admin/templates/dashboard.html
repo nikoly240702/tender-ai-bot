@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+
+{% block title %}Дашборд{% endblock %}
+
+{% block content %}
+<!-- Top Bar -->
+<div class="top-bar">
+    <h4 class="mb-0">📊 Дашборд</h4>
+    <div class="d-flex align-items-center gap-3">
+        <span class="text-muted">Последнее обновление: {{ current_time }}</span>
+        <a href="/" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-clockwise"></i> Обновить
+        </a>
+    </div>
+</div>
+
+<!-- Stats Cards -->
+<div class="row g-4 mb-4">
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="icon blue">
+                <i class="bi bi-people"></i>
+            </div>
+            <div class="value">{{ stats.total_users }}</div>
+            <div class="label">Всего пользователей</div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="icon green">
+                <i class="bi bi-person-check"></i>
+            </div>
+            <div class="value">{{ stats.active_users }}</div>
+            <div class="label">Активных (24ч)</div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="icon purple">
+                <i class="bi bi-funnel"></i>
+            </div>
+            <div class="value">{{ stats.total_filters }}</div>
+            <div class="label">Активных фильтров</div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="icon orange">
+                <i class="bi bi-bell"></i>
+            </div>
+            <div class="value">{{ stats.notifications_today }}</div>
+            <div class="label">Уведомлений сегодня</div>
+        </div>
+    </div>
+</div>
+
+<!-- Tier Distribution -->
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="stat-card text-center">
+            <div class="icon mx-auto" style="background: #e9ecef; color: #495057;">
+                <i class="bi bi-star"></i>
+            </div>
+            <div class="value">{{ stats.tier_free }}</div>
+            <div class="label">Free</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card text-center">
+            <div class="icon mx-auto" style="background: #cfe2ff; color: #084298;">
+                <i class="bi bi-star-half"></i>
+            </div>
+            <div class="value">{{ stats.tier_basic }}</div>
+            <div class="label">Basic</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card text-center">
+            <div class="icon mx-auto" style="background: #fff3cd; color: #664d03;">
+                <i class="bi bi-star-fill"></i>
+            </div>
+            <div class="value">{{ stats.tier_premium }}</div>
+            <div class="label">Premium</div>
+        </div>
+    </div>
+</div>
+
+<!-- Charts -->
+<div class="row g-4 mb-4">
+    <div class="col-lg-6">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Уведомления за сегодня (по часам)</span>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="hourlyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Уведомления за неделю</span>
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="dailyChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Activity -->
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Новые пользователи</span>
+                <a href="/users" class="btn btn-sm btn-outline-primary">Все</a>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-custom mb-0">
+                    <tbody>
+                        {% for user in recent_users %}
+                        <tr>
+                            <td>
+                                <strong>{{ user.first_name or 'User' }} {{ user.last_name or '' }}</strong>
+                                <br>
+                                <small class="text-muted">@{{ user.username or 'без username' }}</small>
+                            </td>
+                            <td>
+                                <span class="badge badge-tier badge-{{ user.subscription_tier }}">
+                                    {{ user.subscription_tier }}
+                                </span>
+                            </td>
+                            <td class="text-muted">
+                                {{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '-' }}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4">
+                                Нет новых пользователей
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Последние фильтры</span>
+                <a href="/filters" class="btn btn-sm btn-outline-primary">Все</a>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-custom mb-0">
+                    <tbody>
+                        {% for filter in recent_filters %}
+                        <tr>
+                            <td>
+                                <strong>{{ filter.name or 'Без названия' }}</strong>
+                                <br>
+                                <small class="text-muted">{{ filter.keywords[:50] if filter.keywords else '-' }}...</small>
+                            </td>
+                            <td>
+                                {% if filter.is_active %}
+                                <span class="badge badge-status badge-active">Активен</span>
+                                {% else %}
+                                <span class="badge badge-status badge-inactive">Неактивен</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-muted">
+                                {{ filter.created_at.strftime('%d.%m.%Y %H:%M') if filter.created_at else '-' }}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="3" class="text-center text-muted py-4">
+                                Нет фильтров
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Загрузка данных для графиков
+async function loadCharts() {
+    try {
+        // Почасовой график
+        const hourlyResp = await fetch('/api/stats/hourly');
+        const hourlyData = await hourlyResp.json();
+
+        new Chart(document.getElementById('hourlyChart'), {
+            type: 'bar',
+            data: {
+                labels: hourlyData.labels || [],
+                datasets: [{
+                    label: 'Уведомлений',
+                    data: hourlyData.data || [],
+                    backgroundColor: 'rgba(102, 126, 234, 0.7)',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+
+        // Дневной график
+        const dailyResp = await fetch('/api/stats/daily');
+        const dailyData = await dailyResp.json();
+
+        new Chart(document.getElementById('dailyChart'), {
+            type: 'line',
+            data: {
+                labels: dailyData.labels || [],
+                datasets: [{
+                    label: 'Уведомлений',
+                    data: dailyData.data || [],
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Error loading charts:', e);
+    }
+}
+
+loadCharts();
+</script>
+{% endblock %}

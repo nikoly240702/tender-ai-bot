@@ -186,6 +186,54 @@ def format_price(price: Optional[float]) -> str:
         return f"{price:.0f} ₽"
 
 
+async def save_draft(telegram_id: int, data: dict, current_step: str):
+    """Сохраняет черновик фильтра в БД."""
+    try:
+        db = await get_sniper_db()
+        await db.save_filter_draft(telegram_id, data, current_step)
+        logger.debug(f"Draft saved for user {telegram_id}, step: {current_step}")
+    except Exception as e:
+        logger.error(f"Error saving draft: {e}")
+
+
+async def delete_draft(telegram_id: int):
+    """Удаляет черновик фильтра из БД."""
+    try:
+        db = await get_sniper_db()
+        await db.delete_filter_draft(telegram_id)
+        logger.debug(f"Draft deleted for user {telegram_id}")
+    except Exception as e:
+        logger.error(f"Error deleting draft: {e}")
+
+
+async def get_draft(telegram_id: int) -> dict | None:
+    """Получает черновик фильтра из БД."""
+    try:
+        db = await get_sniper_db()
+        return await db.get_filter_draft(telegram_id)
+    except Exception as e:
+        logger.error(f"Error getting draft: {e}")
+        return None
+
+
+def get_step_name(step: str) -> str:
+    """Возвращает читаемое название шага."""
+    step_names = {
+        'select_tender_type': 'Тип закупки',
+        'enter_keywords': 'Ключевые слова',
+        'enter_budget_min': 'Бюджет (мин)',
+        'enter_budget_max': 'Бюджет (макс)',
+        'confirm_budget': 'Подтверждение бюджета',
+        'select_region': 'Регион',
+        'select_law': 'Закон',
+        'enter_excluded': 'Исключения',
+        'select_search_limit': 'Количество тендеров',
+        'select_automonitor': 'Автомониторинг',
+        'confirm_create': 'Подтверждение',
+    }
+    return step_names.get(step, step)
+
+
 def get_current_settings_text(data: dict) -> str:
     """Форматирует текущие настройки фильтра."""
     tender_type = data.get('tender_type_name', 'Любые')
@@ -477,34 +525,205 @@ async def start_extended_wizard(callback: CallbackQuery, state: FSMContext):
             )
             return
 
-        # Очищаем state и инициализируем defaults
-        await state.clear()
-        await state.update_data(
-            tender_type=None,
-            tender_type_name='Любые',
-            keywords=[],
-            price_min=None,
-            price_max=None,
-            regions=[],
-            law_type=None,
-            law_type_name='Любой',
-            exclude_keywords=[],
-            search_limit=25,
-            automonitor=True
-        )
-        await state.set_state(ExtendedWizardStates.select_tender_type)
+        # 🆕 Проверяем наличие черновика
+        draft = await get_draft(callback.from_user.id)
+        if draft and draft.get('draft_data'):
+            draft_data = draft['draft_data']
+            step_name = get_step_name(draft.get('current_step', ''))
+            keywords_preview = ', '.join(draft_data.get('keywords', [])[:3]) or 'не указаны'
 
-        await callback.message.edit_text(
-            "🎯 <b>Создание фильтра</b>\n\n"
-            "<b>Шаг 1/8:</b> Что ищем?\n\n"
-            "Выберите тип закупки:",
-            parse_mode="HTML",
-            reply_markup=get_tender_type_keyboard()
-        )
+            await callback.message.edit_text(
+                "📝 <b>Найден незавершенный фильтр</b>\n\n"
+                f"Последний шаг: <b>{step_name}</b>\n"
+                f"Ключевые слова: <b>{keywords_preview}</b>\n\n"
+                "Хотите продолжить или начать заново?",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="▶️ Продолжить", callback_data="ew_draft:continue")],
+                    [InlineKeyboardButton(text="🔄 Начать заново", callback_data="ew_draft:new")],
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                ])
+            )
+            return
+
+        # Начинаем с чистого листа
+        await start_fresh_wizard(callback, state)
 
     except Exception as e:
         logger.error(f"Error starting extended wizard: {e}", exc_info=True)
         await callback.message.answer("❌ Произошла ошибка. Попробуйте позже.")
+
+
+async def start_fresh_wizard(callback: CallbackQuery, state: FSMContext):
+    """Начинает wizard с чистого листа."""
+    # Очищаем state и инициализируем defaults
+    await state.clear()
+    await state.update_data(
+        tender_type=None,
+        tender_type_name='Любые',
+        keywords=[],
+        price_min=None,
+        price_max=None,
+        regions=[],
+        law_type=None,
+        law_type_name='Любой',
+        exclude_keywords=[],
+        search_limit=25,
+        automonitor=True
+    )
+    await state.set_state(ExtendedWizardStates.select_tender_type)
+
+    await callback.message.edit_text(
+        "🎯 <b>Создание фильтра</b>\n\n"
+        "<b>Шаг 1/8:</b> Что ищем?\n\n"
+        "Выберите тип закупки:",
+        parse_mode="HTML",
+        reply_markup=get_tender_type_keyboard()
+    )
+
+
+@router.callback_query(F.data == "ew_draft:continue")
+async def continue_from_draft(callback: CallbackQuery, state: FSMContext):
+    """Продолжает создание фильтра из черновика."""
+    await callback.answer("Восстанавливаю прогресс...")
+
+    try:
+        draft = await get_draft(callback.from_user.id)
+        if not draft or not draft.get('draft_data'):
+            await start_fresh_wizard(callback, state)
+            return
+
+        draft_data = draft['draft_data']
+        current_step = draft.get('current_step', 'select_tender_type')
+
+        # Восстанавливаем state
+        await state.clear()
+        await state.update_data(**draft_data)
+
+        # Определяем следующий шаг на основе сохраненного
+        step_state_map = {
+            'select_tender_type': ExtendedWizardStates.select_tender_type,
+            'enter_keywords': ExtendedWizardStates.enter_keywords,
+            'enter_budget_min': ExtendedWizardStates.enter_budget_min,
+            'enter_budget_max': ExtendedWizardStates.enter_budget_max,
+            'confirm_budget': ExtendedWizardStates.confirm_budget,
+            'select_region': ExtendedWizardStates.select_region,
+            'select_law': ExtendedWizardStates.select_law,
+            'enter_excluded': ExtendedWizardStates.enter_excluded,
+            'select_search_limit': ExtendedWizardStates.select_search_limit,
+            'select_automonitor': ExtendedWizardStates.select_automonitor,
+            'confirm_create': ExtendedWizardStates.confirm_create,
+        }
+
+        target_state = step_state_map.get(current_step, ExtendedWizardStates.select_tender_type)
+        await state.set_state(target_state)
+
+        # Показываем соответствующий шаг
+        await show_step_for_state(callback, state, current_step, draft_data)
+
+    except Exception as e:
+        logger.error(f"Error continuing from draft: {e}", exc_info=True)
+        await callback.message.answer("❌ Не удалось восстановить прогресс. Начинаем заново.")
+        await start_fresh_wizard(callback, state)
+
+
+@router.callback_query(F.data == "ew_draft:new")
+async def start_new_discard_draft(callback: CallbackQuery, state: FSMContext):
+    """Начинает новый фильтр, удаляя черновик."""
+    await callback.answer("Начинаю заново...")
+    await delete_draft(callback.from_user.id)
+    await start_fresh_wizard(callback, state)
+
+
+async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: str, data: dict):
+    """Показывает UI для указанного шага."""
+    settings_text = get_current_settings_text(data)
+
+    if step == 'select_tender_type':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"<b>Шаг 1/8:</b> Что ищем?\n\n"
+            f"Выберите тип закупки:",
+            parse_mode="HTML",
+            reply_markup=get_tender_type_keyboard()
+        )
+    elif step == 'enter_keywords':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 2/8:</b> Введите ключевые слова\n\n"
+            f"Укажите через запятую, что вы ищете.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:type")]
+            ])
+        )
+    elif step in ('enter_budget_min', 'enter_budget_max', 'confirm_budget'):
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
+            f"Выберите диапазон или введите свой:",
+            parse_mode="HTML",
+            reply_markup=get_budget_keyboard()
+        )
+    elif step == 'select_region':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 4/8:</b> Выберите регион\n\n"
+            f"Где искать тендеры?",
+            parse_mode="HTML",
+            reply_markup=get_region_keyboard()
+        )
+    elif step == 'select_law':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 5/8:</b> Выберите закон",
+            parse_mode="HTML",
+            reply_markup=get_law_keyboard()
+        )
+    elif step == 'enter_excluded':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 6/8:</b> Исключения\n\n"
+            f"Какие слова исключить из поиска? (или пропустите)",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить", callback_data="ew_skip:excluded")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:law")]
+            ])
+        )
+    elif step == 'select_search_limit':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 7/8:</b> Сколько тендеров искать?",
+            parse_mode="HTML",
+            reply_markup=get_search_limit_keyboard()
+        )
+    elif step == 'select_automonitor':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 7/8:</b> Включить автомониторинг?\n\n"
+            f"Бот будет автоматически искать новые тендеры по этому фильтру.",
+            parse_mode="HTML",
+            reply_markup=get_automonitor_keyboard()
+        )
+    elif step == 'confirm_create':
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 8/8:</b> Всё верно?",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Создать и искать", callback_data="ew_confirm")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:automonitor")]
+            ])
+        )
 
 
 # ============================================
@@ -525,6 +744,10 @@ async def handle_tender_type_selection(callback: CallbackQuery, state: FSMContex
         tender_type=tender_types_list,
         tender_type_name=type_info['name']
     )
+
+    # 🆕 Автосохранение черновика
+    data = await state.get_data()
+    await save_draft(callback.from_user.id, data, 'enter_keywords')
 
     # Переходим к шагу 2: ключевые слова
     await state.set_state(ExtendedWizardStates.enter_keywords)
@@ -579,10 +802,12 @@ async def handle_keywords_input(message: Message, state: FSMContext):
 
     await state.update_data(keywords=keywords, filter_name=filter_name)
 
+    # 🆕 Автосохранение черновика
+    data = await state.get_data()
+    await save_draft(message.from_user.id, data, 'enter_budget_min')
+
     # Переходим к шагу 3: бюджет - сразу запрашиваем минимум
     await state.set_state(ExtendedWizardStates.enter_budget_min)
-
-    data = await state.get_data()
 
     await message.answer(
         f"🎯 <b>Создание фильтра</b>\n\n"
@@ -792,8 +1017,13 @@ async def back_to_budget_max(callback: CallbackQuery, state: FSMContext):
 
 async def go_to_region_step(message, state: FSMContext):
     """Переход к шагу выбора региона."""
-    await state.set_state(ExtendedWizardStates.select_region)
     data = await state.get_data()
+
+    # 🆕 Автосохранение черновика
+    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    await save_draft(user_id, data, 'select_region')
+
+    await state.set_state(ExtendedWizardStates.select_region)
 
     # Форматируем бюджет для отображения
     price_min = data.get('price_min')
@@ -848,8 +1078,13 @@ async def handle_federal_district(callback: CallbackQuery, state: FSMContext):
 
 async def go_to_law_step(message, state: FSMContext):
     """Переход к шагу выбора закона."""
-    await state.set_state(ExtendedWizardStates.select_law)
     data = await state.get_data()
+
+    # 🆕 Автосохранение черновика
+    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    await save_draft(user_id, data, 'select_law')
+
+    await state.set_state(ExtendedWizardStates.select_law)
 
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
@@ -885,8 +1120,13 @@ async def handle_law_selection(callback: CallbackQuery, state: FSMContext):
 
 async def go_to_exclusions_step(message, state: FSMContext):
     """Переход к шагу исключений."""
-    await state.set_state(ExtendedWizardStates.enter_excluded)
     data = await state.get_data()
+
+    # 🆕 Автосохранение черновика
+    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    await save_draft(user_id, data, 'enter_excluded')
+
+    await state.set_state(ExtendedWizardStates.enter_excluded)
 
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
@@ -930,8 +1170,13 @@ async def skip_exclusions(callback: CallbackQuery, state: FSMContext):
 
 async def go_to_search_settings_step(message, state: FSMContext):
     """Переход к шагу настроек поиска (количество тендеров)."""
-    await state.set_state(ExtendedWizardStates.select_search_limit)
     data = await state.get_data()
+
+    # 🆕 Автосохранение черновика
+    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    await save_draft(user_id, data, 'select_search_limit')
+
+    await state.set_state(ExtendedWizardStates.select_search_limit)
 
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
@@ -961,8 +1206,13 @@ async def handle_search_limit_selection(callback: CallbackQuery, state: FSMConte
 
 async def go_to_automonitor_step(message, state: FSMContext):
     """Переход к шагу выбора автомониторинга."""
-    await state.set_state(ExtendedWizardStates.select_automonitor)
     data = await state.get_data()
+
+    # 🆕 Автосохранение черновика
+    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    await save_draft(user_id, data, 'select_automonitor')
+
+    await state.set_state(ExtendedWizardStates.select_automonitor)
 
     search_limit = data.get('search_limit', 25)
 
@@ -996,8 +1246,13 @@ async def handle_automonitor_selection(callback: CallbackQuery, state: FSMContex
 
 async def go_to_confirm_step(message, state: FSMContext):
     """Переход к шагу подтверждения."""
-    await state.set_state(ExtendedWizardStates.confirm_create)
     data = await state.get_data()
+
+    # 🆕 Автосохранение черновика
+    user_id = message.from_user.id if hasattr(message, 'from_user') else message.chat.id
+    await save_draft(user_id, data, 'confirm_create')
+
+    await state.set_state(ExtendedWizardStates.confirm_create)
 
     settings_text = get_current_settings_text(data)
 
@@ -1254,6 +1509,9 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         )
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}, automonitor={automonitor}")
+
+        # 🆕 Удаляем черновик после успешного создания фильтра
+        await delete_draft(callback.from_user.id)
 
         # Запускаем мгновенный поиск
         await callback.message.edit_text(
@@ -1830,6 +2088,9 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         )
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}")
+
+        # 🆕 Удаляем черновик после успешного создания фильтра
+        await delete_draft(callback.from_user.id)
 
         # Запускаем мгновенный поиск
         await callback.message.edit_text(

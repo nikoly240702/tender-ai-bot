@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+
+{% block title %}Уведомления{% endblock %}
+
+{% block content %}
+<!-- Top Bar -->
+<div class="top-bar">
+    <h4 class="mb-0">🔔 История уведомлений</h4>
+    <form class="d-flex gap-2" method="get" action="/notifications">
+        <input type="text" class="form-control search-box" name="search"
+               placeholder="Поиск по номеру тендера..." value="{{ search or '' }}">
+        <select class="form-select" name="status" style="width: auto;">
+            <option value="">Все статусы</option>
+            <option value="sent" {% if status_filter == 'sent' %}selected{% endif %}>Отправлено</option>
+            <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Ошибка</option>
+        </select>
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-search"></i>
+        </button>
+    </form>
+</div>
+
+<!-- Stats Summary -->
+<div class="row g-3 mb-4">
+    <div class="col-auto">
+        <span class="badge bg-secondary p-2">
+            Всего: {{ total_notifications }}
+        </span>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-success p-2">
+            Отправлено: {{ sent_count }}
+        </span>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-danger p-2">
+            Ошибок: {{ failed_count }}
+        </span>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-info p-2">
+            Сегодня: {{ today_count }}
+        </span>
+    </div>
+</div>
+
+<!-- Notifications Table -->
+<div class="card card-custom">
+    <div class="card-body p-0">
+        <table class="table table-custom table-hover">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Тендер</th>
+                    <th>Пользователь</th>
+                    <th>Фильтр</th>
+                    <th>Статус</th>
+                    <th>Дата</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for notif in notifications %}
+                <tr>
+                    <td>
+                        <code>#{{ notif.id }}</code>
+                    </td>
+                    <td>
+                        <div>
+                            <strong>{{ notif.tender_number or '-' }}</strong>
+                        </div>
+                        <small class="text-muted text-truncate d-inline-block" style="max-width: 300px;">
+                            {{ notif.tender_name or '' }}
+                        </small>
+                    </td>
+                    <td>
+                        <a href="/users/{{ notif.user_id }}">
+                            {{ notif.user_name or notif.user_id }}
+                        </a>
+                    </td>
+                    <td>
+                        {% if notif.filter_id %}
+                        <a href="/filters?search={{ notif.filter_id }}">
+                            #{{ notif.filter_id }}
+                        </a>
+                        {% else %}
+                        <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if notif.status == 'sent' %}
+                        <span class="badge badge-status badge-active">
+                            <i class="bi bi-check-circle"></i> Отправлено
+                        </span>
+                        {% elif notif.status == 'failed' %}
+                        <span class="badge badge-status badge-blocked" title="{{ notif.error_message or '' }}">
+                            <i class="bi bi-x-circle"></i> Ошибка
+                        </span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ notif.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {{ notif.created_at.strftime('%d.%m.%Y %H:%M') if notif.created_at else '-' }}
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-5">
+                        Уведомления не найдены
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Pagination -->
+{% if total_pages > 1 %}
+<nav class="mt-4">
+    <ul class="pagination justify-content-center">
+        <li class="page-item {% if page == 1 %}disabled{% endif %}">
+            <a class="page-link" href="?page={{ page - 1 }}&search={{ search or '' }}&status={{ status_filter or '' }}">
+                <i class="bi bi-chevron-left"></i>
+            </a>
+        </li>
+
+        {% for p in range(1, total_pages + 1) %}
+            {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+            <li class="page-item {% if p == page %}active{% endif %}">
+                <a class="page-link" href="?page={{ p }}&search={{ search or '' }}&status={{ status_filter or '' }}">{{ p }}</a>
+            </li>
+            {% elif p == page - 3 or p == page + 3 %}
+            <li class="page-item disabled">
+                <span class="page-link">...</span>
+            </li>
+            {% endif %}
+        {% endfor %}
+
+        <li class="page-item {% if page == total_pages %}disabled{% endif %}">
+            <a class="page-link" href="?page={{ page + 1 }}&search={{ search or '' }}&status={{ status_filter or '' }}">
+                <i class="bi bi-chevron-right"></i>
+            </a>
+        </li>
+    </ul>
+</nav>
+{% endif %}
+{% endblock %}

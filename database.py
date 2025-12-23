@@ -501,14 +501,23 @@ async def init_database(echo: bool = False):
 
     # Создаем engine
     logger.info("   Создание SQLAlchemy engine...")
-    _engine = create_async_engine(
-        database_url,
-        echo=echo,
-        pool_pre_ping=True,  # Проверка соединений перед использованием
-        pool_size=20 if not is_sqlite else 1,  # SQLite не поддерживает pooling
-        max_overflow=40 if not is_sqlite else 0,
-        poolclass=NullPool if is_sqlite else None,  # SQLite = no pool
-    )
+
+    if is_sqlite:
+        # SQLite не поддерживает pooling - используем NullPool без pool_size/max_overflow
+        _engine = create_async_engine(
+            database_url,
+            echo=echo,
+            poolclass=NullPool,
+        )
+    else:
+        # PostgreSQL - полноценный пул соединений
+        _engine = create_async_engine(
+            database_url,
+            echo=echo,
+            pool_pre_ping=True,
+            pool_size=20,
+            max_overflow=40,
+        )
     logger.info("   ✅ Engine создан")
 
     # Создаем session factory

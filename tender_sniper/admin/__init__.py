@@ -1,25 +1,26 @@
 """
-Admin Dashboard Module
+Tender Sniper Admin Dashboard.
 
-Status: PLACEHOLDER - Not implemented yet
-Phase: 3 (Week 3-4)
+FastAPI-based admin panel for managing users, filters, and notifications.
 
-This module will contain:
-- FastAPI/Flask web application
-- User management interface
-- Analytics dashboard
-- System monitoring
-- Manual tender management
+Usage:
+    uvicorn tender_sniper.admin.app:app --host 0.0.0.0 --port 8080
 
-Enable via: config/features.yaml → tender_sniper.components.admin_dashboard: true
+Or run via script:
+    python scripts/run_admin.py
 
 Pages:
-- /admin/users - User list with subscription status
-- /admin/analytics - Revenue, usage statistics
-- /admin/tenders - Manual tender management
-- /admin/notifications - Notification queue
-- /admin/settings - System configuration
+- / - Dashboard with statistics
+- /users - User management
+- /filters - Filter management
+- /notifications - Notification history
+
+API Endpoints:
+- /api/stats/hourly - Hourly notification stats
+- /api/stats/daily - Daily notification stats
+- /health - Health check
 """
 
-# Will be implemented in Phase 3
-pass
+from .app import app
+
+__all__ = ['app']
