@@ -566,7 +566,7 @@ async def start_extended_wizard(callback: CallbackQuery, state: FSMContext):
                 f"Удалите старые фильтры или обновите подписку.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
+                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
                     [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
                 ])
             )
@@ -1822,7 +1822,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
                 f"🔔 Вы получите уведомление, когда появятся новые тендеры.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
+                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
                     [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
                     [InlineKeyboardButton(text="🏠 Меню", callback_data="sniper_menu")]
                 ])
@@ -1894,7 +1894,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             f"Фильтр <b>{filter_name}</b> создан" + (" и активирован.\n" + "Вы будете получать уведомления о новых тендерах." if data.get('automonitor', True) else ".\nАвтомониторинг отключен — только разовый поиск."),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
                 [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
                 [InlineKeyboardButton(text="🏠 Меню", callback_data="sniper_menu")]
             ])
@@ -2401,7 +2401,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
                 f"🔔 Вы получите уведомление, когда появятся новые тендеры.",
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
+                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
                     [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
                     [InlineKeyboardButton(text="🏠 Меню", callback_data="sniper_menu")]
                 ])
@@ -2473,7 +2473,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             f"Фильтр <b>{filter_name}</b> создан" + (" и активирован.\n" + "Вы будете получать уведомления о новых тендерах." if data.get('automonitor', True) else ".\nАвтомониторинг отключен — только разовый поиск."),
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_filters")],
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
                 [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
                 [InlineKeyboardButton(text="🏠 Меню", callback_data="sniper_menu")]
             ])
