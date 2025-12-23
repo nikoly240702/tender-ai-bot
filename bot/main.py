@@ -266,15 +266,16 @@ async def main():
 
     # Глобальный обработчик ошибок
     @dp.error()
-    async def error_handler(event, exception):
+    async def error_handler(event):
         """Глобальный обработчик необработанных исключений."""
+        exception = event.exception
         logger.error(f"❌ Необработанная ошибка: {exception}", exc_info=True)
         capture_exception(exception, level="error", tags={"component": "handler"})
 
         # Пытаемся уведомить пользователя
         try:
-            if hasattr(event, 'update') and event.update:
-                update = event.update
+            update = event.update
+            if update:
                 if update.message:
                     await update.message.answer(
                         "❌ Произошла ошибка. Попробуйте /start для перезапуска."

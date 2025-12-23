@@ -1088,8 +1088,14 @@ async def show_budget_confirmation(message, state: FSMContext):
         [InlineKeyboardButton(text="✏️ Изменить максимум", callback_data="ew_back:budget_max")],
     ])
 
-    if hasattr(message, 'edit_text'):
-        await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    # Проверяем, можно ли редактировать сообщение (только для сообщений бота)
+    can_edit = hasattr(message, 'from_user') and message.from_user and message.from_user.is_bot
+
+    if can_edit:
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        except Exception:
+            await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
 
@@ -1185,8 +1191,13 @@ async def go_to_region_step(message, state: FSMContext):
         f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:"
     )
 
-    if hasattr(message, 'edit_text'):
-        await message.edit_text(text, parse_mode="HTML", reply_markup=get_region_keyboard(selected_districts))
+    # Проверяем, можно ли редактировать (только сообщения бота)
+    can_edit = hasattr(message, 'from_user') and message.from_user and message.from_user.is_bot
+    if can_edit:
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=get_region_keyboard(selected_districts))
+        except Exception:
+            await message.answer(text, parse_mode="HTML", reply_markup=get_region_keyboard(selected_districts))
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=get_region_keyboard(selected_districts))
 
@@ -1426,8 +1437,12 @@ async def go_to_search_settings_step(message, state: FSMContext):
         f"Сколько тендеров найти при мгновенном поиске?"
     )
 
-    if hasattr(message, 'edit_text'):
-        await message.edit_text(text, parse_mode="HTML", reply_markup=get_search_limit_keyboard())
+    can_edit = hasattr(message, 'from_user') and message.from_user and message.from_user.is_bot
+    if can_edit:
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=get_search_limit_keyboard())
+        except Exception:
+            await message.answer(text, parse_mode="HTML", reply_markup=get_search_limit_keyboard())
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=get_search_limit_keyboard())
 
@@ -1465,8 +1480,12 @@ async def go_to_automonitor_step(message, state: FSMContext):
         f"🔕 <b>Нет</b> — только разовый поиск без отслеживания"
     )
 
-    if hasattr(message, 'edit_text'):
-        await message.edit_text(text, parse_mode="HTML", reply_markup=get_automonitor_keyboard())
+    can_edit = hasattr(message, 'from_user') and message.from_user and message.from_user.is_bot
+    if can_edit:
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=get_automonitor_keyboard())
+        except Exception:
+            await message.answer(text, parse_mode="HTML", reply_markup=get_automonitor_keyboard())
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=get_automonitor_keyboard())
 
@@ -1503,8 +1522,12 @@ async def go_to_confirm_step(message, state: FSMContext):
         f"Всё верно? Нажмите «Создать» или измените настройки."
     )
 
-    if hasattr(message, 'edit_text'):
-        await message.edit_text(text, parse_mode="HTML", reply_markup=get_confirm_keyboard())
+    can_edit = hasattr(message, 'from_user') and message.from_user and message.from_user.is_bot
+    if can_edit:
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=get_confirm_keyboard())
+        except Exception:
+            await message.answer(text, parse_mode="HTML", reply_markup=get_confirm_keyboard())
     else:
         await message.answer(text, parse_mode="HTML", reply_markup=get_confirm_keyboard())
 
