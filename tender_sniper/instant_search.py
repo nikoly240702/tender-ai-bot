@@ -123,6 +123,11 @@ class InstantSearch:
         if publication_days:
             logger.info(f"   📅 Публикация за: {publication_days} дней")
 
+        # По умолчанию ищем только АКТИВНЫЕ тендеры (идёт приём заявок)
+        # Если пользователь не указал этап - используем "submission"
+        effective_purchase_stage = purchase_stage if purchase_stage else "submission"
+        logger.info(f"   🎯 Этап закупки: {effective_purchase_stage}")
+
         try:
             # Выполняем ОТДЕЛЬНЫЙ поиск для каждого ключевого слова
             # Это OR логика - тендер найдётся если содержит ЛЮБОЕ из слов
@@ -163,7 +168,7 @@ class InstantSearch:
                         max_results=results_per_query,
                         tender_type=tender_type_for_rss,
                         law_type=law_type,
-                        purchase_stage=purchase_stage,
+                        purchase_stage=effective_purchase_stage,
                         purchase_method=purchase_method,
                     )
 
@@ -219,28 +224,34 @@ class InstantSearch:
                                     logger.debug(f"      ⛔ Заказчик не совпадает: {customer_name[:50]}")
                                     continue
 
-                            # Проверяем минимум дней до дедлайна
-                            if min_deadline_days:
-                                deadline = tender.get('deadline') or tender.get('end_date')
-                                if deadline:
-                                    try:
-                                        from datetime import datetime, timedelta
-                                        # Пробуем разные форматы даты
-                                        deadline_date = None
-                                        for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M']:
-                                            try:
-                                                deadline_date = datetime.strptime(deadline[:10], fmt[:len(deadline[:10])])
-                                                break
-                                            except:
-                                                continue
+                            # === ОБЯЗАТЕЛЬНАЯ ПРОВЕРКА: дедлайн не просрочен ===
+                            # Отсекаем тендеры с просроченным дедлайном (баг zakupki.gov.ru)
+                            deadline = tender.get('deadline') or tender.get('end_date')
+                            if deadline:
+                                try:
+                                    # Пробуем разные форматы даты
+                                    deadline_date = None
+                                    for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M']:
+                                        try:
+                                            deadline_date = datetime.strptime(deadline[:10], fmt[:len(deadline[:10])])
+                                            break
+                                        except:
+                                            continue
 
-                                        if deadline_date:
-                                            days_left = (deadline_date - datetime.now()).days
-                                            if days_left < min_deadline_days:
-                                                logger.debug(f"      ⛔ Мало дней до дедлайна ({days_left}): {tender.get('name', '')[:50]}")
-                                                continue
-                                    except Exception as e:
-                                        logger.debug(f"      ⚠️ Не удалось проверить дедлайн: {e}")
+                                    if deadline_date:
+                                        days_left = (deadline_date - datetime.now()).days
+
+                                        # Просроченный тендер - пропускаем
+                                        if days_left < 0:
+                                            logger.debug(f"      ⛔ Просрочен ({days_left} дн.): {tender.get('name', '')[:50]}")
+                                            continue
+
+                                        # Проверяем минимум дней до дедлайна (если указано)
+                                        if min_deadline_days and days_left < min_deadline_days:
+                                            logger.debug(f"      ⛔ Мало дней до дедлайна ({days_left}): {tender.get('name', '')[:50]}")
+                                            continue
+                                except Exception as e:
+                                    logger.debug(f"      ⚠️ Не удалось проверить дедлайн: {e}")
 
                             seen_numbers.add(number)
                             all_results.append(tender)

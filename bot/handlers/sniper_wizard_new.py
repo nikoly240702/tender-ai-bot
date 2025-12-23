@@ -178,8 +178,18 @@ def format_price(price: Optional[float]) -> str:
     """Форматирование цены в читаемый вид."""
     if price is None:
         return "без ограничений"
-    if price >= 1_000_000:
-        return f"{price / 1_000_000:.1f} млн ₽"
+    if price >= 1_000_000_000:
+        # Миллиарды
+        value = price / 1_000_000_000
+        if value == int(value):
+            return f"{int(value)} млрд ₽"
+        return f"{value:.1f} млрд ₽"
+    elif price >= 1_000_000:
+        # Миллионы
+        value = price / 1_000_000
+        if value == int(value):
+            return f"{int(value)} млн ₽"
+        return f"{value:.1f} млн ₽"
     elif price >= 1_000:
         return f"{price / 1_000:.0f} тыс ₽"
     else:
