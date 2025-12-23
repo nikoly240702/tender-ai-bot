@@ -418,7 +418,7 @@ async def settings_criteria_handler(callback: CallbackQuery):
             filters_text = "<i>У вас пока нет фильтров</i>"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_new_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="« Назад", callback_data="settings_back")]
         ])

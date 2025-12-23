@@ -545,7 +545,7 @@ async def show_my_filters(callback: CallbackQuery):
 
         if not filters:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_create_filter")],
+                [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_new_search")],
                 [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
                 [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
@@ -588,7 +588,7 @@ async def show_my_filters(callback: CallbackQuery):
             ])
 
         keyboard_buttons.append([
-            InlineKeyboardButton(text="➕ Добавить фильтр", callback_data="sniper_create_filter")
+            InlineKeyboardButton(text="➕ Добавить фильтр", callback_data="sniper_new_search")
         ])
         keyboard_buttons.append([
             InlineKeyboardButton(text="🗑️ Удалить все фильтры", callback_data="confirm_delete_all_filters")
@@ -635,7 +635,7 @@ async def show_my_filters_message(message: Message):
 
         if not filters:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_create_filter")],
+                [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_new_search")],
                 [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
                 [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
@@ -678,7 +678,7 @@ async def show_my_filters_message(message: Message):
             ])
 
         keyboard_buttons.append([
-            InlineKeyboardButton(text="➕ Добавить фильтр", callback_data="sniper_create_filter")
+            InlineKeyboardButton(text="➕ Добавить фильтр", callback_data="sniper_new_search")
         ])
         keyboard_buttons.append([
             InlineKeyboardButton(text="🗑️ Удалить все фильтры", callback_data="confirm_delete_all_filters")
@@ -1178,7 +1178,7 @@ async def delete_all_filters_confirmed(callback: CallbackQuery):
                 logger.error(f"Ошибка при удалении фильтра {filter_data['id']}: {e}")
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Создать новый фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="➕ Создать новый фильтр", callback_data="sniper_new_search")],
             [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])

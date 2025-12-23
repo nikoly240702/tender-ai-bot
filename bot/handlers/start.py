@@ -257,8 +257,7 @@ async def keyboard_tender_sniper(message: Message):
     """Обработчик кнопки 'Tender Sniper' из постоянной клавиатуры."""
     try:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Мгновенный поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="➕ Создать фильтр", callback_data="sniper_create_filter")],
+            [InlineKeyboardButton(text="🔍 Создать фильтр", callback_data="sniper_new_search")],
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")]
         ])
