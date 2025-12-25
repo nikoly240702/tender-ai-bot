@@ -28,9 +28,29 @@ else
     exit 1
 fi
 
-# Запускаем приложение
+# Устанавливаем флаг, что админ-панель обрабатывает health check
+export ADMIN_PANEL_ENABLED=1
+
+# Запускаем Admin Panel в фоне (для webhook и управления)
+echo "=========================================="
+echo "🌐 Starting Admin Panel on port 8080..."
+echo "=========================================="
+
+python -m uvicorn tender_sniper.admin.app:app --host 0.0.0.0 --port 8080 &
+ADMIN_PID=$!
+echo "✅ Admin Panel started (PID: $ADMIN_PID)"
+
+# Даём время админке запуститься
+sleep 2
+
+# Запускаем бота
 echo "=========================================="
 echo "🤖 Starting bot application..."
 echo "=========================================="
 
-exec python -m bot.main
+python -m bot.main &
+BOT_PID=$!
+echo "✅ Bot started (PID: $BOT_PID)"
+
+# Ждём оба процесса
+wait $ADMIN_PID $BOT_PID

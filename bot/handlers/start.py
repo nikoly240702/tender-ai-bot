@@ -82,6 +82,20 @@ async def cmd_start(message: Message, state: FSMContext):
     # Очищаем любое предыдущее состояние
     await state.clear()
 
+    # Проверяем реферальную ссылку (/start ref_XXXXXXXX)
+    if message.text and "ref_" in message.text:
+        try:
+            parts = message.text.split()
+            for part in parts:
+                if part.startswith("ref_"):
+                    referral_code = part[4:].upper()
+                    logger.info(f"Referral code detected: {referral_code} for user {message.from_user.id}")
+                    # Сохраняем код в state для обработки после регистрации
+                    await state.update_data(referral_code=referral_code)
+                    break
+        except Exception as e:
+            logger.error(f"Error parsing referral code: {e}")
+
     # Проверяем, новый ли пользователь
     # Если команда /start onboarding - принудительно показываем онбординг
     force_onboarding = message.text and "onboarding" in message.text.lower()

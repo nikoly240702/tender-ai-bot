@@ -81,12 +81,22 @@ class SniperUser(Base):
     blocked_by = Column(BigInteger, nullable=True)  # Telegram ID админа
 
     # Тарифный план
-    subscription_tier = Column(String(50), default='free', nullable=False)  # free, basic, premium
+    subscription_tier = Column(String(50), default='free', nullable=False)  # free, trial, basic, premium
     filters_limit = Column(Integer, default=5, nullable=False)
     notifications_limit = Column(Integer, default=15, nullable=False)
     notifications_sent_today = Column(Integer, default=0, nullable=False)
     notifications_enabled = Column(Boolean, default=True, nullable=False)  # Автомониторинг вкл/выкл
     last_notification_reset = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Trial period
+    trial_started_at = Column(DateTime, nullable=True)
+    trial_expires_at = Column(DateTime, nullable=True)
+
+    # Referral program
+    referral_code = Column(String(20), unique=True, nullable=True, index=True)
+    referred_by = Column(Integer, nullable=True)  # user_id who referred
+    referral_bonus_days = Column(Integer, default=0)  # Accumulated bonus days
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -451,6 +461,79 @@ class QuickFilterTemplate(Base):
 
 
 # ============================================
+# PHASE 3: MONETIZATION & ADMIN MODELS
+# ============================================
+
+class BroadcastMessage(Base):
+    """История рассылок сообщений."""
+    __tablename__ = 'broadcast_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_text = Column(Text, nullable=False)
+    target_tier = Column(String(50), default='all')  # all, trial, basic, premium
+    sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    total_recipients = Column(Integer, default=0)
+    successful = Column(Integer, default=0)
+    failed = Column(Integer, default=0)
+    created_by = Column(String(100), nullable=True)  # admin username
+
+
+class Promocode(Base):
+    """Промокоды для подписок."""
+    __tablename__ = 'promocodes'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(50), unique=True, nullable=False, index=True)
+    tier = Column(String(50), nullable=False)  # basic, premium
+    days = Column(Integer, nullable=False)  # Дней подписки
+    max_uses = Column(Integer, nullable=True)  # NULL = unlimited
+    current_uses = Column(Integer, default=0)
+    expires_at = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_by = Column(String(100), nullable=True)
+
+
+class Payment(Base):
+    """История платежей YooKassa."""
+    __tablename__ = 'payments'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    yookassa_payment_id = Column(String(100), unique=True, nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    currency = Column(String(10), default='RUB')
+    tier = Column(String(50), nullable=False)  # basic, premium
+    status = Column(String(50), default='pending')  # pending, succeeded, canceled
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+
+class Referral(Base):
+    """Реферальные связи."""
+    __tablename__ = 'referrals'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    referrer_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    referred_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    bonus_given = Column(Boolean, default=False)
+    bonus_days = Column(Integer, default=7)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    referrer = relationship("SniperUser", foreign_keys=[referrer_id])
+    referred = relationship("SniperUser", foreign_keys=[referred_id])
+
+    __table_args__ = (
+        Index('ix_referrals_referrer', 'referrer_id'),
+        Index('ix_referrals_referred', 'referred_id', unique=True),  # User can only be referred once
+    )
+
+
+# ============================================
 # DATABASE ENGINE & SESSION
 # ============================================
 
@@ -609,6 +692,11 @@ __all__ = [
     'SatisfactionSurvey',
     'ViewedTender',
     'QuickFilterTemplate',
+    # Phase 3 - Monetization
+    'BroadcastMessage',
+    'Promocode',
+    'Payment',
+    'Referral',
     # Functions
     'init_database',
     'get_session',

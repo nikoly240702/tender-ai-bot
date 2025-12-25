@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Тарифы{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0">Управление тарифами</h4>
+    <div class="text-muted">Настройки лимитов и цен</div>
+</div>
+
+<div class="row">
+    {% for tier_name, settings in tariffs.items() %}
+    <div class="col-md-6 col-lg-3 mb-4">
+        <div class="card card-custom h-100">
+            <div class="card-header text-center">
+                <span class="badge badge-tier badge-{{ tier_name }} fs-6">{{ tier_name | upper }}</span>
+            </div>
+            <div class="card-body">
+                <div class="text-center mb-4">
+                    <div class="display-6">
+                        {% if settings.price > 0 %}
+                        {{ settings.price }} <small class="text-muted fs-6">руб/мес</small>
+                        {% else %}
+                        <span class="text-success">Бесплатно</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <ul class="list-unstyled">
+                    <li class="mb-2">
+                        <i class="bi bi-funnel text-primary me-2"></i>
+                        {% if settings.filters >= 9999 %}
+                        Безлимит фильтров
+                        {% else %}
+                        {{ settings.filters }} фильтров
+                        {% endif %}
+                    </li>
+                    <li class="mb-2">
+                        <i class="bi bi-bell text-primary me-2"></i>
+                        {% if settings.notifications >= 9999 %}
+                        Безлимит уведомлений
+                        {% else %}
+                        {{ settings.notifications }} уведом./день
+                        {% endif %}
+                    </li>
+                </ul>
+
+                <hr>
+
+                <div class="text-center">
+                    <span class="text-muted">Пользователей:</span>
+                    <span class="fs-4 fw-bold ms-2">{{ tier_stats.get(tier_name, 0) }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-info-circle me-2"></i> Информация о тарифах
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>Быстрые действия</h6>
+                        <div class="d-grid gap-2">
+                            <a href="/export/users" class="btn btn-outline-primary">
+                                <i class="bi bi-download me-2"></i> Экспорт пользователей (CSV)
+                            </a>
+                            <a href="/export/filters" class="btn btn-outline-primary">
+                                <i class="bi bi-download me-2"></i> Экспорт фильтров (CSV)
+                            </a>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>Примечания</h6>
+                        <ul class="text-muted small">
+                            <li>Лимиты уведомлений сбрасываются ежедневно в 00:00 UTC</li>
+                            <li>Trial период длится 14 дней</li>
+                            <li>Изменение тарифа вступает в силу немедленно</li>
+                            <li>Для изменения лимитов обратитесь к разработчику</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

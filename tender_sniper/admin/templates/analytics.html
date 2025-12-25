@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block title %}Аналитика{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0">Аналитика</h4>
+    <div class="text-muted">Статистика использования системы</div>
+</div>
+
+<!-- Воронка конверсии -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-funnel me-2"></i> Воронка конверсии
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-md-3">
+                        <div class="stat-card h-100">
+                            <div class="icon blue mx-auto">
+                                <i class="bi bi-person-plus"></i>
+                            </div>
+                            <div class="value">{{ funnel.registered }}</div>
+                            <div class="label">Зарегистрировались</div>
+                            <div class="text-muted small">100%</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card h-100">
+                            <div class="icon green mx-auto">
+                                <i class="bi bi-funnel"></i>
+                            </div>
+                            <div class="value">{{ funnel.created_filter }}</div>
+                            <div class="label">Создали фильтр</div>
+                            <div class="text-muted small">
+                                {% if funnel.registered > 0 %}
+                                {{ ((funnel.created_filter / funnel.registered) * 100) | round(1) }}%
+                                {% else %}0%{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card h-100">
+                            <div class="icon purple mx-auto">
+                                <i class="bi bi-activity"></i>
+                            </div>
+                            <div class="value">{{ funnel.active_24h }}</div>
+                            <div class="label">Активны за 24ч</div>
+                            <div class="text-muted small">
+                                {% if funnel.registered > 0 %}
+                                {{ ((funnel.active_24h / funnel.registered) * 100) | round(1) }}%
+                                {% else %}0%{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="stat-card h-100">
+                            <div class="icon orange mx-auto">
+                                <i class="bi bi-currency-dollar"></i>
+                            </div>
+                            <div class="value">{{ funnel.paying }}</div>
+                            <div class="label">Платящие</div>
+                            <div class="text-muted small">
+                                {% if funnel.registered > 0 %}
+                                {{ ((funnel.paying / funnel.registered) * 100) | round(1) }}%
+                                {% else %}0%{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Топ ключевых слов -->
+    <div class="col-lg-6 mb-4">
+        <div class="card card-custom h-100">
+            <div class="card-header">
+                <i class="bi bi-search me-2"></i> Топ-20 ключевых слов
+            </div>
+            <div class="card-body">
+                {% if top_keywords %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Ключевое слово</th>
+                                <th class="text-end">Фильтров</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for keyword, count in top_keywords %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td><code>{{ keyword }}</code></td>
+                                <td class="text-end">
+                                    <span class="badge bg-primary">{{ count }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    Данных пока нет
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Топ регионов -->
+    <div class="col-lg-6 mb-4">
+        <div class="card card-custom h-100">
+            <div class="card-header">
+                <i class="bi bi-geo-alt me-2"></i> Топ-15 регионов
+            </div>
+            <div class="card-body">
+                {% if top_regions %}
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Регион</th>
+                                <th class="text-end">Фильтров</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for region, count in top_regions %}
+                            <tr>
+                                <td>{{ loop.index }}</td>
+                                <td>{{ region }}</td>
+                                <td class="text-end">
+                                    <span class="badge bg-success">{{ count }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    Данных пока нет
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Статистика по тарифам -->
+<div class="row">
+    <div class="col-12">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-pie-chart me-2"></i> Распределение по тарифам
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    {% for tier, count in tier_stats.items() %}
+                    <div class="col-md-3 mb-3">
+                        <div class="d-flex align-items-center">
+                            <span class="badge badge-tier badge-{{ tier }} me-2">{{ tier | upper }}</span>
+                            <strong>{{ count }}</strong>
+                            <span class="text-muted ms-1">пользователей</span>
+                        </div>
+                        <div class="progress mt-2" style="height: 6px;">
+                            {% set total = tier_stats.values() | sum %}
+                            {% set percent = (count / total * 100) if total > 0 else 0 %}
+                            <div class="progress-bar" style="width: {{ percent }}%"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

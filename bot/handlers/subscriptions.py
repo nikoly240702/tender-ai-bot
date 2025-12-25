@@ -299,7 +299,7 @@ async def callback_select_tier(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("subscription_pay_"))
 async def callback_pay_tier(callback: CallbackQuery):
-    """Initiate payment for subscription."""
+    """Initiate payment for subscription via YooKassa."""
     await callback.answer()
 
     tier_name = callback.data.replace("subscription_pay_", "")
@@ -309,24 +309,94 @@ async def callback_pay_tier(callback: CallbackQuery):
         await callback.message.answer("❌ Тариф не найден")
         return
 
-    # TODO: Integrate with YooKassa
-    # For now, show placeholder
+    # Интеграция с YooKassa
+    try:
+        from tender_sniper.payments import get_yookassa_client
 
-    await callback.message.edit_text(
-        f"""
+        client = get_yookassa_client()
+
+        if not client.is_configured:
+            # YooKassa не настроена - показываем заглушку
+            await callback.message.edit_text(
+                f"""
 💳 <b>Оплата тарифа {tier_info['name']}</b>
 
 Сумма: <b>{tier_info['price']} ₽</b>
 
-🚧 <i>Интеграция с платежной системой YooKassa в разработке.</i>
+🚧 <i>Платежная система временно недоступна.</i>
 
-Для активации подписки обратитесь к администратору:
-📧 support@tendersniper.ru
-📱 @tender_sniper_support
+Для активации подписки обратитесь к администратору.
 """,
-        parse_mode="HTML",
-        reply_markup=get_back_to_menu_keyboard()
-    )
+                parse_mode="HTML",
+                reply_markup=get_back_to_menu_keyboard()
+            )
+            return
+
+        # Создаём платёж
+        result = client.create_payment(
+            telegram_id=callback.from_user.id,
+            tier=tier_name
+        )
+
+        if 'error' in result:
+            await callback.message.edit_text(
+                f"❌ Ошибка создания платежа: {result['error']}",
+                parse_mode="HTML",
+                reply_markup=get_back_to_menu_keyboard()
+            )
+            return
+
+        # Отправляем ссылку на оплату
+        payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(
+                text=f"💳 Оплатить {tier_info['price']} ₽",
+                url=result['url']
+            )],
+            [InlineKeyboardButton(
+                text="◀️ Назад",
+                callback_data="subscription_tiers"
+            )],
+        ])
+
+        await callback.message.edit_text(
+            f"""
+💳 <b>Оплата тарифа {tier_info['name']}</b>
+
+Сумма: <b>{tier_info['price']} ₽</b>
+
+Нажмите кнопку ниже для перехода к оплате.
+После успешной оплаты подписка активируется автоматически.
+
+⏳ <i>Ссылка действительна 15 минут</i>
+""",
+            parse_mode="HTML",
+            reply_markup=payment_keyboard
+        )
+
+        logger.info(f"Payment created for user {callback.from_user.id}, tier {tier_name}, payment_id {result['payment_id']}")
+
+    except ImportError:
+        logger.warning("YooKassa module not available")
+        await callback.message.edit_text(
+            f"""
+💳 <b>Оплата тарифа {tier_info['name']}</b>
+
+Сумма: <b>{tier_info['price']} ₽</b>
+
+🚧 <i>Платежный модуль не установлен.</i>
+
+Для активации подписки обратитесь к администратору.
+""",
+            parse_mode="HTML",
+            reply_markup=get_back_to_menu_keyboard()
+        )
+    except Exception as e:
+        logger.error(f"Payment error: {e}", exc_info=True)
+        await callback.message.edit_text(
+            f"❌ Ошибка: {str(e)}",
+            parse_mode="HTML",
+            reply_markup=get_back_to_menu_keyboard()
+        )
 
 
 @router.callback_query(F.data == "subscription_tiers")

@@ -12,12 +12,17 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
 import logging
+import asyncio
+import aiohttp
+import csv
+import io
+import json
 
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from fastapi import FastAPI, Request, Depends, HTTPException, Form, Query
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, Request, Depends, HTTPException, Form, Query, BackgroundTasks
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -30,6 +35,10 @@ from database import (
     SniperUser,
     SniperFilter,
     SniperNotification,
+    BroadcastMessage,
+    Promocode,
+    Payment,
+    Referral,
     DatabaseSession,
 )
 
@@ -41,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tender2024")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 # ============================================
 # FASTAPI APP
@@ -645,6 +655,728 @@ async def daily_stats(
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+# ============================================
+# BROADCAST (Рассылка)
+# ============================================
+
+async def send_telegram_message(telegram_id: int, text: str) -> bool:
+    """Отправить сообщение через Telegram API."""
+    if not TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN not set")
+        return False
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": telegram_id,
+        "text": text,
+        "parse_mode": "HTML"
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=10) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.error(f"Failed to send message to {telegram_id}: {e}")
+        return False
+
+
+async def broadcast_task(broadcast_id: int, user_ids: list, message_text: str):
+    """Фоновая задача для рассылки сообщений."""
+    successful = 0
+    failed = 0
+
+    for telegram_id in user_ids:
+        if await send_telegram_message(telegram_id, message_text):
+            successful += 1
+        else:
+            failed += 1
+        # Задержка между сообщениями (Telegram rate limit)
+        await asyncio.sleep(0.05)  # 20 сообщений в секунду
+
+    # Обновляем статистику рассылки
+    async with DatabaseSession() as session:
+        await session.execute(
+            update(BroadcastMessage)
+            .where(BroadcastMessage.id == broadcast_id)
+            .values(successful=successful, failed=failed)
+        )
+
+    logger.info(f"Broadcast {broadcast_id} completed: {successful} success, {failed} failed")
+
+
+@app.get("/broadcast", response_class=HTMLResponse)
+async def broadcast_page(
+    request: Request,
+    username: str = Depends(verify_credentials)
+):
+    """Страница рассылки сообщений."""
+    try:
+        async with DatabaseSession() as session:
+            # Статистика по тарифам
+            tier_stats = {}
+            for tier in ['all', 'trial', 'free', 'basic', 'premium']:
+                if tier == 'all':
+                    count = await session.scalar(select(func.count(SniperUser.id))) or 0
+                else:
+                    count = await session.scalar(
+                        select(func.count(SniperUser.id)).where(SniperUser.subscription_tier == tier)
+                    ) or 0
+                tier_stats[tier] = count
+
+            # История рассылок
+            history_query = (
+                select(BroadcastMessage)
+                .order_by(BroadcastMessage.sent_at.desc())
+                .limit(20)
+            )
+            history_result = await session.execute(history_query)
+            history = history_result.scalars().all()
+
+        return templates.TemplateResponse("broadcast.html", {
+            "request": request,
+            "username": username,
+            "tier_stats": tier_stats,
+            "history": history,
+        })
+
+    except Exception as e:
+        logger.error(f"Broadcast page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+@app.post("/broadcast/send")
+async def send_broadcast(
+    background_tasks: BackgroundTasks,
+    message: str = Form(...),
+    target_tier: str = Form("all"),
+    username: str = Depends(verify_credentials)
+):
+    """Отправить рассылку."""
+    valid_tiers = ['all', 'trial', 'free', 'basic', 'premium']
+    if target_tier not in valid_tiers:
+        raise HTTPException(status_code=400, detail="Неверный тариф")
+
+    if not message.strip():
+        raise HTTPException(status_code=400, detail="Сообщение не может быть пустым")
+
+    try:
+        async with DatabaseSession() as session:
+            # Получаем пользователей
+            if target_tier == 'all':
+                query = select(SniperUser.telegram_id).where(SniperUser.status == 'active')
+            else:
+                query = select(SniperUser.telegram_id).where(
+                    and_(
+                        SniperUser.status == 'active',
+                        SniperUser.subscription_tier == target_tier
+                    )
+                )
+
+            result = await session.execute(query)
+            user_ids = [row[0] for row in result.all()]
+
+            # Создаём запись о рассылке
+            broadcast = BroadcastMessage(
+                message_text=message,
+                target_tier=target_tier,
+                total_recipients=len(user_ids),
+                successful=0,
+                failed=0,
+                created_by=username
+            )
+            session.add(broadcast)
+            await session.flush()
+            broadcast_id = broadcast.id
+
+        # Запускаем рассылку в фоне
+        if user_ids:
+            background_tasks.add_task(broadcast_task, broadcast_id, user_ids, message)
+
+        return RedirectResponse(url="/broadcast?sent=1", status_code=303)
+
+    except Exception as e:
+        logger.error(f"Send broadcast error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/broadcast/history", response_class=HTMLResponse)
+async def broadcast_history(
+    request: Request,
+    page: int = Query(1, ge=1),
+    username: str = Depends(verify_credentials)
+):
+    """История рассылок."""
+    try:
+        per_page = 20
+        offset = (page - 1) * per_page
+
+        async with DatabaseSession() as session:
+            total = await session.scalar(select(func.count(BroadcastMessage.id))) or 0
+            total_pages = (total + per_page - 1) // per_page
+
+            query = (
+                select(BroadcastMessage)
+                .order_by(BroadcastMessage.sent_at.desc())
+                .offset(offset)
+                .limit(per_page)
+            )
+            result = await session.execute(query)
+            broadcasts = result.scalars().all()
+
+        return templates.TemplateResponse("broadcast_history.html", {
+            "request": request,
+            "username": username,
+            "broadcasts": broadcasts,
+            "page": page,
+            "total_pages": total_pages,
+            "total": total,
+        })
+
+    except Exception as e:
+        logger.error(f"Broadcast history error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+# ============================================
+# ANALYTICS (Аналитика)
+# ============================================
+
+@app.get("/analytics", response_class=HTMLResponse)
+async def analytics_page(
+    request: Request,
+    username: str = Depends(verify_credentials)
+):
+    """Страница аналитики."""
+    try:
+        async with DatabaseSession() as session:
+            # Топ ключевых слов
+            keywords_query = select(SniperFilter.keywords).where(SniperFilter.keywords.isnot(None))
+            keywords_result = await session.execute(keywords_query)
+
+            keyword_counts = {}
+            for row in keywords_result.all():
+                keywords_str = row[0]
+                if keywords_str:
+                    for kw in keywords_str.split(','):
+                        kw = kw.strip().lower()
+                        if kw:
+                            keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
+
+            top_keywords = sorted(keyword_counts.items(), key=lambda x: -x[1])[:20]
+
+            # Топ регионов
+            regions_query = select(SniperFilter.regions).where(SniperFilter.regions.isnot(None))
+            regions_result = await session.execute(regions_query)
+
+            region_counts = {}
+            for row in regions_result.all():
+                regions_str = row[0]
+                if regions_str:
+                    for region in regions_str.split(','):
+                        region = region.strip()
+                        if region:
+                            region_counts[region] = region_counts.get(region, 0) + 1
+
+            top_regions = sorted(region_counts.items(), key=lambda x: -x[1])[:15]
+
+            # Воронка конверсии
+            total_users = await session.scalar(select(func.count(SniperUser.id))) or 0
+
+            users_with_filters = await session.scalar(
+                select(func.count(distinct(SniperFilter.user_id)))
+            ) or 0
+
+            yesterday = datetime.now() - timedelta(hours=24)
+            active_24h = await session.scalar(
+                select(func.count(SniperUser.id)).where(SniperUser.last_activity >= yesterday)
+            ) or 0
+
+            paying_users = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    SniperUser.subscription_tier.in_(['basic', 'premium'])
+                )
+            ) or 0
+
+            funnel = {
+                'registered': total_users,
+                'created_filter': users_with_filters,
+                'active_24h': active_24h,
+                'paying': paying_users,
+            }
+
+            # Статистика по тарифам
+            tier_stats_query = (
+                select(
+                    SniperUser.subscription_tier,
+                    func.count(SniperUser.id).label('count')
+                )
+                .group_by(SniperUser.subscription_tier)
+            )
+            tier_result = await session.execute(tier_stats_query)
+            tier_stats = {row[0]: row[1] for row in tier_result.all()}
+
+        return templates.TemplateResponse("analytics.html", {
+            "request": request,
+            "username": username,
+            "top_keywords": top_keywords,
+            "top_regions": top_regions,
+            "funnel": funnel,
+            "tier_stats": tier_stats,
+        })
+
+    except Exception as e:
+        logger.error(f"Analytics page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+# ============================================
+# PROMOCODES (Промокоды)
+# ============================================
+
+@app.get("/promocodes", response_class=HTMLResponse)
+async def promocodes_page(
+    request: Request,
+    username: str = Depends(verify_credentials)
+):
+    """Страница промокодов."""
+    try:
+        async with DatabaseSession() as session:
+            query = (
+                select(Promocode)
+                .order_by(Promocode.created_at.desc())
+            )
+            result = await session.execute(query)
+            promocodes = result.scalars().all()
+
+        return templates.TemplateResponse("promocodes.html", {
+            "request": request,
+            "username": username,
+            "promocodes": promocodes,
+        })
+
+    except Exception as e:
+        logger.error(f"Promocodes page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+@app.post("/promocodes/create")
+async def create_promocode(
+    code: str = Form(...),
+    tier: str = Form(...),
+    days: int = Form(...),
+    max_uses: int = Form(None),
+    expires_at: str = Form(None),
+    username: str = Depends(verify_credentials)
+):
+    """Создать промокод."""
+    valid_tiers = ['basic', 'premium']
+    if tier not in valid_tiers:
+        raise HTTPException(status_code=400, detail="Неверный тариф")
+
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="Дней должно быть от 1 до 365")
+
+    try:
+        expires = None
+        if expires_at:
+            expires = datetime.strptime(expires_at, '%Y-%m-%d')
+
+        async with DatabaseSession() as session:
+            # Проверяем уникальность
+            existing = await session.scalar(
+                select(Promocode.id).where(Promocode.code == code.upper())
+            )
+            if existing:
+                raise HTTPException(status_code=400, detail="Промокод уже существует")
+
+            promocode = Promocode(
+                code=code.upper(),
+                tier=tier,
+                days=days,
+                max_uses=max_uses,
+                expires_at=expires,
+                created_by=username
+            )
+            session.add(promocode)
+
+        return RedirectResponse(url="/promocodes?created=1", status_code=303)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Create promocode error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/promocodes/{promocode_id}/deactivate")
+async def deactivate_promocode(
+    promocode_id: int,
+    username: str = Depends(verify_credentials)
+):
+    """Деактивировать промокод."""
+    try:
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(Promocode)
+                .where(Promocode.id == promocode_id)
+                .values(is_active=False)
+            )
+
+        return RedirectResponse(url="/promocodes", status_code=303)
+
+    except Exception as e:
+        logger.error(f"Deactivate promocode error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/promocodes/{promocode_id}/activate")
+async def activate_promocode(
+    promocode_id: int,
+    username: str = Depends(verify_credentials)
+):
+    """Активировать промокод."""
+    try:
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(Promocode)
+                .where(Promocode.id == promocode_id)
+                .values(is_active=True)
+            )
+
+        return RedirectResponse(url="/promocodes", status_code=303)
+
+    except Exception as e:
+        logger.error(f"Activate promocode error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# TARIFFS (Тарифы)
+# ============================================
+
+# Настройки тарифов (можно вынести в ENV или таблицу)
+TARIFF_SETTINGS = {
+    'free': {'filters': 5, 'notifications': 15, 'price': 0},
+    'trial': {'filters': 15, 'notifications': 50, 'price': 0},
+    'basic': {'filters': 15, 'notifications': 50, 'price': 990},
+    'premium': {'filters': 9999, 'notifications': 9999, 'price': 2490},
+}
+
+@app.get("/tariffs", response_class=HTMLResponse)
+async def tariffs_page(
+    request: Request,
+    username: str = Depends(verify_credentials)
+):
+    """Страница настройки тарифов."""
+    try:
+        async with DatabaseSession() as session:
+            # Статистика по тарифам
+            tier_stats = {}
+            for tier in TARIFF_SETTINGS.keys():
+                count = await session.scalar(
+                    select(func.count(SniperUser.id)).where(SniperUser.subscription_tier == tier)
+                ) or 0
+                tier_stats[tier] = count
+
+        return templates.TemplateResponse("tariffs.html", {
+            "request": request,
+            "username": username,
+            "tariffs": TARIFF_SETTINGS,
+            "tier_stats": tier_stats,
+        })
+
+    except Exception as e:
+        logger.error(f"Tariffs page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+# ============================================
+# EXPORTS (Экспорт данных)
+# ============================================
+
+@app.get("/export/users")
+async def export_users_csv(username: str = Depends(verify_credentials)):
+    """Экспорт пользователей в CSV."""
+    try:
+        async with DatabaseSession() as session:
+            query = select(SniperUser).order_by(SniperUser.created_at.desc())
+            result = await session.execute(query)
+            users = result.scalars().all()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['ID', 'Telegram ID', 'Username', 'First Name', 'Tier', 'Status', 'Created At', 'Last Activity'])
+
+        for user in users:
+            writer.writerow([
+                user.id,
+                user.telegram_id,
+                user.username or '',
+                user.first_name or '',
+                user.subscription_tier,
+                user.status,
+                user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '',
+                user.last_activity.strftime('%Y-%m-%d %H:%M') if user.last_activity else '',
+            ])
+
+        output.seek(0)
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=users_{datetime.now().strftime('%Y%m%d')}.csv"}
+        )
+
+    except Exception as e:
+        logger.error(f"Export users error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/export/filters")
+async def export_filters_csv(username: str = Depends(verify_credentials)):
+    """Экспорт фильтров в CSV."""
+    try:
+        async with DatabaseSession() as session:
+            query = (
+                select(SniperFilter, SniperUser.telegram_id)
+                .join(SniperUser, SniperFilter.user_id == SniperUser.id)
+                .order_by(SniperFilter.created_at.desc())
+            )
+            result = await session.execute(query)
+            filters_data = result.all()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['ID', 'User Telegram ID', 'Name', 'Keywords', 'Regions', 'Active', 'Created At'])
+
+        for filter_obj, telegram_id in filters_data:
+            writer.writerow([
+                filter_obj.id,
+                telegram_id,
+                filter_obj.name or '',
+                filter_obj.keywords or '',
+                filter_obj.regions or '',
+                'Да' if filter_obj.is_active else 'Нет',
+                filter_obj.created_at.strftime('%Y-%m-%d %H:%M') if filter_obj.created_at else '',
+            ])
+
+        output.seek(0)
+
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=filters_{datetime.now().strftime('%Y%m%d')}.csv"}
+        )
+
+    except Exception as e:
+        logger.error(f"Export filters error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# PAYMENTS (Платежи)
+# ============================================
+
+@app.get("/payments", response_class=HTMLResponse)
+async def payments_page(
+    request: Request,
+    page: int = Query(1, ge=1),
+    status: str = Query(""),
+    username: str = Depends(verify_credentials)
+):
+    """История платежей."""
+    try:
+        per_page = 30
+        offset = (page - 1) * per_page
+
+        async with DatabaseSession() as session:
+            query = (
+                select(Payment, SniperUser.telegram_id, SniperUser.username)
+                .join(SniperUser, Payment.user_id == SniperUser.id)
+            )
+            count_query = select(func.count(Payment.id))
+
+            if status:
+                query = query.where(Payment.status == status)
+                count_query = count_query.where(Payment.status == status)
+
+            total = await session.scalar(count_query) or 0
+            total_pages = (total + per_page - 1) // per_page
+
+            query = query.order_by(Payment.created_at.desc()).offset(offset).limit(per_page)
+            result = await session.execute(query)
+            payments_data = result.all()
+
+            # Общая сумма успешных платежей
+            total_revenue = await session.scalar(
+                select(func.sum(Payment.amount)).where(Payment.status == 'succeeded')
+            ) or 0
+
+        return templates.TemplateResponse("payments.html", {
+            "request": request,
+            "username": username,
+            "payments": payments_data,
+            "page": page,
+            "total_pages": total_pages,
+            "total": total,
+            "total_revenue": total_revenue,
+            "status_filter": status,
+        })
+
+    except Exception as e:
+        logger.error(f"Payments page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+# ============================================
+# PRIVACY POLICY (без авторизации)
+# ============================================
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request):
+    """Политика конфиденциальности (публичная страница)."""
+    return templates.TemplateResponse("privacy.html", {
+        "request": request,
+    })
+
+
+# ============================================
+# YOOKASSA WEBHOOK (без авторизации)
+# ============================================
+
+@app.post("/payment/webhook")
+async def yookassa_webhook(request: Request):
+    """
+    Webhook для обработки уведомлений от YooKassa.
+
+    YooKassa отправляет POST запрос при изменении статуса платежа.
+    """
+    try:
+        data = await request.json()
+        event = data.get('event', '')
+
+        logger.info(f"YooKassa webhook received: {event}")
+
+        if event == 'payment.succeeded':
+            obj = data.get('object', {})
+            payment_id = obj.get('id')
+            metadata = obj.get('metadata', {})
+            amount = float(obj.get('amount', {}).get('value', 0))
+
+            telegram_id = metadata.get('telegram_id')
+            tier = metadata.get('tier')
+
+            if not telegram_id or not tier:
+                logger.warning(f"Missing metadata in webhook: {data}")
+                return JSONResponse({'status': 'error', 'message': 'Missing metadata'})
+
+            telegram_id = int(telegram_id)
+
+            async with DatabaseSession() as session:
+                # Находим пользователя
+                user = await session.scalar(
+                    select(SniperUser).where(SniperUser.telegram_id == telegram_id)
+                )
+
+                if not user:
+                    logger.warning(f"User not found: {telegram_id}")
+                    return JSONResponse({'status': 'error', 'message': 'User not found'})
+
+                # Обновляем подписку
+                from datetime import timedelta
+                now = datetime.now()
+
+                limits_map = {
+                    'basic': {'filters': 15, 'notifications': 50},
+                    'premium': {'filters': 9999, 'notifications': 9999}
+                }
+
+                await session.execute(
+                    update(SniperUser)
+                    .where(SniperUser.id == user.id)
+                    .values(
+                        subscription_tier=tier,
+                        filters_limit=limits_map.get(tier, {}).get('filters', 15),
+                        notifications_limit=limits_map.get(tier, {}).get('notifications', 50)
+                    )
+                )
+
+                # Записываем платёж
+                payment_record = Payment(
+                    user_id=user.id,
+                    yookassa_payment_id=payment_id,
+                    amount=amount,
+                    tier=tier,
+                    status='succeeded',
+                    completed_at=now
+                )
+                session.add(payment_record)
+
+            logger.info(f"Payment processed: user={telegram_id}, tier={tier}, amount={amount}")
+
+            # Отправляем уведомление пользователю через Telegram
+            if TELEGRAM_BOT_TOKEN:
+                message = (
+                    f"✅ <b>Оплата прошла успешно!</b>\n\n"
+                    f"Тариф: <b>{tier.upper()}</b>\n"
+                    f"Сумма: {amount:.0f} ₽\n\n"
+                    f"Спасибо за подписку! Теперь вам доступны все возможности тарифа."
+                )
+                await send_telegram_message(telegram_id, message)
+
+            return JSONResponse({'status': 'ok'})
+
+        elif event == 'payment.canceled':
+            obj = data.get('object', {})
+            payment_id = obj.get('id')
+            metadata = obj.get('metadata', {})
+            telegram_id = metadata.get('telegram_id')
+
+            if telegram_id:
+                async with DatabaseSession() as session:
+                    user = await session.scalar(
+                        select(SniperUser).where(SniperUser.telegram_id == int(telegram_id))
+                    )
+                    if user:
+                        # Записываем отменённый платёж
+                        payment_record = Payment(
+                            user_id=user.id,
+                            yookassa_payment_id=payment_id,
+                            amount=float(obj.get('amount', {}).get('value', 0)),
+                            tier=metadata.get('tier', 'unknown'),
+                            status='canceled'
+                        )
+                        session.add(payment_record)
+
+            logger.info(f"Payment canceled: {payment_id}")
+            return JSONResponse({'status': 'ok'})
+
+        return JSONResponse({'status': 'ok', 'message': f'Event {event} ignored'})
+
+    except Exception as e:
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return JSONResponse({'status': 'error', 'message': str(e)}, status_code=500)
 
 
 if __name__ == "__main__":

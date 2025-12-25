@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}История рассылок{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0">История рассылок</h4>
+    <a href="/broadcast" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-lg"></i> Новая рассылка
+    </a>
+</div>
+
+<div class="card card-custom">
+    <div class="card-body p-0">
+        {% if broadcasts %}
+        <div class="table-responsive">
+            <table class="table table-custom mb-0">
+                <thead>
+                    <tr>
+                        <th>Дата</th>
+                        <th>Сообщение</th>
+                        <th>Аудитория</th>
+                        <th>Отправлено</th>
+                        <th>Успешно</th>
+                        <th>Ошибки</th>
+                        <th>Автор</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for broadcast in broadcasts %}
+                    <tr>
+                        <td>
+                            <small>{{ broadcast.sent_at.strftime('%d.%m.%Y') }}</small>
+                            <br><small class="text-muted">{{ broadcast.sent_at.strftime('%H:%M') }}</small>
+                        </td>
+                        <td style="max-width: 300px;">
+                            <div class="text-truncate" title="{{ broadcast.message_text }}">
+                                {{ broadcast.message_text[:100] }}{% if broadcast.message_text|length > 100 %}...{% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge bg-secondary">{{ broadcast.target_tier }}</span>
+                        </td>
+                        <td>
+                            <strong>{{ broadcast.total_recipients }}</strong>
+                        </td>
+                        <td>
+                            <span class="text-success">{{ broadcast.successful }}</span>
+                        </td>
+                        <td>
+                            <span class="text-danger">{{ broadcast.failed }}</span>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ broadcast.created_by or '-' }}</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Пагинация -->
+        {% if total_pages > 1 %}
+        <div class="d-flex justify-content-center py-3">
+            <nav>
+                <ul class="pagination mb-0">
+                    {% if page > 1 %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page - 1 }}">&laquo;</a>
+                    </li>
+                    {% endif %}
+
+                    {% for p in range(1, total_pages + 1) %}
+                    {% if p == page %}
+                    <li class="page-item active"><span class="page-link">{{ p }}</span></li>
+                    {% elif p <= 3 or p > total_pages - 3 or (p >= page - 1 and p <= page + 1) %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+                    </li>
+                    {% elif p == 4 or p == total_pages - 3 %}
+                    <li class="page-item disabled"><span class="page-link">...</span></li>
+                    {% endif %}
+                    {% endfor %}
+
+                    {% if page < total_pages %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page + 1 }}">&raquo;</a>
+                    </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="text-center py-5 text-muted">
+            <i class="bi bi-clock-history" style="font-size: 48px;"></i>
+            <p class="mt-3">История рассылок пуста</p>
+            <a href="/broadcast" class="btn btn-primary">Создать первую рассылку</a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

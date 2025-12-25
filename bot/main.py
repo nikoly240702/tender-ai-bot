@@ -24,8 +24,10 @@ from bot.handlers import start, admin, sniper, sniper_search, admin_sniper, onbo
 from bot.handlers import sniper_wizard_new
 # Подписки (Phase 2.1)
 from bot.handlers import subscriptions
+# Реферальная программа
+from bot.handlers import referral
 from bot.db import get_database
-from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
+from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware, SubscriptionMiddleware
 
 # Импортируем Tender Sniper Service
 from tender_sniper.service import TenderSniperService
@@ -167,9 +169,14 @@ async def main():
     # ============================================
     # PRODUCTION: Health Check Server
     # ============================================
-    health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
-    logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
-    health_check_runner = await start_health_check_server(port=health_check_port)
+    # Если админ-панель запущена отдельно (ADMIN_PANEL_ENABLED=1), она обрабатывает /health
+    health_check_runner = None
+    if not os.getenv('ADMIN_PANEL_ENABLED'):
+        health_check_port = int(os.getenv('HEALTH_CHECK_PORT', '8080'))
+        logger.info(f"🏥 Запуск health check сервера на порту {health_check_port}...")
+        health_check_runner = await start_health_check_server(port=health_check_port)
+    else:
+        logger.info("ℹ️  Health check делегирован Admin Panel")
 
     # Инициализация Sentry для мониторинга ошибок
     sentry_enabled = init_sentry(
@@ -241,6 +248,12 @@ async def main():
     dp.callback_query.middleware(rate_limiter)
     logger.info("✅ Rate Limiting активирован")
 
+    # Подключаем проверку подписки
+    subscription_middleware = SubscriptionMiddleware()
+    dp.message.middleware(subscription_middleware)
+    dp.callback_query.middleware(subscription_middleware)
+    logger.info("✅ Subscription Middleware активирован")
+
     # Логируем информацию о контроле доступа
     logger.info("🔓 Режим доступа: ОТКРЫТЫЙ (все пользователи регистрируются автоматически)")
     if BotConfig.ADMIN_USER_ID:
@@ -260,6 +273,7 @@ async def main():
     dp.include_router(all_tenders.router)  # Все мои тендеры - единая история
     dp.include_router(sniper_wizard_new.router)  # Новый упрощённый wizard (feature flag)
     dp.include_router(subscriptions.router)  # Подписки (Phase 2.1)
+    dp.include_router(referral.router)  # Реферальная программа
     dp.include_router(sniper_search.router)  # Tender Sniper Search (старый workflow)
     dp.include_router(sniper.router)  # Tender Sniper меню
     dp.include_router(start.router)

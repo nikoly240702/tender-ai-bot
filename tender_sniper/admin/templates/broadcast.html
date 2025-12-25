@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Рассылка{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0">Рассылка сообщений</h4>
+    <a href="/broadcast/history" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-clock-history"></i> История рассылок
+    </a>
+</div>
+
+{% if request.query_params.get('sent') %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+    Рассылка запущена! Сообщения отправляются в фоновом режиме.
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+<div class="row">
+    <!-- Форма рассылки -->
+    <div class="col-lg-8">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-megaphone me-2"></i> Новая рассылка
+            </div>
+            <div class="card-body">
+                <form action="/broadcast/send" method="post">
+                    <div class="mb-3">
+                        <label class="form-label">Целевая аудитория</label>
+                        <select name="target_tier" class="form-select">
+                            <option value="all">Все пользователи ({{ tier_stats.get('all', 0) }})</option>
+                            <option value="trial">Триал ({{ tier_stats.get('trial', 0) }})</option>
+                            <option value="free">Free ({{ tier_stats.get('free', 0) }})</option>
+                            <option value="basic">Basic ({{ tier_stats.get('basic', 0) }})</option>
+                            <option value="premium">Premium ({{ tier_stats.get('premium', 0) }})</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Текст сообщения</label>
+                        <textarea name="message" class="form-control" rows="6"
+                                  placeholder="Введите текст сообщения... (поддерживается HTML)" required></textarea>
+                        <div class="form-text">
+                            Поддерживаются HTML теги: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;a href=""&gt;, &lt;code&gt;
+                        </div>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bi bi-send"></i> Отправить рассылку
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Статистика -->
+    <div class="col-lg-4">
+        <div class="card card-custom mb-4">
+            <div class="card-header">
+                <i class="bi bi-people me-2"></i> Аудитория по тарифам
+            </div>
+            <div class="card-body">
+                <div class="d-flex justify-content-between mb-2">
+                    <span>Всего:</span>
+                    <strong>{{ tier_stats.get('all', 0) }}</strong>
+                </div>
+                <hr>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="badge badge-tier badge-free">Free</span>
+                    <span>{{ tier_stats.get('free', 0) }}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="badge" style="background: #d4edda; color: #155724;">Trial</span>
+                    <span>{{ tier_stats.get('trial', 0) }}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="badge badge-tier badge-basic">Basic</span>
+                    <span>{{ tier_stats.get('basic', 0) }}</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="badge badge-tier badge-premium">Premium</span>
+                    <span>{{ tier_stats.get('premium', 0) }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Последние рассылки -->
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-clock me-2"></i> Последние рассылки
+            </div>
+            <div class="card-body p-0">
+                {% if history %}
+                <ul class="list-group list-group-flush">
+                    {% for broadcast in history[:5] %}
+                    <li class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <small class="text-muted">{{ broadcast.sent_at.strftime('%d.%m.%Y %H:%M') }}</small>
+                                <div class="text-truncate" style="max-width: 200px;">
+                                    {{ broadcast.message_text[:50] }}{% if broadcast.message_text|length > 50 %}...{% endif %}
+                                </div>
+                            </div>
+                            <span class="badge bg-secondary">{{ broadcast.target_tier }}</span>
+                        </div>
+                        <small class="text-success">{{ broadcast.successful }}</small> /
+                        <small class="text-danger">{{ broadcast.failed }}</small> /
+                        <small class="text-muted">{{ broadcast.total_recipients }}</small>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    Рассылок пока не было
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

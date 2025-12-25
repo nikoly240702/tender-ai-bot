@@ -65,7 +65,7 @@ class TenderSniperDB:
         self,
         telegram_id: int,
         username: Optional[str] = None,
-        subscription_tier: str = 'free',
+        subscription_tier: str = 'trial',  # Новые пользователи получают trial
         **kwargs
     ) -> int:
         """Создание или обновление пользователя."""
@@ -77,20 +77,27 @@ class TenderSniperDB:
             user = result.scalar_one_or_none()
 
             if user:
-                # Обновляем
+                # Обновляем (не меняем tier для существующих!)
                 user.username = username
-                user.subscription_tier = subscription_tier
                 user.last_activity = datetime.utcnow()
                 return user.id
             else:
-                # Создаем нового
+                # Создаем нового с триалом на 14 дней
+                now = datetime.utcnow()
+                trial_expires = now + timedelta(days=14)
+
                 user = SniperUserModel(
                     telegram_id=telegram_id,
                     username=username,
-                    subscription_tier=subscription_tier
+                    subscription_tier='trial',
+                    filters_limit=15,  # Trial лимиты
+                    notifications_limit=50,
+                    trial_started_at=now,
+                    trial_expires_at=trial_expires
                 )
                 session.add(user)
                 await session.flush()
+                logger.info(f"New user {telegram_id} created with 14-day trial (expires {trial_expires})")
                 return user.id
 
     async def get_user_by_telegram_id(self, telegram_id: int) -> Optional[Dict[str, Any]]:
