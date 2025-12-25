@@ -21,6 +21,7 @@ import logging
 
 from tender_sniper.database import get_sniper_db, get_plan_limits
 from tender_sniper.query_expander import QueryExpander
+from bot.utils.access_check import require_feature
 from tender_sniper.instant_search import InstantSearch
 from tender_sniper.regions import (
     get_all_federal_districts,
@@ -272,7 +273,9 @@ async def start_archive_search(callback: CallbackQuery, state: FSMContext):
     Шаг 3: Регион (опционально)
     Шаг 4: Поиск
     """
-    await callback.answer()
+    # Проверяем доступ к архивному поиску (только Premium)
+    if not await require_feature(callback, 'archive_search'):
+        return
 
     try:
         db = await get_sniper_db()

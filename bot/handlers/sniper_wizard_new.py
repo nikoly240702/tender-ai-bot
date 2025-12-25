@@ -25,6 +25,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 from tender_sniper.database import get_sniper_db
 from tender_sniper.config import is_new_feature_enabled
+from bot.utils.access_check import require_feature
 from tender_sniper.query_expander import QueryExpander
 from tender_sniper.instant_search import InstantSearch
 from tender_sniper.regions import (
@@ -1991,7 +1992,9 @@ def get_period_keyboard() -> InlineKeyboardMarkup:
 @router.callback_query(F.data == "sniper_archive_search")
 async def start_archive_simplified(callback: CallbackQuery, state: FSMContext):
     """Начало упрощённого архивного поиска."""
-    await callback.answer()
+    # Проверяем доступ к архивному поиску (только Premium)
+    if not await require_feature(callback, 'archive_search'):
+        return
 
     # Проверяем feature flag
     if not is_new_feature_enabled('simplified_wizard'):

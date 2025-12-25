@@ -11,6 +11,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 
 from tender_sniper.database import get_sniper_db
+from bot.utils.access_check import require_feature
 from bot.utils.tender_notifications import (
     format_detailed_tender_info,
     format_reminder_options
@@ -188,7 +189,9 @@ async def add_tender_to_favorites(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("tender_remind_"))
 async def show_reminder_options_handler(callback: CallbackQuery):
     """Показывает опции для установки напоминания."""
-    await callback.answer()
+    # Проверяем доступ к напоминаниям (Basic+)
+    if not await require_feature(callback, 'reminders'):
+        return
 
     try:
         # Извлекаем tender_number

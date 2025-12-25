@@ -23,6 +23,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from tender_sniper.database import get_sniper_db
+from bot.utils.access_check import require_feature
 
 # Импортируем AI генератор названий
 try:
@@ -410,6 +411,10 @@ async def show_tenders_menu(message: Message, tenders: List[Dict], filter_params
 @router.callback_query(F.data == "alltenders_download_menu")
 async def show_download_menu(callback: CallbackQuery, state: FSMContext):
     """Показать меню выбора типа отчёта для скачивания."""
+    # Проверяем доступ к экспорту (Basic+)
+    if not await require_feature(callback, 'excel_export'):
+        return
+
     try:
         await callback.answer()
 

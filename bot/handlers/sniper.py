@@ -87,6 +87,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from tender_sniper.database import get_sniper_db, get_plan_limits
 from tender_sniper.config import is_tender_sniper_enabled
+from bot.utils.access_check import require_feature
 from tender_sniper.all_tenders_report import generate_all_tenders_html
 
 logger = logging.getLogger(__name__)
@@ -1256,7 +1257,9 @@ async def noop_callback(callback: CallbackQuery):
 @router.callback_query(F.data == "sniper_extended_settings")
 async def show_extended_settings(callback: CallbackQuery):
     """Меню расширенных настроек фильтров (БЕТА)."""
-    await callback.answer()
+    # Проверяем доступ к расширенным настройкам (только Premium)
+    if not await require_feature(callback, 'extended_settings'):
+        return
 
     try:
         db = await get_sniper_db()
