@@ -1071,10 +1071,10 @@ async def activate_promocode(
 
 # Настройки тарифов (можно вынести в ENV или таблицу)
 TARIFF_SETTINGS = {
-    'free': {'filters': 5, 'notifications': 15, 'price': 0},
-    'trial': {'filters': 15, 'notifications': 50, 'price': 0},
-    'basic': {'filters': 15, 'notifications': 50, 'price': 990},
-    'premium': {'filters': 9999, 'notifications': 9999, 'price': 2490},
+    'free': {'filters': 3, 'notifications': 20, 'price': 0},
+    'trial': {'filters': 3, 'notifications': 20, 'price': 0},
+    'basic': {'filters': 5, 'notifications': 100, 'price': 490},
+    'premium': {'filters': 20, 'notifications': 9999, 'price': 990},
 }
 
 @app.get("/tariffs", response_class=HTMLResponse)
@@ -1308,7 +1308,7 @@ async def yookassa_webhook(request: Request):
                 now = datetime.now()
 
                 limits_map = {
-                    'basic': {'filters': 7, 'notifications': 150},
+                    'basic': {'filters': 5, 'notifications': 100},
                     'premium': {'filters': 20, 'notifications': 9999}
                 }
 

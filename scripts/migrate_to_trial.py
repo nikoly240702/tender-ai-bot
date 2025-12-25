@@ -67,8 +67,8 @@ async def migrate_users_to_trial():
                         subscription_tier='trial',
                         trial_started_at=now,
                         trial_expires_at=expires,
-                        filters_limit=15,
-                        notifications_limit=50
+                        filters_limit=3,
+                        notifications_limit=20
                     )
                 )
                 migrated += 1

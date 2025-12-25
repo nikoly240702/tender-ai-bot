@@ -90,8 +90,8 @@ class TenderSniperDB:
                     telegram_id=telegram_id,
                     username=username,
                     subscription_tier='trial',
-                    filters_limit=15,  # Trial лимиты
-                    notifications_limit=50,
+                    filters_limit=3,  # Trial лимиты
+                    notifications_limit=20,
                     trial_started_at=now,
                     trial_expires_at=trial_expires
                 )
