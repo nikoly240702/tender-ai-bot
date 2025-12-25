@@ -1308,8 +1308,8 @@ async def yookassa_webhook(request: Request):
                 now = datetime.now()
 
                 limits_map = {
-                    'basic': {'filters': 15, 'notifications': 50},
-                    'premium': {'filters': 9999, 'notifications': 9999}
+                    'basic': {'filters': 7, 'notifications': 150},
+                    'premium': {'filters': 20, 'notifications': 9999}
                 }
 
                 await session.execute(
