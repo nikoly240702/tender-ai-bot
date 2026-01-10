@@ -24,6 +24,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from tender_sniper.database import get_sniper_db
 from bot.utils.access_check import require_feature
+from bot.utils.excel_export import generate_tenders_excel_async
 
 # Импортируем AI генератор названий
 try:
@@ -374,11 +375,11 @@ async def show_tenders_menu(message: Message, tenders: List[Dict], filter_params
 
         text += "\n"
 
-    text += "💡 Скачайте HTML отчет для просмотра всех тендеров с группировкой"
+    text += "💡 Скачайте отчёт (Excel/HTML) для просмотра всех тендеров"
 
     # Кнопки навигации и фильтрации
     keyboard_rows = [
-        [InlineKeyboardButton(text="📥 Скачать HTML отчет", callback_data="alltenders_download_menu")],
+        [InlineKeyboardButton(text="📥 Скачать отчёт", callback_data="alltenders_download_menu")],
         [
             InlineKeyboardButton(text="📅 Сортировка", callback_data="alltenders_sort"),
             InlineKeyboardButton(text="💰 Цена", callback_data="alltenders_filter_price")
@@ -410,11 +411,84 @@ async def show_tenders_menu(message: Message, tenders: List[Dict], filter_params
 
 @router.callback_query(F.data == "alltenders_download_menu")
 async def show_download_menu(callback: CallbackQuery, state: FSMContext):
-    """Показать меню выбора типа отчёта для скачивания."""
+    """Показать меню выбора формата для скачивания."""
     # Проверяем доступ к экспорту (Basic+)
     if not await require_feature(callback, 'excel_export'):
         return
 
+    try:
+        await callback.answer()
+
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"📊 Excel (.xlsx) - {len(tenders)} тендеров", callback_data="alltenders_download_excel")],
+            [InlineKeyboardButton(text=f"🌐 HTML отчёт - {len(tenders)} тендеров", callback_data="alltenders_download_html_menu")],
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
+        ])
+
+        await callback.message.edit_text(
+            "📥 <b>Скачать отчёт</b>\n\n"
+            "Выберите формат:\n\n"
+            "📊 <b>Excel</b> - таблица с тендерами для работы\n"
+            "🌐 <b>HTML</b> - интерактивный отчёт с фильтрацией\n\n"
+            f"📋 <b>Всего тендеров:</b> {len(tenders)}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в show_download_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "alltenders_download_excel")
+async def download_excel(callback: CallbackQuery, state: FSMContext):
+    """Скачать Excel файл с тендерами."""
+    await callback.answer("Генерирую Excel файл...")
+
+    try:
+        data = await state.get_data()
+        tenders = data.get('all_tenders', [])
+        filter_params = data.get('filter_params', {})
+
+        # Применяем фильтры
+        filtered_tenders = filter_tenders(
+            tenders,
+            sort_by=filter_params.get('sort_by', 'date_desc'),
+            price_min=filter_params.get('price_min'),
+            price_max=filter_params.get('price_max'),
+            region=filter_params.get('region')
+        )
+
+        if not filtered_tenders:
+            await callback.message.answer("❌ Нет тендеров для экспорта")
+            return
+
+        # Генерируем Excel
+        excel_path = await generate_tenders_excel_async(
+            tenders=filtered_tenders,
+            user_id=callback.from_user.id,
+            title="Все тендеры"
+        )
+
+        # Отправляем файл
+        await callback.message.answer_document(
+            document=FSInputFile(excel_path),
+            caption=f"📊 <b>Экспорт тендеров в Excel</b>\n\n"
+                    f"📋 Тендеров: {len(filtered_tenders)}\n"
+                    f"💡 Файл содержит кликабельные ссылки на тендеры",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка генерации Excel: {e}", exc_info=True)
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "alltenders_download_html_menu")
+async def show_html_download_menu(callback: CallbackQuery, state: FSMContext):
+    """Показать меню выбора типа HTML отчёта."""
     try:
         await callback.answer()
 
@@ -429,11 +503,11 @@ async def show_download_menu(callback: CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text=f"📊 Все тендеры ({len(tenders)} шт.)", callback_data="alltenders_download_all")],
             [InlineKeyboardButton(text=f"🎨 По фильтру ({filters_count} фильтров)", callback_data="alltenders_download_by_filter")],
             [InlineKeyboardButton(text="📅 За период", callback_data="alltenders_download_by_period")],
-            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_back")]
+            [InlineKeyboardButton(text="« Назад", callback_data="alltenders_download_menu")]
         ])
 
         await callback.message.edit_text(
-            "📥 <b>Скачать HTML отчёт</b>\n\n"
+            "🌐 <b>Скачать HTML отчёт</b>\n\n"
             "Выберите какие тендеры включить в отчёт:\n\n"
             f"📊 <b>Всего тендеров:</b> {len(tenders)}\n"
             f"🎨 <b>Фильтров:</b> {filters_count}",
@@ -441,7 +515,7 @@ async def show_download_menu(callback: CallbackQuery, state: FSMContext):
             parse_mode="HTML"
         )
     except Exception as e:
-        logger.error(f"Ошибка в show_download_menu: {e}", exc_info=True)
+        logger.error(f"Ошибка в show_html_download_menu: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
