@@ -106,6 +106,24 @@ class YooKassaClient:
                 "metadata": {
                     "telegram_id": str(telegram_id),
                     "tier": tier
+                },
+                "receipt": {
+                    "customer": {
+                        "email": f"user_{telegram_id}@tendersniper.ru"
+                    },
+                    "items": [
+                        {
+                            "description": description,
+                            "quantity": "1.00",
+                            "amount": {
+                                "value": f"{amount:.2f}",
+                                "currency": "RUB"
+                            },
+                            "vat_code": 1,  # Без НДС
+                            "payment_mode": "full_payment",
+                            "payment_subject": "service"
+                        }
+                    ]
                 }
             }
 
