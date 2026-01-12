@@ -1409,6 +1409,85 @@ class TenderSniperDB:
             avg = result.scalar()
             return round(avg, 2) if avg else 0.0
 
+    # ============================================
+    # PAYMENT METHODS
+    # ============================================
+
+    async def update_user_subscription(
+        self,
+        user_id: int,
+        tier: str,
+        filters_limit: int,
+        notifications_limit: int,
+        expires_at: datetime
+    ) -> bool:
+        """
+        Обновить подписку пользователя после оплаты.
+
+        Args:
+            user_id: ID пользователя в БД
+            tier: Тип подписки (basic, premium)
+            filters_limit: Лимит фильтров
+            notifications_limit: Лимит уведомлений в день
+            expires_at: Дата окончания подписки
+
+        Returns:
+            True если успешно
+        """
+        async with DatabaseSession() as session:
+            user = await session.get(SniperUser, user_id)
+            if not user:
+                logger.warning(f"User not found for subscription update: {user_id}")
+                return False
+
+            user.subscription_tier = tier
+            user.filters_limit = filters_limit
+            user.notifications_limit = notifications_limit
+            user.trial_expires_at = expires_at  # Используем это поле для хранения даты окончания
+
+            await session.commit()
+            logger.info(f"✅ User subscription updated: id={user_id}, tier={tier}, expires={expires_at}")
+            return True
+
+    async def record_payment(
+        self,
+        user_id: int,
+        payment_id: str,
+        amount: float,
+        tier: str,
+        status: str = 'succeeded'
+    ) -> int:
+        """
+        Записать платёж в БД.
+
+        Args:
+            user_id: ID пользователя
+            payment_id: ID платежа в YooKassa
+            amount: Сумма
+            tier: Тариф
+            status: Статус платежа
+
+        Returns:
+            ID записи платежа
+        """
+        from database import Payment
+
+        async with DatabaseSession() as session:
+            payment = Payment(
+                user_id=user_id,
+                yookassa_payment_id=payment_id,
+                amount=amount,
+                tier=tier,
+                status=status,
+                created_at=datetime.utcnow()
+            )
+            session.add(payment)
+            await session.flush()
+            payment_record_id = payment.id
+            await session.commit()
+            logger.info(f"💳 Payment recorded: id={payment_record_id}, user={user_id}, amount={amount}₽")
+            return payment_record_id
+
 
 # Глобальный singleton
 _sniper_db_instance = None
