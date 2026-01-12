@@ -488,8 +488,8 @@ async def show_subscription_plans(callback: CallbackQuery):
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оформить Базовый", callback_data="sniper_buy_basic")],
-        [InlineKeyboardButton(text="💎 Оформить Премиум", callback_data="sniper_buy_premium")],
+        [InlineKeyboardButton(text="💳 Оформить Basic (490 ₽)", callback_data="subscription_pay_basic")],
+        [InlineKeyboardButton(text="💎 Оформить Premium (990 ₽)", callback_data="subscription_pay_premium")],
         [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -501,19 +501,7 @@ async def show_subscription_plans(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("sniper_buy_"))
-async def process_subscription_purchase(callback: CallbackQuery):
-    """Обработка покупки подписки."""
-    await callback.answer("⚠️ Оплата в разработке")
-
-    await callback.message.answer(
-        "💳 <b>Оплата подписки</b>\n\n"
-        "Интеграция с платежными системами находится в разработке.\n\n"
-        "Для оформления подписки напишите администратору:\n"
-        "📱 Telegram: @nikolai_chizhik\n\n"
-        "Мы свяжемся с вами в ближайшее время.",
-        parse_mode="HTML"
-    )
+# Обработчик оплаты перенесён в subscriptions.py (subscription_pay_basic/premium)
 
 
 # ============================================
