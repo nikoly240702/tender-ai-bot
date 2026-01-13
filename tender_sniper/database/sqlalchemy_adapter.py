@@ -124,6 +124,35 @@ class TenderSniperDB:
                 'created_at': user.created_at.isoformat() if user.created_at else None
             }
 
+    async def get_user_subscription_info(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Получение информации о подписке пользователя из sniper_users.
+
+        Args:
+            telegram_id: Telegram ID пользователя
+
+        Returns:
+            Словарь с данными подписки или None
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+
+            if not user:
+                return None
+
+            return {
+                'id': user.id,
+                'telegram_id': user.telegram_id,
+                'subscription_tier': user.subscription_tier,
+                'filters_limit': user.filters_limit,
+                'notifications_limit': user.notifications_limit,
+                'trial_started_at': user.trial_started_at,
+                'trial_expires_at': user.trial_expires_at,
+            }
+
     async def get_monitoring_status(self, telegram_id: int) -> bool:
         """Получение статуса автомониторинга пользователя."""
         user = await self.get_user_by_telegram_id(telegram_id)

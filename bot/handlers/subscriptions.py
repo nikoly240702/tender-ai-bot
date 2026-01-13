@@ -157,32 +157,70 @@ async def show_subscription_status(message: Message, user_id: int = None):
         )
         return
 
-    # Get subscription
+    # Get subscription from subscriptions table
     subscription = await db.get_subscription(user['id'])
 
-    if subscription and subscription['is_active']:
-        tier_info = SUBSCRIPTION_TIERS.get(subscription['tier'], SUBSCRIPTION_TIERS['trial'])
+    # Get user subscription data directly from sniper_users
+    user_full = await db.get_user_subscription_info(user_id)
+
+    # Determine active subscription (prefer sniper_users data for paid subscriptions)
+    tier = user_full.get('subscription_tier', 'free') if user_full else 'free'
+    expires_at = user_full.get('trial_expires_at') if user_full else None
+    filters_limit = user_full.get('filters_limit', 3) if user_full else 3
+    notifications_limit = user_full.get('notifications_limit', 20) if user_full else 20
+
+    # Calculate days remaining
+    days_remaining = 0
+    if expires_at:
+        from datetime import datetime
+        if isinstance(expires_at, str):
+            try:
+                expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            except:
+                expires_dt = datetime.now()
+        else:
+            expires_dt = expires_at
+
+        # Remove timezone for comparison
+        if expires_dt.tzinfo:
+            expires_dt = expires_dt.replace(tzinfo=None)
+
+        delta = expires_dt - datetime.now()
+        days_remaining = max(0, delta.days)
+
+    # Check if subscription is active
+    is_active = tier in ['basic', 'premium'] or (tier == 'trial' and days_remaining > 0)
+    is_trial = tier == 'trial'
+
+    if is_active:
+        tier_info = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS['trial'])
+
+        # Format expires_at for display
+        expires_display = 'Н/Д'
+        if expires_at:
+            if isinstance(expires_at, str):
+                expires_display = expires_at[:10]
+            else:
+                expires_display = expires_at.strftime('%d.%m.%Y')
 
         text = f"""
 📦 <b>Ваша подписка</b>
 
 {tier_info['emoji']} <b>Тариф:</b> {tier_info['name']}
-📅 <b>Действует до:</b> {subscription['expires_at'][:10] if subscription['expires_at'] else 'Н/Д'}
-⏳ <b>Осталось дней:</b> {subscription['days_remaining']}
+📅 <b>Действует до:</b> {expires_display}
+⏳ <b>Осталось дней:</b> {days_remaining}
 
 <b>Лимиты:</b>
-• Фильтров: {subscription['max_filters']}
-• Уведомлений/день: {subscription['max_notifications_per_day']}
+• Фильтров: {filters_limit}
+• Уведомлений/день: {notifications_limit}
 
 <b>Возможности:</b>
 """
         for feature in tier_info['features']:
             text += f"✅ {feature}\n"
 
-        if subscription['is_trial']:
-            text += "\n⚠️ <i>Пробный период закончится через {0} дней. Оформите подписку чтобы продолжить пользоваться сервисом.</i>".format(
-                subscription['days_remaining']
-            )
+        if is_trial:
+            text += f"\n⚠️ <i>Пробный период закончится через {days_remaining} дней. Оформите подписку чтобы продолжить пользоваться сервисом.</i>"
     else:
         # No active subscription
         text = """
@@ -193,9 +231,16 @@ async def show_subscription_status(message: Message, user_id: int = None):
 Активируйте пробный период на 14 дней бесплатно или выберите тариф:
 """
 
+    # Build subscription dict for keyboard
+    sub_for_keyboard = {
+        'is_active': is_active,
+        'is_trial': is_trial,
+        'tier': tier
+    } if is_active else None
+
     await message.answer(
         text,
-        reply_markup=get_subscription_keyboard(subscription),
+        reply_markup=get_subscription_keyboard(sub_for_keyboard),
         parse_mode="HTML"
     )
 
@@ -501,14 +546,38 @@ async def get_subscription_status_line(telegram_id: int) -> str:
     """
     db = await get_sniper_db()
 
-    user = await db.get_user_by_telegram_id(telegram_id)
-    if not user:
+    # Get user subscription data directly from sniper_users
+    user_full = await db.get_user_subscription_info(telegram_id)
+
+    if not user_full:
         return "❌ Нет подписки"
 
-    subscription = await db.get_subscription(user['id'])
+    tier = user_full.get('subscription_tier', 'free')
+    expires_at = user_full.get('trial_expires_at')
 
-    if not subscription or not subscription['is_active']:
+    # Calculate days remaining
+    days_remaining = 0
+    if expires_at:
+        from datetime import datetime
+        if isinstance(expires_at, str):
+            try:
+                expires_dt = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
+            except:
+                expires_dt = datetime.now()
+        else:
+            expires_dt = expires_at
+
+        if expires_dt.tzinfo:
+            expires_dt = expires_dt.replace(tzinfo=None)
+
+        delta = expires_dt - datetime.now()
+        days_remaining = max(0, delta.days)
+
+    # Check if subscription is active
+    is_active = tier in ['basic', 'premium'] or (tier == 'trial' and days_remaining > 0)
+
+    if not is_active:
         return "❌ Подписка неактивна"
 
-    tier_info = SUBSCRIPTION_TIERS.get(subscription['tier'], SUBSCRIPTION_TIERS['trial'])
-    return f"{tier_info['emoji']} {tier_info['name']} ({subscription['days_remaining']} дн.)"
+    tier_info = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS['trial'])
+    return f"{tier_info['emoji']} {tier_info['name']} ({days_remaining} дн.)"
