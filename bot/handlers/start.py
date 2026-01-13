@@ -655,6 +655,90 @@ async def admin_send_apology_all(message: Message):
         await message.answer(f"❌ Ошибка: {e}")
 
 
+@router.message(Command("refresh_keyboards"))
+async def admin_refresh_keyboards(message: Message):
+    """
+    Админская команда для принудительного обновления клавиатуры у всех пользователей.
+
+    Использование: /refresh_keyboards
+    """
+    from bot.config import BotConfig
+    from tender_sniper.database import get_sniper_db
+    import asyncio
+
+    if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
+        return  # Только для админа
+
+    await message.answer("🔄 Начинаю обновление клавиатур у всех пользователей...")
+
+    try:
+        db = await get_sniper_db()
+
+        # Получаем всех пользователей
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUser.telegram_id, SniperUser.username)
+            )
+            users = result.all()
+
+        total = len(users)
+        success = 0
+        failed = 0
+
+        status_msg = await message.answer(f"📊 Найдено пользователей: {total}\n⏳ Отправка...")
+
+        update_text = (
+            "🔄 <b>Обновление бота!</b>\n\n"
+            "Мы улучшили интерфейс. Ваше меню обновлено.\n\n"
+            "Используйте кнопки ниже для навигации:"
+        )
+
+        for telegram_id, username in users:
+            try:
+                # Получаем актуальную клавиатуру для пользователя
+                keyboard = await get_main_keyboard_for_user(telegram_id)
+
+                await message.bot.send_message(
+                    telegram_id,
+                    update_text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+                success += 1
+
+                # Обновляем статус каждые 10 пользователей
+                if success % 10 == 0:
+                    try:
+                        await status_msg.edit_text(
+                            f"📊 Прогресс: {success}/{total}\n"
+                            f"✅ Успешно: {success}\n"
+                            f"❌ Ошибок: {failed}"
+                        )
+                    except:
+                        pass
+
+                await asyncio.sleep(0.05)  # Задержка для Telegram API
+
+            except Exception as e:
+                failed += 1
+                logger.warning(f"Failed to update keyboard for {username or telegram_id}: {e}")
+
+        await message.answer(
+            f"✅ <b>Готово!</b>\n\n"
+            f"📊 Всего: {total}\n"
+            f"✅ Успешно: {success}\n"
+            f"❌ Ошибок: {failed}",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Error in refresh_keyboards: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @router.message(Command("test_search"))
 async def admin_test_search(message: Message):
     """Админская команда для тестового поиска с HTML отчетом.
