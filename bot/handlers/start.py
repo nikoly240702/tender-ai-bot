@@ -139,6 +139,11 @@ async def cmd_start(message: Message, state: FSMContext):
     # Получаем клавиатуру с актуальным статусом мониторинга
     reply_keyboard = await get_main_keyboard_for_user(message.from_user.id)
 
+    # Принудительно сбрасываем старую клавиатуру перед отправкой новой
+    # Это решает проблему кэширования на клиенте Telegram
+    temp_msg = await message.answer("⏳", reply_markup=ReplyKeyboardRemove())
+    await temp_msg.delete()
+
     await message.answer(
         welcome_text,
         reply_markup=reply_keyboard,
