@@ -1435,7 +1435,7 @@ class TenderSniperDB:
             True если успешно
         """
         async with DatabaseSession() as session:
-            user = await session.get(SniperUser, user_id)
+            user = await session.get(SniperUserModel, user_id)
             if not user:
                 logger.warning(f"User not found for subscription update: {user_id}")
                 return False
