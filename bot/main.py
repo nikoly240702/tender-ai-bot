@@ -32,6 +32,8 @@ from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware
 # Импортируем Tender Sniper Service
 from tender_sniper.service import TenderSniperService
 from tender_sniper.config import is_tender_sniper_enabled
+# Subscription expiration checker
+from bot.subscription_checker import SubscriptionChecker
 from tender_sniper.monitoring import (
     init_sentry, capture_exception, flush_events,
     init_telegram_error_alerts, send_error_to_telegram
@@ -307,6 +309,27 @@ async def main():
     logger.info("✅ Глобальный error handler зарегистрирован")
     logger.info("🤖 Бот запускается...")
 
+    # Запускаем Subscription Checker (проверка истекающих подписок)
+    subscription_checker = None
+    subscription_checker_task = None
+    try:
+        logger.info("🔔 Запуск Subscription Checker...")
+        subscription_checker = SubscriptionChecker(
+            bot_token=BotConfig.BOT_TOKEN,
+            check_interval_hours=6  # Проверка каждые 6 часов
+        )
+
+        async def run_subscription_checker():
+            try:
+                await subscription_checker.start()
+            except Exception as e:
+                logger.error(f"❌ Ошибка Subscription Checker: {e}", exc_info=True)
+
+        subscription_checker_task = asyncio.create_task(run_subscription_checker())
+        logger.info("✅ Subscription Checker запущен в фоновом режиме")
+    except Exception as e:
+        logger.error(f"❌ Не удалось запустить Subscription Checker: {e}", exc_info=True)
+
     # Инициализируем Tender Sniper Service (если включен)
     sniper_service = None
     sniper_task = None
@@ -363,6 +386,17 @@ async def main():
         # Отправляем критическую ошибку в Telegram админу
         await send_error_to_telegram(e, context="Запуск бота (main)")
     finally:
+        # Останавливаем Subscription Checker если запущен
+        if subscription_checker:
+            logger.info("🛑 Остановка Subscription Checker...")
+            await subscription_checker.stop()
+        if subscription_checker_task and not subscription_checker_task.done():
+            subscription_checker_task.cancel()
+            try:
+                await subscription_checker_task
+            except asyncio.CancelledError:
+                pass
+
         # Останавливаем Tender Sniper если запущен
         if sniper_service:
             logger.info("🛑 Остановка Tender Sniper Service...")

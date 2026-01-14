@@ -137,7 +137,8 @@ async def cmd_sniper_menu(message: Message):
             [monitoring_button],
             [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            [InlineKeyboardButton(text="📦 Моя подписка", callback_data="sniper_subscription")],
+            [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="get_referral_link")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
@@ -196,7 +197,7 @@ async def show_sniper_menu(callback: CallbackQuery):
             [monitoring_button],
             [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            [InlineKeyboardButton(text="📦 Моя подписка", callback_data="sniper_subscription")],
             [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="get_referral_link")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]

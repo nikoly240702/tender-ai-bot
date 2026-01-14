@@ -142,8 +142,34 @@ async def yookassa_webhook_handler(request):
                 # Обновляем подписку пользователя
                 user = await db.get_user_by_telegram_id(telegram_id)
                 if user:
+                    # Получаем текущую дату окончания подписки
+                    user_sub = await db.get_user_subscription_info(telegram_id)
+                    current_expires = user_sub.get('trial_expires_at') if user_sub else None
+
                     # Вычисляем дату окончания подписки
-                    expires_at = datetime.utcnow() + timedelta(days=limits['days'])
+                    now = datetime.utcnow()
+
+                    # Если есть активная подписка - добавляем дни к ней
+                    if current_expires:
+                        # Приводим к datetime если строка
+                        if isinstance(current_expires, str):
+                            try:
+                                current_expires = datetime.fromisoformat(current_expires.replace('Z', '+00:00'))
+                                if current_expires.tzinfo:
+                                    current_expires = current_expires.replace(tzinfo=None)
+                            except:
+                                current_expires = now
+
+                        # Если подписка ещё активна - добавляем к ней
+                        if current_expires > now:
+                            expires_at = current_expires + timedelta(days=limits['days'])
+                            logger.info(f"📅 Extending subscription: {current_expires} + {limits['days']} days = {expires_at}")
+                        else:
+                            # Подписка истекла - отсчитываем от сегодня
+                            expires_at = now + timedelta(days=limits['days'])
+                    else:
+                        # Нет подписки - отсчитываем от сегодня
+                        expires_at = now + timedelta(days=limits['days'])
 
                     await db.update_user_subscription(
                         user_id=user['id'],
