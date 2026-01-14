@@ -14,6 +14,10 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+# Загружаем .env файл ПЕРЕД импортом других модулей
+from dotenv import load_dotenv
+load_dotenv(project_root / '.env')
+
 import uvicorn
 
 
