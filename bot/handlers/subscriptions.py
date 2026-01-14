@@ -81,11 +81,25 @@ BASE_PRICES = {
     'premium': 990,
 }
 
-# Скидки за длительную подписку
-DURATION_DISCOUNTS = {
-    1: {'months': 1, 'discount': 0, 'label': '1 месяц'},
-    3: {'months': 3, 'discount': 10, 'label': '3 месяца', 'badge': '🔥 -10%'},
-    6: {'months': 6, 'discount': 20, 'label': '6 месяцев', 'badge': '💰 -20%'},
+# Фиксированные цены для разных периодов
+FIXED_PRICES = {
+    'basic': {
+        1: 490,    # 1 месяц
+        3: 1400,   # 3 месяца (экономия 70₽)
+        6: 2350,   # 6 месяцев (экономия 590₽)
+    },
+    'premium': {
+        1: 990,    # 1 месяц
+        3: 2650,   # 3 месяца (экономия 320₽)
+        6: 4750,   # 6 месяцев (экономия 1190₽)
+    }
+}
+
+# Описания периодов
+DURATION_OPTIONS = {
+    1: {'months': 1, 'label': '1 месяц'},
+    3: {'months': 3, 'label': '3 месяца', 'badge': '🔥 Выгодно'},
+    6: {'months': 6, 'label': '6 месяцев', 'badge': '💰 Лучшая цена'},
 }
 
 SUBSCRIPTION_TIERS = {
@@ -142,23 +156,25 @@ SUBSCRIPTION_TIERS = {
 def calculate_price(tier: str, months: int) -> dict:
     """Рассчитать цену с учётом скидки."""
     base_price = BASE_PRICES.get(tier, 490)
-    duration = DURATION_DISCOUNTS.get(months, DURATION_DISCOUNTS[1])
+    duration = DURATION_OPTIONS.get(months, DURATION_OPTIONS[1])
+
+    # Получаем фиксированную цену
+    tier_prices = FIXED_PRICES.get(tier, FIXED_PRICES['basic'])
+    final_price = tier_prices.get(months, base_price * months)
 
     full_price = base_price * duration['months']
-    discount_percent = duration['discount']
-    discount_amount = int(full_price * discount_percent / 100)
-    final_price = full_price - discount_amount
+    discount_amount = full_price - final_price
 
     return {
         'base_price': base_price,
         'months': duration['months'],
         'days': duration['months'] * 30,
         'full_price': full_price,
-        'discount_percent': discount_percent,
         'discount_amount': discount_amount,
         'final_price': final_price,
         'label': duration['label'],
         'badge': duration.get('badge', ''),
+        'has_discount': discount_amount > 0,
     }
 
 
@@ -363,7 +379,7 @@ async def callback_select_tier(callback: CallbackQuery):
     for months in [1, 3, 6]:
         price_info = calculate_price(tier_name, months)
 
-        if price_info['discount_percent'] > 0:
+        if price_info['has_discount']:
             btn_text = f"{price_info['badge']} {price_info['label']} — {price_info['final_price']} ₽"
             text += f"\n{price_info['badge']} <b>{price_info['label']}</b>: <s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b>"
         else:
@@ -449,8 +465,8 @@ async def callback_pay_tier(callback: CallbackQuery):
             return
 
         # Формируем текст со скидкой
-        if price_info['discount_percent'] > 0:
-            price_text = f"<s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b> (скидка {price_info['discount_percent']}%)"
+        if price_info['has_discount']:
+            price_text = f"<s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b> (экономия {price_info['discount_amount']} ₽)"
         else:
             price_text = f"<b>{price_info['final_price']} ₽</b>"
 
