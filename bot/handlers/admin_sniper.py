@@ -468,12 +468,25 @@ async def set_user_tier(message: Message):
 
             # Обновляем тариф и лимиты
             limits_map = {
-                'free': {'filters': 5, 'notifications': 15},
-                'basic': {'filters': 15, 'notifications': 50},
-                'premium': {'filters': 9999, 'notifications': 9999}
+                'free': {'filters': 5, 'notifications': 15, 'days': 0},
+                'basic': {'filters': 5, 'notifications': 100, 'days': 30},
+                'premium': {'filters': 20, 'notifications': 9999, 'days': 30}
             }
 
             new_limits = limits_map[new_tier]
+
+            # Вычисляем дату окончания подписки
+            if new_tier in ['basic', 'premium']:
+                # Для платных тарифов - добавляем 30 дней
+                if user.trial_expires_at and user.trial_expires_at > datetime.now():
+                    # Если есть активная подписка - добавляем к ней
+                    new_expires = user.trial_expires_at + timedelta(days=new_limits['days'])
+                else:
+                    # Иначе от сегодня
+                    new_expires = datetime.now() + timedelta(days=new_limits['days'])
+            else:
+                # Для free - обнуляем
+                new_expires = None
 
             await session.execute(
                 update(SniperUser)
@@ -481,7 +494,8 @@ async def set_user_tier(message: Message):
                 .values(
                     subscription_tier=new_tier,
                     filters_limit=new_limits['filters'],
-                    notifications_limit=new_limits['notifications']
+                    notifications_limit=new_limits['notifications'],
+                    trial_expires_at=new_expires
                 )
             )
 
@@ -491,6 +505,10 @@ async def set_user_tier(message: Message):
             'premium': '👑'
         }
 
+        expires_text = ""
+        if new_expires:
+            expires_text = f"\n• Действует до: {new_expires.strftime('%d.%m.%Y')}"
+
         await message.answer(
             f"✅ <b>Тариф изменен</b>\n\n"
             f"Пользователь: <code>{target_telegram_id}</code>\n"
@@ -498,7 +516,8 @@ async def set_user_tier(message: Message):
             f"Стало: {tier_emoji.get(new_tier, '❓')} {new_tier}\n\n"
             f"Новые лимиты:\n"
             f"• Фильтры: {new_limits['filters']}\n"
-            f"• Уведомления/день: {new_limits['notifications']}",
+            f"• Уведомления/день: {new_limits['notifications']}"
+            f"{expires_text}",
             parse_mode="HTML"
         )
 
