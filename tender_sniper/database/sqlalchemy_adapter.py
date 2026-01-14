@@ -1478,6 +1478,87 @@ class TenderSniperDB:
             logger.info(f"✅ User subscription updated: id={user_id}, tier={tier}, expires={expires_at}")
             return True
 
+    async def apply_promocode(self, user_id: int, code: str) -> Dict[str, Any]:
+        """
+        Применить промокод для пользователя.
+
+        Args:
+            user_id: ID пользователя в БД
+            code: Промокод (uppercase)
+
+        Returns:
+            Dict с результатом:
+            - success: True/False
+            - error: код ошибки (если success=False)
+            - tier: тариф промокода
+            - days: количество дней
+            - expires_at: новая дата окончания подписки
+        """
+        from database import Promocode as PromocodeModel
+
+        async with DatabaseSession() as session:
+            # Ищем промокод
+            result = await session.execute(
+                select(PromocodeModel).where(PromocodeModel.code == code.upper())
+            )
+            promocode = result.scalar_one_or_none()
+
+            if not promocode:
+                return {'success': False, 'error': 'not_found'}
+
+            # Проверяем активность
+            if not promocode.is_active:
+                return {'success': False, 'error': 'inactive'}
+
+            # Проверяем срок действия
+            if promocode.expires_at and promocode.expires_at < datetime.utcnow():
+                return {'success': False, 'error': 'expired'}
+
+            # Проверяем лимит использований
+            if promocode.max_uses and promocode.current_uses >= promocode.max_uses:
+                return {'success': False, 'error': 'max_uses'}
+
+            # Получаем пользователя
+            user = await session.get(SniperUserModel, user_id)
+            if not user:
+                return {'success': False, 'error': 'user_not_found'}
+
+            # Рассчитываем новую дату окончания
+            now = datetime.utcnow()
+            if user.trial_expires_at and user.trial_expires_at > now:
+                # Добавляем к текущей подписке
+                new_expires = user.trial_expires_at + timedelta(days=promocode.days)
+            else:
+                # Начинаем с сегодня
+                new_expires = now + timedelta(days=promocode.days)
+
+            # Определяем лимиты для тарифа
+            limits_map = {
+                'basic': {'filters': 5, 'notifications': 100},
+                'premium': {'filters': 20, 'notifications': 9999}
+            }
+            limits = limits_map.get(promocode.tier, {'filters': 5, 'notifications': 100})
+
+            # Обновляем пользователя
+            user.subscription_tier = promocode.tier
+            user.filters_limit = limits['filters']
+            user.notifications_limit = limits['notifications']
+            user.trial_expires_at = new_expires
+
+            # Увеличиваем счётчик использований промокода
+            promocode.current_uses += 1
+
+            await session.commit()
+
+            logger.info(f"🎟 Promocode {code} applied: user_id={user_id}, tier={promocode.tier}, days={promocode.days}")
+
+            return {
+                'success': True,
+                'tier': promocode.tier,
+                'days': promocode.days,
+                'expires_at': new_expires
+            }
+
     async def record_payment(
         self,
         user_id: int,
@@ -1516,6 +1597,73 @@ class TenderSniperDB:
             await session.commit()
             logger.info(f"💳 Payment recorded: id={payment_record_id}, user={user_id}, amount={amount}₽")
             return payment_record_id
+
+
+    # ============================================
+    # SUBSCRIPTION REMINDERS
+    # ============================================
+
+    async def get_expiring_subscriptions(self, days_before: int) -> List[Dict[str, Any]]:
+        """
+        Получить пользователей с истекающими подписками.
+
+        Args:
+            days_before: За сколько дней до истечения (например, 3 или 1)
+
+        Returns:
+            Список пользователей с telegram_id и датой истечения
+        """
+        async with DatabaseSession() as session:
+            now = datetime.utcnow()
+            target_date = now + timedelta(days=days_before)
+
+            # Находим пользователей, у которых подписка истекает через days_before дней
+            # (в диапазоне от days_before до days_before + 1)
+            start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+            result = await session.execute(
+                select(SniperUserModel)
+                .where(
+                    and_(
+                        SniperUserModel.trial_expires_at >= start_of_day,
+                        SniperUserModel.trial_expires_at <= end_of_day,
+                        SniperUserModel.subscription_tier.in_(['trial', 'basic', 'premium']),
+                        SniperUserModel.status == 'active'
+                    )
+                )
+            )
+            users = result.scalars().all()
+
+            return [{
+                'id': u.id,
+                'telegram_id': u.telegram_id,
+                'username': u.username,
+                'subscription_tier': u.subscription_tier,
+                'trial_expires_at': u.trial_expires_at,
+                'days_remaining': days_before
+            } for u in users]
+
+    async def get_all_active_users(self) -> List[Dict[str, Any]]:
+        """
+        Получить всех активных пользователей для рассылки.
+
+        Returns:
+            Список пользователей с telegram_id
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel)
+                .where(SniperUserModel.status == 'active')
+            )
+            users = result.scalars().all()
+
+            return [{
+                'id': u.id,
+                'telegram_id': u.telegram_id,
+                'username': u.username,
+                'subscription_tier': u.subscription_tier,
+            } for u in users]
 
 
 # Глобальный singleton

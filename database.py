@@ -81,7 +81,7 @@ class SniperUser(Base):
     blocked_by = Column(BigInteger, nullable=True)  # Telegram ID админа
 
     # Тарифный план
-    subscription_tier = Column(String(50), default='free', nullable=False)  # free, trial, basic, premium
+    subscription_tier = Column(String(50), default='trial', nullable=False)  # trial, basic, premium
     filters_limit = Column(Integer, default=5, nullable=False)
     notifications_limit = Column(Integer, default=15, nullable=False)
     notifications_sent_today = Column(Integer, default=0, nullable=False)
@@ -530,6 +530,44 @@ class Referral(Base):
     __table_args__ = (
         Index('ix_referrals_referrer', 'referrer_id'),
         Index('ix_referrals_referred', 'referred_id', unique=True),  # User can only be referred once
+    )
+
+
+class UserEvent(Base):
+    """
+    События пользователей для аналитики.
+
+    Типы событий:
+    - registration: Регистрация пользователя
+    - broadcast_delivered: Рассылка доставлена
+    - broadcast_clicked: Клик по кнопке в рассылке
+    - subscription_viewed: Просмотр тарифов
+    - subscription_purchased: Покупка подписки
+    - filter_created: Создание фильтра
+    - filter_deleted: Удаление фильтра
+    - search_performed: Выполнен поиск
+    - bot_blocked: Бот заблокирован
+    - bot_unblocked: Бот разблокирован
+    - referral_link_generated: Сгенерирована реферальная ссылка
+    - referral_used: Использована реферальная ссылка
+    """
+    __tablename__ = 'user_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=True, index=True)
+    telegram_id = Column(BigInteger, nullable=True, index=True)  # На случай если user_id ещё нет
+    event_type = Column(String(50), nullable=False, index=True)
+    event_data = Column(JSON, nullable=True)  # Дополнительные данные о событии
+    broadcast_id = Column(Integer, ForeignKey('broadcast_messages.id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # Relationship
+    user = relationship("SniperUser", foreign_keys=[user_id])
+    broadcast = relationship("BroadcastMessage", foreign_keys=[broadcast_id])
+
+    __table_args__ = (
+        Index('ix_user_events_type_date', 'event_type', 'created_at'),
+        Index('ix_user_events_user_type', 'user_id', 'event_type'),
     )
 
 

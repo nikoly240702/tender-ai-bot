@@ -17,6 +17,13 @@
 </div>
 {% endif %}
 
+{% if request.query_params.get('refresh_sent') %}
+<div class="alert alert-info alert-dismissible fade show" role="alert">
+    🔄 Запрос на обновление отправлен {{ request.query_params.get('refresh_sent') }} пользователям!
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
 <div class="row">
     <!-- Форма рассылки -->
     <div class="col-lg-8">
@@ -30,8 +37,7 @@
                         <label class="form-label">Целевая аудитория</label>
                         <select name="target_tier" class="form-select">
                             <option value="all">Все пользователи ({{ tier_stats.get('all', 0) }})</option>
-                            <option value="trial">Триал ({{ tier_stats.get('trial', 0) }})</option>
-                            <option value="free">Free ({{ tier_stats.get('free', 0) }})</option>
+                            <option value="trial">Пробный ({{ tier_stats.get('trial', 0) }})</option>
                             <option value="basic">Basic ({{ tier_stats.get('basic', 0) }})</option>
                             <option value="premium">Premium ({{ tier_stats.get('premium', 0) }})</option>
                         </select>
@@ -58,6 +64,29 @@
 
     <!-- Статистика -->
     <div class="col-lg-4">
+        <!-- Обновить бота для всех -->
+        <div class="card card-custom mb-4" style="border-left: 4px solid #0d6efd;">
+            <div class="card-header bg-primary text-white">
+                <i class="bi bi-arrow-repeat me-2"></i> Обновить бота для всех
+            </div>
+            <div class="card-body">
+                <p class="card-text small text-muted mb-3">
+                    Отправить всем пользователям кнопку для обновления бота.
+                    Это обновит клавиатуру и меню у всех пользователей.
+                </p>
+                <form action="/force-refresh" method="post">
+                    <div class="mb-3">
+                        <label class="form-label small">Сообщение (опционально)</label>
+                        <textarea name="message" class="form-control form-control-sm" rows="2"
+                                  placeholder="Оставьте пустым для сообщения по умолчанию"></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="bi bi-arrow-repeat"></i> Обновить у всех
+                    </button>
+                </form>
+            </div>
+        </div>
+
         <div class="card card-custom mb-4">
             <div class="card-header">
                 <i class="bi bi-people me-2"></i> Аудитория по тарифам

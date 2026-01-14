@@ -39,6 +39,7 @@ from database import (
     Promocode,
     Payment,
     Referral,
+    UserEvent,
     DatabaseSession,
 )
 
@@ -189,7 +190,7 @@ async def dashboard(request: Request, username: str = Depends(verify_credentials
                 "active_users": active_users,
                 "total_filters": total_filters,
                 "notifications_today": today_notifications,
-                "tier_free": tier_stats.get('free', 0),
+                "tier_trial": tier_stats.get('trial', 0),
                 "tier_basic": tier_stats.get('basic', 0),
                 "tier_premium": tier_stats.get('premium', 0),
             },
@@ -308,15 +309,14 @@ async def set_user_tier(
     username: str = Depends(verify_credentials)
 ):
     """Изменить тариф пользователя."""
-    valid_tiers = ['free', 'trial', 'basic', 'premium']
+    valid_tiers = ['trial', 'basic', 'premium']
     if tier not in valid_tiers:
         raise HTTPException(status_code=400, detail="Неверный тариф")
 
     try:
         limits_map = {
-            'free': {'filters': 3, 'notifications': 20, 'days': 0},
-            'trial': {'filters': 3, 'notifications': 20, 'days': 14},
-            'basic': {'filters': 5, 'notifications': 100, 'days': 30},
+            'trial': {'filters': 3, 'notifications': 20, 'days': 7},
+            'basic': {'filters': 5, 'notifications': 50, 'days': 30},
             'premium': {'filters': 20, 'notifications': 9999, 'days': 30}
         }
 
@@ -681,6 +681,85 @@ async def health_check():
 
 
 # ============================================
+# FORCE REFRESH BOT (Обновить бота для всех)
+# ============================================
+
+async def send_refresh_message(telegram_id: int, message_text: str) -> bool:
+    """Отправить сообщение с кнопкой перезапуска бота."""
+    if not TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN not set")
+        return False
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": telegram_id,
+        "text": message_text,
+        "parse_mode": "HTML",
+        "reply_markup": {
+            "inline_keyboard": [
+                [{"text": "🔄 Перезапустить бота", "callback_data": "force_restart"}]
+            ]
+        }
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, timeout=10) as resp:
+                return resp.status == 200
+    except Exception as e:
+        logger.error(f"Failed to send refresh message to {telegram_id}: {e}")
+        return False
+
+
+async def force_refresh_task(user_ids: list, message_text: str):
+    """Фоновая задача для отправки сообщений о перезапуске."""
+    successful = 0
+    failed = 0
+
+    for telegram_id in user_ids:
+        if await send_refresh_message(telegram_id, message_text):
+            successful += 1
+        else:
+            failed += 1
+        await asyncio.sleep(0.05)
+
+    logger.info(f"Force refresh completed: {successful} success, {failed} failed")
+    return successful, failed
+
+
+@app.post("/force-refresh")
+async def force_refresh_all_users(
+    background_tasks: BackgroundTasks,
+    message: str = Form(""),
+    username: str = Depends(verify_credentials)
+):
+    """
+    Отправить всем пользователям сообщение с кнопкой перезапуска бота.
+    Это обновит клавиатуры у всех пользователей.
+    """
+    try:
+        default_message = (
+            "🔄 <b>Доступно обновление бота!</b>\n\n"
+            "Нажмите кнопку ниже, чтобы получить последнюю версию с новыми функциями и исправлениями."
+        )
+        final_message = message.strip() if message.strip() else default_message
+
+        async with DatabaseSession() as session:
+            query = select(SniperUser.telegram_id).where(SniperUser.status == 'active')
+            result = await session.execute(query)
+            user_ids = [row[0] for row in result.all()]
+
+        if user_ids:
+            background_tasks.add_task(force_refresh_task, user_ids, final_message)
+
+        return RedirectResponse(url=f"/broadcast?refresh_sent={len(user_ids)}", status_code=303)
+
+    except Exception as e:
+        logger.error(f"Force refresh error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
 # BROADCAST (Рассылка)
 # ============================================
 
@@ -740,7 +819,7 @@ async def broadcast_page(
         async with DatabaseSession() as session:
             # Статистика по тарифам
             tier_stats = {}
-            for tier in ['all', 'trial', 'free', 'basic', 'premium']:
+            for tier in ['all', 'trial', 'basic', 'premium']:
                 if tier == 'all':
                     count = await session.scalar(select(func.count(SniperUser.id))) or 0
                 else:
@@ -781,7 +860,7 @@ async def send_broadcast(
     username: str = Depends(verify_credentials)
 ):
     """Отправить рассылку."""
-    valid_tiers = ['all', 'trial', 'free', 'basic', 'premium']
+    valid_tiers = ['all', 'trial', 'basic', 'premium']
     if target_tier not in valid_tiers:
         raise HTTPException(status_code=400, detail="Неверный тариф")
 
@@ -959,6 +1038,55 @@ async def analytics_page(
             tier_result = await session.execute(tier_stats_query)
             tier_stats = {row[0]: row[1] for row in tier_result.all()}
 
+            # Регистрации по дням (последние 14 дней)
+            fourteen_days_ago = datetime.utcnow() - timedelta(days=14)
+            registrations_query = (
+                select(
+                    func.date(SniperUser.created_at).label('date'),
+                    func.count(SniperUser.id).label('count')
+                )
+                .where(SniperUser.created_at >= fourteen_days_ago)
+                .group_by(func.date(SniperUser.created_at))
+                .order_by(func.date(SniperUser.created_at))
+            )
+            reg_result = await session.execute(registrations_query)
+            daily_registrations = [
+                {'date': str(row[0]), 'count': row[1]}
+                for row in reg_result.all()
+            ]
+
+            # Заблокировали бота (status != 'active')
+            blocked_users = await session.scalar(
+                select(func.count(SniperUser.id)).where(SniperUser.status == 'blocked')
+            ) or 0
+
+            # Неактивные 7+ дней
+            week_ago = datetime.utcnow() - timedelta(days=7)
+            inactive_users = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(
+                        SniperUser.status == 'active',
+                        SniperUser.last_activity < week_ago
+                    )
+                )
+            ) or 0
+
+            # События (если таблица существует)
+            try:
+                events_today = await session.scalar(
+                    select(func.count(UserEvent.id)).where(
+                        UserEvent.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0)
+                    )
+                ) or 0
+            except:
+                events_today = 0
+
+            churn_stats = {
+                'blocked': blocked_users,
+                'inactive_7d': inactive_users,
+                'events_today': events_today,
+            }
+
         return templates.TemplateResponse("analytics.html", {
             "request": request,
             "username": username,
@@ -966,6 +1094,8 @@ async def analytics_page(
             "top_regions": top_regions,
             "funnel": funnel,
             "tier_stats": tier_stats,
+            "daily_registrations": daily_registrations,
+            "churn_stats": churn_stats,
         })
 
     except Exception as e:

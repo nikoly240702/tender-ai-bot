@@ -72,9 +72,9 @@ class AccessControlMiddleware(BaseMiddleware):
                         first_name=user.first_name,
                         last_name=user.last_name,
                         status='active',
-                        subscription_tier='free',
-                        filters_limit=5,
-                        notifications_limit=15
+                        subscription_tier='trial',
+                        filters_limit=3,
+                        notifications_limit=20
                     )
                     session.add(db_user)
                     await session.flush()  # Чтобы получить ID

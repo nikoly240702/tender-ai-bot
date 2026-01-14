@@ -11,7 +11,6 @@
                placeholder="Поиск по имени или ID..." value="{{ search or '' }}">
         <select class="form-select" name="tier" style="width: auto;">
             <option value="">Все тарифы</option>
-            <option value="free" {% if tier_filter == 'free' %}selected{% endif %}>Free</option>
             <option value="trial" {% if tier_filter == 'trial' %}selected{% endif %}>Trial</option>
             <option value="basic" {% if tier_filter == 'basic' %}selected{% endif %}>Basic</option>
             <option value="premium" {% if tier_filter == 'premium' %}selected{% endif %}>Premium</option>
@@ -27,11 +26,6 @@
     <div class="col-auto">
         <span class="badge bg-secondary p-2">
             Всего: {{ total_users }}
-        </span>
-    </div>
-    <div class="col-auto">
-        <span class="badge bg-light text-dark p-2">
-            Free: {{ tier_counts.get('free', 0) }}
         </span>
     </div>
     <div class="col-auto">

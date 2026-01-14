@@ -57,7 +57,7 @@ class TenderSniperDB:
                     first_name TEXT,
                     last_name TEXT,
                     status TEXT DEFAULT 'active',
-                    subscription_tier TEXT DEFAULT 'free',
+                    subscription_tier TEXT DEFAULT 'trial',
                     subscription_status TEXT DEFAULT 'active',
                     subscription_start TEXT,
                     subscription_end TEXT,
@@ -329,7 +329,7 @@ class TenderSniperDB:
         username: Optional[str] = None,
         first_name: Optional[str] = None,
         last_name: Optional[str] = None,
-        subscription_tier: str = 'free'
+        subscription_tier: str = 'trial'
     ) -> int:
         """Создание или обновление пользователя."""
         async with aiosqlite.connect(self.db_path) as db:
@@ -503,16 +503,18 @@ class TenderSniperDB:
         async with aiosqlite.connect(self.db_path) as db:
             now = datetime.now()
 
-            if tier == 'free':
-                # Для бесплатного тарифа сбрасываем даты подписки
+            if tier == 'trial':
+                # Для trial тарифа устанавливаем 7 дней
+                start = now.isoformat()
+                end = (now + timedelta(days=7)).isoformat()
                 await db.execute("""
                     UPDATE sniper_users
-                    SET subscription_tier = 'free',
+                    SET subscription_tier = 'trial',
                         subscription_status = 'active',
-                        subscription_start = NULL,
-                        subscription_end = NULL
+                        subscription_start = ?,
+                        subscription_end = ?
                     WHERE telegram_id = ?
-                """, (telegram_id,))
+                """, (start, end, telegram_id))
             else:
                 start = now.isoformat()
                 end = (now + timedelta(days=30 * months)).isoformat() if months > 0 else None
@@ -627,7 +629,7 @@ class TenderSniperDB:
                 SELECT subscription_tier, COUNT(*) FROM sniper_users GROUP BY subscription_tier
             """) as cursor:
                 rows = await cursor.fetchall()
-                stats['by_tier'] = {row[0] or 'free': row[1] for row in rows}
+                stats['by_tier'] = {row[0] or 'trial': row[1] for row in rows}
 
             # Активные сегодня
             today = datetime.now().date().isoformat()

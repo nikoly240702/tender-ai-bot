@@ -70,8 +70,8 @@ async def get_user_tier(telegram_id: int) -> str:
     db = await get_sniper_db()
     user = await db.get_user_by_telegram_id(telegram_id)
     if user:
-        return user.get('subscription_tier', 'free')
-    return 'free'
+        return user.get('subscription_tier', 'trial')
+    return 'trial'
 
 
 async def check_feature_access(telegram_id: int, feature: str) -> Tuple[bool, str]:

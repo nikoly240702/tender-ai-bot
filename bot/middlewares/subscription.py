@@ -140,15 +140,12 @@ class SubscriptionMiddleware(BaseMiddleware):
                 subscription_expired = False
                 now = datetime.now()
 
-                if user.subscription_tier in ['trial', 'basic', 'premium']:
-                    if user.trial_expires_at:
-                        if now > user.trial_expires_at:
-                            subscription_expired = True
-                    else:
-                        # Нет даты окончания - считаем истекшей
+                # Проверяем дату окончания подписки
+                if user.trial_expires_at:
+                    if now > user.trial_expires_at:
                         subscription_expired = True
-                elif user.subscription_tier == 'free':
-                    # Free пользователи без подписки - блокируем
+                else:
+                    # Нет даты окончания - считаем истекшей
                     subscription_expired = True
 
                 if subscription_expired:
@@ -156,7 +153,6 @@ class SubscriptionMiddleware(BaseMiddleware):
                         'trial': 'пробный период',
                         'basic': 'подписка Basic',
                         'premium': 'подписка Premium',
-                        'free': 'подписка'
                     }.get(user.subscription_tier, 'подписка')
 
                     message = (

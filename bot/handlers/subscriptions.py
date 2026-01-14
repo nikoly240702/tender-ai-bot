@@ -6,16 +6,18 @@ Subscription Management Handlers.
 - Отображение информации о тарифах
 - Активация trial
 - Продление подписки
+- Активация промокодов
 
 Feature flag: subscriptions (config/features.yaml)
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -24,6 +26,15 @@ from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
 logger = logging.getLogger(__name__)
 
 router = Router(name="subscriptions")
+
+
+# ============================================
+# FSM States for Promocode
+# ============================================
+
+class PromocodeStates(StatesGroup):
+    """Состояния для ввода промокода."""
+    waiting_for_code = State()
 
 
 # ============================================
@@ -63,6 +74,11 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
         builder.row(
             InlineKeyboardButton(text="📊 История платежей", callback_data="subscription_history")
         )
+
+    # Кнопка промокода всегда доступна
+    builder.row(
+        InlineKeyboardButton(text="🎟 Ввести промокод", callback_data="subscription_promocode")
+    )
 
     builder.row(
         InlineKeyboardButton(text="◀️ В меню", callback_data="sniper_menu")
@@ -107,7 +123,7 @@ SUBSCRIPTION_TIERS = {
         'name': 'Пробный период',
         'emoji': '🎁',
         'price': 0,
-        'days': 14,
+        'days': 7,
         'max_filters': 3,
         'max_notifications_per_day': 20,
         'features': [
@@ -115,7 +131,6 @@ SUBSCRIPTION_TIERS = {
             '20 уведомлений/день',
             'Мгновенный поиск',
             'Избранное',
-            '14 дней бесплатно',
         ]
     },
     'basic': {
@@ -129,8 +144,7 @@ SUBSCRIPTION_TIERS = {
             '5 фильтров мониторинга',
             '100 уведомлений/день',
             'Мгновенный поиск',
-            'Экспорт в Excel',
-            'Напоминания о тендерах',
+            'Базовые настройки фильтров',
             'Telegram-поддержка',
         ]
     },
@@ -216,7 +230,7 @@ async def show_subscription_status(message: Message, user_id: int = None):
     user_full = await db.get_user_subscription_info(user_id)
 
     # Determine active subscription (prefer sniper_users data for paid subscriptions)
-    tier = user_full.get('subscription_tier', 'free') if user_full else 'free'
+    tier = user_full.get('subscription_tier', 'trial') if user_full else 'trial'
     expires_at = user_full.get('trial_expires_at') if user_full else None
     filters_limit = user_full.get('filters_limit', 3) if user_full else 3
     notifications_limit = user_full.get('notifications_limit', 20) if user_full else 20
@@ -633,7 +647,7 @@ async def get_subscription_status_line(telegram_id: int) -> str:
     if not user_full:
         return "❌ Нет подписки"
 
-    tier = user_full.get('subscription_tier', 'free')
+    tier = user_full.get('subscription_tier', 'trial')
     expires_at = user_full.get('trial_expires_at')
 
     # Calculate days remaining
@@ -662,3 +676,95 @@ async def get_subscription_status_line(telegram_id: int) -> str:
 
     tier_info = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS['trial'])
     return f"{tier_info['emoji']} {tier_info['name']} ({days_remaining} дн.)"
+
+
+# ============================================
+# Promocode Handlers
+# ============================================
+
+@router.callback_query(F.data == "subscription_promocode")
+async def callback_promocode_start(callback: CallbackQuery, state: FSMContext):
+    """Начать ввод промокода."""
+    await callback.answer()
+    await state.set_state(PromocodeStates.waiting_for_code)
+
+    await callback.message.edit_text(
+        "🎟 <b>Введите промокод</b>\n\n"
+        "Отправьте промокод сообщением.\n"
+        "Промокод не чувствителен к регистру.\n\n"
+        "<i>Для отмены нажмите кнопку ниже.</i>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="subscription_promocode_cancel")]
+        ])
+    )
+
+
+@router.callback_query(F.data == "subscription_promocode_cancel")
+async def callback_promocode_cancel(callback: CallbackQuery, state: FSMContext):
+    """Отменить ввод промокода."""
+    await callback.answer()
+    await state.clear()
+    await show_subscription_status(callback.message, callback.from_user.id)
+
+
+@router.message(PromocodeStates.waiting_for_code)
+async def process_promocode(message: Message, state: FSMContext):
+    """Обработать введённый промокод."""
+    code = message.text.strip().upper()
+
+    if not code:
+        await message.answer(
+            "❌ Промокод не может быть пустым.\n"
+            "Пожалуйста, введите промокод или нажмите кнопку отмены.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Отмена", callback_data="subscription_promocode_cancel")]
+            ])
+        )
+        return
+
+    db = await get_sniper_db()
+
+    # Получаем пользователя
+    user = await db.get_user_by_telegram_id(message.from_user.id)
+    if not user:
+        await message.answer("❌ Пользователь не найден. Используйте /start")
+        await state.clear()
+        return
+
+    # Проверяем промокод
+    result = await db.apply_promocode(user['id'], code)
+
+    await state.clear()
+
+    if result['success']:
+        tier_info = SUBSCRIPTION_TIERS.get(result['tier'], SUBSCRIPTION_TIERS['basic'])
+        await message.answer(
+            f"✅ <b>Промокод активирован!</b>\n\n"
+            f"🎟 Код: <code>{code}</code>\n"
+            f"{tier_info['emoji']} Тариф: <b>{tier_info['name']}</b>\n"
+            f"📅 Добавлено дней: <b>{result['days']}</b>\n"
+            f"⏳ Подписка до: <b>{result['expires_at'].strftime('%d.%m.%Y')}</b>\n\n"
+            f"Спасибо за использование промокода!",
+            parse_mode="HTML",
+            reply_markup=get_back_to_menu_keyboard()
+        )
+        logger.info(f"Promocode {code} applied for user {message.from_user.id}: tier={result['tier']}, days={result['days']}")
+    else:
+        error_messages = {
+            'not_found': "Промокод не найден. Проверьте правильность ввода.",
+            'expired': "Срок действия промокода истёк.",
+            'inactive': "Промокод деактивирован.",
+            'max_uses': "Достигнуто максимальное количество использований промокода.",
+            'already_used': "Вы уже использовали этот промокод.",
+        }
+        error_text = error_messages.get(result.get('error'), "Не удалось применить промокод.")
+
+        await message.answer(
+            f"❌ <b>Ошибка активации</b>\n\n{error_text}",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Попробовать другой", callback_data="subscription_promocode")],
+                [InlineKeyboardButton(text="◀️ Назад", callback_data="sniper_subscription")]
+            ])
+        )

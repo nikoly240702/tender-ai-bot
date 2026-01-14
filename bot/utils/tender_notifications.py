@@ -284,13 +284,13 @@ def format_stats(stats: Dict[str, Any]) -> str:
 """
 
     # Добавляем информацию о подписке
-    subscription_tier = stats.get('subscription_tier', 'free')
-    if subscription_tier == 'free':
-        message += "\n💳 Тариф: Бесплатный (10 уведомлений/день)"
+    subscription_tier = stats.get('subscription_tier', 'trial')
+    if subscription_tier == 'trial':
+        message += "\n💳 Тариф: Пробный (20 уведомлений/день)"
     elif subscription_tier == 'basic':
         message += "\n💳 Тариф: Базовый (50 уведомлений/день)"
     else:
-        message += "\n💳 Тариф: Премиум (неограниченно)"
+        message += "\n💳 Тариф: Премиум (безлимит)"
 
     return message
 

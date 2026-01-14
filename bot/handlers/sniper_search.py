@@ -157,14 +157,15 @@ async def start_create_filter_only(callback: CallbackQuery, state: FSMContext):
                 telegram_id=callback.from_user.id,
                 username=callback.from_user.username,
                 first_name=callback.from_user.first_name,
-                subscription_tier='free'
+                subscription_tier='trial'
             )
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
         # Проверяем квоту на фильтры
         filters = await db.get_user_filters(user['id'], active_only=True)
         # Временно используем жёстко заданные лимиты (TODO: мигрировать get_plan_limits на PostgreSQL)
-        max_filters = 5 if user['subscription_tier'] == 'free' else 15
+        tier = user['subscription_tier']
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(
@@ -216,14 +217,15 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
                 telegram_id=callback.from_user.id,
                 username=callback.from_user.username,
                 first_name=callback.from_user.first_name,
-                subscription_tier='free'
+                subscription_tier='trial'
             )
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
         # Проверяем квоту на фильтры
         filters = await db.get_user_filters(user['id'], active_only=True)
         # Временно используем жёстко заданные лимиты (TODO: мигрировать get_plan_limits на PostgreSQL)
-        max_filters = 5 if user['subscription_tier'] == 'free' else 15
+        tier = user['subscription_tier']
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(
@@ -287,7 +289,7 @@ async def start_archive_search(callback: CallbackQuery, state: FSMContext):
                 telegram_id=callback.from_user.id,
                 username=callback.from_user.username,
                 first_name=callback.from_user.first_name,
-                subscription_tier='free'
+                subscription_tier='trial'
             )
 
         # Инициализируем данные архивного поиска
@@ -2584,7 +2586,8 @@ async def process_tender_count(message: Message, state: FSMContext):
             )
 
             # Получаем лимиты тарифа для отображения (хардкод, пока не мигрирован на PostgreSQL)
-            daily_limit = 10 if user['subscription_tier'] == 'free' else 50
+            tier = user['subscription_tier']
+            daily_limit = 20 if tier == 'trial' else (50 if tier == 'basic' else 100)
 
             # Отправляем результаты
             await progress_msg.edit_text(
@@ -2700,7 +2703,8 @@ async def process_tender_count(message: Message, state: FSMContext):
             )
 
             # Получаем лимиты (хардкод, пока не мигрирован на PostgreSQL)
-            daily_limit = 10 if user['subscription_tier'] == 'free' else 50
+            tier = user['subscription_tier']
+            daily_limit = 20 if tier == 'trial' else (50 if tier == 'basic' else 100)
 
             # Формируем описание фильтра
             filter_summary = f"📝 <b>{filter_name}</b>\n\n"

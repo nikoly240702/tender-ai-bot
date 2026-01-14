@@ -269,6 +269,69 @@ async def callback_start_onboarding(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
+@router.callback_query(F.data == "force_restart")
+async def callback_force_restart(callback: CallbackQuery, state: FSMContext):
+    """
+    Обработчик кнопки принудительного перезапуска бота.
+    Отправляется из админ-панели для обновления клавиатур у всех пользователей.
+    """
+    try:
+        await callback.answer("🔄 Обновляю бота...")
+
+        # Удаляем сообщение с кнопкой
+        try:
+            await callback.message.delete()
+        except:
+            pass
+
+        # Очищаем состояние и показываем главное меню
+        await state.clear()
+
+        # Получаем актуальную клавиатуру для пользователя
+        keyboard = await get_main_keyboard_for_user(callback.from_user.id)
+
+        welcome_text = (
+            "✅ <b>Бот обновлён!</b>\n\n"
+            "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
+            "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
+            "<b>Что я умею:</b>\n"
+            "🔍 Мгновенный поиск по вашим критериям\n"
+            "🎯 Умное сопоставление (scoring 0-100)\n"
+            "📱 Автоматические уведомления о новых тендерах\n"
+            "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
+            "<i>Нажмите кнопку ниже для начала!</i>"
+        )
+
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
+            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
+        ])
+
+        # Принудительно обновляем клавиатуру
+        await callback.message.answer("🔄 Обновляю меню...", reply_markup=ReplyKeyboardRemove())
+
+        import asyncio
+        await asyncio.sleep(0.3)
+
+        await callback.message.answer(
+            welcome_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+        await callback.message.answer(
+            "Выберите действие:",
+            reply_markup=inline_keyboard,
+            parse_mode="HTML"
+        )
+
+        logger.info(f"User {callback.from_user.id} restarted bot via force_restart")
+
+    except Exception as e:
+        logger.error(f"Ошибка в callback_force_restart: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
 # ============================================
 # ОБРАБОТЧИКИ ПОСТОЯННОЙ КЛАВИАТУРЫ
 # ============================================
@@ -819,4 +882,221 @@ async def admin_test_search(message: Message):
 
     except Exception as e:
         logger.error(f"Ошибка test_search: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
+
+
+@router.message(Command("send_trial_broadcast"))
+async def admin_send_trial_broadcast(message: Message):
+    """
+    Админская команда для отправки рассылки о переходе на trial.
+    Отправляет всем пользователям сообщение с автообновлением клавиатуры.
+
+    Использование: /send_trial_broadcast
+    """
+    from bot.config import BotConfig
+    from tender_sniper.database import get_sniper_db
+    from database import DatabaseSession, SniperUser, BroadcastMessage, UserEvent
+    from sqlalchemy import select, update
+    from datetime import datetime, timedelta
+    import asyncio
+
+    if BotConfig.ADMIN_USER_ID and message.from_user.id != BotConfig.ADMIN_USER_ID:
+        return  # Только для админа
+
+    BROADCAST_TEXT = """📢 <b>Важное обновление Tender Sniper!</b>
+
+Уважаемые пользователи!
+
+Мы активно развиваем проект и добавляем новые функции. Для дальнейшего развития бот переходит на модель с ограниченным бесплатным периодом.
+
+⏳ <b>Ваш бесплатный период: 7 дней</b>
+
+После окончания бесплатного периода потребуется платная подписка для продолжения работы.
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 <b>Как получить бесплатные дни:</b>
+
+🎁 <b>Реферальная программа</b>
+Приглашайте друзей по вашей реферальной ссылке и получайте <b>+7 дней</b> за каждого нового пользователя!
+Ссылку можно получить в разделе «Подписка» → «Реферальная программа»
+
+💬 <b>Помощь проекту</b>
+За конструктивный фидбэк, идеи по улучшению или помощь в доработке бота мы также дарим бесплатную подписку.
+Пишите разработчику: @nikolai_chizhik
+
+━━━━━━━━━━━━━━━━━━━━━
+
+Спасибо, что вы с нами! 🙏"""
+
+    await message.answer("🚀 Начинаю рассылку...")
+
+    try:
+        # 1. Сначала мигрируем free -> trial
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUser).where(SniperUser.subscription_tier == 'free')
+            )
+            free_users = result.scalars().all()
+
+            if free_users:
+                now = datetime.utcnow()
+                expires_at = now + timedelta(days=7)
+
+                await session.execute(
+                    update(SniperUser)
+                    .where(SniperUser.subscription_tier == 'free')
+                    .values(
+                        subscription_tier='trial',
+                        trial_expires_at=expires_at,
+                        filters_limit=3,
+                        notifications_limit=20
+                    )
+                )
+                await session.commit()
+                await message.answer(f"✅ Мигрировано {len(free_users)} пользователей free → trial (7 дней)")
+
+        # 2. Создаём запись о рассылке
+        async with DatabaseSession() as session:
+            broadcast = BroadcastMessage(
+                message_text=BROADCAST_TEXT[:500],
+                target_tier='all',
+                sent_at=datetime.utcnow(),
+                total_recipients=0,
+                successful=0,
+                failed=0,
+                created_by='admin_command'
+            )
+            session.add(broadcast)
+            await session.commit()
+            await session.refresh(broadcast)
+            broadcast_id = broadcast.id
+
+        # 3. Получаем всех активных пользователей
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUser.id, SniperUser.telegram_id, SniperUser.username)
+                .where(SniperUser.status == 'active')
+            )
+            users = result.all()
+
+        total = len(users)
+        success = 0
+        failed = 0
+        blocked_count = 0
+
+        status_msg = await message.answer(f"📊 Найдено пользователей: {total}\n⏳ Отправка...")
+
+        # Клавиатура для автообновления
+        reply_keyboard = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🏠 Главное меню"), KeyboardButton(text="⏸️ Пауза мониторинга")],
+                [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Мои фильтры")],
+                [KeyboardButton(text="📊 Все мои тендеры")],
+                [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="📈 Статистика")]
+            ],
+            resize_keyboard=True,
+            persistent=True
+        )
+
+        inline_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📦 Тарифы и подписка", callback_data="sniper_subscription")],
+            [InlineKeyboardButton(text="🎁 Реферальная программа", callback_data="referral_menu")]
+        ])
+
+        events_to_insert = []
+
+        for i, (user_id, telegram_id, username) in enumerate(users, 1):
+            try:
+                # Отправляем основное сообщение с ReplyKeyboard
+                await message.bot.send_message(
+                    telegram_id,
+                    BROADCAST_TEXT,
+                    reply_markup=reply_keyboard,
+                    parse_mode="HTML"
+                )
+
+                # Отправляем inline кнопки
+                await message.bot.send_message(
+                    telegram_id,
+                    "👇 <b>Быстрые действия:</b>",
+                    reply_markup=inline_keyboard,
+                    parse_mode="HTML"
+                )
+
+                success += 1
+                events_to_insert.append(UserEvent(
+                    user_id=user_id,
+                    telegram_id=telegram_id,
+                    event_type='broadcast_delivered',
+                    broadcast_id=broadcast_id,
+                    created_at=datetime.utcnow()
+                ))
+
+            except Exception as e:
+                failed += 1
+                error_str = str(e).lower()
+
+                # Если заблокировал бота
+                if 'blocked' in error_str or 'deactivated' in error_str:
+                    blocked_count += 1
+                    async with DatabaseSession() as session:
+                        await session.execute(
+                            update(SniperUser)
+                            .where(SniperUser.id == user_id)
+                            .values(status='blocked')
+                        )
+                        await session.commit()
+
+                events_to_insert.append(UserEvent(
+                    user_id=user_id,
+                    telegram_id=telegram_id,
+                    event_type='broadcast_failed',
+                    broadcast_id=broadcast_id,
+                    event_data={'error': str(e)[:200]},
+                    created_at=datetime.utcnow()
+                ))
+
+            # Прогресс каждые 10 пользователей
+            if i % 10 == 0:
+                try:
+                    await status_msg.edit_text(
+                        f"📊 Прогресс: {i}/{total}\n"
+                        f"✅ Успешно: {success}\n"
+                        f"❌ Ошибок: {failed}"
+                    )
+                except:
+                    pass
+
+            await asyncio.sleep(0.05)
+
+        # Сохраняем события
+        async with DatabaseSession() as session:
+            session.add_all(events_to_insert)
+            await session.commit()
+
+        # Обновляем статистику рассылки
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(BroadcastMessage)
+                .where(BroadcastMessage.id == broadcast_id)
+                .values(
+                    total_recipients=total,
+                    successful=success,
+                    failed=failed
+                )
+            )
+            await session.commit()
+
+        await message.answer(
+            f"✅ <b>Рассылка завершена!</b>\n\n"
+            f"📊 Всего: {total}\n"
+            f"✅ Доставлено: {success}\n"
+            f"❌ Ошибок: {failed}\n"
+            f"🚫 Заблокировали бота: {blocked_count}",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка send_trial_broadcast: {e}", exc_info=True)
         await message.answer(f"❌ Ошибка: {e}")

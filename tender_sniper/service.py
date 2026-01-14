@@ -225,7 +225,7 @@ class TenderSniperService:
                 filter_name = filter_data['name']
                 user_id = filter_data['user_id']
                 telegram_id = filter_data.get('telegram_id')
-                subscription_tier = filter_data.get('subscription_tier', 'free')
+                subscription_tier = filter_data.get('subscription_tier', 'trial')
 
                 logger.info(f"\n   🔍 Проверка фильтра: {filter_name} (ID: {filter_id})")
 
@@ -281,7 +281,7 @@ class TenderSniperService:
 
                         if not is_admin:
                             # Лимиты хардкод (пока не мигрирован на PostgreSQL)
-                            daily_limit = 10 if subscription_tier == 'free' else 50
+                            daily_limit = 20 if subscription_tier == 'trial' else (50 if subscription_tier == 'basic' else 100)
                             has_quota = await self.db.check_notification_quota(user_id, daily_limit)
 
                             if not has_quota:

@@ -143,7 +143,7 @@ async def process_referral_registration(new_user_telegram_id: int, referral_code
             .values(
                 referral_bonus_days=new_bonus_total,
                 trial_expires_at=new_expires,
-                subscription_tier='premium' if referrer.subscription_tier == 'free' else referrer.subscription_tier,
+                subscription_tier='premium' if referrer.subscription_tier == 'trial' else referrer.subscription_tier,
                 filters_limit=max(referrer.filters_limit or 3, 20),  # Premium лимиты
                 notifications_limit=max(referrer.notifications_limit or 20, 9999)
             )

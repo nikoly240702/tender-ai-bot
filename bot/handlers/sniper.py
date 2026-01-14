@@ -305,28 +305,29 @@ async def show_sniper_stats(callback: CallbackQuery):
                 username=callback.from_user.username,
                 first_name=callback.from_user.first_name,
                 last_name=callback.from_user.last_name,
-                subscription_tier='free'
+                subscription_tier='trial'
             )
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
         # Получаем статистику
         stats = await db.get_user_stats(user['id'])
 
-        # Получаем лимиты тарифа (хардкод, пока не мигрирован на PostgreSQL)
-        max_filters = 5 if user['subscription_tier'] == 'free' else 15
+        # Получаем лимиты тарифа
+        tier = user['subscription_tier']
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
 
         # Определяем emoji для тарифа
         tier_emoji = {
-            'free': '🆓',
+            'trial': '🎁',
             'basic': '⭐',
             'premium': '💎'
-        }.get(user['subscription_tier'], '🆓')
+        }.get(tier, '🎁')
 
         tier_name = {
-            'free': 'Бесплатный',
+            'trial': 'Пробный',
             'basic': 'Базовый',
             'premium': 'Премиум'
-        }.get(user['subscription_tier'], 'Бесплатный')
+        }.get(tier, 'Пробный')
 
         stats_text = (
             f"📊 <b>Ваша статистика</b>\n\n"
@@ -526,7 +527,7 @@ async def show_my_filters(callback: CallbackQuery):
                 telegram_id=callback.from_user.id,
                 username=callback.from_user.username,
                 first_name=callback.from_user.first_name,
-                subscription_tier='free'
+                subscription_tier='trial'
             )
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
@@ -616,7 +617,7 @@ async def show_my_filters_message(message: Message):
                 telegram_id=message.from_user.id,
                 username=message.from_user.username,
                 first_name=message.from_user.first_name,
-                subscription_tier='free'
+                subscription_tier='trial'
             )
             user = await db.get_user_by_telegram_id(message.from_user.id)
 
