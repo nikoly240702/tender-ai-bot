@@ -32,13 +32,19 @@ class SubscriptionMiddleware(BaseMiddleware):
     """
 
     # Команды, которые работают без подписки
-    FREE_COMMANDS = {'/start', '/help', '/menu', '/subscription'}
+    FREE_COMMANDS = {'/start', '/help', '/menu', '/subscription', '/sniper'}
 
     # Callback prefixes, которые работают без подписки
+    # (позволяют видеть меню и оформить подписку)
     FREE_CALLBACK_PREFIXES = [
-        'sniper_menu',
-        'sniper_subscription',
-        'subscription_',
+        'sniper_menu',           # Главное меню Sniper
+        'sniper_subscription',   # Страница подписки
+        'sniper_plans',          # Тарифы
+        'sniper_help',           # Помощь
+        'subscription_',         # Все действия с подпиской
+        'main_menu',             # Главное меню бота
+        'start_onboarding',      # Онбординг
+        'get_referral_link',     # Реферальная ссылка
     ]
 
     async def __call__(
@@ -111,27 +117,41 @@ class SubscriptionMiddleware(BaseMiddleware):
                     )
                     return await handler(event, data)
 
-                # Проверяем истечение триала
-                if user.subscription_tier == 'trial' and user.trial_expires_at:
-                    if datetime.now() > user.trial_expires_at:
-                        message = (
-                            "⚠️ <b>Ваш пробный период закончился</b>\n\n"
-                            "Для продолжения работы оформите подписку.\n\n"
-                            "Используйте /subscription для выбора тарифа."
-                        )
+                # Проверяем истечение подписки для ВСЕХ типов (trial, basic, premium)
+                subscription_expired = False
+                now = datetime.now()
 
-                        if isinstance(event, Message):
-                            await event.answer(message, parse_mode="HTML")
-                        elif isinstance(event, CallbackQuery):
-                            await event.message.answer(message, parse_mode="HTML")
-                            await event.answer()
-                        return
+                if user.subscription_tier in ['trial', 'basic', 'premium']:
+                    if user.trial_expires_at:
+                        if now > user.trial_expires_at:
+                            subscription_expired = True
+                    else:
+                        # Нет даты окончания - считаем истекшей
+                        subscription_expired = True
+                elif user.subscription_tier == 'free':
+                    # Free пользователи без подписки - блокируем
+                    subscription_expired = True
 
-                # Проверяем free тариф без триала
-                if user.subscription_tier == 'free':
-                    # Free пользователи без триала тоже должны оплатить
-                    # Но пока оставляем им доступ к просмотру меню
-                    pass
+                if subscription_expired:
+                    tier_name = {
+                        'trial': 'пробный период',
+                        'basic': 'подписка Basic',
+                        'premium': 'подписка Premium',
+                        'free': 'подписка'
+                    }.get(user.subscription_tier, 'подписка')
+
+                    message = (
+                        f"⚠️ <b>Ваш {tier_name} закончился</b>\n\n"
+                        "Для продолжения работы оформите или продлите подписку.\n\n"
+                        "Нажмите /subscription для выбора тарифа."
+                    )
+
+                    if isinstance(event, Message):
+                        await event.answer(message, parse_mode="HTML")
+                    elif isinstance(event, CallbackQuery):
+                        await event.message.answer(message, parse_mode="HTML")
+                        await event.answer()
+                    return
 
                 # Обновляем last_activity
                 await session.execute(
