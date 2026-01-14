@@ -83,6 +83,7 @@ async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
 
     # Проверяем реферальную ссылку (/start ref_XXXXXXXX)
+    referral_code = None
     if message.text and "ref_" in message.text:
         try:
             parts = message.text.split()
@@ -90,7 +91,6 @@ async def cmd_start(message: Message, state: FSMContext):
                 if part.startswith("ref_"):
                     referral_code = part[4:].upper()
                     logger.info(f"Referral code detected: {referral_code} for user {message.from_user.id}")
-                    # Сохраняем код в state для обработки после регистрации
                     await state.update_data(referral_code=referral_code)
                     break
         except Exception as e:
@@ -156,6 +156,20 @@ async def cmd_start(message: Message, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+    # Обрабатываем реферальный код если есть
+    if referral_code:
+        try:
+            from bot.handlers.referral import process_referral_registration
+            success = await process_referral_registration(
+                new_user_telegram_id=message.from_user.id,
+                referral_code=referral_code,
+                bot=message.bot
+            )
+            if success:
+                logger.info(f"Referral processed successfully for user {message.from_user.id}")
+        except Exception as e:
+            logger.error(f"Error processing referral: {e}")
 
 
 @router.message(Command("help"))

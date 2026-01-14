@@ -205,6 +205,16 @@ async def yookassa_webhook_handler(request):
                                 f"Спасибо за подписку! 🚀",
                                 parse_mode="HTML"
                             )
+
+                            # Начисляем бонус рефереру если пользователь был приглашён
+                            try:
+                                from bot.handlers.referral import award_referral_payment_bonus
+                                bonus_given = await award_referral_payment_bonus(telegram_id, bot)
+                                if bonus_given:
+                                    logger.info(f"🎁 Referral payment bonus awarded for user {telegram_id}")
+                            except Exception as ref_e:
+                                logger.error(f"Error awarding referral bonus: {ref_e}")
+
                             await bot.session.close()
                     except Exception as e:
                         logger.error(f"Failed to send payment notification: {e}")
