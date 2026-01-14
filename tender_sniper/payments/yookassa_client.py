@@ -59,6 +59,9 @@ class YooKassaClient:
         self,
         telegram_id: int,
         tier: str,
+        amount: Optional[float] = None,
+        days: Optional[int] = None,
+        description: Optional[str] = None,
         return_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -67,6 +70,9 @@ class YooKassaClient:
         Args:
             telegram_id: Telegram ID пользователя
             tier: Тарифный план (basic/premium)
+            amount: Сумма платежа (если None, берётся из TARIFF_PRICES)
+            days: Количество дней подписки (если None, 30 дней)
+            description: Описание платежа
             return_url: URL для возврата после оплаты
 
         Returns:
@@ -84,8 +90,17 @@ class YooKassaClient:
         if tier not in TARIFF_PRICES:
             return {'error': f'Invalid tier: {tier}'}
 
-        amount = TARIFF_PRICES[tier]
-        description = f"Подписка Tender Sniper - {TARIFF_NAMES.get(tier, tier)}"
+        # Используем переданную сумму или дефолтную
+        if amount is None:
+            amount = TARIFF_PRICES[tier]
+
+        # Используем переданные дни или дефолт 30
+        if days is None:
+            days = 30
+
+        # Используем переданное описание или генерируем
+        if description is None:
+            description = f"Подписка Tender Sniper - {TARIFF_NAMES.get(tier, tier)}"
 
         try:
             from yookassa import Payment
@@ -105,7 +120,8 @@ class YooKassaClient:
                 "description": description,
                 "metadata": {
                     "telegram_id": str(telegram_id),
-                    "tier": tier
+                    "tier": tier,
+                    "days": str(days)
                 },
                 "receipt": {
                     "customer": {

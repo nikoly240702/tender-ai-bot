@@ -4,6 +4,7 @@ Subscription Check Middleware.
 Проверяет подписку пользователя и блокирует действия при истёкшем триале.
 """
 
+import os
 import logging
 from datetime import datetime
 from typing import Callable, Dict, Any, Awaitable
@@ -15,6 +16,20 @@ from sqlalchemy import select, update
 from database import SniperUser, DatabaseSession
 
 logger = logging.getLogger(__name__)
+
+# Админы с вечным Premium (не проверяем подписку)
+ADMIN_USER_IDS = {
+    298437198,  # @nikolai_chizhik - владелец
+}
+
+# Дополнительные админы из ENV
+_extra_admins = os.getenv('ADMIN_USER_ID', '')
+if _extra_admins:
+    for admin_id in _extra_admins.split(','):
+        try:
+            ADMIN_USER_IDS.add(int(admin_id.strip()))
+        except ValueError:
+            pass
 
 
 class SubscriptionMiddleware(BaseMiddleware):
@@ -80,6 +95,10 @@ class SubscriptionMiddleware(BaseMiddleware):
                     break
 
         if not user_id:
+            return await handler(event, data)
+
+        # Админы с вечным Premium - пропускаем все проверки
+        if user_id in ADMIN_USER_IDS:
             return await handler(event, data)
 
         # Проверяем статус пользователя

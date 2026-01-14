@@ -75,6 +75,19 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
 # Subscription Tiers Configuration
 # ============================================
 
+# Базовые тарифы (месячная цена)
+BASE_PRICES = {
+    'basic': 490,
+    'premium': 990,
+}
+
+# Скидки за длительную подписку
+DURATION_DISCOUNTS = {
+    1: {'months': 1, 'discount': 0, 'label': '1 месяц'},
+    3: {'months': 3, 'discount': 10, 'label': '3 месяца', 'badge': '🔥 -10%'},
+    6: {'months': 6, 'discount': 20, 'label': '6 месяцев', 'badge': '💰 -20%'},
+}
+
 SUBSCRIPTION_TIERS = {
     'trial': {
         'name': 'Пробный период',
@@ -124,6 +137,29 @@ SUBSCRIPTION_TIERS = {
         ]
     }
 }
+
+
+def calculate_price(tier: str, months: int) -> dict:
+    """Рассчитать цену с учётом скидки."""
+    base_price = BASE_PRICES.get(tier, 490)
+    duration = DURATION_DISCOUNTS.get(months, DURATION_DISCOUNTS[1])
+
+    full_price = base_price * duration['months']
+    discount_percent = duration['discount']
+    discount_amount = int(full_price * discount_percent / 100)
+    final_price = full_price - discount_amount
+
+    return {
+        'base_price': base_price,
+        'months': duration['months'],
+        'days': duration['months'] * 30,
+        'full_price': full_price,
+        'discount_percent': discount_percent,
+        'discount_amount': discount_amount,
+        'final_price': final_price,
+        'label': duration['label'],
+        'badge': duration.get('badge', ''),
+    }
 
 
 # ============================================
@@ -302,7 +338,7 @@ async def callback_activate_trial(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("subscription_select_"))
 async def callback_select_tier(callback: CallbackQuery):
-    """Show tier details and payment options."""
+    """Show tier details and duration options with discounts."""
     await callback.answer()
 
     tier_name = callback.data.replace("subscription_select_", "")
@@ -315,25 +351,36 @@ async def callback_select_tier(callback: CallbackQuery):
     text = f"""
 {tier_info['emoji']} <b>Тариф {tier_info['name']}</b>
 
-💰 <b>Стоимость:</b> {tier_info['price']} ₽/месяц
-
 <b>Что включено:</b>
 """
     for feature in tier_info['features']:
         text += f"✅ {feature}\n"
 
-    text += "\n<i>Для оплаты нажмите кнопку ниже:</i>"
+    text += "\n<b>Выберите период подписки:</b>\n"
 
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"💳 Оплатить {tier_info['price']} ₽",
-            callback_data=f"subscription_pay_{tier_name}"
-        )],
-        [InlineKeyboardButton(
-            text="◀️ Назад к тарифам",
-            callback_data="sniper_subscription"
-        )],
-    ])
+    # Показываем все варианты длительности с ценами
+    buttons = []
+    for months in [1, 3, 6]:
+        price_info = calculate_price(tier_name, months)
+
+        if price_info['discount_percent'] > 0:
+            btn_text = f"{price_info['badge']} {price_info['label']} — {price_info['final_price']} ₽"
+            text += f"\n{price_info['badge']} <b>{price_info['label']}</b>: <s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b>"
+        else:
+            btn_text = f"📅 {price_info['label']} — {price_info['final_price']} ₽"
+            text += f"\n📅 <b>{price_info['label']}</b>: <b>{price_info['final_price']} ₽</b>"
+
+        buttons.append([InlineKeyboardButton(
+            text=btn_text,
+            callback_data=f"subscription_pay_{tier_name}_{months}"
+        )])
+
+    buttons.append([InlineKeyboardButton(
+        text="◀️ Назад к тарифам",
+        callback_data="subscription_tiers"
+    )])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     await callback.message.edit_text(
         text,
@@ -347,12 +394,18 @@ async def callback_pay_tier(callback: CallbackQuery):
     """Initiate payment for subscription via YooKassa."""
     await callback.answer()
 
-    tier_name = callback.data.replace("subscription_pay_", "")
-    tier_info = SUBSCRIPTION_TIERS.get(tier_name)
+    # Парсим callback: subscription_pay_{tier}_{months}
+    parts = callback.data.replace("subscription_pay_", "").split("_")
+    tier_name = parts[0]
+    months = int(parts[1]) if len(parts) > 1 else 1
 
+    tier_info = SUBSCRIPTION_TIERS.get(tier_name)
     if not tier_info:
         await callback.message.answer("❌ Тариф не найден")
         return
+
+    # Рассчитываем цену со скидкой
+    price_info = calculate_price(tier_name, months)
 
     # Интеграция с YooKassa
     try:
@@ -366,7 +419,8 @@ async def callback_pay_tier(callback: CallbackQuery):
                 f"""
 💳 <b>Оплата тарифа {tier_info['name']}</b>
 
-Сумма: <b>{tier_info['price']} ₽</b>
+Период: <b>{price_info['label']}</b>
+Сумма: <b>{price_info['final_price']} ₽</b>
 
 🚧 <i>Платежная система временно недоступна.</i>
 
@@ -377,10 +431,13 @@ async def callback_pay_tier(callback: CallbackQuery):
             )
             return
 
-        # Создаём платёж
+        # Создаём платёж с учётом периода
         result = client.create_payment(
             telegram_id=callback.from_user.id,
-            tier=tier_name
+            tier=tier_name,
+            amount=price_info['final_price'],
+            days=price_info['days'],
+            description=f"Подписка {tier_info['name']} на {price_info['label']}"
         )
 
         if 'error' in result:
@@ -391,15 +448,21 @@ async def callback_pay_tier(callback: CallbackQuery):
             )
             return
 
+        # Формируем текст со скидкой
+        if price_info['discount_percent'] > 0:
+            price_text = f"<s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b> (скидка {price_info['discount_percent']}%)"
+        else:
+            price_text = f"<b>{price_info['final_price']} ₽</b>"
+
         # Отправляем ссылку на оплату
         payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
-                text=f"💳 Оплатить {tier_info['price']} ₽",
+                text=f"💳 Оплатить {price_info['final_price']} ₽",
                 url=result['url']
             )],
             [InlineKeyboardButton(
                 text="◀️ Назад",
-                callback_data="subscription_tiers"
+                callback_data=f"subscription_select_{tier_name}"
             )],
         ])
 
@@ -407,7 +470,8 @@ async def callback_pay_tier(callback: CallbackQuery):
             f"""
 💳 <b>Оплата тарифа {tier_info['name']}</b>
 
-Сумма: <b>{tier_info['price']} ₽</b>
+📅 Период: <b>{price_info['label']}</b>
+💰 Сумма: {price_text}
 
 Нажмите кнопку ниже для перехода к оплате.
 После успешной оплаты подписка активируется автоматически.
@@ -418,7 +482,7 @@ async def callback_pay_tier(callback: CallbackQuery):
             reply_markup=payment_keyboard
         )
 
-        logger.info(f"Payment created for user {callback.from_user.id}, tier {tier_name}, payment_id {result['payment_id']}")
+        logger.info(f"Payment created for user {callback.from_user.id}, tier {tier_name}, months {months}, amount {price_info['final_price']}, payment_id {result['payment_id']}")
 
     except ImportError:
         logger.warning("YooKassa module not available")
@@ -426,7 +490,8 @@ async def callback_pay_tier(callback: CallbackQuery):
             f"""
 💳 <b>Оплата тарифа {tier_info['name']}</b>
 
-Сумма: <b>{tier_info['price']} ₽</b>
+Период: <b>{price_info['label']}</b>
+Сумма: <b>{price_info['final_price']} ₽</b>
 
 🚧 <i>Платежный модуль не установлен.</i>
 

@@ -116,6 +116,7 @@ async def yookassa_webhook_handler(request):
 
             telegram_id = metadata.get('telegram_id')
             tier = metadata.get('tier')
+            days_from_metadata = metadata.get('days')  # Кол-во дней из метаданных платежа
 
             if not telegram_id or not tier:
                 logger.warning(f"⚠️ Missing metadata in webhook: {data}")
@@ -123,7 +124,15 @@ async def yookassa_webhook_handler(request):
 
             telegram_id = int(telegram_id)
 
-            logger.info(f"✅ Payment succeeded: {payment_id}, user={telegram_id}, tier={tier}, amount={amount}₽")
+            # Парсим days из метаданных (если есть)
+            subscription_days = 30  # дефолт
+            if days_from_metadata:
+                try:
+                    subscription_days = int(days_from_metadata)
+                except ValueError:
+                    pass
+
+            logger.info(f"✅ Payment succeeded: {payment_id}, user={telegram_id}, tier={tier}, amount={amount}₽, days={subscription_days}")
 
             # Активируем подписку
             try:
@@ -132,12 +141,13 @@ async def yookassa_webhook_handler(request):
 
                 db = await get_sniper_db()
 
-                # Определяем лимиты для тарифа
+                # Определяем лимиты для тарифа (days берём из метаданных)
                 tier_limits = {
-                    'basic': {'filters': 5, 'notifications': 100, 'days': 30},
-                    'premium': {'filters': 20, 'notifications': 9999, 'days': 30},
+                    'basic': {'filters': 5, 'notifications': 100},
+                    'premium': {'filters': 20, 'notifications': 9999},
                 }
                 limits = tier_limits.get(tier, tier_limits['basic'])
+                limits['days'] = subscription_days  # Используем дни из метаданных
 
                 # Обновляем подписку пользователя
                 user = await db.get_user_by_telegram_id(telegram_id)
