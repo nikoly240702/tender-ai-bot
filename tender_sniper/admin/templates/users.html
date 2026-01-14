@@ -12,6 +12,7 @@
         <select class="form-select" name="tier" style="width: auto;">
             <option value="">Все тарифы</option>
             <option value="free" {% if tier_filter == 'free' %}selected{% endif %}>Free</option>
+            <option value="trial" {% if tier_filter == 'trial' %}selected{% endif %}>Trial</option>
             <option value="basic" {% if tier_filter == 'basic' %}selected{% endif %}>Basic</option>
             <option value="premium" {% if tier_filter == 'premium' %}selected{% endif %}>Premium</option>
         </select>
@@ -31,6 +32,11 @@
     <div class="col-auto">
         <span class="badge bg-light text-dark p-2">
             Free: {{ tier_counts.get('free', 0) }}
+        </span>
+    </div>
+    <div class="col-auto">
+        <span class="badge bg-success p-2">
+            Trial: {{ tier_counts.get('trial', 0) }}
         </span>
     </div>
     <div class="col-auto">
@@ -120,14 +126,20 @@
                                 </li>
                                 <li>
                                     <a class="dropdown-item" href="#"
+                                       onclick="changeTier({{ item.user.id }}, 'trial')">
+                                        Сделать Trial (14 дней)
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#"
                                        onclick="changeTier({{ item.user.id }}, 'basic')">
-                                        Сделать Basic
+                                        Сделать Basic (30 дней)
                                     </a>
                                 </li>
                                 <li>
                                     <a class="dropdown-item" href="#"
                                        onclick="changeTier({{ item.user.id }}, 'premium')">
-                                        Сделать Premium
+                                        Сделать Premium (30 дней)
                                     </a>
                                 </li>
                                 <li><hr class="dropdown-divider"></li>

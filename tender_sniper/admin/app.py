@@ -308,30 +308,53 @@ async def set_user_tier(
     username: str = Depends(verify_credentials)
 ):
     """Изменить тариф пользователя."""
-    valid_tiers = ['free', 'basic', 'premium']
+    valid_tiers = ['free', 'trial', 'basic', 'premium']
     if tier not in valid_tiers:
         raise HTTPException(status_code=400, detail="Неверный тариф")
 
     try:
         limits_map = {
-            'free': {'filters': 5, 'notifications': 15},
-            'basic': {'filters': 15, 'notifications': 50},
-            'premium': {'filters': 9999, 'notifications': 9999}
+            'free': {'filters': 3, 'notifications': 20, 'days': 0},
+            'trial': {'filters': 3, 'notifications': 20, 'days': 14},
+            'basic': {'filters': 5, 'notifications': 100, 'days': 30},
+            'premium': {'filters': 20, 'notifications': 9999, 'days': 30}
         }
 
         async with DatabaseSession() as session:
+            # Получаем текущего пользователя
+            user = await session.get(SniperUser, user_id)
+            if not user:
+                raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+            new_limits = limits_map[tier]
+            now = datetime.now()
+
+            # Вычисляем дату окончания подписки
+            if tier in ['trial', 'basic', 'premium']:
+                if user.trial_expires_at and user.trial_expires_at > now:
+                    # Если есть активная подписка - добавляем дни к ней
+                    new_expires = user.trial_expires_at + timedelta(days=new_limits['days'])
+                else:
+                    # Нет активной подписки - от сегодня
+                    new_expires = now + timedelta(days=new_limits['days'])
+            else:
+                new_expires = None
+
             await session.execute(
                 update(SniperUser)
                 .where(SniperUser.id == user_id)
                 .values(
                     subscription_tier=tier,
-                    filters_limit=limits_map[tier]['filters'],
-                    notifications_limit=limits_map[tier]['notifications']
+                    filters_limit=new_limits['filters'],
+                    notifications_limit=new_limits['notifications'],
+                    trial_expires_at=new_expires
                 )
             )
 
         return RedirectResponse(url="/users", status_code=303)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Set tier error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
