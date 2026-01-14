@@ -151,10 +151,10 @@ async def start_sniper_from_onboarding(callback: CallbackQuery, state: FSMContex
         db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(callback.from_user.id)
         if not user:
+            # create_or_update_user автоматически создаст с trial на 14 дней
             await db.create_or_update_user(
                 telegram_id=callback.from_user.id,
-                username=callback.from_user.username,
-                subscription_tier='free'
+                username=callback.from_user.username
             )
     except Exception as e:
         logger.error(f"Ошибка создания пользователя: {e}")

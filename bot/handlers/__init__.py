@@ -15,7 +15,10 @@ from . import (
     all_tenders,
     tender_actions,
     user_management,
-    menu_priority
+    menu_priority,
+    referral,
+    subscriptions,
+    sniper_wizard_new
 )
 
 __all__ = [
@@ -29,5 +32,8 @@ __all__ = [
     'all_tenders',
     'tender_actions',
     'user_management',
-    'menu_priority'
+    'menu_priority',
+    'referral',
+    'subscriptions',
+    'sniper_wizard_new'
 ]

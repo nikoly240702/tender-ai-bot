@@ -887,10 +887,16 @@ async def analytics_page(
 
             keyword_counts = {}
             for row in keywords_result.all():
-                keywords_str = row[0]
-                if keywords_str:
-                    for kw in keywords_str.split(','):
-                        kw = kw.strip().lower()
+                keywords_data = row[0]
+                if keywords_data:
+                    # Поддержка и списка, и строки
+                    if isinstance(keywords_data, list):
+                        keywords_list = keywords_data
+                    else:
+                        keywords_list = [kw.strip() for kw in str(keywords_data).split(',')]
+
+                    for kw in keywords_list:
+                        kw = str(kw).strip().lower()
                         if kw:
                             keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
 
@@ -902,10 +908,16 @@ async def analytics_page(
 
             region_counts = {}
             for row in regions_result.all():
-                regions_str = row[0]
-                if regions_str:
-                    for region in regions_str.split(','):
-                        region = region.strip()
+                regions_data = row[0]
+                if regions_data:
+                    # Поддержка и списка, и строки
+                    if isinstance(regions_data, list):
+                        regions_list = regions_data
+                    else:
+                        regions_list = [r.strip() for r in str(regions_data).split(',')]
+
+                    for region in regions_list:
+                        region = str(region).strip()
                         if region:
                             region_counts[region] = region_counts.get(region, 0) + 1
 

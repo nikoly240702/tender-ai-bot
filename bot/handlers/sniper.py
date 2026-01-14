@@ -470,14 +470,14 @@ async def show_subscription_plans(callback: CallbackQuery):
         "• Мгновенный поиск\n"
         "• Избранное\n\n"
 
-        "⭐ <b>Basic — 490 ₽/мес</b>\n"
+        "⭐ <b>Basic — от 490 ₽/мес</b>\n"
         "• 5 фильтров мониторинга\n"
         "• 100 уведомлений в день\n"
         "• Экспорт в Excel\n"
         "• Напоминания о тендерах\n"
         "• Telegram-поддержка\n\n"
 
-        "💎 <b>Premium — 990 ₽/мес</b>\n"
+        "💎 <b>Premium — от 990 ₽/мес</b>\n"
         "• 20 фильтров мониторинга\n"
         "• Безлимит уведомлений\n"
         "• Архивный поиск\n"
@@ -485,12 +485,14 @@ async def show_subscription_plans(callback: CallbackQuery):
         "• Доступ к бета-функциям\n"
         "• Приоритетная поддержка\n\n"
 
-        "<i>Оплата: YooKassa</i>"
+        "💰 <b>Скидки:</b> 10% за 3 мес, 20% за 6 мес\n\n"
+
+        "<i>Выберите тариф для просмотра цен:</i>"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Оформить Basic (490 ₽)", callback_data="subscription_pay_basic")],
-        [InlineKeyboardButton(text="💎 Оформить Premium (990 ₽)", callback_data="subscription_pay_premium")],
+        [InlineKeyboardButton(text="⭐ Выбрать Basic", callback_data="subscription_select_basic")],
+        [InlineKeyboardButton(text="💎 Выбрать Premium", callback_data="subscription_select_premium")],
         [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
