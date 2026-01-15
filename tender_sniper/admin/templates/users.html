@@ -113,15 +113,16 @@
                                 </li>
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
-                                    <a class="dropdown-item" href="#"
-                                       onclick="changeTier({{ item.user.id }}, 'free')">
-                                        Сделать Free
+                                    <a class="dropdown-item text-success" href="#"
+                                       onclick="openAddDaysModal({{ item.user.id }}, '{{ item.user.first_name or 'User' }}')">
+                                        <i class="bi bi-plus-circle"></i> Добавить дни
                                     </a>
                                 </li>
+                                <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <a class="dropdown-item" href="#"
                                        onclick="changeTier({{ item.user.id }}, 'trial')">
-                                        Сделать Trial (14 дней)
+                                        Сделать Trial (7 дней)
                                     </a>
                                 </li>
                                 <li>
@@ -198,10 +199,73 @@
     </ul>
 </nav>
 {% endif %}
+
+<!-- Modal: Добавить дни -->
+<div class="modal fade" id="addDaysModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-plus-circle text-success"></i> Добавить дни подписки
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addDaysForm" method="post">
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        Пользователь: <strong id="modalUserName"></strong>
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Количество дней</label>
+                        <input type="number" class="form-control" name="days" id="daysInput"
+                               min="1" max="365" value="7" required>
+                        <div class="form-text">
+                            Быстрый выбор:
+                            <a href="#" onclick="setDays(7); return false;">+7</a> |
+                            <a href="#" onclick="setDays(14); return false;">+14</a> |
+                            <a href="#" onclick="setDays(30); return false;">+30</a> |
+                            <a href="#" onclick="setDays(90); return false;">+90</a> |
+                            <a href="#" onclick="setDays(365); return false;">+365</a>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Тариф</label>
+                        <select class="form-select" name="tier" id="tierSelect">
+                            <option value="premium" selected>Premium (20 фильтров, безлимит)</option>
+                            <option value="basic">Basic (5 фильтров, 50/день)</option>
+                            <option value="trial">Trial (3 фильтра, 20/день)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Добавить
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+let currentUserId = null;
+
+function openAddDaysModal(userId, userName) {
+    currentUserId = userId;
+    document.getElementById('modalUserName').textContent = userName;
+    document.getElementById('addDaysForm').action = `/users/${userId}/add-days`;
+    document.getElementById('daysInput').value = 7;
+    document.getElementById('tierSelect').value = 'premium';
+    new bootstrap.Modal(document.getElementById('addDaysModal')).show();
+}
+
+function setDays(days) {
+    document.getElementById('daysInput').value = days;
+}
+
 async function changeTier(userId, tier) {
     if (!confirm(`Изменить тариф пользователя на ${tier}?`)) return;
 

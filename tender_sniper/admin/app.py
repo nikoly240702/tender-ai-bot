@@ -360,6 +360,62 @@ async def set_user_tier(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/users/{user_id}/add-days")
+async def add_subscription_days(
+    user_id: int,
+    days: int = Form(...),
+    tier: str = Form("premium"),
+    username: str = Depends(verify_credentials)
+):
+    """Добавить дни к подписке пользователя."""
+    if days < 1 or days > 365:
+        raise HTTPException(status_code=400, detail="Количество дней должно быть от 1 до 365")
+
+    valid_tiers = ['trial', 'basic', 'premium']
+    if tier not in valid_tiers:
+        tier = 'premium'
+
+    try:
+        limits_map = {
+            'trial': {'filters': 3, 'notifications': 20},
+            'basic': {'filters': 5, 'notifications': 50},
+            'premium': {'filters': 20, 'notifications': 9999}
+        }
+
+        async with DatabaseSession() as session:
+            user = await session.get(SniperUser, user_id)
+            if not user:
+                raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+            now = datetime.now()
+            new_limits = limits_map[tier]
+
+            # Если есть активная подписка - добавляем к ней, иначе от сегодня
+            if user.trial_expires_at and user.trial_expires_at > now:
+                new_expires = user.trial_expires_at + timedelta(days=days)
+            else:
+                new_expires = now + timedelta(days=days)
+
+            await session.execute(
+                update(SniperUser)
+                .where(SniperUser.id == user_id)
+                .values(
+                    subscription_tier=tier,
+                    filters_limit=new_limits['filters'],
+                    notifications_limit=new_limits['notifications'],
+                    trial_expires_at=new_expires
+                )
+            )
+
+        return RedirectResponse(url="/users", status_code=303)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Add days error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/users/{user_id}/block")
 async def block_user(
     user_id: int,
