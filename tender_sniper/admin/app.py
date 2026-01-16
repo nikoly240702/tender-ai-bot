@@ -292,6 +292,7 @@ async def users_list(
             "tier_counts": tier_counts,
             "search": search,
             "tier_filter": tier,
+            "now": datetime.now(),
         })
 
     except Exception as e:

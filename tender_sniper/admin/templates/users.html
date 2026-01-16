@@ -54,6 +54,7 @@
                     <th>ID</th>
                     <th>Пользователь</th>
                     <th>Тариф</th>
+                    <th>Подписка</th>
                     <th>Фильтров</th>
                     <th>Статус</th>
                     <th>Регистрация</th>
@@ -81,6 +82,27 @@
                         <span class="badge badge-tier badge-{{ item.user.subscription_tier }}">
                             {{ item.user.subscription_tier }}
                         </span>
+                    </td>
+                    <td>
+                        {% if item.user.trial_expires_at %}
+                            {% set expires = item.user.trial_expires_at %}
+                            {% if expires > now %}
+                                {% set days_left = (expires - now).days %}
+                                {% if days_left <= 3 %}
+                                <span class="badge bg-danger">{{ days_left }} дн.</span>
+                                {% elif days_left <= 7 %}
+                                <span class="badge bg-warning text-dark">{{ days_left }} дн.</span>
+                                {% else %}
+                                <span class="badge bg-success">{{ days_left }} дн.</span>
+                                {% endif %}
+                                <br>
+                                <small class="text-muted">до {{ expires.strftime('%d.%m') }}</small>
+                            {% else %}
+                                <span class="badge bg-secondary">истекла</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
                     </td>
                     <td>
                         <span class="badge bg-light text-dark">
@@ -159,7 +181,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center text-muted py-5">
+                    <td colspan="8" class="text-center text-muted py-5">
                         Пользователи не найдены
                     </td>
                 </tr>
