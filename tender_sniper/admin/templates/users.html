@@ -134,7 +134,7 @@
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <a class="dropdown-item text-success" href="#"
-                                       onclick="openAddDaysModal({{ item.user.id }}, '{{ item.user.first_name or 'User' }}')">
+                                       onclick="openAddDaysModal({{ item.user.id }}, '{{ (item.user.first_name or 'User') | e }}')">
                                         <i class="bi bi-plus-circle"></i> Добавить дни
                                     </a>
                                 </li>
