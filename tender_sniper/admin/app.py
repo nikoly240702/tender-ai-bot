@@ -417,6 +417,7 @@ async def add_subscription_days(
                     trial_expires_at=new_expires
                 )
             )
+            await session.commit()
 
         return RedirectResponse(url="/users", status_code=303)
 
