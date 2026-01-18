@@ -176,14 +176,17 @@ async def settings_command(message: Message):
     """Показывает настройки пользователя."""
     try:
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🏢 Профиль компании", callback_data="settings_profile")],
-            [InlineKeyboardButton(text="🎯 Критерии отбора", callback_data="settings_criteria")],
             [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")],
-            [InlineKeyboardButton(text="🔗 Интеграции", callback_data="settings_integrations")],
+            [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки", callback_data="settings_advanced")],
         ])
 
         await message.answer(
-            text="⚙️ <b>НАСТРОЙКИ</b>\n\nВыберите раздел:",
+            "⚙️ <b>НАСТРОЙКИ</b>\n\n"
+            "Управляйте своими настройками:\n\n"
+            "🔔 <b>Уведомления</b> — включить/выключить автомониторинг\n"
+            "🎯 <b>Мои фильтры</b> — просмотр и редактирование фильтров\n"
+            "⚙️ <b>Расширенные</b> — тихие часы, интеграции, профиль",
             reply_markup=keyboard,
             parse_mode='HTML'
         )
@@ -220,22 +223,44 @@ async def settings_profile_handler(callback_query):
 <b>Регионы работы:</b> {regions_str}
 <b>Диапазон сумм:</b> {amount_range}
 
-Для обновления профиля используйте команду /setprofile"""
+━━━━━━━━━━━━━━━
+<b>Зачем нужен профиль?</b>
+
+• Более точный скоринг тендеров
+• Персональные рекомендации
+• Приоритет в выдаче релевантных закупок
+
+Для обновления профиля: /setprofile"""
         else:
             message_text = """🏢 <b>ПРОФИЛЬ КОМПАНИИ</b>
 
-Профиль еще не настроен.
+❌ Профиль не настроен
 
-Укажите информацию о вашей компании для более точного анализа тендеров:
+━━━━━━━━━━━━━━━
+<b>Что это такое?</b>
 
-• Специализация (IT, строительство и т.д.)
-• Регионы работы
-• Диапазон сумм контрактов
+Профиль компании помогает боту лучше понять ваши потребности и показывать более релевантные тендеры.
 
-Используйте команду /setprofile для настройки."""
+<b>Что указать:</b>
+• Специализация (IT, строительство, медицина...)
+• Регионы присутствия
+• Комфортный диапазон сумм контрактов
+
+<b>Что это даёт:</b>
+• Более точный скоринг тендеров
+• Персональные рекомендации по фильтрам
+• Приоритет в выдаче подходящих закупок
+
+Для настройки: /setprofile"""
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Настроить профиль", callback_data="start_setprofile")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
+        ])
 
         await callback_query.message.edit_text(
             text=message_text,
+            reply_markup=keyboard,
             parse_mode='HTML'
         )
 
@@ -254,6 +279,20 @@ async def setprofile_command(message: Message, state: FSMContext):
     await state.set_state(ProfileSetup.specialization)
 
     await message.answer(
+        "🏢 <b>НАСТРОЙКА ПРОФИЛЯ КОМПАНИИ</b>\n\n"
+        "Шаг 1/3: Укажите специализацию вашей компании\n\n"
+        "<i>Например: IT оборудование, Строительство, Медицинское оборудование</i>",
+        parse_mode='HTML'
+    )
+
+
+@router.callback_query(F.data == "start_setprofile")
+async def start_setprofile_callback(callback: CallbackQuery, state: FSMContext):
+    """Начинает процесс установки профиля через callback."""
+    await callback.answer()
+    await state.set_state(ProfileSetup.specialization)
+
+    await callback.message.edit_text(
         "🏢 <b>НАСТРОЙКА ПРОФИЛЯ КОМПАНИИ</b>\n\n"
         "Шаг 1/3: Укажите специализацию вашей компании\n\n"
         "<i>Например: IT оборудование, Строительство, Медицинское оборудование</i>",
@@ -441,7 +480,7 @@ async def settings_criteria_handler(callback: CallbackQuery):
 
 @router.callback_query(F.data == "settings_notifications")
 async def settings_notifications_handler(callback: CallbackQuery):
-    """Показывает настройки уведомлений."""
+    """Показывает базовые настройки уведомлений."""
     await callback.answer()
 
     try:
@@ -456,49 +495,139 @@ async def settings_notifications_handler(callback: CallbackQuery):
         notifications_limit = sniper_user.get('notifications_limit', 15)
         notifications_today = sniper_user.get('notifications_sent_today', 0)
 
-        # Получаем настройки тихих часов из user.data
-        user_data = sniper_user.get('data', {}) or {}
-        quiet_hours_enabled = user_data.get('quiet_hours_enabled', False)
-        quiet_start = user_data.get('quiet_hours_start', 22)
-        quiet_end = user_data.get('quiet_hours_end', 8)
-        digest_enabled = not user_data.get('digest_disabled', False)
-
         status_emoji = "✅" if monitoring_enabled else "⏸"
         status_text = "Включен" if monitoring_enabled else "На паузе"
 
-        quiet_status = f"🌙 {quiet_start}:00 - {quiet_end}:00" if quiet_hours_enabled else "Выкл"
-        digest_status = "✅ Вкл" if digest_enabled else "❌ Выкл"
-
-        toggle_text = "⏸ Приостановить" if monitoring_enabled else "▶️ Возобновить"
+        toggle_text = "⏸ Приостановить мониторинг" if monitoring_enabled else "▶️ Возобновить мониторинг"
         toggle_callback = "sniper_pause_monitoring" if monitoring_enabled else "sniper_resume_monitoring"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=toggle_text, callback_data=toggle_callback)],
-            [InlineKeyboardButton(
-                text=f"🌙 Тихие часы: {quiet_status}",
-                callback_data="settings_quiet_hours"
-            )],
-            [InlineKeyboardButton(
-                text=f"📬 Утренний дайджест: {digest_status}",
-                callback_data="toggle_digest"
-            )],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки", callback_data="settings_advanced")],
             [InlineKeyboardButton(text="« Назад", callback_data="settings_back")]
         ])
 
         await callback.message.edit_text(
-            f"🔔 <b>НАСТРОЙКИ УВЕДОМЛЕНИЙ</b>\n\n"
-            f"<b>Автомониторинг:</b> {status_emoji} {status_text}\n"
-            f"<b>Лимит уведомлений:</b> {notifications_limit}/день\n"
-            f"<b>Отправлено сегодня:</b> {notifications_today}/{notifications_limit}\n\n"
-            f"<b>Тихие часы:</b> {quiet_status}\n"
-            f"<b>Утренний дайджест:</b> {digest_status}\n\n"
-            f"💡 В тихие часы уведомления откладываются до утра",
+            f"🔔 <b>УВЕДОМЛЕНИЯ</b>\n\n"
+            f"<b>Автомониторинг:</b> {status_emoji} {status_text}\n\n"
+            f"<b>Лимит:</b> {notifications_limit} уведомлений в день\n"
+            f"<b>Отправлено сегодня:</b> {notifications_today} из {notifications_limit}\n\n"
+            f"━━━━━━━━━━━━━━━\n"
+            f"<b>Как это работает:</b>\n"
+            f"Бот проверяет новые тендеры каждые 5 минут и отправляет вам уведомления о подходящих.\n\n"
+            f"💡 Для настройки тихих часов и интеграций перейдите в <b>Расширенные настройки</b>",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
 
     except Exception as e:
         logger.error(f"Ошибка настроек уведомлений: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings_advanced")
+async def settings_advanced_handler(callback: CallbackQuery):
+    """Расширенные настройки с подробными описаниями."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        user_data = sniper_user.get('data', {}) or {}
+
+        # Статусы всех функций
+        quiet_hours_enabled = user_data.get('quiet_hours_enabled', False)
+        quiet_start = user_data.get('quiet_hours_start', 22)
+        quiet_end = user_data.get('quiet_hours_end', 8)
+        digest_enabled = not user_data.get('digest_disabled', False)
+        webhook_url = user_data.get('webhook_url', '')
+        email_address = user_data.get('email_notifications', '')
+
+        # Формируем статусы
+        quiet_status = f"{quiet_start}:00-{quiet_end}:00" if quiet_hours_enabled else "выкл"
+        digest_status = "вкл" if digest_enabled else "выкл"
+        webhook_status = "настроен" if webhook_url else "не настроен"
+        email_status = email_address[:15] + "..." if email_address else "не настроен"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"🌙 Тихие часы ({quiet_status})", callback_data="settings_quiet_hours")],
+            [InlineKeyboardButton(text=f"📬 Утренний дайджест ({digest_status})", callback_data="adv_digest")],
+            [InlineKeyboardButton(text=f"🔗 Webhook CRM ({webhook_status})", callback_data="integration_webhook")],
+            [InlineKeyboardButton(text=f"📧 Email ({email_status})", callback_data="integration_email")],
+            [InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_sheets")],
+            [InlineKeyboardButton(text="🏢 Профиль компании", callback_data="settings_profile")],
+            [InlineKeyboardButton(text="« Назад к настройкам", callback_data="settings_back")]
+        ])
+
+        await callback.message.edit_text(
+            "⚙️ <b>РАСШИРЕННЫЕ НАСТРОЙКИ</b>\n\n"
+            "Настройте дополнительные функции для более комфортной работы:\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "🌙 <b>Тихие часы</b>\n"
+            "<i>Отключает уведомления в ночное время. Пропущенные тендеры придут утром в дайджесте.</i>\n\n"
+            "📬 <b>Утренний дайджест</b>\n"
+            "<i>Ежедневная сводка в 9:00 МСК: сколько тендеров найдено, статистика и рекомендации.</i>\n\n"
+            "🔗 <b>Webhook для CRM</b>\n"
+            "<i>Автоматическая отправка тендеров в вашу CRM-систему (Bitrix24, amoCRM, 1C и др.)</i>\n\n"
+            "📧 <b>Email-уведомления</b>\n"
+            "<i>Дублирование важных тендеров (>1 млн ₽) на электронную почту.</i>\n\n"
+            "📊 <b>Google Sheets</b>\n"
+            "<i>Автоматический экспорт тендеров в Google-таблицу для работы в команде.</i>\n\n"
+            "🏢 <b>Профиль компании</b>\n"
+            "<i>Информация о вашей компании для персонализации поиска.</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка расширенных настроек: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "adv_digest")
+async def advanced_digest_handler(callback: CallbackQuery):
+    """Подробная настройка дайджеста."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        user_data = sniper_user.get('data', {}) or {}
+        digest_enabled = not user_data.get('digest_disabled', False)
+
+        status_text = "✅ Включён" if digest_enabled else "❌ Выключен"
+        toggle_text = "❌ Выключить дайджест" if digest_enabled else "✅ Включить дайджест"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=toggle_text, callback_data="toggle_digest")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
+        ])
+
+        await callback.message.edit_text(
+            "📬 <b>УТРЕННИЙ ДАЙДЖЕСТ</b>\n\n"
+            f"<b>Статус:</b> {status_text}\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "<b>Что это такое?</b>\n\n"
+            "Каждое утро в <b>9:00 по Москве</b> вы получаете сводку:\n\n"
+            "📊 Сколько тендеров найдено за вчера\n"
+            "🎯 Количество активных фильтров\n"
+            "⏱ Сколько времени вы сэкономили\n"
+            "💡 Рекомендации по улучшению фильтров\n\n"
+            "<b>Кому полезно:</b>\n"
+            "• Тем, кто не хочет проверять бота вручную\n"
+            "• Руководителям для контроля поиска\n"
+            "• Всем, кто хочет видеть общую картину",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка настроек дайджеста: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
@@ -531,14 +660,23 @@ async def settings_quiet_hours_handler(callback: CallbackQuery):
                 text="❌ Отключить тихие часы" if quiet_hours_enabled else "✅ Тихие часы отключены",
                 callback_data="quiet_disable"
             )],
-            [InlineKeyboardButton(text="« Назад", callback_data="settings_notifications")]
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
         ])
+
+        current_status = f"Активны: {user_data.get('quiet_hours_start', 22)}:00 - {user_data.get('quiet_hours_end', 8)}:00" if quiet_hours_enabled else "Выключены"
 
         await callback.message.edit_text(
             "🌙 <b>ТИХИЕ ЧАСЫ</b>\n\n"
-            "В тихие часы уведомления о тендерах не будут приходить.\n"
-            "Все пропущенные тендеры придут в утреннем дайджесте.\n\n"
-            "Выберите удобный интервал (время московское):",
+            f"<b>Статус:</b> {current_status}\n\n"
+            "━━━━━━━━━━━━━━━\n"
+            "<b>Что это такое?</b>\n\n"
+            "В указанное время бот не будет присылать уведомления — "
+            "чтобы не беспокоить вас ночью.\n\n"
+            "<b>Как работает:</b>\n"
+            "• Тендеры продолжают собираться\n"
+            "• Уведомления накапливаются\n"
+            "• Утром приходит дайджест со всеми пропущенными\n\n"
+            "<b>Выберите интервал (МСК):</b>",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -593,7 +731,7 @@ async def set_quiet_hours_handler(callback: CallbackQuery):
             await session.commit()
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« К настройкам уведомлений", callback_data="settings_notifications")]
+            [InlineKeyboardButton(text="« К расширенным настройкам", callback_data="settings_advanced")]
         ])
 
         await callback.message.edit_text(message, reply_markup=keyboard, parse_mode="HTML")
@@ -633,8 +771,8 @@ async def toggle_digest_handler(callback: CallbackQuery):
 
         await callback.answer(f"📬 Утренний дайджест {new_status}")
 
-        # Возвращаемся к настройкам уведомлений
-        await settings_notifications_handler(callback)
+        # Возвращаемся к настройкам дайджеста
+        await advanced_digest_handler(callback)
 
     except Exception as e:
         logger.error(f"Ошибка переключения дайджеста: {e}", exc_info=True)
@@ -643,17 +781,21 @@ async def toggle_digest_handler(callback: CallbackQuery):
 
 @router.callback_query(F.data == "settings_back")
 async def settings_back_handler(callback: CallbackQuery):
-    """Возврат к настройкам."""
+    """Возврат к главному меню настроек."""
     await callback.answer()
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🏢 Профиль компании", callback_data="settings_profile")],
-        [InlineKeyboardButton(text="🎯 Критерии отбора", callback_data="settings_criteria")],
-        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")]
+        [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")],
+        [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+        [InlineKeyboardButton(text="⚙️ Расширенные настройки", callback_data="settings_advanced")],
     ])
 
     await callback.message.edit_text(
-        text="⚙️ <b>НАСТРОЙКИ</b>\n\nВыберите раздел:",
+        "⚙️ <b>НАСТРОЙКИ</b>\n\n"
+        "Управляйте своими настройками:\n\n"
+        "🔔 <b>Уведомления</b> — включить/выключить автомониторинг\n"
+        "🎯 <b>Мои фильтры</b> — просмотр и редактирование фильтров\n"
+        "⚙️ <b>Расширенные</b> — тихие часы, интеграции, профиль",
         reply_markup=keyboard,
         parse_mode='HTML'
     )
@@ -791,7 +933,7 @@ async def integration_webhook_handler(callback: CallbackQuery, state: FSMContext
             [InlineKeyboardButton(text="📝 Указать URL", callback_data="webhook_set_url")],
             [InlineKeyboardButton(text="🧪 Тест подключения", callback_data="webhook_test")] if current_url else [],
             [InlineKeyboardButton(text="❌ Удалить", callback_data="webhook_delete")] if current_url else [],
-            [InlineKeyboardButton(text="« Назад", callback_data="settings_integrations")]
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
         ])
         # Remove empty rows
         keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
@@ -801,12 +943,26 @@ async def integration_webhook_handler(callback: CallbackQuery, state: FSMContext
         await callback.message.edit_text(
             "🔗 <b>WEBHOOK ДЛЯ CRM</b>\n\n"
             f"<b>Текущий URL:</b>\n{status_text}\n\n"
-            "При появлении нового тендера на ваш webhook будет отправлен POST-запрос с JSON:\n"
+            "━━━━━━━━━━━━━━━\n"
+            "<b>Что это такое?</b>\n\n"
+            "При появлении нового тендера на ваш URL автоматически отправляется POST-запрос с данными.\n\n"
+            "<b>Формат данных:</b>\n"
             "<code>{\n"
             '  "event": "new_tender",\n'
-            '  "tender": {...}\n'
+            '  "tender": {\n'
+            '    "number": "...",\n'
+            '    "name": "...",\n'
+            '    "price": 1000000,\n'
+            '    "customer": "...",\n'
+            '    "deadline": "..."\n'
+            '  }\n'
             "}</code>\n\n"
-            "💡 Идеально для интеграции с Bitrix24, amoCRM, 1C и другими системами.",
+            "<b>Где применить:</b>\n"
+            "• Bitrix24 — автосоздание сделок\n"
+            "• amoCRM — добавление лидов\n"
+            "• 1С — синхронизация данных\n"
+            "• Make/Zapier — автоматизации\n"
+            "• Ваша CRM — через API",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -823,7 +979,7 @@ async def webhook_set_url_handler(callback: CallbackQuery, state: FSMContext):
     await state.set_state(IntegrationSetup.webhook_url)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_integrations")]
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="integration_webhook")]
     ])
 
     await callback.message.edit_text(
@@ -955,7 +1111,7 @@ async def webhook_delete_handler(callback: CallbackQuery):
         await callback.message.edit_text(
             "✅ Webhook удалён",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« К интеграциям", callback_data="settings_integrations")]
+                [InlineKeyboardButton(text="« К расширенным настройкам", callback_data="settings_advanced")]
             ])
         )
 
@@ -978,7 +1134,7 @@ async def integration_email_handler(callback: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📝 Указать email", callback_data="email_set")],
             [InlineKeyboardButton(text="❌ Удалить", callback_data="email_delete")] if current_email else [],
-            [InlineKeyboardButton(text="« Назад", callback_data="settings_integrations")]
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
         ])
         keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
 
@@ -987,9 +1143,18 @@ async def integration_email_handler(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             "📧 <b>EMAIL УВЕДОМЛЕНИЯ</b>\n\n"
             f"<b>Текущий email:</b>\n{status_text}\n\n"
-            "При появлении важных тендеров (цена > 1 млн ₽ или высокий рейтинг) "
-            "дубликат уведомления будет отправлен на ваш email.\n\n"
-            "💡 Удобно для отслеживания тендеров вне Telegram.",
+            "━━━━━━━━━━━━━━━\n"
+            "<b>Что это такое?</b>\n\n"
+            "Важные тендеры дублируются на вашу почту — чтобы вы точно не пропустили.\n\n"
+            "<b>Какие тендеры отправляются:</b>\n"
+            "• С ценой более 1 000 000 ₽\n"
+            "• С высоким рейтингом (score > 80)\n"
+            "• Срочные (дедлайн менее 3 дней)\n\n"
+            "<b>Кому полезно:</b>\n"
+            "• Руководителям — контроль без Telegram\n"
+            "• Тем, кто часто не у телефона\n"
+            "• Для архивирования в корп. почте\n\n"
+            "📬 Письмо содержит все данные тендера и прямую ссылку.",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -1006,7 +1171,7 @@ async def email_set_handler(callback: CallbackQuery, state: FSMContext):
     await state.set_state(IntegrationSetup.email_address)
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_integrations")]
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="integration_email")]
     ])
 
     await callback.message.edit_text(
@@ -1081,7 +1246,7 @@ async def email_delete_handler(callback: CallbackQuery):
         await callback.message.edit_text(
             "✅ Email уведомления отключены",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="« К интеграциям", callback_data="settings_integrations")]
+                [InlineKeyboardButton(text="« К расширенным настройкам", callback_data="settings_advanced")]
             ])
         )
 
@@ -1097,15 +1262,22 @@ async def integration_sheets_handler(callback: CallbackQuery):
 
     await callback.message.edit_text(
         "📊 <b>GOOGLE SHEETS</b>\n\n"
-        "Автоматический экспорт тендеров в Google Sheets.\n\n"
         "⚠️ <b>В разработке</b>\n\n"
-        "Эта функция скоро появится. Она позволит:\n"
-        "• Автоматически добавлять тендеры в таблицу\n"
-        "• Делиться данными с коллегами\n"
-        "• Строить отчёты и графики\n\n"
-        "Следите за обновлениями!",
+        "━━━━━━━━━━━━━━━\n"
+        "<b>Что это такое?</b>\n\n"
+        "Автоматическая выгрузка всех найденных тендеров в Google-таблицу.\n\n"
+        "<b>Как будет работать:</b>\n"
+        "1. Вы создаёте таблицу в Google Sheets\n"
+        "2. Указываете её ID в настройках\n"
+        "3. Каждый новый тендер автоматически добавляется строкой\n\n"
+        "<b>Кому полезно:</b>\n"
+        "• Командам — совместная работа\n"
+        "• Аналитикам — построение отчётов\n"
+        "• Для архива всех тендеров\n"
+        "• Интеграция с Excel через import\n\n"
+        "🔜 Функция появится в ближайшем обновлении!",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« К интеграциям", callback_data="settings_integrations")]
+            [InlineKeyboardButton(text="« К расширенным настройкам", callback_data="settings_advanced")]
         ]),
         parse_mode="HTML"
     )
