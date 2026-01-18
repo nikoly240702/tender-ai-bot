@@ -249,6 +249,7 @@ async def users_list(
 
             # Получаем статистику для каждого пользователя
             users_data = []
+            now = datetime.now()
             for user in users:
                 filters_count = await session.scalar(
                     select(func.count(SniperFilter.id)).where(SniperFilter.user_id == user.id)
@@ -264,11 +265,21 @@ async def users_list(
                     )
                 ) or 0
 
+                # Вычисляем оставшиеся дни подписки
+                days_left = None
+                expires_date = None
+                if user.trial_expires_at:
+                    expires_date = user.trial_expires_at.strftime('%d.%m')
+                    delta = user.trial_expires_at - now
+                    days_left = delta.days if delta.days >= 0 else -1  # -1 = истекла
+
                 users_data.append({
                     "user": user,
                     "filters_count": filters_count,
                     "active_filters": active_filters,
                     "notifications_count": notifications_count,
+                    "days_left": days_left,
+                    "expires_date": expires_date,
                 })
 
             # Статистика по тарифам
@@ -292,7 +303,6 @@ async def users_list(
             "tier_counts": tier_counts,
             "search": search,
             "tier_filter": tier,
-            "now": datetime.now(),
         })
 
     except Exception as e:
