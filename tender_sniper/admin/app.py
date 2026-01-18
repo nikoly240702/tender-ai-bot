@@ -313,6 +313,61 @@ async def users_list(
         })
 
 
+@app.get("/users/{user_id}", response_class=HTMLResponse)
+async def user_detail(
+    request: Request,
+    user_id: int,
+    username: str = Depends(verify_credentials)
+):
+    """Детальная информация о пользователе."""
+    try:
+        async with DatabaseSession() as session:
+            user = await session.get(SniperUser, user_id)
+            if not user:
+                raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
+
+            # Статистика фильтров
+            filters_count = await session.scalar(
+                select(func.count(SniperFilter.id)).where(SniperFilter.user_id == user.id)
+            ) or 0
+            active_filters = await session.scalar(
+                select(func.count(SniperFilter.id)).where(
+                    and_(SniperFilter.user_id == user.id, SniperFilter.is_active == True)
+                )
+            ) or 0
+
+            # Фильтры пользователя
+            filters_query = select(SniperFilter).where(SniperFilter.user_id == user.id)
+            filters_result = await session.execute(filters_query)
+            filters = filters_result.scalars().all()
+
+            # Расчёт оставшихся дней
+            now = datetime.now()
+            days_left = None
+            if user.trial_expires_at:
+                delta = user.trial_expires_at - now
+                days_left = delta.days if delta.days >= 0 else -1
+
+        return templates.TemplateResponse("user_detail.html", {
+            "request": request,
+            "username": username,
+            "user": user,
+            "filters_count": filters_count,
+            "active_filters": active_filters,
+            "filters": filters,
+            "days_left": days_left,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"User detail error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
 @app.post("/users/{user_id}/set-tier")
 async def set_user_tier(
     user_id: int,
@@ -378,7 +433,7 @@ async def add_subscription_days(
     tier: str = Form("premium"),
     username: str = Depends(verify_credentials)
 ):
-    """Добавить дни к подписке пользователя."""
+    """Добавить дни к подписке пользователя. user_id = sniper_users.id (внутренний ID)."""
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="Количество дней должно быть от 1 до 365")
 
@@ -394,9 +449,10 @@ async def add_subscription_days(
         }
 
         async with DatabaseSession() as session:
+            # Ищем по внутреннему ID
             user = await session.get(SniperUser, user_id)
             if not user:
-                raise HTTPException(status_code=404, detail="Пользователь не найден")
+                raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
 
             now = datetime.now()
             new_limits = limits_map[tier]
@@ -417,14 +473,15 @@ async def add_subscription_days(
                     trial_expires_at=new_expires
                 )
             )
-            await session.commit()
+
+            logger.info(f"Added {days} days of {tier} to user {user.telegram_id} (id={user_id}), expires: {new_expires}")
 
         return RedirectResponse(url="/users", status_code=303)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Add days error: {e}", exc_info=True)
+        logger.error(f"Add days error for user_id={user_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

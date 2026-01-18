@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block title %}Пользователь {{ user.telegram_id }}{% endblock %}
+
+{% block content %}
+<!-- Top Bar -->
+<div class="top-bar">
+    <div>
+        <a href="/users" class="btn btn-outline-secondary btn-sm me-3">
+            <i class="bi bi-arrow-left"></i> Назад к списку
+        </a>
+        <span class="h4 mb-0">Пользователь #{{ user.telegram_id }}</span>
+    </div>
+    <div class="d-flex gap-2">
+        <button class="btn btn-success btn-sm" onclick="openAddDaysModal()">
+            <i class="bi bi-plus-circle"></i> Добавить дни
+        </button>
+        {% if user.status == 'blocked' %}
+        <form method="post" action="/users/{{ user.id }}/unblock" style="display: inline;">
+            <button type="submit" class="btn btn-outline-success btn-sm">
+                <i class="bi bi-unlock"></i> Разблокировать
+            </button>
+        </form>
+        {% else %}
+        <form method="post" action="/users/{{ user.id }}/block" style="display: inline;">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                <i class="bi bi-lock"></i> Заблокировать
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- User Info Card -->
+    <div class="col-md-4">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-person-circle"></i> Информация
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <td class="text-muted" style="width: 40%;">Telegram ID</td>
+                        <td><code>{{ user.telegram_id }}</code></td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Имя</td>
+                        <td>{{ user.first_name or '-' }} {{ user.last_name or '' }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Username</td>
+                        <td>
+                            {% if user.username %}
+                            <a href="https://t.me/{{ user.username }}" target="_blank">@{{ user.username }}</a>
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Статус</td>
+                        <td>
+                            {% if user.status == 'blocked' %}
+                            <span class="badge badge-status badge-blocked">Заблокирован</span>
+                            {% elif user.status == 'active' %}
+                            <span class="badge badge-status badge-active">Активен</span>
+                            {% else %}
+                            <span class="badge badge-status badge-inactive">{{ user.status or 'Неизвестно' }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Регистрация</td>
+                        <td>{{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '-' }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Последняя активность</td>
+                        <td>{{ user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else '-' }}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subscription Card -->
+    <div class="col-md-4">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-credit-card"></i> Подписка
+            </div>
+            <div class="card-body">
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <td class="text-muted" style="width: 40%;">Тариф</td>
+                        <td>
+                            <span class="badge badge-tier badge-{{ user.subscription_tier }}">
+                                {{ user.subscription_tier }}
+                            </span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Осталось дней</td>
+                        <td>
+                            {% if days_left is not none %}
+                                {% if days_left >= 0 %}
+                                    {% if days_left <= 3 %}
+                                    <span class="badge bg-danger">{{ days_left }} дн.</span>
+                                    {% elif days_left <= 7 %}
+                                    <span class="badge bg-warning text-dark">{{ days_left }} дн.</span>
+                                    {% else %}
+                                    <span class="badge bg-success">{{ days_left }} дн.</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="badge bg-secondary">истекла</span>
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Истекает</td>
+                        <td>
+                            {% if user.trial_expires_at %}
+                            {{ user.trial_expires_at.strftime('%d.%m.%Y %H:%M') }}
+                            {% else %}
+                            <span class="text-muted">-</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Лимит фильтров</td>
+                        <td>{{ user.filters_limit or 3 }}</td>
+                    </tr>
+                    <tr>
+                        <td class="text-muted">Лимит уведомлений</td>
+                        <td>{{ user.notifications_limit or 20 }}</td>
+                    </tr>
+                </table>
+
+                <hr>
+
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="changeTier('trial')">
+                        Trial
+                    </button>
+                    <button class="btn btn-outline-info btn-sm" onclick="changeTier('basic')">
+                        Basic
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" onclick="changeTier('premium')">
+                        Premium
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Card -->
+    <div class="col-md-4">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-bar-chart"></i> Статистика
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6 mb-3">
+                        <div class="h3 mb-0">{{ filters_count }}</div>
+                        <small class="text-muted">Всего фильтров</small>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <div class="h3 mb-0 text-success">{{ active_filters }}</div>
+                        <small class="text-muted">Активных</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters Table -->
+<div class="card card-custom mt-4">
+    <div class="card-header">
+        <i class="bi bi-funnel"></i> Фильтры пользователя ({{ filters_count }})
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-custom table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Название</th>
+                    <th>Ключевые слова</th>
+                    <th>Бюджет</th>
+                    <th>Статус</th>
+                    <th>Создан</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for filter in filters %}
+                <tr>
+                    <td><code>{{ filter.id }}</code></td>
+                    <td>{{ filter.name or 'Без названия' }}</td>
+                    <td>
+                        <small>{{ (filter.keywords or '')[:50] }}{% if filter.keywords and filter.keywords|length > 50 %}...{% endif %}</small>
+                    </td>
+                    <td>
+                        {% if filter.min_price or filter.max_price %}
+                        {{ '{:,.0f}'.format(filter.min_price or 0) }} - {{ '{:,.0f}'.format(filter.max_price or 999999999) }}
+                        {% else %}
+                        <span class="text-muted">любой</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if filter.is_active %}
+                        <span class="badge bg-success">Активен</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Неактивен</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ filter.created_at.strftime('%d.%m.%Y') if filter.created_at else '-' }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center text-muted py-4">
+                        У пользователя нет фильтров
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal: Добавить дни -->
+<div class="modal fade" id="addDaysModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-plus-circle text-success"></i> Добавить дни подписки
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="addDaysForm" method="post" action="/users/{{ user.id }}/add-days">
+                <div class="modal-body">
+                    <p class="text-muted mb-3">
+                        Пользователь: <strong>{{ user.first_name or 'User' }} {{ user.last_name or '' }}</strong>
+                        (<code>{{ user.telegram_id }}</code>)
+                    </p>
+                    <div class="mb-3">
+                        <label class="form-label">Количество дней</label>
+                        <input type="number" class="form-control" name="days" id="daysInput"
+                               min="1" max="365" value="7" required>
+                        <div class="form-text">
+                            Быстрый выбор:
+                            <a href="#" onclick="setDays(7); return false;">+7</a> |
+                            <a href="#" onclick="setDays(14); return false;">+14</a> |
+                            <a href="#" onclick="setDays(30); return false;">+30</a> |
+                            <a href="#" onclick="setDays(90); return false;">+90</a> |
+                            <a href="#" onclick="setDays(365); return false;">+365</a>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Тариф</label>
+                        <select class="form-select" name="tier" id="tierSelect">
+                            <option value="premium" selected>Premium (20 фильтров, безлимит)</option>
+                            <option value="basic">Basic (5 фильтров, 50/день)</option>
+                            <option value="trial">Trial (3 фильтра, 20/день)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Отмена</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-plus-circle"></i> Добавить
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openAddDaysModal() {
+    document.getElementById('daysInput').value = 7;
+    document.getElementById('tierSelect').value = 'premium';
+    new bootstrap.Modal(document.getElementById('addDaysModal')).show();
+}
+
+function setDays(days) {
+    document.getElementById('daysInput').value = days;
+}
+
+async function changeTier(tier) {
+    if (!confirm(`Изменить тариф пользователя на ${tier}?`)) return;
+
+    const formData = new FormData();
+    formData.append('tier', tier);
+
+    const resp = await fetch('/users/{{ user.id }}/set-tier', {
+        method: 'POST',
+        body: formData
+    });
+
+    if (resp.ok || resp.redirected) {
+        location.reload();
+    } else {
+        alert('Ошибка при изменении тарифа');
+    }
+}
+</script>
+{% endblock %}
