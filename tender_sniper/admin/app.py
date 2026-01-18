@@ -230,7 +230,8 @@ async def users_list(
 
             # Фильтры
             if search:
-                search_filter = SniperUser.telegram_id.cast(str).contains(search)
+                # Поиск по telegram_id (числовой) или по имени
+                search_filter = SniperUser.telegram_id == int(search) if search.isdigit() else SniperUser.first_name.ilike(f"%{search}%")
                 query = query.where(search_filter)
                 count_query = count_query.where(search_filter)
 
