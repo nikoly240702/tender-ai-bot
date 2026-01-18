@@ -84,17 +84,17 @@
                         </span>
                     </td>
                     <td>
-                        {% if item.days_left is not none %}
-                            {% if item.days_left >= 0 %}
-                                {% if item.days_left <= 3 %}
-                                <span class="badge bg-danger">{{ item.days_left }} дн.</span>
-                                {% elif item.days_left <= 7 %}
-                                <span class="badge bg-warning text-dark">{{ item.days_left }} дн.</span>
+                        {% if item.get('days_left') is not none %}
+                            {% if item.get('days_left') >= 0 %}
+                                {% if item.get('days_left') <= 3 %}
+                                <span class="badge bg-danger">{{ item.get('days_left') }} дн.</span>
+                                {% elif item.get('days_left') <= 7 %}
+                                <span class="badge bg-warning text-dark">{{ item.get('days_left') }} дн.</span>
                                 {% else %}
-                                <span class="badge bg-success">{{ item.days_left }} дн.</span>
+                                <span class="badge bg-success">{{ item.get('days_left') }} дн.</span>
                                 {% endif %}
                                 <br>
-                                <small class="text-muted">до {{ item.expires_date }}</small>
+                                <small class="text-muted">до {{ item.get('expires_date') }}</small>
                             {% else %}
                                 <span class="badge bg-secondary">истекла</span>
                             {% endif %}
