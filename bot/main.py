@@ -26,6 +26,8 @@ from bot.handlers import sniper_wizard_new
 from bot.handlers import subscriptions
 # Реферальная программа
 from bot.handlers import referral
+# Engagement Scheduler (follow-ups, digest, deadline reminders)
+from bot.engagement_scheduler import engagement_router, EngagementScheduler
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware, SubscriptionMiddleware
 
@@ -276,6 +278,7 @@ async def main():
     dp.include_router(sniper_wizard_new.router)  # Новый упрощённый wizard (feature flag)
     dp.include_router(subscriptions.router)  # Подписки (Phase 2.1)
     dp.include_router(referral.router)  # Реферальная программа
+    dp.include_router(engagement_router)  # Engagement (digest, deadlines)
     dp.include_router(sniper_search.router)  # Tender Sniper Search (старый workflow)
     dp.include_router(sniper.router)  # Tender Sniper меню
     dp.include_router(start.router)
@@ -329,6 +332,26 @@ async def main():
         logger.info("✅ Subscription Checker запущен в фоновом режиме")
     except Exception as e:
         logger.error(f"❌ Не удалось запустить Subscription Checker: {e}", exc_info=True)
+
+    # Запускаем Engagement Scheduler (follow-ups, digest, deadline reminders)
+    engagement_scheduler = None
+    engagement_scheduler_task = None
+    try:
+        logger.info("📅 Запуск Engagement Scheduler...")
+        engagement_scheduler = EngagementScheduler(
+            bot_token=BotConfig.BOT_TOKEN
+        )
+
+        async def run_engagement_scheduler():
+            try:
+                await engagement_scheduler.start()
+            except Exception as e:
+                logger.error(f"❌ Ошибка Engagement Scheduler: {e}", exc_info=True)
+
+        engagement_scheduler_task = asyncio.create_task(run_engagement_scheduler())
+        logger.info("✅ Engagement Scheduler запущен в фоновом режиме")
+    except Exception as e:
+        logger.error(f"❌ Не удалось запустить Engagement Scheduler: {e}", exc_info=True)
 
     # Инициализируем Tender Sniper Service (если включен)
     sniper_service = None
@@ -394,6 +417,17 @@ async def main():
             subscription_checker_task.cancel()
             try:
                 await subscription_checker_task
+            except asyncio.CancelledError:
+                pass
+
+        # Останавливаем Engagement Scheduler если запущен
+        if engagement_scheduler:
+            logger.info("🛑 Остановка Engagement Scheduler...")
+            await engagement_scheduler.stop()
+        if engagement_scheduler_task and not engagement_scheduler_task.done():
+            engagement_scheduler_task.cancel()
+            try:
+                await engagement_scheduler_task
             except asyncio.CancelledError:
                 pass
 
