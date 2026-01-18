@@ -851,6 +851,84 @@ async def show_help_troubleshooting(callback: CallbackQuery):
 # ПРОСМОТР И РЕДАКТИРОВАНИЕ ФИЛЬТРА
 # ============================================
 
+async def get_filter_statistics(filter_id: int, user_id: int) -> dict:
+    """
+    Получить статистику эффективности фильтра.
+
+    Returns:
+        dict: {total_found, favorites_added, hidden, effectiveness, recommendations}
+    """
+    from database import DatabaseSession, SniperNotification, FavoriteTender, HiddenTender
+    from sqlalchemy import select, func, and_
+
+    stats = {
+        'total_found': 0,
+        'favorites_added': 0,
+        'hidden': 0,
+        'effectiveness': 0,
+        'recommendations': []
+    }
+
+    try:
+        async with DatabaseSession() as session:
+            # Количество найденных тендеров по этому фильтру
+            stats['total_found'] = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    SniperNotification.filter_id == filter_id
+                )
+            ) or 0
+
+            # Количество добавленных в избранное
+            # Получаем tender_numbers из notifications для этого фильтра
+            notifications_result = await session.execute(
+                select(SniperNotification.tender_number).where(
+                    SniperNotification.filter_id == filter_id
+                )
+            )
+            tender_numbers = [r[0] for r in notifications_result.all() if r[0]]
+
+            if tender_numbers:
+                stats['favorites_added'] = await session.scalar(
+                    select(func.count(FavoriteTender.id)).where(
+                        and_(
+                            FavoriteTender.user_id == user_id,
+                            FavoriteTender.tender_number.in_(tender_numbers)
+                        )
+                    )
+                ) or 0
+
+                stats['hidden'] = await session.scalar(
+                    select(func.count(HiddenTender.id)).where(
+                        and_(
+                            HiddenTender.user_id == user_id,
+                            HiddenTender.tender_number.in_(tender_numbers)
+                        )
+                    )
+                ) or 0
+
+            # Расчёт эффективности
+            if stats['total_found'] > 0:
+                positive = stats['favorites_added']
+                negative = stats['hidden']
+                stats['effectiveness'] = int((positive / (positive + negative + 1)) * 100) if (positive + negative) > 0 else 50
+
+            # Рекомендации
+            if stats['total_found'] == 0:
+                stats['recommendations'].append("Расширьте ключевые слова или увеличьте ценовой диапазон")
+            elif stats['total_found'] > 50 and stats['favorites_added'] < 5:
+                stats['recommendations'].append("Добавьте более точные ключевые слова")
+                stats['recommendations'].append("Сузьте ценовой диапазон")
+            elif stats['hidden'] > stats['favorites_added'] * 2:
+                stats['recommendations'].append("Много неподходящих тендеров - уточните критерии")
+            elif stats['effectiveness'] > 70:
+                stats['recommendations'].append("Фильтр работает отлично!")
+
+    except Exception as e:
+        logger.error(f"Error getting filter stats: {e}")
+
+    return stats
+
+
 @router.callback_query(F.data.startswith("sniper_filter_"))
 async def show_filter_details(callback: CallbackQuery):
     """Показать детальную информацию о фильтре."""
@@ -866,6 +944,10 @@ async def show_filter_details(callback: CallbackQuery):
         if not filter_data:
             await callback.message.answer("❌ Фильтр не найден")
             return
+
+        # Получаем user_id
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        user_id = sniper_user['id'] if sniper_user else 0
 
         # Формируем текст с информацией о фильтре
         keywords = filter_data.get('keywords', [])
@@ -905,6 +987,31 @@ async def show_filter_details(callback: CallbackQuery):
 
         if tender_types:
             text += f"📦 <b>Тип закупки:</b> {', '.join(tender_types)}\n\n"
+
+        # Добавляем статистику фильтра
+        stats = await get_filter_statistics(filter_id, user_id)
+
+        text += "━━━━━━━━━━━━━━━\n"
+        text += "📊 <b>СТАТИСТИКА</b>\n\n"
+        text += f"📬 Найдено тендеров: <b>{stats['total_found']}</b>\n"
+        text += f"⭐ В избранном: <b>{stats['favorites_added']}</b>\n"
+        text += f"👎 Скрыто: <b>{stats['hidden']}</b>\n"
+
+        # Индикатор эффективности
+        eff = stats['effectiveness']
+        if eff >= 70:
+            eff_emoji = "🟢"
+        elif eff >= 40:
+            eff_emoji = "🟡"
+        else:
+            eff_emoji = "🔴"
+        text += f"{eff_emoji} Эффективность: <b>{eff}%</b>\n\n"
+
+        # Рекомендации
+        if stats['recommendations']:
+            text += "💡 <b>Рекомендации:</b>\n"
+            for rec in stats['recommendations'][:2]:
+                text += f"• {rec}\n"
 
         # Кнопки управления фильтром
         keyboard_buttons = [

@@ -178,7 +178,8 @@ async def settings_command(message: Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🏢 Профиль компании", callback_data="settings_profile")],
             [InlineKeyboardButton(text="🎯 Критерии отбора", callback_data="settings_criteria")],
-            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")]
+            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")],
+            [InlineKeyboardButton(text="🔗 Интеграции", callback_data="settings_integrations")],
         ])
 
         await message.answer(
@@ -455,14 +456,32 @@ async def settings_notifications_handler(callback: CallbackQuery):
         notifications_limit = sniper_user.get('notifications_limit', 15)
         notifications_today = sniper_user.get('notifications_sent_today', 0)
 
+        # Получаем настройки тихих часов из user.data
+        user_data = sniper_user.get('data', {}) or {}
+        quiet_hours_enabled = user_data.get('quiet_hours_enabled', False)
+        quiet_start = user_data.get('quiet_hours_start', 22)
+        quiet_end = user_data.get('quiet_hours_end', 8)
+        digest_enabled = not user_data.get('digest_disabled', False)
+
         status_emoji = "✅" if monitoring_enabled else "⏸"
         status_text = "Включен" if monitoring_enabled else "На паузе"
+
+        quiet_status = f"🌙 {quiet_start}:00 - {quiet_end}:00" if quiet_hours_enabled else "Выкл"
+        digest_status = "✅ Вкл" if digest_enabled else "❌ Выкл"
 
         toggle_text = "⏸ Приостановить" if monitoring_enabled else "▶️ Возобновить"
         toggle_callback = "sniper_pause_monitoring" if monitoring_enabled else "sniper_resume_monitoring"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=toggle_text, callback_data=toggle_callback)],
+            [InlineKeyboardButton(
+                text=f"🌙 Тихие часы: {quiet_status}",
+                callback_data="settings_quiet_hours"
+            )],
+            [InlineKeyboardButton(
+                text=f"📬 Утренний дайджест: {digest_status}",
+                callback_data="toggle_digest"
+            )],
             [InlineKeyboardButton(text="« Назад", callback_data="settings_back")]
         ])
 
@@ -471,13 +490,154 @@ async def settings_notifications_handler(callback: CallbackQuery):
             f"<b>Автомониторинг:</b> {status_emoji} {status_text}\n"
             f"<b>Лимит уведомлений:</b> {notifications_limit}/день\n"
             f"<b>Отправлено сегодня:</b> {notifications_today}/{notifications_limit}\n\n"
-            f"💡 Автомониторинг проверяет новые тендеры каждые 5 минут",
+            f"<b>Тихие часы:</b> {quiet_status}\n"
+            f"<b>Утренний дайджест:</b> {digest_status}\n\n"
+            f"💡 В тихие часы уведомления откладываются до утра",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
 
     except Exception as e:
         logger.error(f"Ошибка настроек уведомлений: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "settings_quiet_hours")
+async def settings_quiet_hours_handler(callback: CallbackQuery):
+    """Настройка тихих часов."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        user_data = sniper_user.get('data', {}) or {}
+        quiet_hours_enabled = user_data.get('quiet_hours_enabled', False)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="22:00 - 08:00", callback_data="quiet_22_8"),
+                InlineKeyboardButton(text="23:00 - 07:00", callback_data="quiet_23_7"),
+            ],
+            [
+                InlineKeyboardButton(text="21:00 - 09:00", callback_data="quiet_21_9"),
+                InlineKeyboardButton(text="00:00 - 08:00", callback_data="quiet_0_8"),
+            ],
+            [InlineKeyboardButton(
+                text="❌ Отключить тихие часы" if quiet_hours_enabled else "✅ Тихие часы отключены",
+                callback_data="quiet_disable"
+            )],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_notifications")]
+        ])
+
+        await callback.message.edit_text(
+            "🌙 <b>ТИХИЕ ЧАСЫ</b>\n\n"
+            "В тихие часы уведомления о тендерах не будут приходить.\n"
+            "Все пропущенные тендеры придут в утреннем дайджесте.\n\n"
+            "Выберите удобный интервал (время московское):",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка настроек тихих часов: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("quiet_"))
+async def set_quiet_hours_handler(callback: CallbackQuery):
+    """Устанавливает тихие часы."""
+    await callback.answer()
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        action = callback.data.replace("quiet_", "")
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == callback.from_user.id)
+            )
+
+            if not user:
+                await callback.message.answer("❌ Пользователь не найден")
+                return
+
+            current_data = user.data if isinstance(user.data, dict) else {}
+
+            if action == "disable":
+                current_data['quiet_hours_enabled'] = False
+                message = "✅ Тихие часы отключены\n\nУведомления будут приходить круглосуточно."
+            else:
+                # Парсим формат "22_8" -> start=22, end=8
+                parts = action.split("_")
+                start_hour = int(parts[0])
+                end_hour = int(parts[1])
+
+                current_data['quiet_hours_enabled'] = True
+                current_data['quiet_hours_start'] = start_hour
+                current_data['quiet_hours_end'] = end_hour
+
+                message = (
+                    f"✅ Тихие часы установлены\n\n"
+                    f"🌙 С {start_hour}:00 до {end_hour}:00 (МСК)\n"
+                    f"уведомления приходить не будут."
+                )
+
+            user.data = current_data
+            await session.commit()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« К настройкам уведомлений", callback_data="settings_notifications")]
+        ])
+
+        await callback.message.edit_text(message, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка установки тихих часов: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "toggle_digest")
+async def toggle_digest_handler(callback: CallbackQuery):
+    """Переключает утренний дайджест."""
+    await callback.answer()
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == callback.from_user.id)
+            )
+
+            if not user:
+                await callback.message.answer("❌ Пользователь не найден")
+                return
+
+            current_data = user.data if isinstance(user.data, dict) else {}
+            digest_disabled = current_data.get('digest_disabled', False)
+
+            # Переключаем
+            current_data['digest_disabled'] = not digest_disabled
+            user.data = current_data
+            await session.commit()
+
+            new_status = "выключен" if current_data['digest_disabled'] else "включён"
+
+        await callback.answer(f"📬 Утренний дайджест {new_status}")
+
+        # Возвращаемся к настройкам уведомлений
+        await settings_notifications_handler(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка переключения дайджеста: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 
@@ -556,6 +716,399 @@ async def html_favorites_handler(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка генерации HTML избранных: {e}", exc_info=True)
         await callback.message.answer("❌ Произошла ошибка при генерации отчета")
+
+
+# ============================================
+# ИНТЕГРАЦИИ
+# ============================================
+
+class IntegrationSetup(StatesGroup):
+    """Состояния для настройки интеграций."""
+    webhook_url = State()
+    email_address = State()
+    google_sheet_id = State()
+
+
+@router.callback_query(F.data == "settings_integrations")
+async def settings_integrations_handler(callback: CallbackQuery):
+    """Показывает настройки интеграций."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        user_data = sniper_user.get('data', {}) or {}
+
+        # Получаем статусы интеграций
+        webhook_url = user_data.get('webhook_url', '')
+        email_address = user_data.get('email_notifications', '')
+        google_sheet_id = user_data.get('google_sheet_id', '')
+
+        webhook_status = "✅ Настроен" if webhook_url else "❌ Не настроен"
+        email_status = "✅ " + email_address[:20] + "..." if email_address else "❌ Не настроен"
+        sheets_status = "✅ Настроен" if google_sheet_id else "❌ Не настроен"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"🔗 Webhook: {webhook_status}", callback_data="integration_webhook")],
+            [InlineKeyboardButton(text=f"📧 Email: {email_status}", callback_data="integration_email")],
+            [InlineKeyboardButton(text=f"📊 Google Sheets: {sheets_status}", callback_data="integration_sheets")],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_back")]
+        ])
+
+        await callback.message.edit_text(
+            "🔗 <b>ИНТЕГРАЦИИ</b>\n\n"
+            "Подключите внешние сервисы для автоматической отправки тендеров:\n\n"
+            f"<b>Webhook (CRM):</b> {webhook_status}\n"
+            f"<b>Email:</b> {email_status}\n"
+            f"<b>Google Sheets:</b> {sheets_status}\n\n"
+            "💡 При появлении нового тендера данные будут автоматически отправляться в подключённые сервисы.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка настроек интеграций: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "integration_webhook")
+async def integration_webhook_handler(callback: CallbackQuery, state: FSMContext):
+    """Настройка webhook."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        user_data = sniper_user.get('data', {}) or {}
+        current_url = user_data.get('webhook_url', '')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Указать URL", callback_data="webhook_set_url")],
+            [InlineKeyboardButton(text="🧪 Тест подключения", callback_data="webhook_test")] if current_url else [],
+            [InlineKeyboardButton(text="❌ Удалить", callback_data="webhook_delete")] if current_url else [],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_integrations")]
+        ])
+        # Remove empty rows
+        keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
+
+        status_text = f"<code>{current_url}</code>" if current_url else "Не настроен"
+
+        await callback.message.edit_text(
+            "🔗 <b>WEBHOOK ДЛЯ CRM</b>\n\n"
+            f"<b>Текущий URL:</b>\n{status_text}\n\n"
+            "При появлении нового тендера на ваш webhook будет отправлен POST-запрос с JSON:\n"
+            "<code>{\n"
+            '  "event": "new_tender",\n'
+            '  "tender": {...}\n'
+            "}</code>\n\n"
+            "💡 Идеально для интеграции с Bitrix24, amoCRM, 1C и другими системами.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка webhook настроек: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "webhook_set_url")
+async def webhook_set_url_handler(callback: CallbackQuery, state: FSMContext):
+    """Запрос URL для webhook."""
+    await callback.answer()
+    await state.set_state(IntegrationSetup.webhook_url)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_integrations")]
+    ])
+
+    await callback.message.edit_text(
+        "🔗 <b>НАСТРОЙКА WEBHOOK</b>\n\n"
+        "Отправьте URL вашего webhook.\n\n"
+        "Примеры:\n"
+        "• <code>https://yourcrm.com/api/webhook</code>\n"
+        "• <code>https://hook.integromat.com/xxx</code>\n"
+        "• <code>https://hooks.zapier.com/xxx</code>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(IntegrationSetup.webhook_url)
+async def process_webhook_url(message: Message, state: FSMContext):
+    """Обработка введённого URL webhook."""
+    url = message.text.strip()
+
+    # Валидация URL
+    if not url.startswith(('http://', 'https://')):
+        await message.answer(
+            "❌ Неверный формат URL. URL должен начинаться с http:// или https://\n\n"
+            "Попробуйте ещё раз:"
+        )
+        return
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+        from bot.integrations import get_integration_manager
+
+        # Тестируем webhook
+        manager = get_integration_manager()
+        test_result = await manager.test_webhook(url)
+
+        if test_result['success']:
+            # Сохраняем URL
+            async with DatabaseSession() as session:
+                user = await session.scalar(
+                    select(SniperUser).where(SniperUser.telegram_id == message.from_user.id)
+                )
+                if user:
+                    current_data = user.data if isinstance(user.data, dict) else {}
+                    current_data['webhook_url'] = url
+                    user.data = current_data
+                    await session.commit()
+
+            await state.clear()
+            await message.answer(
+                f"✅ <b>Webhook настроен!</b>\n\n"
+                f"URL: <code>{url}</code>\n"
+                f"Тест: {test_result['message']} ({test_result['response_time']}ms)\n\n"
+                "Теперь при появлении новых тендеров данные будут отправляться на этот URL.",
+                parse_mode="HTML"
+            )
+        else:
+            await message.answer(
+                f"⚠️ <b>Webhook недоступен</b>\n\n"
+                f"URL: <code>{url}</code>\n"
+                f"Ошибка: {test_result['message']}\n\n"
+                "Проверьте URL и попробуйте ещё раз:",
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка сохранения webhook: {e}", exc_info=True)
+        await state.clear()
+        await message.answer("❌ Произошла ошибка при сохранении")
+
+
+@router.callback_query(F.data == "webhook_test")
+async def webhook_test_handler(callback: CallbackQuery):
+    """Тест webhook."""
+    await callback.answer("Тестирую подключение...")
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        user_data = sniper_user.get('data', {}) or {}
+        webhook_url = user_data.get('webhook_url', '')
+
+        if not webhook_url:
+            await callback.message.answer("❌ Webhook URL не настроен")
+            return
+
+        from bot.integrations import get_integration_manager
+        manager = get_integration_manager()
+        result = await manager.test_webhook(webhook_url)
+
+        if result['success']:
+            await callback.message.answer(
+                f"✅ <b>Webhook работает!</b>\n\n"
+                f"Статус: {result['message']}\n"
+                f"Время ответа: {result['response_time']}ms",
+                parse_mode="HTML"
+            )
+        else:
+            await callback.message.answer(
+                f"❌ <b>Webhook недоступен</b>\n\n"
+                f"Ошибка: {result['message']}",
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка теста webhook: {e}", exc_info=True)
+        await callback.message.answer("❌ Произошла ошибка при тестировании")
+
+
+@router.callback_query(F.data == "webhook_delete")
+async def webhook_delete_handler(callback: CallbackQuery):
+    """Удаление webhook."""
+    await callback.answer()
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == callback.from_user.id)
+            )
+            if user:
+                current_data = user.data if isinstance(user.data, dict) else {}
+                current_data.pop('webhook_url', None)
+                user.data = current_data
+                await session.commit()
+
+        await callback.message.edit_text(
+            "✅ Webhook удалён",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« К интеграциям", callback_data="settings_integrations")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка удаления webhook: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "integration_email")
+async def integration_email_handler(callback: CallbackQuery, state: FSMContext):
+    """Настройка email уведомлений."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        user_data = sniper_user.get('data', {}) or {}
+        current_email = user_data.get('email_notifications', '')
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Указать email", callback_data="email_set")],
+            [InlineKeyboardButton(text="❌ Удалить", callback_data="email_delete")] if current_email else [],
+            [InlineKeyboardButton(text="« Назад", callback_data="settings_integrations")]
+        ])
+        keyboard.inline_keyboard = [row for row in keyboard.inline_keyboard if row]
+
+        status_text = f"<code>{current_email}</code>" if current_email else "Не настроен"
+
+        await callback.message.edit_text(
+            "📧 <b>EMAIL УВЕДОМЛЕНИЯ</b>\n\n"
+            f"<b>Текущий email:</b>\n{status_text}\n\n"
+            "При появлении важных тендеров (цена > 1 млн ₽ или высокий рейтинг) "
+            "дубликат уведомления будет отправлен на ваш email.\n\n"
+            "💡 Удобно для отслеживания тендеров вне Telegram.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка email настроек: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "email_set")
+async def email_set_handler(callback: CallbackQuery, state: FSMContext):
+    """Запрос email."""
+    await callback.answer()
+    await state.set_state(IntegrationSetup.email_address)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="settings_integrations")]
+    ])
+
+    await callback.message.edit_text(
+        "📧 <b>НАСТРОЙКА EMAIL</b>\n\n"
+        "Отправьте ваш email адрес:",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(IntegrationSetup.email_address)
+async def process_email_address(message: Message, state: FSMContext):
+    """Обработка введённого email."""
+    import re
+    email = message.text.strip().lower()
+
+    # Простая валидация email
+    if not re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', email):
+        await message.answer(
+            "❌ Неверный формат email. Пример: user@example.com\n\n"
+            "Попробуйте ещё раз:"
+        )
+        return
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == message.from_user.id)
+            )
+            if user:
+                current_data = user.data if isinstance(user.data, dict) else {}
+                current_data['email_notifications'] = email
+                user.data = current_data
+                await session.commit()
+
+        await state.clear()
+        await message.answer(
+            f"✅ <b>Email настроен!</b>\n\n"
+            f"Адрес: <code>{email}</code>\n\n"
+            "Теперь важные тендеры будут дублироваться на этот email.",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка сохранения email: {e}", exc_info=True)
+        await state.clear()
+        await message.answer("❌ Произошла ошибка при сохранении")
+
+
+@router.callback_query(F.data == "email_delete")
+async def email_delete_handler(callback: CallbackQuery):
+    """Удаление email."""
+    await callback.answer()
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == callback.from_user.id)
+            )
+            if user:
+                current_data = user.data if isinstance(user.data, dict) else {}
+                current_data.pop('email_notifications', None)
+                user.data = current_data
+                await session.commit()
+
+        await callback.message.edit_text(
+            "✅ Email уведомления отключены",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« К интеграциям", callback_data="settings_integrations")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка удаления email: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "integration_sheets")
+async def integration_sheets_handler(callback: CallbackQuery):
+    """Настройка Google Sheets."""
+    await callback.answer()
+
+    await callback.message.edit_text(
+        "📊 <b>GOOGLE SHEETS</b>\n\n"
+        "Автоматический экспорт тендеров в Google Sheets.\n\n"
+        "⚠️ <b>В разработке</b>\n\n"
+        "Эта функция скоро появится. Она позволит:\n"
+        "• Автоматически добавлять тендеры в таблицу\n"
+        "• Делиться данными с коллегами\n"
+        "• Строить отчёты и графики\n\n"
+        "Следите за обновлениями!",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="« К интеграциям", callback_data="settings_integrations")]
+        ]),
+        parse_mode="HTML"
+    )
 
 
 # Экспортируем router

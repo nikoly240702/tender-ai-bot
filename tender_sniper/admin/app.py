@@ -1553,6 +1553,223 @@ async def privacy_page(request: Request):
 
 
 # ============================================
+# LOGS VIEWER
+# ============================================
+
+@app.get("/logs", response_class=HTMLResponse)
+async def logs_page(
+    request: Request,
+    lines: int = Query(100, ge=10, le=1000),
+    level: str = Query("all"),
+    username: str = Depends(verify_credentials)
+):
+    """Просмотр логов бота в реальном времени."""
+    log_files = [
+        Path(__file__).parent.parent.parent / "bot" / "bot.log",
+        Path(__file__).parent.parent / "service.log",
+    ]
+
+    logs_content = []
+
+    for log_file in log_files:
+        if log_file.exists():
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    all_lines = f.readlines()
+                    # Берём последние N строк
+                    recent_lines = all_lines[-lines:]
+
+                    # Фильтруем по уровню
+                    if level != "all":
+                        level_upper = level.upper()
+                        recent_lines = [l for l in recent_lines if level_upper in l]
+
+                    logs_content.append({
+                        "file": log_file.name,
+                        "lines": recent_lines
+                    })
+            except Exception as e:
+                logs_content.append({
+                    "file": log_file.name,
+                    "lines": [f"Error reading log: {e}"]
+                })
+
+    return templates.TemplateResponse("logs.html", {
+        "request": request,
+        "username": username,
+        "logs": logs_content,
+        "current_lines": lines,
+        "current_level": level,
+    })
+
+
+@app.get("/api/logs/stream")
+async def logs_stream(
+    lines: int = Query(50, ge=10, le=500),
+    username: str = Depends(verify_credentials)
+):
+    """API для получения последних логов (для автообновления)."""
+    log_file = Path(__file__).parent.parent.parent / "bot" / "bot.log"
+
+    if not log_file.exists():
+        return JSONResponse({"lines": [], "error": "Log file not found"})
+
+    try:
+        with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+            all_lines = f.readlines()
+            recent_lines = all_lines[-lines:]
+
+        return JSONResponse({
+            "lines": [l.strip() for l in recent_lines],
+            "total": len(all_lines)
+        })
+    except Exception as e:
+        return JSONResponse({"lines": [], "error": str(e)})
+
+
+# ============================================
+# HEALTH DASHBOARD
+# ============================================
+
+@app.get("/health-dashboard", response_class=HTMLResponse)
+async def health_dashboard(
+    request: Request,
+    username: str = Depends(verify_credentials)
+):
+    """Детальный статус всех сервисов."""
+    services = {}
+
+    # 1. Database check
+    try:
+        async with DatabaseSession() as session:
+            await session.execute(select(func.count(SniperUser.id)))
+        services['database'] = {'status': 'ok', 'message': 'Connected'}
+    except Exception as e:
+        services['database'] = {'status': 'error', 'message': str(e)}
+
+    # 2. Bot status (check if bot.log was updated recently)
+    bot_log = Path(__file__).parent.parent.parent / "bot" / "bot.log"
+    if bot_log.exists():
+        mtime = datetime.fromtimestamp(bot_log.stat().st_mtime)
+        age_minutes = (datetime.now() - mtime).total_seconds() / 60
+        if age_minutes < 5:
+            services['bot'] = {'status': 'ok', 'message': f'Active (log updated {age_minutes:.0f}m ago)'}
+        else:
+            services['bot'] = {'status': 'warning', 'message': f'Possibly inactive ({age_minutes:.0f}m since last log)'}
+    else:
+        services['bot'] = {'status': 'unknown', 'message': 'Log file not found'}
+
+    # 3. Tender Sniper service
+    service_log = Path(__file__).parent.parent / "service.log"
+    if service_log.exists():
+        mtime = datetime.fromtimestamp(service_log.stat().st_mtime)
+        age_minutes = (datetime.now() - mtime).total_seconds() / 60
+        if age_minutes < 10:
+            services['sniper_service'] = {'status': 'ok', 'message': f'Active ({age_minutes:.0f}m ago)'}
+        else:
+            services['sniper_service'] = {'status': 'warning', 'message': f'Possibly inactive ({age_minutes:.0f}m)'}
+    else:
+        services['sniper_service'] = {'status': 'unknown', 'message': 'Service log not found'}
+
+    # 4. Check external APIs
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as client:
+            async with client.get("https://zakupki.gov.ru") as resp:
+                if resp.status == 200:
+                    services['zakupki_api'] = {'status': 'ok', 'message': 'Available'}
+                else:
+                    services['zakupki_api'] = {'status': 'warning', 'message': f'HTTP {resp.status}'}
+    except Exception as e:
+        services['zakupki_api'] = {'status': 'error', 'message': f'Unavailable: {str(e)[:50]}'}
+
+    # 5. Disk space
+    try:
+        import shutil
+        total, used, free = shutil.disk_usage("/")
+        free_gb = free // (1024 ** 3)
+        used_percent = (used / total) * 100
+        if free_gb > 5:
+            services['disk'] = {'status': 'ok', 'message': f'{free_gb} GB free ({used_percent:.1f}% used)'}
+        elif free_gb > 1:
+            services['disk'] = {'status': 'warning', 'message': f'{free_gb} GB free ({used_percent:.1f}% used)'}
+        else:
+            services['disk'] = {'status': 'error', 'message': f'Low disk space: {free_gb} GB'}
+    except Exception as e:
+        services['disk'] = {'status': 'unknown', 'message': str(e)}
+
+    # 6. Recent errors count
+    try:
+        async with DatabaseSession() as session:
+            one_hour_ago = datetime.now() - timedelta(hours=1)
+            # Count failed notifications in last hour
+            failed_count = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    and_(
+                        SniperNotification.sent_at >= one_hour_ago,
+                        SniperNotification.delivery_status == 'failed'
+                    )
+                )
+            ) or 0
+
+            if failed_count == 0:
+                services['notifications'] = {'status': 'ok', 'message': 'No failed deliveries'}
+            elif failed_count < 10:
+                services['notifications'] = {'status': 'warning', 'message': f'{failed_count} failed in last hour'}
+            else:
+                services['notifications'] = {'status': 'error', 'message': f'{failed_count} failed in last hour'}
+    except Exception as e:
+        services['notifications'] = {'status': 'unknown', 'message': str(e)}
+
+    return templates.TemplateResponse("health_dashboard.html", {
+        "request": request,
+        "username": username,
+        "services": services,
+        "checked_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+
+
+# ============================================
+# TRIGGER MONITORING
+# ============================================
+
+@app.post("/trigger-monitoring")
+async def trigger_monitoring(
+    background_tasks: BackgroundTasks,
+    username: str = Depends(verify_credentials)
+):
+    """Ручной запуск мониторинга тендеров."""
+    try:
+        # Импортируем сервис мониторинга
+        from tender_sniper.service import TenderSniperService
+
+        async def run_monitoring():
+            try:
+                service = TenderSniperService(
+                    bot_token=TELEGRAM_BOT_TOKEN,
+                    poll_interval=300,
+                    max_tenders_per_poll=50
+                )
+                await service.initialize()
+                await service.run_single_poll()
+                logger.info("Manual monitoring poll completed")
+            except Exception as e:
+                logger.error(f"Manual monitoring error: {e}", exc_info=True)
+
+        background_tasks.add_task(run_monitoring)
+
+        return JSONResponse({
+            "status": "ok",
+            "message": "Monitoring triggered. Check logs for results."
+        })
+    except Exception as e:
+        logger.error(f"Trigger monitoring error: {e}", exc_info=True)
+        return JSONResponse({
+            "status": "error",
+            "message": str(e)
+        }, status_code=500)
+
+
+# ============================================
 # YOOKASSA WEBHOOK (без авторизации)
 # ============================================
 

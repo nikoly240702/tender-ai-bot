@@ -191,6 +191,19 @@ class TenderSniperService:
 
         self._print_stats()
 
+    async def run_single_poll(self):
+        """
+        Выполнить одну итерацию мониторинга.
+        Используется для ручного запуска из админ-панели.
+        """
+        logger.info("🔄 Ручной запуск мониторинга...")
+        try:
+            await self._process_new_tenders([])
+            logger.info("✅ Ручной мониторинг завершён")
+        except Exception as e:
+            logger.error(f"❌ Ошибка ручного мониторинга: {e}", exc_info=True)
+            raise
+
     async def _process_new_tenders(self, new_tenders: List[Dict[str, Any]]):
         """
         Callback для обработки новых тендеров.

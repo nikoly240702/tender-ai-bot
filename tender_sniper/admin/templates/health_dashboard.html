@@ -1,0 +1,307 @@
+{% extends "base.html" %}
+
+{% block title %}Статус системы{% endblock %}
+
+{% block extra_css %}
+<style>
+    .service-card {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .service-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+    }
+
+    .status-ok .service-icon {
+        background: rgba(40, 167, 69, 0.15);
+        color: #28a745;
+    }
+
+    .status-warning .service-icon {
+        background: rgba(255, 193, 7, 0.15);
+        color: #ffc107;
+    }
+
+    .status-error .service-icon {
+        background: rgba(220, 53, 69, 0.15);
+        color: #dc3545;
+    }
+
+    .status-unknown .service-icon {
+        background: rgba(108, 117, 125, 0.15);
+        color: #6c757d;
+    }
+
+    .service-info {
+        flex: 1;
+    }
+
+    .service-name {
+        font-weight: 600;
+        font-size: 16px;
+        margin-bottom: 3px;
+    }
+
+    .service-message {
+        color: #666;
+        font-size: 14px;
+    }
+
+    .status-badge {
+        padding: 6px 15px;
+        border-radius: 20px;
+        font-weight: 500;
+        font-size: 13px;
+    }
+
+    .status-ok .status-badge {
+        background: #d1e7dd;
+        color: #0f5132;
+    }
+
+    .status-warning .status-badge {
+        background: #fff3cd;
+        color: #664d03;
+    }
+
+    .status-error .status-badge {
+        background: #f8d7da;
+        color: #842029;
+    }
+
+    .status-unknown .status-badge {
+        background: #e9ecef;
+        color: #495057;
+    }
+
+    .overall-status {
+        padding: 30px;
+        border-radius: 12px;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .overall-status.all-ok {
+        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        color: white;
+    }
+
+    .overall-status.has-warnings {
+        background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);
+        color: white;
+    }
+
+    .overall-status.has-errors {
+        background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);
+        color: white;
+    }
+
+    .overall-status i {
+        font-size: 48px;
+        margin-bottom: 15px;
+    }
+
+    .overall-status h3 {
+        margin: 0;
+        font-weight: 600;
+    }
+
+    .refresh-time {
+        color: #888;
+        font-size: 13px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0"><i class="bi bi-heart-pulse"></i> Статус системы</h4>
+    <div>
+        <span class="refresh-time">Обновлено: {{ checked_at }}</span>
+        <button class="btn btn-sm btn-outline-primary ms-3" onclick="location.reload()">
+            <i class="bi bi-arrow-clockwise"></i> Обновить
+        </button>
+    </div>
+</div>
+
+<!-- Overall Status -->
+{% set error_count = services.values() | selectattr('status', 'equalto', 'error') | list | length %}
+{% set warning_count = services.values() | selectattr('status', 'equalto', 'warning') | list | length %}
+
+<div class="overall-status {% if error_count > 0 %}has-errors{% elif warning_count > 0 %}has-warnings{% else %}all-ok{% endif %}">
+    {% if error_count > 0 %}
+        <i class="bi bi-exclamation-triangle-fill"></i>
+        <h3>Обнаружены проблемы</h3>
+        <p class="mb-0">{{ error_count }} сервис(ов) с ошибками, {{ warning_count }} с предупреждениями</p>
+    {% elif warning_count > 0 %}
+        <i class="bi bi-exclamation-circle-fill"></i>
+        <h3>Есть предупреждения</h3>
+        <p class="mb-0">{{ warning_count }} сервис(ов) требуют внимания</p>
+    {% else %}
+        <i class="bi bi-check-circle-fill"></i>
+        <h3>Все системы работают</h3>
+        <p class="mb-0">Все сервисы функционируют нормально</p>
+    {% endif %}
+</div>
+
+<!-- Services Grid -->
+<div class="row">
+    <div class="col-md-6">
+        <h5 class="mb-3"><i class="bi bi-hdd-stack"></i> Инфраструктура</h5>
+
+        <!-- Database -->
+        <div class="service-card status-{{ services.database.status }}">
+            <div class="service-icon">
+                <i class="bi bi-database"></i>
+            </div>
+            <div class="service-info">
+                <div class="service-name">База данных (PostgreSQL)</div>
+                <div class="service-message">{{ services.database.message }}</div>
+            </div>
+            <span class="status-badge">
+                {% if services.database.status == 'ok' %}OK{% elif services.database.status == 'warning' %}Warning{% elif services.database.status == 'error' %}Error{% else %}Unknown{% endif %}
+            </span>
+        </div>
+
+        <!-- Disk -->
+        <div class="service-card status-{{ services.disk.status }}">
+            <div class="service-icon">
+                <i class="bi bi-hdd"></i>
+            </div>
+            <div class="service-info">
+                <div class="service-name">Дисковое пространство</div>
+                <div class="service-message">{{ services.disk.message }}</div>
+            </div>
+            <span class="status-badge">
+                {% if services.disk.status == 'ok' %}OK{% elif services.disk.status == 'warning' %}Warning{% elif services.disk.status == 'error' %}Error{% else %}Unknown{% endif %}
+            </span>
+        </div>
+
+        <!-- External API -->
+        <div class="service-card status-{{ services.zakupki_api.status }}">
+            <div class="service-icon">
+                <i class="bi bi-globe"></i>
+            </div>
+            <div class="service-info">
+                <div class="service-name">API Закупок (zakupki.gov.ru)</div>
+                <div class="service-message">{{ services.zakupki_api.message }}</div>
+            </div>
+            <span class="status-badge">
+                {% if services.zakupki_api.status == 'ok' %}OK{% elif services.zakupki_api.status == 'warning' %}Warning{% elif services.zakupki_api.status == 'error' %}Error{% else %}Unknown{% endif %}
+            </span>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <h5 class="mb-3"><i class="bi bi-gear"></i> Сервисы</h5>
+
+        <!-- Bot -->
+        <div class="service-card status-{{ services.bot.status }}">
+            <div class="service-icon">
+                <i class="bi bi-robot"></i>
+            </div>
+            <div class="service-info">
+                <div class="service-name">Telegram Bot</div>
+                <div class="service-message">{{ services.bot.message }}</div>
+            </div>
+            <span class="status-badge">
+                {% if services.bot.status == 'ok' %}OK{% elif services.bot.status == 'warning' %}Warning{% elif services.bot.status == 'error' %}Error{% else %}Unknown{% endif %}
+            </span>
+        </div>
+
+        <!-- Sniper Service -->
+        <div class="service-card status-{{ services.sniper_service.status }}">
+            <div class="service-icon">
+                <i class="bi bi-bullseye"></i>
+            </div>
+            <div class="service-info">
+                <div class="service-name">Tender Sniper Service</div>
+                <div class="service-message">{{ services.sniper_service.message }}</div>
+            </div>
+            <span class="status-badge">
+                {% if services.sniper_service.status == 'ok' %}OK{% elif services.sniper_service.status == 'warning' %}Warning{% elif services.sniper_service.status == 'error' %}Error{% else %}Unknown{% endif %}
+            </span>
+        </div>
+
+        <!-- Notifications -->
+        <div class="service-card status-{{ services.notifications.status }}">
+            <div class="service-icon">
+                <i class="bi bi-bell"></i>
+            </div>
+            <div class="service-info">
+                <div class="service-name">Уведомления</div>
+                <div class="service-message">{{ services.notifications.message }}</div>
+            </div>
+            <span class="status-badge">
+                {% if services.notifications.status == 'ok' %}OK{% elif services.notifications.status == 'warning' %}Warning{% elif services.notifications.status == 'error' %}Error{% else %}Unknown{% endif %}
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="card card-custom mt-4">
+    <div class="card-header">
+        <i class="bi bi-lightning"></i> Быстрые действия
+    </div>
+    <div class="card-body">
+        <div class="d-flex gap-3 flex-wrap">
+            <button class="btn btn-outline-primary" onclick="triggerMonitoring()">
+                <i class="bi bi-play-fill"></i> Запустить мониторинг
+            </button>
+            <a href="/logs" class="btn btn-outline-secondary">
+                <i class="bi bi-terminal"></i> Просмотр логов
+            </a>
+            <a href="/export/users" class="btn btn-outline-success">
+                <i class="bi bi-download"></i> Экспорт пользователей
+            </a>
+            <a href="/broadcast" class="btn btn-outline-info">
+                <i class="bi bi-megaphone"></i> Рассылка
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function triggerMonitoring() {
+    if (!confirm('Запустить ручной мониторинг тендеров?')) return;
+
+    try {
+        const response = await fetch('/trigger-monitoring', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'ok') {
+            alert('Мониторинг запущен! Проверьте логи через несколько минут.');
+        } else {
+            alert('Ошибка: ' + data.message);
+        }
+    } catch (e) {
+        alert('Ошибка запуска: ' + e.message);
+    }
+}
+
+// Автообновление каждые 30 секунд
+setTimeout(() => location.reload(), 30000);
+</script>
+{% endblock %}

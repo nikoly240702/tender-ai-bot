@@ -256,6 +256,17 @@
                 <i class="bi bi-credit-card"></i>
                 Платежи
             </a>
+
+            <div style="border-top: 1px solid rgba(255,255,255,0.2); margin: 15px 0;"></div>
+
+            <a href="/logs" class="nav-link {% if '/logs' in request.url.path %}active{% endif %}">
+                <i class="bi bi-terminal"></i>
+                Логи
+            </a>
+            <a href="/health-dashboard" class="nav-link {% if '/health-dashboard' in request.url.path %}active{% endif %}">
+                <i class="bi bi-heart-pulse"></i>
+                Статус системы
+            </a>
         </nav>
 
         <div style="position: absolute; bottom: 20px; left: 20px; right: 20px;">

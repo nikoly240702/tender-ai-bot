@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+
+{% block title %}Логи{% endblock %}
+
+{% block extra_css %}
+<style>
+    .log-container {
+        background: #1e1e1e;
+        color: #d4d4d4;
+        border-radius: 8px;
+        padding: 15px;
+        font-family: 'Consolas', 'Monaco', monospace;
+        font-size: 12px;
+        max-height: 600px;
+        overflow-y: auto;
+    }
+
+    .log-line {
+        white-space: pre-wrap;
+        word-break: break-all;
+        padding: 2px 0;
+        border-bottom: 1px solid #333;
+    }
+
+    .log-line:hover {
+        background: #2d2d2d;
+    }
+
+    .log-line .level-INFO { color: #4fc3f7; }
+    .log-line .level-WARNING { color: #ffb74d; }
+    .log-line .level-ERROR { color: #ef5350; }
+    .log-line .level-DEBUG { color: #81c784; }
+
+    .log-file-header {
+        background: #333;
+        color: #fff;
+        padding: 10px 15px;
+        border-radius: 8px 8px 0 0;
+        font-weight: bold;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .auto-refresh-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+    }
+
+    .auto-refresh-indicator.active {
+        color: #28a745;
+    }
+
+    .auto-refresh-indicator.inactive {
+        color: #6c757d;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0"><i class="bi bi-terminal"></i> Просмотр логов</h4>
+    <div class="d-flex gap-3 align-items-center">
+        <div class="auto-refresh-indicator" id="refreshIndicator">
+            <i class="bi bi-arrow-repeat"></i>
+            <span>Автообновление</span>
+        </div>
+        <button class="btn btn-sm btn-outline-primary" onclick="toggleAutoRefresh()">
+            <i class="bi bi-pause-fill" id="toggleIcon"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Фильтры -->
+<div class="card card-custom mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-auto">
+                <label class="form-label">Количество строк</label>
+                <select name="lines" class="form-select">
+                    <option value="50" {% if current_lines == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if current_lines == 100 %}selected{% endif %}>100</option>
+                    <option value="200" {% if current_lines == 200 %}selected{% endif %}>200</option>
+                    <option value="500" {% if current_lines == 500 %}selected{% endif %}>500</option>
+                    <option value="1000" {% if current_lines == 1000 %}selected{% endif %}>1000</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label">Уровень</label>
+                <select name="level" class="form-select">
+                    <option value="all" {% if current_level == 'all' %}selected{% endif %}>Все</option>
+                    <option value="DEBUG" {% if current_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                    <option value="INFO" {% if current_level == 'INFO' %}selected{% endif %}>INFO</option>
+                    <option value="WARNING" {% if current_level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                    <option value="ERROR" {% if current_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-funnel"></i> Применить
+                </button>
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-success" onclick="triggerMonitoring()">
+                    <i class="bi bi-play-fill"></i> Запустить мониторинг
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Логи -->
+{% for log in logs %}
+<div class="mb-4">
+    <div class="log-file-header">
+        <span><i class="bi bi-file-text"></i> {{ log.file }}</span>
+        <span class="badge bg-secondary">{{ log.lines|length }} строк</span>
+    </div>
+    <div class="log-container" id="logContainer_{{ loop.index }}">
+        {% for line in log.lines %}
+        <div class="log-line">
+            {%- if 'ERROR' in line -%}
+                <span class="level-ERROR">{{ line }}</span>
+            {%- elif 'WARNING' in line -%}
+                <span class="level-WARNING">{{ line }}</span>
+            {%- elif 'INFO' in line -%}
+                <span class="level-INFO">{{ line }}</span>
+            {%- elif 'DEBUG' in line -%}
+                <span class="level-DEBUG">{{ line }}</span>
+            {%- else -%}
+                {{ line }}
+            {%- endif -%}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+
+{% if not logs %}
+<div class="alert alert-info">
+    <i class="bi bi-info-circle"></i> Файлы логов не найдены
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let autoRefresh = true;
+let refreshInterval = null;
+
+function toggleAutoRefresh() {
+    autoRefresh = !autoRefresh;
+    const indicator = document.getElementById('refreshIndicator');
+    const icon = document.getElementById('toggleIcon');
+
+    if (autoRefresh) {
+        indicator.className = 'auto-refresh-indicator active';
+        icon.className = 'bi bi-pause-fill';
+        startAutoRefresh();
+    } else {
+        indicator.className = 'auto-refresh-indicator inactive';
+        icon.className = 'bi bi-play-fill';
+        stopAutoRefresh();
+    }
+}
+
+function startAutoRefresh() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(refreshLogs, 5000);
+}
+
+function stopAutoRefresh() {
+    if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+    }
+}
+
+async function refreshLogs() {
+    try {
+        const response = await fetch('/api/logs/stream?lines=50');
+        const data = await response.json();
+
+        if (data.lines && data.lines.length > 0) {
+            // Простое обновление - можно улучшить для реального стриминга
+            console.log('Logs refreshed, total lines:', data.total);
+        }
+    } catch (e) {
+        console.error('Failed to refresh logs:', e);
+    }
+}
+
+async function triggerMonitoring() {
+    if (!confirm('Запустить ручной мониторинг тендеров?')) return;
+
+    try {
+        const response = await fetch('/trigger-monitoring', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (data.status === 'ok') {
+            alert('Мониторинг запущен! Проверьте логи через несколько минут.');
+        } else {
+            alert('Ошибка: ' + data.message);
+        }
+    } catch (e) {
+        alert('Ошибка запуска: ' + e.message);
+    }
+}
+
+// Скроллим логи вниз при загрузке
+document.querySelectorAll('.log-container').forEach(container => {
+    container.scrollTop = container.scrollHeight;
+});
+
+// Запускаем автообновление
+if (autoRefresh) {
+    startAutoRefresh();
+    document.getElementById('refreshIndicator').className = 'auto-refresh-indicator active';
+}
+</script>
+{% endblock %}
