@@ -130,39 +130,39 @@ async def cmd_sniper_menu(message: Message):
             monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
+            # Поиск тендеров
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+            # Найденное
+            [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
+            # Управление
             [monitoring_button],
-            [InlineKeyboardButton(text="🎛 Настройки фильтров 🧪", callback_data="sniper_extended_settings")],
-            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-            [InlineKeyboardButton(text="📦 Моя подписка", callback_data="sniper_subscription")],
+            # Настройки
+            [
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
+                InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
+                InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
+            ],
             [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="get_referral_link")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
 
         await message.answer(
-            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"🎯 <b>TENDER SNIPER</b>\n\n"
             f"{monitoring_status}\n\n"
-            f"<b>Два режима работы:</b>\n\n"
-            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
-            f"→ Разовый поиск по критериям\n"
-            f"→ Получаете HTML отчет сразу\n"
-            f"→ Нет автоматических уведомлений\n\n"
-            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
-            f"→ Поиск завершённых тендеров\n"
-            f"→ Анализ цен и конкурентов\n\n"
-            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
-            f"→ Создаете постоянные фильтры\n"
-            f"→ Бот автоматически ищет новые тендеры\n"
-            f"→ Получаете уведомления 24/7\n\n"
-            f"<b>Возможности:</b>\n"
-            f"• 🤖 AI расширение критериев\n"
-            f"• 📄 Красивые HTML отчеты\n"
-            f"• 🔔 Умные уведомления\n\n"
-            f"<i>Выберите режим работы ниже</i>",
+            f"━━━ <b>ПОИСК ТЕНДЕРОВ</b> ━━━\n"
+            f"📋 <b>Мои фильтры</b> — автоматический мониторинг 24/7\n"
+            f"🔍 <b>Разовый поиск</b> — быстрый поиск без сохранения\n\n"
+            f"━━━ <b>НАЙДЕННОЕ</b> ━━━\n"
+            f"📊 <b>Все тендеры</b> — что нашёл бот\n"
+            f"⭐ <b>Избранное</b> — сохранённые вами\n\n"
+            f"━━━ <b>НАСТРОЙКИ</b> ━━━\n"
+            f"⚙️ Уведомления, интеграции, профиль\n"
+            f"🎛 Расширенные настройки фильтров",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -190,39 +190,39 @@ async def show_sniper_menu(callback: CallbackQuery):
             monitoring_status = "🔴 <b>Автомониторинг на паузе</b>"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
+            # Поиск тендеров
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+            # Найденное
+            [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
+            # Управление
             [monitoring_button],
-            [InlineKeyboardButton(text="🎛 Настройки фильтров 🧪", callback_data="sniper_extended_settings")],
-            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-            [InlineKeyboardButton(text="📦 Моя подписка", callback_data="sniper_subscription")],
+            # Настройки
+            [
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
+                InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
+                InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
+            ],
             [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="get_referral_link")],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
 
         await callback.message.edit_text(
-            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"🎯 <b>TENDER SNIPER</b>\n\n"
             f"{monitoring_status}\n\n"
-            f"<b>Два режима работы:</b>\n\n"
-            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
-            f"→ Разовый поиск по критериям\n"
-            f"→ Получаете HTML отчет сразу\n"
-            f"→ Нет автоматических уведомлений\n\n"
-            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
-            f"→ Поиск завершённых тендеров\n"
-            f"→ Анализ цен и конкурентов\n\n"
-            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
-            f"→ Создаете постоянные фильтры\n"
-            f"→ Бот автоматически ищет новые тендеры\n"
-            f"→ Получаете уведомления 24/7\n\n"
-            f"<b>Возможности:</b>\n"
-            f"• 🤖 AI расширение критериев\n"
-            f"• 📄 Красивые HTML отчеты\n"
-            f"• 🔔 Умные уведомления\n\n"
-            f"<i>Выберите режим работы ниже</i>",
+            f"━━━ <b>ПОИСК ТЕНДЕРОВ</b> ━━━\n"
+            f"📋 <b>Мои фильтры</b> — автоматический мониторинг 24/7\n"
+            f"🔍 <b>Разовый поиск</b> — быстрый поиск без сохранения\n\n"
+            f"━━━ <b>НАЙДЕННОЕ</b> ━━━\n"
+            f"📊 <b>Все тендеры</b> — что нашёл бот\n"
+            f"⭐ <b>Избранное</b> — сохранённые вами\n\n"
+            f"━━━ <b>НАСТРОЙКИ</b> ━━━\n"
+            f"⚙️ Уведомления, интеграции, профиль\n"
+            f"🎛 Расширенные настройки фильтров",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
