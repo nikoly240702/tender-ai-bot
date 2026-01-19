@@ -122,34 +122,40 @@ async def priority_main_menu(message: Message, state: FSMContext):
             )
             monitoring_status = "🔴 Автомониторинг на паузе"
 
-        # Показываем главное меню (унифицировано с Tender Sniper)
+        # Показываем главное меню
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
+            # Поиск тендеров
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+            # Найденное
+            [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
+            # Управление
             [monitoring_button],
-            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
-            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            # Настройки
+            [
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
+                InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
+                InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
+            ],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
         ])
 
         sent = await message.answer(
-            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"🎯 <b>TENDER SNIPER</b>\n\n"
             f"{monitoring_status}\n\n"
-            f"<b>Два режима работы:</b>\n\n"
-            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
-            f"→ Разовый поиск по критериям\n"
-            f"→ Получаете HTML отчет сразу\n\n"
-            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
-            f"→ Поиск завершённых тендеров\n"
-            f"→ Анализ цен и конкурентов\n\n"
-            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
-            f"→ Создаете постоянные фильтры\n"
-            f"→ Бот автоматически ищет новые тендеры\n"
-            f"→ Получаете уведомления 24/7\n\n"
-            f"<i>Выберите режим работы ниже</i>",
+            f"━━━ <b>ПОИСК ТЕНДЕРОВ</b> ━━━\n"
+            f"📋 <b>Мои фильтры</b> — автоматический мониторинг 24/7\n"
+            f"🔍 <b>Разовый поиск</b> — быстрый поиск без сохранения\n\n"
+            f"━━━ <b>НАЙДЕННОЕ</b> ━━━\n"
+            f"📊 <b>Все тендеры</b> — что нашёл бот\n"
+            f"⭐ <b>Избранное</b> — сохранённые вами\n\n"
+            f"━━━ <b>НАСТРОЙКИ</b> ━━━\n"
+            f"⚙️ Уведомления, интеграции, профиль\n"
+            f"🎛 Расширенные настройки фильтров",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -408,34 +414,40 @@ async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext
             )
             monitoring_status = "🔴 Автомониторинг на паузе"
 
-        # Унифицированное меню с Tender Sniper
+        # Главное меню
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔍 Новый поиск", callback_data="sniper_new_search")],
-            [InlineKeyboardButton(text="📦 Поиск в архиве 🧪", callback_data="sniper_archive_search")],
+            # Поиск тендеров
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+            # Найденное
+            [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
+            [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
+            # Управление
             [monitoring_button],
-            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
-            [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
-            [InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans")],
+            # Настройки
+            [
+                InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
+                InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
+                InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
+            ],
             [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
         ])
 
         menu_text = (
-            f"🎯 <b>Tender Sniper - Умный поиск тендеров</b>\n\n"
+            f"🎯 <b>TENDER SNIPER</b>\n\n"
             f"{monitoring_status}\n\n"
-            f"<b>Два режима работы:</b>\n\n"
-            f"🔍 <b>Новый поиск</b> (мгновенный)\n"
-            f"→ Разовый поиск по критериям\n"
-            f"→ Получаете HTML отчет сразу\n\n"
-            f"📦 <b>Поиск в архиве</b> 🧪 БЕТА\n"
-            f"→ Поиск завершённых тендеров\n"
-            f"→ Анализ цен и конкурентов\n\n"
-            f"📋 <b>Мои фильтры</b> (автомониторинг)\n"
-            f"→ Создаете постоянные фильтры\n"
-            f"→ Бот автоматически ищет новые тендеры\n"
-            f"→ Получаете уведомления 24/7\n\n"
-            f"<i>Выберите режим работы ниже</i>"
+            f"━━━ <b>ПОИСК ТЕНДЕРОВ</b> ━━━\n"
+            f"📋 <b>Мои фильтры</b> — автоматический мониторинг 24/7\n"
+            f"🔍 <b>Разовый поиск</b> — быстрый поиск без сохранения\n\n"
+            f"━━━ <b>НАЙДЕННОЕ</b> ━━━\n"
+            f"📊 <b>Все тендеры</b> — что нашёл бот\n"
+            f"⭐ <b>Избранное</b> — сохранённые вами\n\n"
+            f"━━━ <b>НАСТРОЙКИ</b> ━━━\n"
+            f"⚙️ Уведомления, интеграции, профиль\n"
+            f"🎛 Расширенные настройки фильтров"
         )
 
         try:
@@ -489,4 +501,89 @@ async def priority_sniper_menu_callback(callback: CallbackQuery, state: FSMConte
         await show_sniper_menu(callback)
     except Exception as e:
         logger.error(f"Ошибка в callback sniper_menu: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(StateFilter("*"), F.data == "open_settings")
+async def open_settings_callback(callback: CallbackQuery, state: FSMContext):
+    """Открыть настройки пользователя."""
+    try:
+        await callback.answer()
+        current_state = await state.get_state()
+        if current_state:
+            await state.clear()
+
+        # Показываем меню настроек
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")],
+            [InlineKeyboardButton(text="⚙️ Расширенные настройки", callback_data="settings_advanced")],
+            [InlineKeyboardButton(text="« Назад", callback_data="main_menu")],
+        ])
+
+        await callback.message.edit_text(
+            "⚙️ <b>НАСТРОЙКИ</b>\n\n"
+            "🔔 <b>Уведомления</b>\n"
+            "Включение/выключение автомониторинга, лимиты\n\n"
+            "⚙️ <b>Расширенные настройки</b>\n"
+            "Тихие часы, дайджест, интеграции (CRM, Email), профиль компании",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в open_settings: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(StateFilter("*"), F.data == "sniper_favorites")
+async def sniper_favorites_callback(callback: CallbackQuery, state: FSMContext):
+    """Избранное - callback."""
+    try:
+        await callback.answer()
+        current_state = await state.get_state()
+        if current_state:
+            await state.clear()
+
+        # Получаем избранные тендеры
+        from tender_sniper.database import get_sniper_db
+        from bot.utils.tender_db_helpers import get_user_favorites
+        from bot.utils.tender_notifications import format_favorites_list
+
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not sniper_user:
+            await callback.message.edit_text("❌ Пользователь не найден")
+            return
+
+        favorites = await get_user_favorites(sniper_user['id'], limit=50)
+
+        if not favorites:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« Назад", callback_data="main_menu")]
+            ])
+            await callback.message.edit_text(
+                "⭐ <b>ИЗБРАННОЕ</b>\n\n"
+                "У вас пока нет избранных тендеров.\n\n"
+                "Используйте кнопку '⭐ В избранное' в уведомлениях о тендерах, "
+                "чтобы добавить их сюда.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        # Форматируем список
+        favorites_text = format_favorites_list(favorites, callback.from_user.username or "Пользователь")
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📄 Получить HTML отчет", callback_data="html_favorites")],
+            [InlineKeyboardButton(text="« Назад", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            text=favorites_text,
+            reply_markup=keyboard,
+            parse_mode='HTML'
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в sniper_favorites: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)

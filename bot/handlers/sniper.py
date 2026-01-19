@@ -135,7 +135,7 @@ async def cmd_sniper_menu(message: Message):
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [monitoring_button],
-            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
+            [InlineKeyboardButton(text="🎛 Настройки фильтров 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
             [InlineKeyboardButton(text="📦 Моя подписка", callback_data="sniper_subscription")],
             [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="get_referral_link")],
@@ -195,7 +195,7 @@ async def show_sniper_menu(callback: CallbackQuery):
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
             [InlineKeyboardButton(text="📊 Все мои тендеры", callback_data="sniper_all_tenders")],
             [monitoring_button],
-            [InlineKeyboardButton(text="⚙️ Расширенные настройки 🧪", callback_data="sniper_extended_settings")],
+            [InlineKeyboardButton(text="🎛 Настройки фильтров 🧪", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats")],
             [InlineKeyboardButton(text="📦 Моя подписка", callback_data="sniper_subscription")],
             [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="get_referral_link")],
@@ -482,7 +482,7 @@ async def show_subscription_plans(callback: CallbackQuery):
         "• 20 фильтров мониторинга\n"
         "• Безлимит уведомлений\n"
         "• Архивный поиск\n"
-        "• Расширенные настройки фильтров\n"
+        "• Настройки фильтров (ИНН, чёрный список)\n"
         "• Доступ к бета-функциям\n"
         "• Приоритетная поддержка\n\n"
 
@@ -1396,14 +1396,14 @@ async def show_extended_settings(callback: CallbackQuery):
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
 
         features_text = (
-            "⚙️ <b>Расширенные настройки</b> 🧪 БЕТА\n\n"
-            "Здесь вы можете настроить дополнительные параметры фильтров:\n\n"
-            "📌 <b>Доступные функции:</b>\n"
-            "• 🔢 Поиск по номеру закупки\n"
-            "• 🏢 Фильтр по ИНН заказчика\n"
-            "• 🚫 Черный список заказчиков\n"
-            "• 📅 Фильтр по дате публикации\n"
-            "• ⭐ Приоритет ключевых слов\n\n"
+            "🎛 <b>НАСТРОЙКИ ФИЛЬТРОВ</b> 🧪 БЕТА\n\n"
+            "Тонкая настройка ваших фильтров:\n\n"
+            "━━━ <b>ДОСТУПНЫЕ ФУНКЦИИ</b> ━━━\n\n"
+            "🔢 <b>Номер закупки</b> — поиск конкретного тендера\n"
+            "🏢 <b>ИНН заказчика</b> — отслеживание конкретных организаций\n"
+            "🚫 <b>Чёрный список</b> — исключение нежелательных заказчиков\n"
+            "📅 <b>Дата публикации</b> — фильтр по свежести\n"
+            "⭐ <b>Приоритет слов</b> — важные ключевые слова выше\n\n"
         )
 
         if filters:
