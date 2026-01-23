@@ -97,6 +97,9 @@ class SniperUser(Base):
     referred_by = Column(Integer, nullable=True)  # user_id who referred
     referral_bonus_days = Column(Integer, default=0)  # Accumulated bonus days
 
+    # Flexible data storage (JSON)
+    data = Column(JSON, default=dict)  # For follow-ups, reactivation tracking, etc.
+
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -28,11 +28,21 @@ class EngagementScheduler:
     - Follow-up сообщения новым пользователям
     - Дневной дайджест
     - Напоминания о дедлайнах
+    - Реактивационные сообщения для неактивных пользователей
     """
 
     # Время отправки дневного дайджеста (МСК)
     DIGEST_HOUR = 9
     DIGEST_MINUTE = 0
+
+    # Время отправки реактивационных сообщений (МСК)
+    REACTIVATION_HOUR = 10
+    REACTIVATION_MINUTE = 0
+
+    # Параметры реактивации
+    REACTIVATION_INACTIVITY_DAYS = 3  # Через сколько дней неактивности отправлять
+    REACTIVATION_FREQUENCY_DAYS = 3   # Как часто отправлять (раз в N дней)
+    REACTIVATION_MAX_MESSAGES = 10    # Максимум сообщений (~1 месяц)
 
     # Интервал проверки (в секундах)
     CHECK_INTERVAL = 3600  # каждый час
@@ -83,6 +93,10 @@ class EngagementScheduler:
 
             # 3. Напоминания о дедлайнах
             await self._send_deadline_reminders(bot)
+
+            # 4. Реактивационные сообщения в 10:00 МСК
+            if current_hour == self.REACTIVATION_HOUR:
+                await self._send_reactivation_messages(bot)
 
         finally:
             await bot.session.close()
@@ -339,6 +353,186 @@ class EngagementScheduler:
 
         if reminders_sent > 0:
             logger.info(f"⏰ Отправлено {reminders_sent} напоминаний о дедлайнах")
+
+    async def _send_reactivation_messages(self, bot: Bot):
+        """
+        Отправить реактивационные сообщения неактивным пользователям.
+
+        Критерии:
+        - Триал истёк или пользователь неактивен 3+ дней
+        - Не отправляли реактивацию последние 3 дня
+        - Не превысили лимит в 10 сообщений
+        """
+        from database import DatabaseSession, SniperUser, SniperFilter, SniperNotification
+        from sqlalchemy import select, func, and_, or_
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+        now = datetime.utcnow()
+        inactivity_threshold = now - timedelta(days=self.REACTIVATION_INACTIVITY_DAYS)
+        reactivation_cooldown = now - timedelta(days=self.REACTIVATION_FREQUENCY_DAYS)
+
+        async with DatabaseSession() as session:
+            # Получаем пользователей для реактивации:
+            # 1. Триал истёк ИЛИ неактивны 3+ дней
+            # 2. Не заблокированы
+            result = await session.execute(
+                select(SniperUser).where(
+                    and_(
+                        SniperUser.status == 'active',
+                        or_(
+                            # Триал истёк
+                            and_(
+                                SniperUser.subscription_tier == 'trial',
+                                SniperUser.trial_expires_at < now
+                            ),
+                            # Неактивны 3+ дней
+                            SniperUser.last_activity < inactivity_threshold
+                        )
+                    )
+                )
+            )
+            users = result.scalars().all()
+
+        reactivations_sent = 0
+
+        for user in users:
+            try:
+                # Проверяем данные пользователя
+                user_data = user.data if isinstance(user.data, dict) else {}
+
+                # Проверяем лимит сообщений
+                reactivation_count = user_data.get('reactivation_count', 0)
+                if reactivation_count >= self.REACTIVATION_MAX_MESSAGES:
+                    continue
+
+                # Проверяем cooldown
+                last_reactivation = user_data.get('last_reactivation_sent')
+                if last_reactivation:
+                    if isinstance(last_reactivation, str):
+                        last_reactivation_dt = datetime.fromisoformat(last_reactivation.replace('Z', ''))
+                    else:
+                        last_reactivation_dt = last_reactivation
+
+                    if last_reactivation_dt > reactivation_cooldown:
+                        continue
+
+                # Получаем статистику по фильтрам пользователя
+                async with DatabaseSession() as session:
+                    # Количество активных фильтров
+                    filters_count = await session.scalar(
+                        select(func.count(SniperFilter.id)).where(
+                            and_(
+                                SniperFilter.user_id == user.id,
+                                SniperFilter.is_active == True
+                            )
+                        )
+                    ) or 0
+
+                    # Количество тендеров за последние 3 дня (всего в системе)
+                    three_days_ago = now - timedelta(days=3)
+                    recent_tenders = await session.scalar(
+                        select(func.count(SniperNotification.id)).where(
+                            SniperNotification.sent_at >= three_days_ago
+                        )
+                    ) or 0
+
+                # Формируем сообщение в зависимости от наличия фильтров
+                if filters_count > 0:
+                    # Пользователь с фильтрами - показываем сколько тендеров он мог бы увидеть
+                    matched_tenders = await self._count_matching_tenders_for_user(user.id)
+
+                    if matched_tenders > 0:
+                        text = f"""
+🎯 <b>Пока вас не было...</b>
+
+По вашим фильтрам найдено <b>{matched_tenders} новых тендеров</b>!
+
+💡 Некоторые из них могут идеально подойти для вашего бизнеса.
+
+Не упустите возможность — проверьте новые тендеры прямо сейчас!
+"""
+                    else:
+                        text = f"""
+👋 <b>Мы скучаем по вам!</b>
+
+Ваши фильтры всё ещё работают, но мы давно не видели вас.
+
+📊 За последние дни в системе появилось <b>{recent_tenders}+ новых тендеров</b>.
+
+Загляните и проверьте, возможно что-то интересное уже ждёт вас!
+"""
+                else:
+                    # Пользователь без фильтров - показываем общую статистику
+                    text = f"""
+👋 <b>Привет! Как дела?</b>
+
+За последние 3 дня в системе появилось <b>{recent_tenders}+ новых тендеров</b>.
+
+💡 <b>Совет:</b> Создайте фильтр по своим ключевым словам, и мы будем автоматически присылать подходящие тендеры.
+
+Это займёт всего пару минут, но сэкономит часы на ручной поиск!
+"""
+
+                # Кнопки действий
+                if filters_count > 0:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📊 Посмотреть тендеры", callback_data="sniper_all_tenders")],
+                        [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+                        [InlineKeyboardButton(text="💎 Оформить подписку", callback_data="show_subscription")],
+                    ])
+                else:
+                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🎯 Создать фильтр", callback_data="sniper_create_filter")],
+                        [InlineKeyboardButton(text="📋 Шаблоны фильтров", callback_data="filter_templates")],
+                        [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+                    ])
+
+                # Отправляем сообщение
+                await bot.send_message(
+                    user.telegram_id,
+                    text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML"
+                )
+
+                # Обновляем статистику реактивации
+                user_data['reactivation_count'] = reactivation_count + 1
+                user_data['last_reactivation_sent'] = now.isoformat()
+
+                await self._update_user_data(user.id, user_data)
+
+                reactivations_sent += 1
+                await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.warning(f"Не удалось отправить реактивацию пользователю {user.telegram_id}: {e}")
+
+        if reactivations_sent > 0:
+            logger.info(f"🔄 Отправлено {reactivations_sent} реактивационных сообщений")
+
+    async def _count_matching_tenders_for_user(self, user_id: int) -> int:
+        """
+        Подсчитать количество тендеров, которые соответствуют фильтрам пользователя
+        за последние 3 дня.
+        """
+        from database import DatabaseSession, SniperFilter, SniperNotification
+        from sqlalchemy import select, func, and_
+
+        now = datetime.utcnow()
+        three_days_ago = now - timedelta(days=3)
+
+        async with DatabaseSession() as session:
+            # Получаем количество уведомлений для пользователя за последние 3 дня
+            count = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    and_(
+                        SniperNotification.user_id == user_id,
+                        SniperNotification.sent_at >= three_days_ago
+                    )
+                )
+            ) or 0
+
+            return count
 
 
 # ============================================
