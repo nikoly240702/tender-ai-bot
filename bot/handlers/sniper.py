@@ -858,7 +858,7 @@ async def get_filter_statistics(filter_id: int, user_id: int) -> dict:
     Returns:
         dict: {total_found, favorites_added, hidden, effectiveness, recommendations}
     """
-    from database import DatabaseSession, SniperNotification, FavoriteTender, HiddenTender
+    from database import DatabaseSession, SniperNotification, TenderFavorite, HiddenTender
     from sqlalchemy import select, func, and_
 
     stats = {
@@ -889,10 +889,10 @@ async def get_filter_statistics(filter_id: int, user_id: int) -> dict:
 
             if tender_numbers:
                 stats['favorites_added'] = await session.scalar(
-                    select(func.count(FavoriteTender.id)).where(
+                    select(func.count(TenderFavorite.id)).where(
                         and_(
-                            FavoriteTender.user_id == user_id,
-                            FavoriteTender.tender_number.in_(tender_numbers)
+                            TenderFavorite.user_id == user_id,
+                            TenderFavorite.tender_number.in_(tender_numbers)
                         )
                     )
                 ) or 0
