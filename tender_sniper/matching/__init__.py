@@ -14,7 +14,7 @@ Example usage:
         print(f"Match score: {result['score']}/100")
 
     # Batch matching
-    results = matcher.batch_match(tenders, filters, min_score=50)
+    results = matcher.batch_match(tenders, filters, min_score=60)
 """
 
 from .smart_matcher import SmartMatcher
