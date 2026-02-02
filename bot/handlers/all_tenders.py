@@ -501,11 +501,19 @@ async def show_download_menu(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
 
-        # Если тендеров нет в state - загружаем из БД
+        # Если тендеров нет в state - перенаправляем на загрузку
         if not tenders:
-            logger.info(f"[DOWNLOAD] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
-            tenders = await get_all_user_tenders(callback.from_user.id)
-            await state.update_data(all_tenders=tenders)
+            logger.info(f"[DOWNLOAD] State пустой для user {callback.from_user.id}, перенаправляем")
+            await callback.message.edit_text(
+                "⚠️ <b>Данные устарели</b>\n\n"
+                "Нажмите кнопку ниже, чтобы обновить список тендеров.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Обновить список", callback_data="sniper_all_tenders")],
+                    [InlineKeyboardButton(text="« Меню", callback_data="sniper_menu")]
+                ])
+            )
+            return
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"📊 Excel (.xlsx) - {len(tenders)} тендеров", callback_data="alltenders_download_excel")],
@@ -537,11 +545,15 @@ async def download_excel(callback: CallbackQuery, state: FSMContext):
         tenders = data.get('all_tenders', [])
         filter_params = data.get('filter_params', {})
 
-        # Если тендеров нет в state - загружаем из БД
+        # Если тендеров нет в state - перенаправляем
         if not tenders:
-            logger.info(f"[EXCEL] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
-            tenders = await get_all_user_tenders(callback.from_user.id)
-            await state.update_data(all_tenders=tenders)
+            await callback.message.answer(
+                "⚠️ Данные устарели. Нажмите «Все тендеры» для обновления.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")]
+                ])
+            )
+            return
 
         # Применяем фильтры
         filtered_tenders = filter_tenders(
@@ -586,11 +598,16 @@ async def show_html_download_menu(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
 
-        # Если тендеров нет в state - загружаем из БД
+        # Если тендеров нет в state - перенаправляем
         if not tenders:
-            logger.info(f"[HTML_MENU] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
-            tenders = await get_all_user_tenders(callback.from_user.id)
-            await state.update_data(all_tenders=tenders)
+            await callback.message.edit_text(
+                "⚠️ <b>Данные устарели</b>\n\nНажмите кнопку ниже для обновления.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Обновить список", callback_data="sniper_all_tenders")]
+                ])
+            )
+            return
 
         # Получаем список уникальных фильтров
         filter_names = set(t.get('filter_name') or 'Без фильтра' for t in tenders)
@@ -626,11 +643,15 @@ async def download_all_tenders_html(callback: CallbackQuery, state: FSMContext):
         tenders = data.get('all_tenders', [])
         filter_params = data.get('filter_params', {})
 
-        # Если тендеров нет в state - загружаем из БД
+        # Если тендеров нет в state - перенаправляем
         if not tenders:
-            logger.info(f"[HTML_ALL] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
-            tenders = await get_all_user_tenders(callback.from_user.id)
-            await state.update_data(all_tenders=tenders)
+            await callback.message.answer(
+                "⚠️ Данные устарели. Нажмите «Все тендеры» для обновления.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")]
+                ])
+            )
+            return
 
         # Применяем фильтры
         filtered_tenders = filter_tenders(
@@ -669,11 +690,16 @@ async def show_filter_selection(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
 
-        # Если тендеров нет в state - загружаем из БД
+        # Если тендеров нет в state - перенаправляем
         if not tenders:
-            logger.info(f"[FILTER_SELECT] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
-            tenders = await get_all_user_tenders(callback.from_user.id)
-            await state.update_data(all_tenders=tenders)
+            await callback.message.edit_text(
+                "⚠️ <b>Данные устарели</b>\n\nНажмите кнопку ниже для обновления.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Обновить список", callback_data="sniper_all_tenders")]
+                ])
+            )
+            return
 
         # Группируем тендеры по фильтрам и считаем количество
         filter_counts = {}
@@ -721,11 +747,15 @@ async def download_by_filter(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
 
-        # Если тендеров нет в state - загружаем из БД
+        # Если тендеров нет в state - перенаправляем
         if not tenders:
-            logger.info(f"[DL_FILTER] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
-            tenders = await get_all_user_tenders(callback.from_user.id)
-            await state.update_data(all_tenders=tenders)
+            await callback.message.answer(
+                "⚠️ Данные устарели. Нажмите «Все тендеры» для обновления.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")]
+                ])
+            )
+            return
 
         # Фильтруем тендеры по выбранному фильтру
         if selected_filter == "Без фильтра":

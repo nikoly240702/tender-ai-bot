@@ -494,7 +494,15 @@ async def priority_sniper_menu_callback(callback: CallbackQuery, state: FSMConte
         current_state = await state.get_state()
         if current_state:
             logger.info(f"Прерывание FSM состояния {current_state} для sniper_menu callback")
+            # Сохраняем all_tenders перед очисткой state (чтобы не терять загруженные данные)
+            data = await state.get_data()
+            all_tenders = data.get('all_tenders')
+
             await state.clear()
+
+            # Восстанавливаем all_tenders если были
+            if all_tenders:
+                await state.update_data(all_tenders=all_tenders)
 
         # Вызываем оригинальный handler с динамической кнопкой паузы
         from bot.handlers.sniper import show_sniper_menu
