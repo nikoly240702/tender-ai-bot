@@ -17,6 +17,25 @@ import sys
 import logging
 import re
 from pathlib import Path
+from datetime import datetime, timedelta
+
+# Простой кэш для статуса мониторинга (избегаем запросов к БД на каждое открытие меню)
+_monitoring_status_cache: dict = {}  # {user_id: (status, timestamp)}
+_CACHE_TTL = 60  # секунд
+
+
+def _get_cached_monitoring_status(user_id: int) -> bool | None:
+    """Получить статус из кэша если не устарел."""
+    if user_id in _monitoring_status_cache:
+        status, timestamp = _monitoring_status_cache[user_id]
+        if datetime.now() - timestamp < timedelta(seconds=_CACHE_TTL):
+            return status
+    return None
+
+
+def _set_monitoring_status_cache(user_id: int, status: bool):
+    """Сохранить статус в кэш."""
+    _monitoring_status_cache[user_id] = (status, datetime.now())
 
 
 # 🧪 БЕТА: Состояния для расширенных настроек
@@ -117,9 +136,14 @@ async def cmd_sniper_menu(message: Message):
             )
             return
 
-        # Проверяем статус автомониторинга
-        db = await get_sniper_db()
-        is_monitoring_enabled = await db.get_monitoring_status(message.from_user.id)
+        # Проверяем статус автомониторинга (с кэшированием)
+        user_id = message.from_user.id
+        is_monitoring_enabled = _get_cached_monitoring_status(user_id)
+
+        if is_monitoring_enabled is None:
+            db = await get_sniper_db()
+            is_monitoring_enabled = await db.get_monitoring_status(user_id)
+            _set_monitoring_status_cache(user_id, is_monitoring_enabled)
 
         # Кнопка паузы/возобновления
         if is_monitoring_enabled:
@@ -177,9 +201,15 @@ async def show_sniper_menu(callback: CallbackQuery):
     try:
         await callback.answer()
 
-        # Проверяем статус автомониторинга
-        db = await get_sniper_db()
-        is_monitoring_enabled = await db.get_monitoring_status(callback.from_user.id)
+        # Проверяем статус автомониторинга (с кэшированием)
+        user_id = callback.from_user.id
+        is_monitoring_enabled = _get_cached_monitoring_status(user_id)
+
+        if is_monitoring_enabled is None:
+            # Кэш пуст или устарел - загружаем из БД
+            db = await get_sniper_db()
+            is_monitoring_enabled = await db.get_monitoring_status(user_id)
+            _set_monitoring_status_cache(user_id, is_monitoring_enabled)
 
         # Кнопка паузы/возобновления
         if is_monitoring_enabled:
@@ -244,6 +274,9 @@ async def pause_monitoring(callback: CallbackQuery):
         db = await get_sniper_db()
         await db.pause_monitoring(callback.from_user.id)
 
+        # Обновляем кэш
+        _set_monitoring_status_cache(callback.from_user.id, False)
+
         await callback.message.answer(
             "⏸️ <b>Автомониторинг приостановлен</b>\n\n"
             "Вы перестанете получать уведомления о новых тендерах.\n"
@@ -267,6 +300,9 @@ async def resume_monitoring(callback: CallbackQuery):
     try:
         db = await get_sniper_db()
         await db.resume_monitoring(callback.from_user.id)
+
+        # Обновляем кэш
+        _set_monitoring_status_cache(callback.from_user.id, True)
 
         await callback.message.answer(
             "▶️ <b>Автомониторинг возобновлен</b>\n\n"
