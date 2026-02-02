@@ -1143,16 +1143,19 @@ async def add_ai_recommendations(callback: CallbackQuery, state: FSMContext):
                 new_keywords.append(rec)
                 keywords_set.add(rec.lower())
 
-        # Обновляем название фильтра
-        filter_name = ", ".join(new_keywords[:3])
-        if len(new_keywords) > 3:
-            filter_name += f" +{len(new_keywords) - 3}"
-
+        # Обновляем ключевые слова (без названия - дадим пользователю выбрать)
         await state.update_data(
             keywords=new_keywords,
-            filter_name=filter_name,
-            ai_recommendations=[]  # Очищаем
+            ai_recommendations=[]  # Очищаем рекомендации
         )
+
+        # Генерируем авто-название для подсказки
+        auto_filter_name = ", ".join(new_keywords[:3])
+        if len(new_keywords) > 3:
+            auto_filter_name += f" +{len(new_keywords) - 3}"
+
+        # Переходим к шагу 3: название фильтра (не пропускаем!)
+        await state.set_state(ExtendedWizardStates.enter_filter_name)
 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
@@ -1160,12 +1163,14 @@ async def add_ai_recommendations(callback: CallbackQuery, state: FSMContext):
             f"✅ Слова: <b>{', '.join(new_keywords[:8])}</b>\n"
             f"<i>({len(new_keywords)} слов)</i>\n\n"
             f"✨ <b>Рекомендации добавлены!</b>\n\n"
-            f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
-            f"Введите <b>минимальную</b> сумму контракта (в рублях).",
+            f"<b>Шаг 3/9:</b> Название фильтра\n\n"
+            f"Введите название для фильтра (для удобства поиска).\n\n"
+            f"💡 Или нажмите «Пропустить» - название будет:\n"
+            f"<code>{auto_filter_name}</code>",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
-                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
+                [InlineKeyboardButton(text="⏭ Пропустить (авто-название)", callback_data="ew_skip_filter_name")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
             ])
         )
     else:
