@@ -7,10 +7,112 @@ Smart Matching Engine для сопоставления тендеров с по
 import re
 import json
 from typing import List, Dict, Any, Optional, Set
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def detect_red_flags(tender: Dict[str, Any]) -> List[str]:
+    """
+    Детектирует потенциальные проблемы (красные флаги) в тендере.
+
+    Args:
+        tender: Данные тендера
+
+    Returns:
+        Список строк с описанием обнаруженных проблем
+    """
+    flags = []
+
+    # 1. Проверка на короткий срок подачи заявки
+    deadline = tender.get('submission_deadline') or tender.get('deadline')
+    if deadline:
+        try:
+            if isinstance(deadline, str):
+                # Пробуем разные форматы даты
+                for fmt in ['%Y-%m-%d', '%d.%m.%Y', '%Y-%m-%dT%H:%M:%S', '%d.%m.%Y %H:%M']:
+                    try:
+                        deadline_dt = datetime.strptime(deadline.split('+')[0].split('Z')[0], fmt)
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    deadline_dt = None
+            else:
+                deadline_dt = deadline
+
+            if deadline_dt:
+                days_left = (deadline_dt - datetime.now()).days
+                if days_left < 0:
+                    flags.append("⛔ Срок подачи истёк")
+                elif days_left <= 3:
+                    flags.append("🔴 Срок подачи менее 3 дней")
+                elif days_left <= 5:
+                    flags.append("⚠️ Срок подачи менее 5 дней")
+        except Exception:
+            pass
+
+    # 2. Проверка на специальные лицензии в тексте
+    text = (tender.get('name', '') + ' ' + (tender.get('description', '') or '')).lower()
+
+    # Лицензии ФСБ/ФСТЭК (гостайна, криптография)
+    fsb_patterns = ['лицензия фсб', 'лицензии фсб', 'фсб россии', 'гостайна', 'государственная тайна',
+                    'секретно', 'совершенно секретно', 'особой важности']
+    for pattern in fsb_patterns:
+        if pattern in text:
+            flags.append("🔒 Требуется лицензия ФСБ (гостайна)")
+            break
+
+    fstec_patterns = ['лицензия фстэк', 'лицензии фстэк', 'фстэк россии', 'защита информации',
+                      'средства защиты информации', 'сзи']
+    for pattern in fstec_patterns:
+        if pattern in text:
+            flags.append("🔒 Требуется лицензия ФСТЭК")
+            break
+
+    # 3. Проверка на подозрительно низкую цену
+    price = tender.get('price')
+    if price and price > 0:
+        # Если цена меньше 100 000 рублей для тендера - подозрительно низкая
+        if price < 100000:
+            flags.append("💰 Очень низкая начальная цена")
+
+    # 4. Проверка на обеспечение заявки/контракта
+    if 'обеспечение заявки' in text or 'обеспечение исполнения' in text:
+        # Ищем процент или сумму обеспечения
+        import re
+        # Ищем большие проценты обеспечения (>10%)
+        percent_matches = re.findall(r'(\d+)\s*%\s*(?:от\s+)?(?:нмцк|цены|контракта|обеспечен)', text)
+        for match in percent_matches:
+            if int(match) > 10:
+                flags.append(f"💳 Высокое обеспечение ({match}%)")
+                break
+
+    # 5. Проверка на единственного поставщика
+    if 'единственн' in text and ('поставщик' in text or 'исполнител' in text or 'подрядчик' in text):
+        flags.append("👤 Закупка у единственного поставщика")
+
+    # 6. Проверка на срочную закупку
+    urgent_patterns = ['срочная закупка', 'срочный заказ', 'экстренн', 'безотлагательн', 'неотложн']
+    for pattern in urgent_patterns:
+        if pattern in text:
+            flags.append("⏰ Срочная/экстренная закупка")
+            break
+
+    # 7. Проверка на специфические требования
+    specific_patterns = [
+        ('членство в сро', '📜 Требуется членство в СРО'),
+        ('опыт не менее 3 лет', '📋 Требуется опыт от 3 лет'),
+        ('опыт не менее 5 лет', '📋 Требуется опыт от 5 лет'),
+        ('квалифицированный персонал', '👥 Требования к квалификации персонала'),
+        ('аккредитация', '📜 Требуется аккредитация'),
+    ]
+    for pattern, flag_text in specific_patterns:
+        if pattern in text:
+            flags.append(flag_text)
+
+    return flags
 
 
 class SmartMatcher:
@@ -374,10 +476,61 @@ class SmartMatcher:
 
         return compound_found, remaining
 
+    def apply_feedback_penalty(
+        self,
+        score: int,
+        tender: Dict[str, Any],
+        user_negative_keywords: List[str]
+    ) -> int:
+        """
+        Применяет штраф к score на основе feedback learning.
+
+        Если в названии/описании тендера найдены слова, которые пользователь
+        часто пропускал ранее, снижаем score.
+
+        Args:
+            score: Текущий score
+            tender: Данные тендера
+            user_negative_keywords: Персональные negative keywords из feedback
+
+        Returns:
+            Скорректированный score
+        """
+        if not user_negative_keywords:
+            return score
+
+        searchable_text = (
+            tender.get('name', '') + ' ' +
+            (tender.get('description', '') or '')
+        ).lower()
+
+        penalties = 0
+        matched_negative = []
+
+        for keyword in user_negative_keywords:
+            if self._word_boundary_match(keyword, searchable_text):
+                penalties += 1
+                matched_negative.append(keyword)
+
+        if penalties > 0:
+            # Штраф: 5% за каждое совпадение, максимум 30%
+            penalty_percent = min(0.30, penalties * 0.05)
+            penalty_points = int(score * penalty_percent)
+            new_score = max(0, score - penalty_points)
+
+            logger.debug(
+                f"   📉 Feedback penalty: -{penalty_points} points "
+                f"(matched: {matched_negative[:3]})"
+            )
+            return new_score
+
+        return score
+
     def match_tender(
         self,
         tender: Dict[str, Any],
-        filter_config: Dict[str, Any]
+        filter_config: Dict[str, Any],
+        user_negative_keywords: Optional[List[str]] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Проверка, соответствует ли тендер фильтру.
@@ -385,6 +538,7 @@ class SmartMatcher:
         Args:
             tender: Данные тендера
             filter_config: Конфигурация фильтра пользователя
+            user_negative_keywords: Персональные negative keywords (feedback learning)
 
         Returns:
             Результат матчинга со score или None если не подходит
@@ -653,7 +807,15 @@ class SmartMatcher:
                 pass
 
         # ============================================
-        # 5. НОРМАЛИЗАЦИЯ SCORE (0-100)
+        # 5. FEEDBACK LEARNING (Premium)
+        # ============================================
+
+        # Применяем персональные штрафы на основе истории пропусков
+        if user_negative_keywords:
+            score = self.apply_feedback_penalty(score, tender, user_negative_keywords)
+
+        # ============================================
+        # 6. НОРМАЛИЗАЦИЯ SCORE (0-100)
         # ============================================
 
         score = min(100, max(0, score))
@@ -669,6 +831,11 @@ class SmartMatcher:
 
         logger.info(f"   ✅ MATCH! Score: {score}/100 | Фильтр: {filter_config.get('name', 'N/A')}")
 
+        # Детектируем красные флаги
+        red_flags = detect_red_flags(tender)
+        if red_flags:
+            logger.info(f"   🚩 Обнаружены красные флаги: {red_flags}")
+
         return {
             'filter_id': filter_config.get('id'),
             'filter_name': filter_config.get('name'),
@@ -678,14 +845,16 @@ class SmartMatcher:
             'tender_number': tender.get('number'),
             'tender_name': tender.get('name'),
             'tender_price': tender_price,
-            'tender_url': tender.get('url')
+            'tender_url': tender.get('url'),
+            'red_flags': red_flags
         }
 
     def match_against_filters(
         self,
         tender: Dict[str, Any],
         filters: List[Dict[str, Any]],
-        min_score: int = 60
+        min_score: int = 60,
+        user_negative_keywords: Optional[List[str]] = None
     ) -> List[Dict[str, Any]]:
         """
         Проверка тендера против списка фильтров.
@@ -704,7 +873,7 @@ class SmartMatcher:
         logger.debug(f"\n🔍 Проверка тендера {tender_number} против {len(filters)} фильтров...")
 
         for filter_config in filters:
-            match_result = self.match_tender(tender, filter_config)
+            match_result = self.match_tender(tender, filter_config, user_negative_keywords)
 
             if match_result and match_result['score'] >= min_score:
                 matches.append(match_result)

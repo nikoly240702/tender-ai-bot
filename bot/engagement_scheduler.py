@@ -209,6 +209,22 @@ class EngagementScheduler:
                 if user_data.get('digest_disabled', False):
                     continue
 
+                # Проверяем тихие часы (даже для дайджеста)
+                if user_data.get('quiet_hours_enabled', False):
+                    current_hour = (datetime.utcnow() + timedelta(hours=MOSCOW_TZ_OFFSET)).hour
+                    quiet_start = user_data.get('quiet_hours_start', 22)
+                    quiet_end = user_data.get('quiet_hours_end', 8)
+
+                    # Проверяем, находимся ли в тихих часах
+                    if quiet_start > quiet_end:
+                        is_quiet = current_hour >= quiet_start or current_hour < quiet_end
+                    else:
+                        is_quiet = quiet_start <= current_hour < quiet_end
+
+                    if is_quiet:
+                        logger.debug(f"Пропускаем дайджест для {user.telegram_id} (тихие часы)")
+                        continue
+
                 # Получаем статистику за вчера
                 async with DatabaseSession() as session:
                     # Количество уведомлений за вчера
@@ -258,7 +274,8 @@ class EngagementScheduler:
 """
 
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📋 Все тендеры", callback_data="sniper_all_tenders")],
+                    [InlineKeyboardButton(text=f"📋 Посмотреть эти {notifications_count} тендеров", callback_data="alltenders_last_24h")],
+                    [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
                     [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
                     [InlineKeyboardButton(text="🔕 Отключить дайджест", callback_data="disable_digest")],
                 ])

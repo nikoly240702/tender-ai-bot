@@ -61,12 +61,13 @@ class AllTendersStates(StatesGroup):
 # ФУНКЦИИ ДЛЯ ОБЪЕДИНЕНИЯ И ФИЛЬТРАЦИИ
 # ============================================
 
-async def get_all_user_tenders(user_id: int) -> List[Dict[str, Any]]:
+async def get_all_user_tenders(user_id: int, filter_expired: bool = True) -> List[Dict[str, Any]]:
     """
     Получить все тендеры пользователя из всех источников.
 
     Args:
         user_id: Telegram ID пользователя
+        filter_expired: Фильтровать тендеры с истёкшим дедлайном (по умолчанию True)
 
     Returns:
         Список тендеров с метаинформацией
@@ -82,8 +83,30 @@ async def get_all_user_tenders(user_id: int) -> List[Dict[str, Any]]:
 
     # Преобразуем в единый формат
     all_tenders = []
+    now = datetime.now()
 
     for tender in sniper_tenders:
+        # Фильтруем тендеры с истёкшим дедлайном
+        if filter_expired:
+            deadline = tender.get('submission_deadline')
+            if deadline:
+                try:
+                    if isinstance(deadline, str):
+                        # Пробуем разные форматы
+                        deadline_date = None
+                        for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%d.%m.%Y']:
+                            try:
+                                deadline_date = datetime.strptime(deadline[:len(fmt.replace('%', ''))], fmt)
+                                break
+                            except:
+                                continue
+                        if deadline_date and deadline_date < now:
+                            continue  # Пропускаем просроченные
+                    elif hasattr(deadline, 'date') and deadline < now:
+                        continue  # datetime объект
+                except:
+                    pass  # Если не удалось распарсить - не фильтруем
+
         all_tenders.append({
             'number': tender['number'],
             'name': tender['name'],
@@ -261,6 +284,62 @@ async def generate_all_tenders_html(
 # ============================================
 # HANDLERS
 # ============================================
+
+@router.callback_query(F.data == "alltenders_last_24h")
+async def show_tenders_last_24h(callback: CallbackQuery, state: FSMContext):
+    """Показать тендеры за последние 24 часа (из дайджеста)."""
+    await callback.answer()
+
+    try:
+        await callback.message.edit_text("⏳ Загрузка тендеров за сутки...")
+
+        # Получаем все тендеры
+        all_tenders = await get_all_user_tenders(callback.from_user.id)
+
+        # Фильтруем за последние 24 часа
+        from datetime import timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        filtered_tenders = []
+        for tender in all_tenders:
+            sent_at = tender.get('sent_at')
+            if sent_at:
+                try:
+                    if isinstance(sent_at, str):
+                        tender_date = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
+                    else:
+                        tender_date = sent_at
+                        if tender_date.tzinfo is None:
+                            tender_date = tender_date.replace(tzinfo=timezone.utc)
+
+                    if tender_date >= cutoff:
+                        filtered_tenders.append(tender)
+                except:
+                    pass
+
+        if not filtered_tenders:
+            await callback.message.edit_text(
+                "📊 <b>Тендеры за последние 24 часа</b>\n\n"
+                "За это время новых тендеров не найдено.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                ])
+            )
+            return
+
+        # Сохраняем и показываем
+        await state.update_data(all_tenders=filtered_tenders, filter_params={'sort_by': 'date_desc'})
+        await state.set_state(AllTendersStates.viewing_list)
+
+        # Показываем меню с указанием периода
+        await show_tenders_menu(callback.message, filtered_tenders, {'period': '24h'}, state)
+
+    except Exception as e:
+        logger.error(f"Ошибка показа тендеров за 24ч: {e}", exc_info=True)
+        await callback.message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
+
 
 @router.callback_query(F.data == "sniper_all_tenders")
 async def show_all_tenders(callback: CallbackQuery, state: FSMContext):
@@ -679,11 +758,17 @@ async def download_by_period(callback: CallbackQuery, state: FSMContext):
         # Получаем количество дней
         days = int(callback.data.replace("alltenders_dl_period:", ""))
 
-        data = await state.get_data()
-        tenders = data.get('all_tenders', [])
+        # ВАЖНО: Загружаем данные напрямую из БД, а не из state
+        # Это гарантирует актуальные данные даже если пользователь
+        # пришёл напрямую по ссылке из дайджеста
+        tenders = await get_all_user_tenders(callback.from_user.id, filter_expired=True)
+
+        if not tenders:
+            await callback.message.answer("❌ У вас пока нет найденных тендеров")
+            return
 
         # Вычисляем дату отсечки
-        from datetime import datetime, timedelta, timezone
+        from datetime import timezone
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
         # Фильтруем тендеры по дате
@@ -697,15 +782,14 @@ async def download_by_period(callback: CallbackQuery, state: FSMContext):
                         tender_date = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
                     else:
                         tender_date = sent_at
+                        if tender_date.tzinfo is None:
+                            tender_date = tender_date.replace(tzinfo=timezone.utc)
 
                     if tender_date >= cutoff_date:
                         filtered_tenders.append(tender)
                 except Exception:
-                    # Если не можем распарсить дату - включаем тендер
-                    filtered_tenders.append(tender)
-            else:
-                # Если нет даты - включаем тендер
-                filtered_tenders.append(tender)
+                    pass  # Не включаем тендеры с невалидной датой
+            # Если нет даты - не включаем (это старые данные)
 
         if not filtered_tenders:
             await callback.message.answer(f"❌ Нет тендеров за последние {days} дней")

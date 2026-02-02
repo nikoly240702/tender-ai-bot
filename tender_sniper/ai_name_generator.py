@@ -214,19 +214,66 @@ class TenderNameGenerator:
     def _fallback_short_name(self, original_name: str, max_length: int) -> str:
         """
         Fallback метод для создания короткого названия без LLM.
-        Просто умно обрезает оригинальное название.
+        Обрабатывает типовые юридические конструкции и извлекает суть.
         """
+        import re
+
         if len(original_name) <= max_length:
             return original_name
 
-        # Обрезаем по словам
-        words = original_name[:max_length].split()
+        name = original_name
 
-        # Убираем последнее слово если оно обрезано
+        # === ОБРАБОТКА ТИПОВЫХ ПАТТЕРНОВ ===
+
+        # Паттерн: "Закупка, осуществляемая в соответствии с частью X статьи 93..."
+        # Пытаемся найти суть после юридической формулировки
+        article_patterns = [
+            r'в соответствии с.*?(?:статьи?\s*\d+|закона).*?(?:[-–—]\s*|\.\s+|\s*,\s*)(.+)',
+            r'статьи?\s*93.*?(?:закона|ФЗ).*?(?:[-–—]\s*|\.\s+|\s*,\s*)(.+)',
+            r'единственного поставщика.*?(?:[-–—]\s*|\.\s+|\s*,\s*)(.+)',
+        ]
+
+        for pattern in article_patterns:
+            match = re.search(pattern, name, re.IGNORECASE)
+            if match and match.group(1):
+                extracted = match.group(1).strip()
+                if len(extracted) >= 10:  # Минимальная осмысленная длина
+                    name = extracted
+                    break
+
+        # Удаляем распространённые бессодержательные начала
+        useless_starts = [
+            r'^закупка,?\s*осуществляемая\s+',
+            r'^поставка\s+товара\s*,?\s*',
+            r'^выполнение\s+работ\s+по\s+',
+            r'^оказание\s+услуг\s+по\s+',
+            r'^приобретение\s+',
+            r'^на\s+поставку\s+',
+            r'^для\s+нужд\s+',
+        ]
+
+        for pattern in useless_starts:
+            name = re.sub(pattern, '', name, flags=re.IGNORECASE)
+
+        # Удаляем юридические ссылки в конце
+        name = re.sub(r'\s*\(?\s*в соответствии.*$', '', name, flags=re.IGNORECASE)
+        name = re.sub(r'\s*\(?\s*согласно.*$', '', name, flags=re.IGNORECASE)
+
+        # Если после очистки осталось мало текста, используем оригинал
+        if len(name.strip()) < 15:
+            name = original_name
+
+        name = name.strip()
+
+        # Финальная обрезка по словам
+        if len(name) <= max_length:
+            return name
+
+        words = name[:max_length].split()
         if len(' '.join(words)) + 3 <= max_length:
             return ' '.join(words) + '...'
         else:
-            return ' '.join(words[:-1]) + '...'
+            return ' '.join(words[:-1]) + '...' if len(words) > 1 else name[:max_length-3] + '...'
 
     def clear_cache(self):
         """Очищает in-memory кэш."""

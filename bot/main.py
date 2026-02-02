@@ -353,6 +353,49 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Не удалось запустить Engagement Scheduler: {e}", exc_info=True)
 
+    # Запускаем Data Cleanup Scheduler (очистка старых данных)
+    data_cleanup_task = None
+    try:
+        logger.info("🗑️ Запуск Data Cleanup Scheduler...")
+
+        async def run_data_cleanup():
+            """Периодическая очистка старых данных (раз в 24 часа)."""
+            while True:
+                try:
+                    await asyncio.sleep(24 * 60 * 60)  # Раз в сутки
+
+                    from tender_sniper.database import get_sniper_db
+                    db = await get_sniper_db()
+
+                    # Очищаем уведомления старше 60 дней для всех пользователей
+                    from database import DatabaseSession, SniperNotification
+                    from sqlalchemy import delete
+                    from datetime import datetime, timedelta
+
+                    cutoff_date = datetime.utcnow() - timedelta(days=60)
+
+                    async with DatabaseSession() as session:
+                        result = await session.execute(
+                            delete(SniperNotification).where(
+                                SniperNotification.sent_at < cutoff_date
+                            )
+                        )
+                        deleted_count = result.rowcount
+                        await session.commit()
+
+                    if deleted_count > 0:
+                        logger.info(f"🗑️ Data Cleanup: удалено {deleted_count} старых уведомлений (>60 дней)")
+                    else:
+                        logger.debug("🗑️ Data Cleanup: нет старых данных для удаления")
+
+                except Exception as e:
+                    logger.error(f"❌ Ошибка Data Cleanup: {e}", exc_info=True)
+
+        data_cleanup_task = asyncio.create_task(run_data_cleanup())
+        logger.info("✅ Data Cleanup Scheduler запущен (каждые 24 часа)")
+    except Exception as e:
+        logger.error(f"❌ Не удалось запустить Data Cleanup: {e}", exc_info=True)
+
     # Инициализируем Tender Sniper Service (если включен)
     sniper_service = None
     sniper_task = None

@@ -1020,6 +1020,10 @@ async def show_filter_details(callback: CallbackQuery):
                 callback_data=f"edit_filter_price_{filter_id}"
             )],
             [InlineKeyboardButton(
+                text="📋 Дублировать фильтр",
+                callback_data=f"duplicate_filter_{filter_id}"
+            )],
+            [InlineKeyboardButton(
                 text="⏸️ Приостановить" if is_active else "▶️ Возобновить",
                 callback_data=f"toggle_filter_{filter_id}"
             )],
@@ -1165,6 +1169,67 @@ async def toggle_filter_status(callback: CallbackQuery):
         await show_filter_details(callback)
 
     except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+@router.callback_query(F.data.startswith("duplicate_filter_"))
+async def duplicate_filter_handler(callback: CallbackQuery):
+    """Дублировать фильтр."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("duplicate_filter_", ""))
+
+        db = await get_sniper_db()
+
+        # Проверяем лимит фильтров пользователя
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        current_filters = await db.get_user_filters(user['id'], active_only=False)
+        max_filters = user.get('filters_limit', 3)
+
+        if len(current_filters) >= max_filters:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💎 Улучшить тариф", callback_data="sniper_plans")],
+                [InlineKeyboardButton(text="« Назад", callback_data=f"sniper_filter_{filter_id}")]
+            ])
+            await callback.message.edit_text(
+                f"⚠️ <b>Достигнут лимит фильтров</b>\n\n"
+                f"У вас уже {len(current_filters)} из {max_filters} фильтров.\n\n"
+                f"Для создания новых фильтров улучшите тарифный план или удалите ненужные.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        # Дублируем фильтр
+        new_filter_id = await db.duplicate_filter(filter_id)
+
+        if not new_filter_id:
+            await callback.message.answer("❌ Исходный фильтр не найден")
+            return
+
+        new_filter = await db.get_filter_by_id(new_filter_id)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📝 Открыть копию", callback_data=f"sniper_filter_{new_filter_id}")],
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            f"✅ <b>Фильтр дублирован!</b>\n\n"
+            f"Создана копия: <b>{new_filter['name']}</b>\n\n"
+            f"Вы можете отредактировать копию по своему усмотрению.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка дублирования фильтра: {e}", exc_info=True)
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
 
 
@@ -1322,15 +1387,36 @@ async def mark_tender_interesting(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("skip_"))
 async def mark_tender_skipped(callback: CallbackQuery):
-    """Пользователь пропустил тендер."""
+    """Пользователь пропустил тендер - сохраняем для обучения."""
     await callback.answer("👎 Пропущено")
 
     try:
         # Извлекаем номер тендера из callback_data
         tender_number = callback.data.replace("skip_", "")
 
-        # Здесь можно сохранить в БД для аналитики/ML
-        logger.info(f"Пользователь {callback.from_user.id} пропустил тендер {tender_number}")
+        # Извлекаем название тендера из сообщения для ML
+        tender_name = ""
+        if callback.message.text:
+            # Ищем название между "Название:" и следующей строкой
+            lines = callback.message.text.split('\n')
+            for i, line in enumerate(lines):
+                if 'Название:' in line:
+                    # Берем текст после "Название:" до конца строки
+                    tender_name = line.split('Название:')[-1].strip()
+                    break
+
+        # Сохраняем в БД для анализа и ML (feedback learning)
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if user:
+            await db.save_hidden_tender(
+                user_id=user['id'],
+                tender_number=tender_number,
+                tender_name=tender_name,
+                reason='skipped'
+            )
+            logger.info(f"Пользователь {callback.from_user.id} пропустил тендер {tender_number}: {tender_name[:50]}...")
 
         # Обновляем сообщение
         await callback.message.edit_reply_markup(
@@ -2197,6 +2283,222 @@ async def process_extended_settings_input(message: Message, state: FSMContext):
         logger.error(f"Ошибка в process_extended_settings_input: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при сохранении")
         await state.clear()
+
+
+# ============================================
+# AI ФУНКЦИИ (PREMIUM)
+# ============================================
+
+@router.callback_query(F.data.startswith("ai_summary_"))
+async def ai_summary_handler(callback: CallbackQuery):
+    """
+    Генерирует AI-резюме тендера (только Premium).
+    """
+    await callback.answer("🤖 Генерирую резюме...")
+
+    try:
+        tender_number = callback.data.replace("ai_summary_", "")
+
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        subscription_tier = user.get('subscription_tier', 'trial')
+
+        # Импортируем AI модули
+        from tender_sniper.ai_features import AIFeatureGate, format_ai_feature_locked_message
+        from tender_sniper.ai_summarizer import get_summarizer
+
+        gate = AIFeatureGate(subscription_tier)
+
+        if not gate.can_use('summarization'):
+            # Показываем upsell
+            await callback.message.answer(
+                format_ai_feature_locked_message('summarization'),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Перейти на Premium", callback_data="upgrade_plan")],
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                ])
+            )
+            return
+
+        # Получаем данные тендера (из кэша или API)
+        # Пока используем базовую информацию из сообщения
+        original_text = callback.message.text or ""
+
+        summarizer = get_summarizer()
+        summary, is_ai = await summarizer.summarize(
+            tender_text=original_text,
+            tender_data={'number': tender_number},
+            subscription_tier=subscription_tier
+        )
+
+        await callback.message.answer(
+            f"📝 <b>AI-резюме тендера {tender_number}</b>\n\n{summary}",
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка AI-резюме: {e}", exc_info=True)
+        await callback.message.answer("❌ Не удалось сгенерировать резюме")
+
+
+@router.callback_query(F.data == "show_premium_ai")
+async def show_premium_ai_features(callback: CallbackQuery):
+    """Показывает информацию о Premium AI функциях."""
+    await callback.answer()
+
+    try:
+        from tender_sniper.ai_features import get_ai_upgrade_message
+
+        await callback.message.answer(
+            get_ai_upgrade_message(),
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⭐ Перейти на Premium", callback_data="upgrade_plan")],
+                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+            ])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка show_premium_ai: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("analyze_docs_"))
+async def analyze_tender_documentation(callback: CallbackQuery):
+    """
+    Анализирует документацию тендера и извлекает структурированные данные (Premium).
+    """
+    await callback.answer("🔍 Загружаю документацию...")
+
+    try:
+        tender_number = callback.data.replace("analyze_docs_", "")
+
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        subscription_tier = user.get('subscription_tier', 'trial')
+
+        # Импортируем AI модули
+        from tender_sniper.ai_features import AIFeatureGate, format_ai_feature_locked_message
+        from tender_sniper.ai_document_extractor import (
+            get_document_extractor,
+            format_extraction_for_telegram
+        )
+
+        gate = AIFeatureGate(subscription_tier)
+
+        if not gate.can_use('document_extraction'):
+            await callback.message.answer(
+                format_ai_feature_locked_message('document_extraction'),
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Перейти на Premium", callback_data="upgrade_plan")],
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                ])
+            )
+            return
+
+        # Отправляем сообщение о начале анализа
+        status_msg = await callback.message.answer(
+            f"🔍 <b>Анализирую документацию тендера {tender_number}...</b>\n\n"
+            f"Это может занять некоторое время.",
+            parse_mode="HTML"
+        )
+
+        # Пробуем получить документацию тендера
+        try:
+            import asyncio
+            from src.parsers.zakupki_document_downloader import ZakupkiDocumentDownloader
+
+            downloader = ZakupkiDocumentDownloader()
+
+            # Формируем URL для получения документов (по умолчанию ea44)
+            tender_url = f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={tender_number}"
+
+            # Запускаем синхронный downloader в отдельном потоке
+            result = await asyncio.to_thread(
+                downloader.download_documents,
+                tender_url,
+                tender_number,
+                None  # Все типы документов
+            )
+
+            if not result or result.get('downloaded', 0) == 0:
+                await status_msg.edit_text(
+                    f"❌ Не удалось загрузить документацию тендера {tender_number}.\n\n"
+                    f"Возможно, документы недоступны или тендер завершён.",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Извлекаем текст из документов
+            from src.document_processor.text_extractor import TextExtractor
+
+            combined_text = ""
+            files = result.get('files', [])[:3]  # Анализируем до 3 документов
+            for doc_info in files:
+                doc_path = doc_info.get('path')
+                if not doc_path:
+                    continue
+                try:
+                    extract_result = TextExtractor.extract_text(doc_path)
+                    if extract_result['text'] and not extract_result['text'].startswith('[Не удалось'):
+                        combined_text += f"\n\n=== {extract_result['file_name']} ===\n{extract_result['text']}"
+                except Exception as e:
+                    logger.warning(f"Не удалось извлечь текст из {doc_path}: {e}")
+
+            if not combined_text:
+                await status_msg.edit_text(
+                    "❌ Не удалось извлечь текст из документации.\n\n"
+                    "Возможно, документы в неподдерживаемом формате.",
+                    parse_mode="HTML"
+                )
+                return
+
+            # Анализируем документацию
+            extractor = get_document_extractor()
+            extraction, is_ai = await extractor.extract_from_text(
+                combined_text,
+                subscription_tier,
+                {'number': tender_number}
+            )
+
+            # Форматируем и отправляем результат
+            formatted = format_extraction_for_telegram(extraction, is_ai)
+
+            await status_msg.edit_text(
+                formatted,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(
+                        text="📄 Открыть на zakupki.gov.ru",
+                        url=f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={tender_number}"
+                    )],
+                    [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")]
+                ])
+            )
+
+        except ImportError as ie:
+            logger.error(f"Модуль не найден: {ie}")
+            await status_msg.edit_text(
+                "❌ Функция анализа документации временно недоступна.\n\n"
+                "Необходимые модули не установлены.",
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка анализа документации: {e}", exc_info=True)
+        await callback.message.answer("❌ Не удалось проанализировать документацию")
 
 
 # ============================================

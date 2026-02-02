@@ -468,7 +468,7 @@ async def set_user_tier(message: Message):
 
             # Обновляем тариф и лимиты
             limits_map = {
-                'trial': {'filters': 3, 'notifications': 20, 'days': 7},
+                'trial': {'filters': 3, 'notifications': 20, 'days': 14},
                 'basic': {'filters': 5, 'notifications': 50, 'days': 30},
                 'premium': {'filters': 20, 'notifications': 9999, 'days': 30}
             }

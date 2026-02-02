@@ -44,6 +44,9 @@ class TenderSniperService:
     4. Telegram Notifier отправляет уведомления пользователям
     """
 
+    # Московское время (UTC+3)
+    MOSCOW_TZ_OFFSET = 3
+
     def __init__(
         self,
         bot_token: str,
@@ -279,6 +282,28 @@ class TenderSniperService:
                             logger.warning(f"         ⚠️  Тендер без номера, пропускаем")
                             continue
 
+                        # === ПРОВЕРКА: дедлайн не просрочен ===
+                        deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
+                        if deadline:
+                            try:
+                                from datetime import datetime
+                                deadline_date = None
+                                deadline_str = str(deadline)
+
+                                # Пробуем разные форматы
+                                for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%d.%m.%Y', '%d.%m.%Y %H:%M']:
+                                    try:
+                                        deadline_date = datetime.strptime(deadline_str[:len(fmt.replace('%', ''))], fmt)
+                                        break
+                                    except:
+                                        continue
+
+                                if deadline_date and deadline_date < datetime.now():
+                                    logger.info(f"         ⏭️  Просрочен дедлайн: {tender_number} ({deadline_str})")
+                                    continue
+                            except Exception as e:
+                                logger.debug(f"         ⚠️ Не удалось проверить дедлайн: {e}")
+
                         logger.info(f"         🔍 Проверка тендера: {tender_number}")
                         logger.info(f"            Название: {tender_name}...")
                         logger.info(f"            Score: {score}")
@@ -319,7 +344,8 @@ class TenderSniperService:
                             },
                             'filter_id': filter_id,
                             'filter_name': filter_name,
-                            'score': score
+                            'score': score,
+                            'subscription_tier': subscription_tier  # Для AI функций
                         })
 
                         logger.info(f"         📤 Готово к отправке: {tender_number} (score: {score})")
@@ -349,7 +375,23 @@ class TenderSniperService:
             if notifications_to_send and self.notifier:
                 logger.info(f"   📤 Отправка {len(notifications_to_send)} уведомлений...")
 
+                # Кэшируем данные пользователей для проверки тихих часов
+                user_data_cache = {}
+
                 for notif in notifications_to_send:
+                    telegram_id = notif['telegram_id']
+
+                    # Проверяем тихие часы (получаем данные пользователя из кэша или БД)
+                    if telegram_id not in user_data_cache:
+                        user_data_cache[telegram_id] = await self.db.get_user_by_telegram_id(telegram_id)
+
+                    user_data = user_data_cache.get(telegram_id, {})
+                    if not await self._should_send_notification(user_data):
+                        logger.info(f"   🌙 Пропускаем уведомление для {telegram_id} (тихие часы)")
+                        # Тендер всё равно сохраняем в БД, но не отправляем уведомление
+                        # Он будет показан в утреннем дайджесте
+                        continue
+
                     tender = notif['tender']
 
                     # Генерируем AI-название ОДИН РАЗ (для уведомления и БД)
@@ -367,7 +409,8 @@ class TenderSniperService:
                         tender=tender,
                         match_info=notif['match_info'],
                         filter_name=notif['filter_name'],
-                        is_auto_notification=True  # Уведомление из автомониторинга
+                        is_auto_notification=True,  # Уведомление из автомониторинга
+                        subscription_tier=notif.get('subscription_tier', 'trial')  # Для AI кнопок
                     )
 
                     if success:
@@ -412,6 +455,49 @@ class TenderSniperService:
         except Exception as e:
             logger.error(f"❌ Ошибка обработки тендеров: {e}", exc_info=True)
             self.stats['errors'] += 1
+
+    async def _should_send_notification(self, user_data: dict) -> bool:
+        """
+        Check if notification should be sent based on quiet hours and notification mode.
+
+        Args:
+            user_data: User data dict containing quiet_hours and notification_mode settings
+
+        Returns:
+            True if notification should be sent, False otherwise
+        """
+        # Получаем настройки из data пользователя
+        data = user_data.get('data', {}) or {}
+
+        # Проверяем режим уведомлений
+        notification_mode = data.get('notification_mode', 'instant')
+        if notification_mode == 'digest':
+            # Режим "только дайджест" - не отправляем мгновенные уведомления
+            logger.debug(f"   📬 Режим 'только дайджест' - пропускаем мгновенное уведомление")
+            return False
+
+        # Проверяем тихие часы
+        if not data.get('quiet_hours_enabled', False):
+            return True
+
+        now = datetime.utcnow() + timedelta(hours=self.MOSCOW_TZ_OFFSET)  # Moscow time
+        current_hour = now.hour
+        start = data.get('quiet_hours_start', 22)
+        end = data.get('quiet_hours_end', 8)
+
+        # Handle overnight range (e.g., 22:00 - 08:00)
+        if start > end:
+            # If current hour is >= start (e.g., 22, 23) OR < end (e.g., 0-7)
+            is_quiet = current_hour >= start or current_hour < end
+        else:
+            # Normal range (e.g., 1:00 - 6:00)
+            is_quiet = start <= current_hour < end
+
+        if is_quiet:
+            logger.debug(f"   🌙 Тихие часы ({start}:00-{end}:00), текущее время МСК: {current_hour}:00")
+            return False
+
+        return True
 
     def _print_stats(self):
         """Вывод статистики работы сервиса."""

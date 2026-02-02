@@ -153,10 +153,11 @@ INDUSTRY_TEMPLATES = {
 # ============================================
 
 class ExtendedWizardStates(StatesGroup):
-    """Состояния для расширенного wizard (8 шагов)."""
+    """Состояния для расширенного wizard (9 шагов)."""
     select_tender_type = State()    # Шаг 1: Тип закупки
     enter_keywords = State()        # Шаг 2: Ключевые слова
-    enter_budget_min = State()      # Шаг 3a: Бюджет - минимум
+    enter_filter_name = State()     # Шаг 3: Название фильтра (NEW)
+    enter_budget_min = State()      # Шаг 4a: Бюджет - минимум
     enter_budget_max = State()      # Шаг 3b: Бюджет - максимум
     confirm_budget = State()        # Шаг 3c: Подтверждение бюджета
     select_region = State()         # Шаг 4: Регион (опционально)
@@ -665,6 +666,7 @@ async def continue_from_draft(callback: CallbackQuery, state: FSMContext):
         step_state_map = {
             'select_tender_type': ExtendedWizardStates.select_tender_type,
             'enter_keywords': ExtendedWizardStates.enter_keywords,
+            'enter_filter_name': ExtendedWizardStates.enter_filter_name,
             'enter_budget_min': ExtendedWizardStates.enter_budget_min,
             'enter_budget_max': ExtendedWizardStates.enter_budget_max,
             'confirm_budget': ExtendedWizardStates.confirm_budget,
@@ -704,7 +706,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         selected_types = data.get('selected_types', [])
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
-            f"<b>Шаг 1/8:</b> Что ищем?\n\n"
+            f"<b>Шаг 1/9:</b> Что ищем?\n\n"
             f"Выберите один или несколько типов закупки:",
             parse_mode="HTML",
             reply_markup=get_tender_type_keyboard(selected_types)
@@ -713,18 +715,36 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 2/8:</b> Введите ключевые слова\n\n"
+            f"<b>Шаг 2/9:</b> Введите ключевые слова\n\n"
             f"Укажите через запятую, что вы ищете.",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="« Назад", callback_data="ew_back:type")]
             ])
         )
+    elif step == 'enter_filter_name':
+        keywords = data.get('keywords', [])
+        auto_name = ", ".join(keywords[:3])
+        if len(keywords) > 3:
+            auto_name += f" +{len(keywords) - 3}"
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 3/9:</b> Название фильтра\n\n"
+            f"Введите название для фильтра (для удобства поиска).\n\n"
+            f"💡 Или нажмите «Пропустить» - название будет:\n"
+            f"<code>{auto_name}</code>",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить (авто-название)", callback_data="ew_skip_filter_name")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+            ])
+        )
     elif step in ('enter_budget_min', 'enter_budget_max', 'confirm_budget'):
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
+            f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
             f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
             f"Примеры:\n"
             f"• 100000 (100 тыс)\n"
@@ -734,7 +754,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
-                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
             ])
         )
     elif step == 'select_region':
@@ -742,7 +762,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:",
+            f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:",
             parse_mode="HTML",
             reply_markup=get_region_keyboard(selected_districts)
         )
@@ -750,7 +770,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 5/8:</b> Выберите закон",
+            f"<b>Шаг 6/9:</b> Выберите закон",
             parse_mode="HTML",
             reply_markup=get_law_keyboard()
         )
@@ -758,7 +778,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 6/8:</b> Исключения\n\n"
+            f"<b>Шаг 7/9:</b> Исключения\n\n"
             f"Какие слова исключить из поиска? (или пропустите)",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -770,7 +790,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 7/8:</b> Сколько тендеров искать?",
+            f"<b>Шаг 8/9:</b> Сколько тендеров искать?",
             parse_mode="HTML",
             reply_markup=get_search_limit_keyboard()
         )
@@ -778,7 +798,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 7/8:</b> Включить автомониторинг?\n\n"
+            f"<b>Шаг 8/9:</b> Включить автомониторинг?\n\n"
             f"Бот будет автоматически искать новые тендеры по этому фильтру.",
             parse_mode="HTML",
             reply_markup=get_automonitor_keyboard()
@@ -787,7 +807,7 @@ async def show_step_for_state(callback: CallbackQuery, state: FSMContext, step: 
         await callback.message.edit_text(
             f"🎯 <b>Создание фильтра</b>\n\n"
             f"{settings_text}\n\n"
-            f"<b>Шаг 8/8:</b> Всё верно?",
+            f"<b>Шаг 9/9:</b> Всё верно?",
             parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Создать и искать", callback_data="ew_confirm:create")],
@@ -944,41 +964,216 @@ async def handle_keywords_input(message: Message, state: FSMContext):
         )
         return
 
-    # Генерируем название фильтра
-    filter_name = ", ".join(keywords[:3])
+    # Генерируем автоматическое название фильтра (будет использовано если пропустят)
+    auto_filter_name = ", ".join(keywords[:3])
     if len(keywords) > 3:
-        filter_name += f" +{len(keywords) - 3}"
+        auto_filter_name += f" +{len(keywords) - 3}"
 
-    await state.update_data(keywords=keywords, filter_name=filter_name)
+    await state.update_data(keywords=keywords, filter_name=auto_filter_name, auto_filter_name=auto_filter_name)
+
+    # 🆕 AI рекомендации ключевых слов (Premium)
+    recommendations_text = ""
+    recommendation_buttons = []
+
+    try:
+        from tender_sniper.database import get_sniper_db
+        from tender_sniper.ai_keyword_recommender import get_keyword_recommendations, format_recommendations_message
+
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(message.from_user.id)
+        subscription_tier = user.get('subscription_tier', 'trial') if user else 'trial'
+
+        # Получаем рекомендации
+        recs = await get_keyword_recommendations(keywords, subscription_tier)
+
+        if recs.get('recommendations'):
+            recommendations_text = format_recommendations_message(recs, keywords)
+
+            # Кнопки для добавления рекомендаций (только для Premium)
+            if recs.get('is_premium') and len(recs['recommendations']) > 0:
+                # Сохраняем рекомендации в state для добавления
+                await state.update_data(ai_recommendations=recs['recommendations'][:8])
+                recommendation_buttons = [
+                    [InlineKeyboardButton(text="➕ Добавить рекомендации", callback_data="ew_add_recommendations")],
+                ]
+
+    except Exception as e:
+        logger.warning(f"Не удалось получить AI рекомендации: {e}")
 
     # 🆕 Автосохранение черновика
     data = await state.get_data()
+    await save_draft(message.from_user.id, data, 'enter_filter_name')
+
+    # Переходим к шагу 3: название фильтра
+    await state.set_state(ExtendedWizardStates.enter_filter_name)
+
+    keyboard_buttons = recommendation_buttons + [
+        [InlineKeyboardButton(text="⏭ Пропустить (авто-название)", callback_data="ew_skip_filter_name")],
+        [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+    ]
+
+    await message.answer(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>"
+        f"{recommendations_text}\n\n"
+        f"<b>Шаг 3/9:</b> Название фильтра\n\n"
+        f"Введите название для фильтра (для удобства поиска).\n\n"
+        f"💡 Или нажмите «Пропустить» - название будет:\n"
+        f"<code>{auto_filter_name}</code>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+    )
+
+
+# ============================================
+# ШАГ 3: НАЗВАНИЕ ФИЛЬТРА
+# ============================================
+
+@router.message(ExtendedWizardStates.enter_filter_name)
+async def handle_filter_name_input(message: Message, state: FSMContext):
+    """Обработка ввода пользовательского названия фильтра."""
+    custom_name = message.text.strip()
+
+    if len(custom_name) > 100:
+        await message.answer(
+            "⚠️ Название слишком длинное. Максимум 100 символов.\n"
+            "Попробуйте ещё раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить (авто-название)", callback_data="ew_skip_filter_name")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+            ])
+        )
+        return
+
+    if len(custom_name) < 2:
+        await message.answer(
+            "⚠️ Название слишком короткое. Минимум 2 символа.\n"
+            "Попробуйте ещё раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить (авто-название)", callback_data="ew_skip_filter_name")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+            ])
+        )
+        return
+
+    # Сохраняем название фильтра
+    await state.update_data(filter_name=custom_name)
+
+    data = await state.get_data()
     await save_draft(message.from_user.id, data, 'enter_budget_min')
 
-    # Переходим к шагу 3: бюджет - сразу запрашиваем минимум
+    # Переходим к шагу 4: бюджет
     await state.set_state(ExtendedWizardStates.enter_budget_min)
 
     await message.answer(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n\n"
-        f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n"
+        f"✅ Название: <b>{custom_name}</b>\n\n"
+        f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
         f"Примеры:\n"
         f"• 100000 (100 тыс)\n"
         f"• 1000000 (1 млн)\n"
-        f"• 0 (без минимума)\n\n"
-        f"Или нажмите «Пропустить» для любого бюджета.",
+        f"• 0 (любой бюджет)",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
-            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
         ])
     )
 
 
+@router.callback_query(F.data == "ew_skip_filter_name")
+async def skip_filter_name(callback: CallbackQuery, state: FSMContext):
+    """Пропуск ввода названия - используется авто-название."""
+    await callback.answer("Использую авто-название...")
+
+    data = await state.get_data()
+
+    # Генерируем авто-название из ключевых слов
+    keywords = data.get('keywords', [])
+    auto_name = ", ".join(keywords[:3])
+    if len(keywords) > 3:
+        auto_name += f" +{len(keywords) - 3}"
+
+    await state.update_data(filter_name=auto_name)
+
+    await save_draft(callback.from_user.id, data, 'enter_budget_min')
+
+    # Переходим к шагу 4: бюджет
+    await state.set_state(ExtendedWizardStates.enter_budget_min)
+
+    await callback.message.edit_text(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n"
+        f"✅ Название: <b>{auto_name}</b>\n\n"
+        f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
+        f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
+        f"Примеры:\n"
+        f"• 100000 (100 тыс)\n"
+        f"• 1000000 (1 млн)\n"
+        f"• 0 (любой бюджет)",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
+        ])
+    )
+
+
+@router.callback_query(F.data == "ew_add_recommendations")
+async def add_ai_recommendations(callback: CallbackQuery, state: FSMContext):
+    """Добавляет AI рекомендации к ключевым словам (Premium)."""
+    await callback.answer("Добавляю рекомендации...")
+
+    data = await state.get_data()
+    keywords = data.get('keywords', [])
+    recommendations = data.get('ai_recommendations', [])
+
+    if recommendations:
+        # Добавляем рекомендации к ключевым словам
+        keywords_set = set(k.lower() for k in keywords)
+        new_keywords = keywords.copy()
+
+        for rec in recommendations:
+            if rec.lower() not in keywords_set:
+                new_keywords.append(rec)
+                keywords_set.add(rec.lower())
+
+        # Обновляем название фильтра
+        filter_name = ", ".join(new_keywords[:3])
+        if len(new_keywords) > 3:
+            filter_name += f" +{len(new_keywords) - 3}"
+
+        await state.update_data(
+            keywords=new_keywords,
+            filter_name=filter_name,
+            ai_recommendations=[]  # Очищаем
+        )
+
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+            f"✅ Слова: <b>{', '.join(new_keywords[:8])}</b>\n"
+            f"<i>({len(new_keywords)} слов)</i>\n\n"
+            f"✨ <b>Рекомендации добавлены!</b>\n\n"
+            f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
+            f"Введите <b>минимальную</b> сумму контракта (в рублях).",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
+            ])
+        )
+    else:
+        await callback.message.answer("Нет доступных рекомендаций для добавления.")
+
+
 # ============================================
-# ШАГ 3: БЮДЖЕТ (мин → макс → подтверждение)
+# ШАГ 4: БЮДЖЕТ (мин → макс → подтверждение)
 # ============================================
 
 @router.callback_query(F.data == "ew_budget:skip_all")
@@ -1006,7 +1201,7 @@ async def handle_budget_min_input(message: Message, state: FSMContext):
             "⚠️ Введите число. Например: 100000",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
-                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+                [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
             ])
         )
         return
@@ -1119,6 +1314,36 @@ async def confirm_budget(callback: CallbackQuery, state: FSMContext):
     await go_to_region_step(callback.message, state)
 
 
+@router.callback_query(F.data == "ew_back:filter_name")
+async def back_to_filter_name(callback: CallbackQuery, state: FSMContext):
+    """Возврат к вводу названия фильтра."""
+    await callback.answer()
+    await state.set_state(ExtendedWizardStates.enter_filter_name)
+
+    data = await state.get_data()
+    keywords = data.get('keywords', [])
+
+    # Генерируем авто-название
+    auto_name = ", ".join(keywords[:3])
+    if len(keywords) > 3:
+        auto_name += f" +{len(keywords) - 3}"
+
+    await callback.message.edit_text(
+        f"🎯 <b>Создание фильтра</b>\n\n"
+        f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
+        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n\n"
+        f"<b>Шаг 3/9:</b> Название фильтра\n\n"
+        f"Введите название для фильтра (для удобства поиска).\n\n"
+        f"💡 Или нажмите «Пропустить» - название будет:\n"
+        f"<code>{auto_name}</code>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Пропустить (авто-название)", callback_data="ew_skip_filter_name")],
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+        ])
+    )
+
+
 @router.callback_query(F.data == "ew_back:budget_min")
 async def back_to_budget_min(callback: CallbackQuery, state: FSMContext):
     """Возврат к вводу минимума."""
@@ -1130,8 +1355,9 @@ async def back_to_budget_min(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n\n"
-        f"<b>Шаг 3/8:</b> Укажите бюджет\n\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n"
+        f"✅ Название: <b>{data.get('filter_name', 'авто')}</b>\n\n"
+        f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
         f"Примеры:\n"
         f"• 100000 (100 тыс)\n"
@@ -1141,7 +1367,7 @@ async def back_to_budget_min(callback: CallbackQuery, state: FSMContext):
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⏭ Пропустить (любой бюджет)", callback_data="ew_budget:skip_all")],
-            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:keywords")]
+            [InlineKeyboardButton(text="« Назад", callback_data="ew_back:filter_name")]
         ])
     )
 
@@ -1200,7 +1426,7 @@ async def go_to_region_step(message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Бюджет: <b>{budget_text}</b>\n\n"
-        f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:"
+        f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:"
     )
 
     # Проверяем, можно ли редактировать (только сообщения бота)
@@ -1271,7 +1497,7 @@ async def toggle_federal_district(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"{settings_text}\n\n"
-        f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:",
+        f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:",
         parse_mode="HTML",
         reply_markup=get_region_keyboard(selected)
     )
@@ -1293,7 +1519,7 @@ async def reset_region_selection(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"{settings_text}\n\n"
-        f"<b>Шаг 4/8:</b> Выберите один или несколько регионов:",
+        f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:",
         parse_mode="HTML",
         reply_markup=get_region_keyboard([])
     )
@@ -1354,7 +1580,7 @@ async def go_to_law_step(message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Регион: <b>{data.get('region_name', 'Вся Россия')}</b>\n\n"
-        f"<b>Шаг 5/8:</b> Выберите закон"
+        f"<b>Шаг 6/9:</b> Выберите закон"
     )
 
     await message.edit_text(text, parse_mode="HTML", reply_markup=get_law_keyboard())
@@ -1396,7 +1622,7 @@ async def go_to_exclusions_step(message, state: FSMContext):
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
         f"✅ Закон: <b>{data.get('law_type_name', 'Любой')}</b>\n\n"
-        f"<b>Шаг 6/8:</b> Исключить слова\n\n"
+        f"<b>Шаг 7/9:</b> Исключить слова\n\n"
         f"Введите слова, которые НЕ должны встречаться в тендерах.\n"
         f"Через запятую. Например: <i>медицин, ремонт, демонтаж</i>\n\n"
         f"Или пропустите этот шаг."
@@ -1445,7 +1671,7 @@ async def go_to_search_settings_step(message, state: FSMContext):
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
         f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n\n"
-        f"<b>Шаг 7/8:</b> Настройки поиска\n\n"
+        f"<b>Шаг 8/9:</b> Настройки поиска\n\n"
         f"Сколько тендеров найти при мгновенном поиске?"
     )
 
@@ -1486,7 +1712,7 @@ async def go_to_automonitor_step(message, state: FSMContext):
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Поиск: <b>{search_limit} тендеров</b>\n\n"
-        f"<b>Шаг 7/8:</b> Автомониторинг\n\n"
+        f"<b>Шаг 8/9:</b> Автомониторинг\n\n"
         f"Хотите получать уведомления о новых тендерах по этому фильтру?\n\n"
         f"🔔 <b>Да</b> — система будет автоматически искать новые тендеры и отправлять вам уведомления\n"
         f"🔕 <b>Нет</b> — только разовый поиск без отслеживания"
@@ -1529,7 +1755,7 @@ async def go_to_confirm_step(message, state: FSMContext):
 
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
-        f"<b>Шаг 8/8:</b> Подтверждение\n\n"
+        f"<b>Шаг 9/9:</b> Подтверждение\n\n"
         f"{settings_text}\n\n"
         f"Всё верно? Нажмите «Создать» или измените настройки."
     )

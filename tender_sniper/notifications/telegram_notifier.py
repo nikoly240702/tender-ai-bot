@@ -18,6 +18,15 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
+# Импортируем проверку AI доступа
+try:
+    from tender_sniper.ai_features import AIFeatureGate
+except ImportError:
+    # Fallback если модуль недоступен
+    class AIFeatureGate:
+        def __init__(self, tier): self.tier = tier
+        def can_use(self, feature): return tier == 'premium'
+
 # Импортируем AI генератор названий
 try:
     from tender_sniper.ai_name_generator import generate_tender_name
@@ -63,7 +72,8 @@ class TelegramNotifier:
         tender: Dict[str, Any],
         match_info: Dict[str, Any],
         filter_name: str,
-        is_auto_notification: bool = False
+        is_auto_notification: bool = False,
+        subscription_tier: str = 'trial'
     ) -> bool:
         """
         Отправка уведомления о новом тендере.
@@ -74,16 +84,17 @@ class TelegramNotifier:
             match_info: Информация о совпадении (score, matched_keywords)
             filter_name: Название фильтра
             is_auto_notification: True если уведомление из автомониторинга
+            subscription_tier: Тариф пользователя (для AI функций)
 
         Returns:
             True если успешно отправлено, False иначе
         """
         try:
             # Форматируем сообщение
-            message = self._format_tender_message(tender, match_info, filter_name)
+            message = self._format_tender_message(tender, match_info, filter_name, subscription_tier)
 
             # Создаем кнопки
-            keyboard = self._create_tender_keyboard(tender, is_auto_notification)
+            keyboard = self._create_tender_keyboard(tender, is_auto_notification, subscription_tier)
 
             # Отправляем уведомление
             await self.bot.send_message(
@@ -119,7 +130,8 @@ class TelegramNotifier:
         self,
         tender: Dict[str, Any],
         match_info: Dict[str, Any],
-        filter_name: str
+        filter_name: str,
+        subscription_tier: str = 'trial'
     ) -> str:
         """
         Форматирование сообщения о тендере.
@@ -128,6 +140,7 @@ class TelegramNotifier:
             tender: Данные тендера
             match_info: Информация о совпадении
             filter_name: Название фильтра
+            subscription_tier: Тариф пользователя (для AI функций)
 
         Returns:
             Отформатированное сообщение
@@ -194,20 +207,39 @@ class TelegramNotifier:
         if tender_number:
             message += f"\n<b>№</b> {tender_number}"
 
+        # Добавляем красные флаги если есть (только для Premium)
+        gate = AIFeatureGate(subscription_tier)
+        red_flags = match_info.get('red_flags', [])
+        if red_flags:
+            if gate.can_use('red_flags'):
+                message += "\n\n<b>🚩 Обратите внимание:</b>"
+                for flag in red_flags[:5]:  # Ограничиваем до 5 флагов
+                    message += f"\n• {flag}"
+            else:
+                # Показываем что есть флаги, но нужен Premium
+                message += f"\n\n🔒 <i>Обнаружено {len(red_flags)} предупреждений (Premium)</i>"
+
         return message.strip()
 
-    def _create_tender_keyboard(self, tender: Dict[str, Any], is_auto_notification: bool = False) -> InlineKeyboardMarkup:
+    def _create_tender_keyboard(
+        self,
+        tender: Dict[str, Any],
+        is_auto_notification: bool = False,
+        subscription_tier: str = 'trial'
+    ) -> InlineKeyboardMarkup:
         """
         Создание inline клавиатуры для тендера.
 
         Args:
             tender: Данные тендера
             is_auto_notification: True если уведомление из автомониторинга
+            subscription_tier: Тариф пользователя (для AI функций)
 
         Returns:
             Inline клавиатура
         """
         buttons = []
+        tender_number = tender.get('number')
 
         # Кнопка просмотра на zakupki.gov.ru
         tender_url = tender.get('url', '')
@@ -222,27 +254,51 @@ class TelegramNotifier:
                 )
             ])
 
-        # Кнопка анализа (ТОЛЬКО для ручного поиска, не для автомониторинга)
-        tender_number = tender.get('number')
-        if tender_number and not is_auto_notification:
-            buttons.append([
-                InlineKeyboardButton(
-                    text="🤖 Анализировать с AI",
-                    callback_data=f"analyze_{tender_number}"
-                )
-            ])
+        # AI кнопки (только для Premium или для показа upsell)
+        gate = AIFeatureGate(subscription_tier)
+
+        if tender_number:
+            if gate.can_use('summarization'):
+                # Premium: полноценные AI кнопки
+                buttons.append([
+                    InlineKeyboardButton(
+                        text="📝 AI-резюме",
+                        callback_data=f"ai_summary_{tender_number}"
+                    ),
+                    InlineKeyboardButton(
+                        text="📄 Анализ докум.",
+                        callback_data=f"analyze_docs_{tender_number}"
+                    )
+                ])
+            else:
+                # Не Premium: кнопка анализа для ручного поиска + upsell
+                if not is_auto_notification:
+                    buttons.append([
+                        InlineKeyboardButton(
+                            text="🤖 Анализировать с AI",
+                            callback_data=f"analyze_{tender_number}"
+                        )
+                    ])
+                # Показываем что есть Premium функции
+                buttons.append([
+                    InlineKeyboardButton(
+                        text="⭐ AI-функции (Premium)",
+                        callback_data="show_premium_ai"
+                    )
+                ])
 
         # Кнопки действий
-        buttons.append([
-            InlineKeyboardButton(
-                text="✅ Интересно",
-                callback_data=f"interested_{tender_number}"
-            ),
-            InlineKeyboardButton(
-                text="❌ Пропустить",
-                callback_data=f"skip_{tender_number}"
-            )
-        ])
+        if tender_number:
+            buttons.append([
+                InlineKeyboardButton(
+                    text="✅ Интересно",
+                    callback_data=f"interested_{tender_number}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Пропустить",
+                    callback_data=f"skip_{tender_number}"
+                )
+            ])
 
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 

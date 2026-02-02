@@ -591,43 +591,123 @@ async def settings_advanced_handler(callback: CallbackQuery):
 
 @router.callback_query(F.data == "adv_digest")
 async def advanced_digest_handler(callback: CallbackQuery):
-    """Подробная настройка дайджеста."""
+    """Подробная настройка дайджеста и режима уведомлений."""
     await callback.answer()
 
     try:
         db = await get_sniper_db()
         sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
         user_data = sniper_user.get('data', {}) or {}
-        digest_enabled = not user_data.get('digest_disabled', False)
 
-        status_text = "✅ Включён" if digest_enabled else "❌ Выключен"
-        toggle_text = "❌ Выключить дайджест" if digest_enabled else "✅ Включить дайджест"
+        # Режим уведомлений: instant, digest, both
+        notification_mode = user_data.get('notification_mode', 'instant')
+
+        mode_emoji = {
+            'instant': '⚡',
+            'digest': '📬',
+            'both': '🔔'
+        }
+        mode_names = {
+            'instant': 'Мгновенные',
+            'digest': 'Только дайджест',
+            'both': 'Оба режима'
+        }
+
+        current_mode_text = f"{mode_emoji.get(notification_mode, '⚡')} {mode_names.get(notification_mode, 'Мгновенные')}"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=toggle_text, callback_data="toggle_digest")],
+            [InlineKeyboardButton(
+                text="⚡ Мгновенные" + (" ✓" if notification_mode == 'instant' else ""),
+                callback_data="notif_mode_instant"
+            )],
+            [InlineKeyboardButton(
+                text="📬 Только дайджест" + (" ✓" if notification_mode == 'digest' else ""),
+                callback_data="notif_mode_digest"
+            )],
+            [InlineKeyboardButton(
+                text="🔔 Оба режима" + (" ✓" if notification_mode == 'both' else ""),
+                callback_data="notif_mode_both"
+            )],
             [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
         ])
 
         await callback.message.edit_text(
-            "📬 <b>УТРЕННИЙ ДАЙДЖЕСТ</b>\n\n"
-            f"<b>Статус:</b> {status_text}\n\n"
+            "📬 <b>РЕЖИМ УВЕДОМЛЕНИЙ</b>\n\n"
+            f"<b>Текущий режим:</b> {current_mode_text}\n\n"
             "━━━━━━━━━━━━━━━\n"
-            "<b>Что это такое?</b>\n\n"
-            "Каждое утро в <b>9:00 по Москве</b> вы получаете сводку:\n\n"
-            "📊 Сколько тендеров найдено за вчера\n"
-            "🎯 Количество активных фильтров\n"
-            "⏱ Сколько времени вы сэкономили\n"
-            "💡 Рекомендации по улучшению фильтров\n\n"
-            "<b>Кому полезно:</b>\n"
-            "• Тем, кто не хочет проверять бота вручную\n"
-            "• Руководителям для контроля поиска\n"
-            "• Всем, кто хочет видеть общую картину",
+            "<b>Доступные режимы:</b>\n\n"
+            "⚡ <b>Мгновенные</b>\n"
+            "Получаете уведомления сразу, как только бот найдёт новый тендер. "
+            "Идеально для тех, кто хочет реагировать быстро.\n\n"
+            "📬 <b>Только дайджест</b>\n"
+            "Без мгновенных уведомлений. Каждое утро в 9:00 МСК — "
+            "сводка с топ-тендерами за сутки. Для тех, кому важно не отвлекаться.\n\n"
+            "🔔 <b>Оба режима</b>\n"
+            "Мгновенные уведомления + утренний дайджест со сводкой. "
+            "Максимум информации для тех, кто не хочет ничего пропустить.\n\n"
+            "💡 <i>Совет: режим «Только дайджест» экономит время, "
+            "а в дайджест попадают самые релевантные тендеры.</i>",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
 
     except Exception as e:
         logger.error(f"Ошибка настроек дайджеста: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("notif_mode_"))
+async def set_notification_mode_handler(callback: CallbackQuery):
+    """Установка режима уведомлений."""
+    await callback.answer()
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        mode = callback.data.replace("notif_mode_", "")
+
+        if mode not in ['instant', 'digest', 'both']:
+            await callback.answer("❌ Неверный режим", show_alert=True)
+            return
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == callback.from_user.id)
+            )
+
+            if not user:
+                await callback.message.answer("❌ Пользователь не найден")
+                return
+
+            current_data = user.data if isinstance(user.data, dict) else {}
+            current_data['notification_mode'] = mode
+
+            # Если выбран только дайджест, отключаем мгновенные уведомления
+            if mode == 'digest':
+                current_data['digest_disabled'] = False
+            elif mode == 'instant':
+                # Мгновенные - дайджест по желанию (не меняем)
+                pass
+            else:  # both
+                current_data['digest_disabled'] = False
+
+            user.data = current_data
+            await session.commit()
+
+        mode_names = {
+            'instant': '⚡ Мгновенные уведомления',
+            'digest': '📬 Только дайджест',
+            'both': '🔔 Оба режима'
+        }
+
+        await callback.answer(f"Режим изменён: {mode_names.get(mode)}")
+
+        # Возвращаемся к настройкам
+        await advanced_digest_handler(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка установки режима уведомлений: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 

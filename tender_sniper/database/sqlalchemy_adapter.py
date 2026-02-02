@@ -18,6 +18,7 @@ from database import (
     SniperNotification as SniperNotificationModel,
     TenderCache as TenderCacheModel,
     FilterDraft as FilterDraftModel,  # 🧪 БЕТА: Черновики фильтров
+    HiddenTender as HiddenTenderModel,  # Для feedback learning
     # Phase 2.1 models
     SearchHistory as SearchHistoryModel,
     UserFeedback as UserFeedbackModel,
@@ -121,7 +122,8 @@ class TenderSniperDB:
                 'notifications_sent_today': user.notifications_sent_today,
                 'notifications_enabled': user.notifications_enabled,
                 'last_notification_reset': user.last_notification_reset.isoformat() if user.last_notification_reset else None,
-                'created_at': user.created_at.isoformat() if user.created_at else None
+                'created_at': user.created_at.isoformat() if user.created_at else None,
+                'data': user.data if hasattr(user, 'data') and user.data else {}  # Данные настроек (quiet hours, etc.)
             }
 
     async def get_user_subscription_info(self, telegram_id: int) -> Optional[Dict[str, Any]]:
@@ -334,6 +336,69 @@ class TenderSniperDB:
             await session.execute(
                 delete(SniperFilterModel).where(SniperFilterModel.id == filter_id)
             )
+
+    async def duplicate_filter(self, filter_id: int, new_name: Optional[str] = None) -> Optional[int]:
+        """
+        Дублировать фильтр.
+
+        Args:
+            filter_id: ID фильтра для дублирования
+            new_name: Новое имя для копии (если None, добавляется "(копия)")
+
+        Returns:
+            ID нового фильтра или None если исходный не найден
+        """
+        async with DatabaseSession() as session:
+            # Получаем исходный фильтр
+            result = await session.execute(
+                select(SniperFilterModel).where(SniperFilterModel.id == filter_id)
+            )
+            original = result.scalar_one_or_none()
+
+            if not original:
+                return None
+
+            # Создаём копию с новым именем
+            copy_name = new_name or f"{original.name} (копия)"
+
+            # Создаём новый фильтр с теми же параметрами
+            new_filter = SniperFilterModel(
+                user_id=original.user_id,
+                name=copy_name,
+                keywords=original.keywords,
+                exclude_keywords=original.exclude_keywords,
+                price_min=original.price_min,
+                price_max=original.price_max,
+                regions=original.regions,
+                customer_types=original.customer_types,
+                tender_types=original.tender_types,
+                law_type=original.law_type,
+                purchase_stage=original.purchase_stage,
+                purchase_method=original.purchase_method,
+                okpd2_codes=original.okpd2_codes,
+                min_deadline_days=original.min_deadline_days,
+                customer_keywords=original.customer_keywords,
+                exact_match=getattr(original, 'exact_match', False),
+                # Расширенные настройки
+                purchase_number=None,  # Не копируем номер закупки
+                customer_inn=getattr(original, 'customer_inn', []),
+                excluded_customer_inns=getattr(original, 'excluded_customer_inns', []),
+                excluded_customer_keywords=getattr(original, 'excluded_customer_keywords', []),
+                execution_regions=getattr(original, 'execution_regions', []),
+                publication_days=getattr(original, 'publication_days', None),
+                primary_keywords=getattr(original, 'primary_keywords', []),
+                secondary_keywords=getattr(original, 'secondary_keywords', []),
+                search_in=getattr(original, 'search_in', []),
+                is_active=True  # Новый фильтр активен по умолчанию
+            )
+
+            session.add(new_filter)
+            await session.flush()
+            new_id = new_filter.id
+            await session.commit()
+
+            logger.info(f"📋 Filter duplicated: {original.name} -> {copy_name} (id={new_id})")
+            return new_id
 
     async def get_all_active_filters(self) -> List[Dict[str, Any]]:
         """Получение всех активных фильтров с информацией о пользователе."""
@@ -1664,6 +1729,133 @@ class TenderSniperDB:
                 'username': u.username,
                 'subscription_tier': u.subscription_tier,
             } for u in users]
+
+    # ============================================
+    # FEEDBACK LEARNING (Premium AI функция)
+    # ============================================
+
+    async def save_hidden_tender(
+        self,
+        user_id: int,
+        tender_number: str,
+        tender_name: str = '',
+        reason: str = 'skipped'
+    ) -> bool:
+        """
+        Сохраняет скрытый тендер для обучения ML.
+
+        Args:
+            user_id: ID пользователя
+            tender_number: Номер тендера
+            tender_name: Название тендера (для анализа паттернов)
+            reason: Причина скрытия
+
+        Returns:
+            True если успешно сохранено
+        """
+        try:
+            async with DatabaseSession() as session:
+                hidden = HiddenTenderModel(
+                    user_id=user_id,
+                    tender_number=tender_number,
+                    reason=reason
+                )
+                session.add(hidden)
+                await session.commit()
+                logger.debug(f"Сохранен скрытый тендер: {tender_number} для user {user_id}")
+                return True
+        except IntegrityError:
+            # Уже скрыт
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка сохранения скрытого тендера: {e}")
+            return False
+
+    async def get_user_hidden_patterns(self, user_id: int, min_occurrences: int = 2) -> Dict[str, Any]:
+        """
+        Анализирует паттерны скрытых тендеров пользователя.
+
+        Находит часто встречающиеся слова в названиях скрытых тендеров
+        для автоматического снижения score похожих тендеров.
+
+        Args:
+            user_id: ID пользователя
+            min_occurrences: Минимальное количество появлений слова
+
+        Returns:
+            Dict с negative_keywords и negative_customers
+        """
+        try:
+            async with DatabaseSession() as session:
+                # Получаем последние 100 скрытых тендеров
+                result = await session.execute(
+                    select(HiddenTenderModel)
+                    .where(HiddenTenderModel.user_id == user_id)
+                    .order_by(HiddenTenderModel.hidden_at.desc())
+                    .limit(100)
+                )
+                hidden_tenders = result.scalars().all()
+
+                if len(hidden_tenders) < 5:
+                    # Недостаточно данных для анализа
+                    return {'negative_keywords': [], 'negative_customers': [], 'sample_size': len(hidden_tenders)}
+
+                # Анализируем причины скрытия
+                word_counts = {}
+                customer_counts = {}
+
+                # Стоп-слова для исключения
+                stop_words = {
+                    'для', 'нужд', 'услуги', 'услуг', 'выполнение', 'работ',
+                    'поставка', 'закупка', 'оказание', 'обеспечение', 'приобретение',
+                    'товар', 'товаров', 'работы', 'работ', 'услуга'
+                }
+
+                for ht in hidden_tenders:
+                    # Анализируем reason (может содержать название тендера)
+                    if ht.reason and ht.reason != 'skipped':
+                        words = ht.reason.lower().split()
+                        for word in words:
+                            # Очищаем от знаков препинания
+                            clean_word = ''.join(c for c in word if c.isalnum())
+                            if len(clean_word) >= 4 and clean_word not in stop_words:
+                                word_counts[clean_word] = word_counts.get(clean_word, 0) + 1
+
+                # Фильтруем по минимальному количеству появлений
+                negative_keywords = [
+                    word for word, count in word_counts.items()
+                    if count >= min_occurrences
+                ]
+
+                # Сортируем по частоте
+                negative_keywords.sort(key=lambda w: word_counts[w], reverse=True)
+
+                return {
+                    'negative_keywords': negative_keywords[:20],  # Топ-20
+                    'negative_customers': [],  # TODO: реализовать анализ заказчиков
+                    'sample_size': len(hidden_tenders),
+                    'total_unique_words': len(word_counts)
+                }
+
+        except Exception as e:
+            logger.error(f"Ошибка анализа скрытых тендеров: {e}")
+            return {'negative_keywords': [], 'negative_customers': [], 'error': str(e)}
+
+    async def is_tender_hidden(self, user_id: int, tender_number: str) -> bool:
+        """Проверяет, скрыт ли тендер пользователем."""
+        try:
+            async with DatabaseSession() as session:
+                result = await session.execute(
+                    select(HiddenTenderModel)
+                    .where(
+                        HiddenTenderModel.user_id == user_id,
+                        HiddenTenderModel.tender_number == tender_number
+                    )
+                )
+                return result.scalar_one_or_none() is not None
+        except Exception as e:
+            logger.error(f"Ошибка проверки скрытого тендера: {e}")
+            return False
 
 
 # Глобальный singleton
