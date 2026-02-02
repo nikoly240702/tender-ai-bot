@@ -501,6 +501,12 @@ async def show_download_menu(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
 
+        # Если тендеров нет в state - загружаем из БД
+        if not tenders:
+            logger.info(f"[DOWNLOAD] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
+            tenders = await get_all_user_tenders(callback.from_user.id)
+            await state.update_data(all_tenders=tenders)
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"📊 Excel (.xlsx) - {len(tenders)} тендеров", callback_data="alltenders_download_excel")],
             [InlineKeyboardButton(text=f"🌐 HTML отчёт - {len(tenders)} тендеров", callback_data="alltenders_download_html_menu")],
@@ -530,6 +536,12 @@ async def download_excel(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
         filter_params = data.get('filter_params', {})
+
+        # Если тендеров нет в state - загружаем из БД
+        if not tenders:
+            logger.info(f"[EXCEL] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
+            tenders = await get_all_user_tenders(callback.from_user.id)
+            await state.update_data(all_tenders=tenders)
 
         # Применяем фильтры
         filtered_tenders = filter_tenders(
@@ -574,6 +586,12 @@ async def show_html_download_menu(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
 
+        # Если тендеров нет в state - загружаем из БД
+        if not tenders:
+            logger.info(f"[HTML_MENU] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
+            tenders = await get_all_user_tenders(callback.from_user.id)
+            await state.update_data(all_tenders=tenders)
+
         # Получаем список уникальных фильтров
         filter_names = set(t.get('filter_name') or 'Без фильтра' for t in tenders)
         filters_count = len(filter_names)
@@ -607,6 +625,12 @@ async def download_all_tenders_html(callback: CallbackQuery, state: FSMContext):
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
         filter_params = data.get('filter_params', {})
+
+        # Если тендеров нет в state - загружаем из БД
+        if not tenders:
+            logger.info(f"[HTML_ALL] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
+            tenders = await get_all_user_tenders(callback.from_user.id)
+            await state.update_data(all_tenders=tenders)
 
         # Применяем фильтры
         filtered_tenders = filter_tenders(
@@ -644,6 +668,12 @@ async def show_filter_selection(callback: CallbackQuery, state: FSMContext):
 
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
+
+        # Если тендеров нет в state - загружаем из БД
+        if not tenders:
+            logger.info(f"[FILTER_SELECT] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
+            tenders = await get_all_user_tenders(callback.from_user.id)
+            await state.update_data(all_tenders=tenders)
 
         # Группируем тендеры по фильтрам и считаем количество
         filter_counts = {}
@@ -690,6 +720,12 @@ async def download_by_filter(callback: CallbackQuery, state: FSMContext):
 
         data = await state.get_data()
         tenders = data.get('all_tenders', [])
+
+        # Если тендеров нет в state - загружаем из БД
+        if not tenders:
+            logger.info(f"[DL_FILTER] State пустой, загружаем тендеры из БД для user {callback.from_user.id}")
+            tenders = await get_all_user_tenders(callback.from_user.id)
+            await state.update_data(all_tenders=tenders)
 
         # Фильтруем тендеры по выбранному фильтру
         if selected_filter == "Без фильтра":

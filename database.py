@@ -639,8 +639,10 @@ async def init_database(echo: bool = False):
             database_url,
             echo=echo,
             pool_pre_ping=True,
-            pool_size=20,
-            max_overflow=40,
+            pool_size=10,           # Уменьшено для Railway (ограничение соединений)
+            max_overflow=20,        # Уменьшено
+            pool_recycle=300,       # Переподключение каждые 5 минут (избегаем stale connections)
+            pool_timeout=30,        # Таймаут получения соединения из пула
         )
     logger.info("   ✅ Engine создан")
 
