@@ -2,6 +2,8 @@
 Subscription Check Middleware.
 
 Проверяет подписку пользователя и блокирует действия при истёкшем триале.
+
+ОПТИМИЗАЦИЯ: Использует кэш из AccessControlMiddleware, не делает запросов к БД.
 """
 
 import os
@@ -11,9 +13,6 @@ from typing import Callable, Dict, Any, Awaitable
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, TelegramObject
-
-from sqlalchemy import select, update
-from database import SniperUser, DatabaseSession
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +35,11 @@ class SubscriptionMiddleware(BaseMiddleware):
     """
     Middleware для проверки подписки пользователя.
 
+    ОПТИМИЗАЦИЯ: Использует cached_user из AccessControlMiddleware,
+    НЕ делает запросов к БД!
+
     Проверяет:
-    - Не заблокирован ли пользователь
-    - Не истёк ли триал период
-    - Обновляет last_activity
+    - Не истёк ли триал период (из кэша)
 
     Пропускает:
     - /start, /help, /menu, /subscription команды
@@ -50,7 +50,6 @@ class SubscriptionMiddleware(BaseMiddleware):
     FREE_COMMANDS = {'/start', '/help', '/menu', '/subscription', '/sniper'}
 
     # Callback prefixes, которые работают без подписки
-    # (позволяют видеть меню и оформить подписку)
     FREE_CALLBACK_PREFIXES = [
         'sniper_menu',           # Главное меню Sniper
         'sniper_subscription',   # Страница подписки
@@ -69,6 +68,10 @@ class SubscriptionMiddleware(BaseMiddleware):
         data: Dict[str, Any]
     ) -> Any:
         """Проверка подписки перед обработкой."""
+
+        # Если админ - пропускаем все проверки
+        if data.get('is_admin'):
+            return await handler(event, data)
 
         # Определяем user_id и проверяем бесплатные действия
         user_id = None
@@ -97,63 +100,37 @@ class SubscriptionMiddleware(BaseMiddleware):
         if not user_id:
             return await handler(event, data)
 
-        # Админы с вечным Premium - пропускаем все проверки
+        # Админы с вечным Premium - пропускаем
         if user_id in ADMIN_USER_IDS:
             return await handler(event, data)
 
-        # Проверяем статус пользователя
-        try:
-            async with DatabaseSession() as session:
-                user = await session.scalar(
-                    select(SniperUser).where(SniperUser.telegram_id == user_id)
-                )
+        # Для бесплатных действий пропускаем проверки
+        if is_free_action:
+            return await handler(event, data)
 
-                if not user:
-                    # Новый пользователь - пропускаем
-                    return await handler(event, data)
+        # Используем КЭШИРОВАННЫЕ данные из AccessControlMiddleware
+        # НЕ делаем запрос к БД!
+        cached_user = data.get('cached_user')
 
-                # Проверяем блокировку
-                if user.status == 'blocked':
-                    message = (
-                        f"❌ <b>Ваш аккаунт заблокирован</b>\n\n"
-                        f"Причина: {user.blocked_reason or 'Не указана'}\n\n"
-                        f"Обратитесь в поддержку для разблокировки."
-                    )
+        if cached_user:
+            # Проверяем истечение подписки
+            trial_expires_at = cached_user.get('trial_expires_at')
 
-                    if isinstance(event, Message):
-                        await event.answer(message, parse_mode="HTML")
-                    elif isinstance(event, CallbackQuery):
-                        await event.answer("Ваш аккаунт заблокирован", show_alert=True)
-                    return
+            if trial_expires_at:
+                # trial_expires_at может быть datetime или строкой
+                if isinstance(trial_expires_at, str):
+                    try:
+                        trial_expires_at = datetime.fromisoformat(trial_expires_at)
+                    except:
+                        trial_expires_at = None
 
-                # Для бесплатных действий пропускаем дальнейшие проверки
-                if is_free_action:
-                    # Обновляем last_activity
-                    await session.execute(
-                        update(SniperUser)
-                        .where(SniperUser.id == user.id)
-                        .values(last_activity=datetime.now())
-                    )
-                    return await handler(event, data)
-
-                # Проверяем истечение подписки для ВСЕХ типов (trial, basic, premium)
-                subscription_expired = False
-                now = datetime.now()
-
-                # Проверяем дату окончания подписки
-                if user.trial_expires_at:
-                    if now > user.trial_expires_at:
-                        subscription_expired = True
-                else:
-                    # Нет даты окончания - считаем истекшей
-                    subscription_expired = True
-
-                if subscription_expired:
+                if trial_expires_at and datetime.now() > trial_expires_at:
+                    tier = cached_user.get('subscription_tier', 'trial')
                     tier_name = {
                         'trial': 'пробный период',
                         'basic': 'подписка Basic',
                         'premium': 'подписка Premium',
-                    }.get(user.subscription_tier, 'подписка')
+                    }.get(tier, 'подписка')
 
                     message = (
                         f"⚠️ <b>Ваш {tier_name} закончился</b>\n\n"
@@ -168,15 +145,19 @@ class SubscriptionMiddleware(BaseMiddleware):
                         await event.answer()
                     return
 
-                # Обновляем last_activity
-                await session.execute(
-                    update(SniperUser)
-                    .where(SniperUser.id == user.id)
-                    .values(last_activity=datetime.now())
+            elif cached_user.get('subscription_tier') == 'trial':
+                # Нет даты окончания для триала - считаем истекшей
+                message = (
+                    "⚠️ <b>Ваш пробный период закончился</b>\n\n"
+                    "Для продолжения работы оформите подписку.\n\n"
+                    "Нажмите /subscription для выбора тарифа."
                 )
 
-        except Exception as e:
-            logger.error(f"SubscriptionMiddleware error: {e}", exc_info=True)
-            # При ошибке пропускаем (не блокируем пользователя)
+                if isinstance(event, Message):
+                    await event.answer(message, parse_mode="HTML")
+                elif isinstance(event, CallbackQuery):
+                    await event.message.answer(message, parse_mode="HTML")
+                    await event.answer()
+                return
 
         return await handler(event, data)
