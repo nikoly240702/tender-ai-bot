@@ -18,15 +18,6 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
-# Импортируем проверку AI доступа
-try:
-    from tender_sniper.ai_features import AIFeatureGate
-except ImportError:
-    # Fallback если модуль недоступен
-    class AIFeatureGate:
-        def __init__(self, tier): self.tier = tier
-        def can_use(self, feature): return tier == 'premium'
-
 # Импортируем AI генератор названий
 try:
     from tender_sniper.ai_name_generator import generate_tender_name
@@ -207,17 +198,12 @@ class TelegramNotifier:
         if tender_number:
             message += f"\n<b>№</b> {tender_number}"
 
-        # Добавляем красные флаги если есть (только для Premium)
-        gate = AIFeatureGate(subscription_tier)
+        # Добавляем красные флаги если есть
         red_flags = match_info.get('red_flags', [])
         if red_flags:
-            if gate.can_use('red_flags'):
-                message += "\n\n<b>🚩 Обратите внимание:</b>"
-                for flag in red_flags[:5]:  # Ограничиваем до 5 флагов
-                    message += f"\n• {flag}"
-            else:
-                # Показываем что есть флаги, но нужен Premium
-                message += f"\n\n🔒 <i>Обнаружено {len(red_flags)} предупреждений (Premium)</i>"
+            message += "\n\n<b>🚩 Обратите внимание:</b>"
+            for flag in red_flags[:5]:  # Ограничиваем до 5 флагов
+                message += f"\n• {flag}"
 
         return message.strip()
 
@@ -253,39 +239,6 @@ class TelegramNotifier:
                     url=tender_url
                 )
             ])
-
-        # AI кнопки (только для Premium или для показа upsell)
-        gate = AIFeatureGate(subscription_tier)
-
-        if tender_number:
-            if gate.can_use('summarization'):
-                # Premium: полноценные AI кнопки
-                buttons.append([
-                    InlineKeyboardButton(
-                        text="📝 AI-резюме",
-                        callback_data=f"ai_summary_{tender_number}"
-                    ),
-                    InlineKeyboardButton(
-                        text="📄 Анализ докум.",
-                        callback_data=f"analyze_docs_{tender_number}"
-                    )
-                ])
-            else:
-                # Не Premium: кнопка анализа для ручного поиска + upsell
-                if not is_auto_notification:
-                    buttons.append([
-                        InlineKeyboardButton(
-                            text="🤖 Анализировать с AI",
-                            callback_data=f"analyze_{tender_number}"
-                        )
-                    ])
-                # Показываем что есть Premium функции
-                buttons.append([
-                    InlineKeyboardButton(
-                        text="⭐ AI-функции (Premium)",
-                        callback_data="show_premium_ai"
-                    )
-                ])
 
         # Кнопки действий
         if tender_number:
