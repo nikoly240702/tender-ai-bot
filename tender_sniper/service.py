@@ -273,6 +273,9 @@ class TenderSniperService:
                     # Сбрасываем счетчик ошибок при успешном поиске
                     await self.db.reset_filter_error_count(filter_id)
 
+                    # Минимальный score для отправки уведомления
+                    MIN_SCORE_FOR_NOTIFICATION = 50
+
                     # Фильтруем только новые тендеры (которых еще не уведомляли)
                     for match in matches:
                         # match УЖЕ содержит данные тендера + match_score
@@ -280,6 +283,12 @@ class TenderSniperService:
                         tender_number = tender.get('number')
                         tender_name = tender.get('name', '')[:50]
                         score = tender.get('match_score', 0)
+
+                        # === ФИЛЬТР ПО SCORE ===
+                        # Не отправляем тендеры с низким score
+                        if score < MIN_SCORE_FOR_NOTIFICATION:
+                            logger.info(f"         ⏭️  Низкий score ({score}), пропускаем: {tender_name}")
+                            continue
 
                         if not tender_number:
                             logger.warning(f"         ⚠️  Тендер без номера, пропускаем")
