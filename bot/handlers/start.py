@@ -218,42 +218,10 @@ async def cmd_help(message: Message):
         await message.answer(BETA_ERROR_MESSAGE, parse_mode="HTML")
 
 
-@router.callback_query(F.data == "main_menu")
-async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
-    """
-    Возврат в главное меню из любого состояния.
-    Очищает FSM state и показывает стартовое сообщение.
-    """
-    try:
-        await callback.answer()
-
-        # Очищаем любое состояние
-        await state.clear()
-
-        welcome_text = (
-            "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
-            "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
-            "<b>Что я умею:</b>\n"
-            "🔍 Мгновенный поиск по вашим критериям\n"
-            "🎯 Умное сопоставление (scoring 0-100)\n"
-            "📱 Автоматические уведомления о новых тендерах\n"
-            "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
-            "<i>Нажмите кнопку ниже для начала!</i>"
-        )
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
-            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
-        ])
-
-        await callback.message.edit_text(
-            welcome_text,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка в return_to_main_menu: {e}", exc_info=True)
-        await callback.answer("❌ Произошла ошибка", show_alert=True)
+# УДАЛЕНО: Дубликат main_menu handler - используется версия из menu_priority.py
+# @router.callback_query(F.data == "main_menu")
+# async def return_to_main_menu(callback: CallbackQuery, state: FSMContext):
+#     ... (handler перенесен в menu_priority.py с индикатором загрузки)
 
 
 @router.callback_query(F.data == "start_onboarding")

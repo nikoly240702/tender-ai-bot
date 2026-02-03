@@ -195,11 +195,12 @@ async def cmd_sniper_menu(message: Message):
         await message.answer("❌ Произошла ошибка. Попробуйте /start")
 
 
-@router.callback_query(F.data == "sniper_menu")
+# НЕ используем декоратор - handler зарегистрирован в menu_priority.py
+# @router.callback_query(F.data == "sniper_menu")
 async def show_sniper_menu(callback: CallbackQuery):
     """Callback для возврата в главное меню Sniper."""
     try:
-        await callback.answer()
+        # НЕ вызываем callback.answer() - уже вызван в menu_priority.py
 
         # Проверяем статус автомониторинга (с кэшированием)
         user_id = callback.from_user.id
@@ -548,10 +549,11 @@ async def show_subscription_plans(callback: CallbackQuery):
 # МОИ ФИЛЬТРЫ
 # ============================================
 
-@router.callback_query(F.data == "sniper_my_filters")
+# НЕ используем декоратор - handler зарегистрирован в menu_priority.py
+# @router.callback_query(F.data == "sniper_my_filters")
 async def show_my_filters(callback: CallbackQuery):
     """Показать список фильтров пользователя."""
-    await callback.answer()
+    # НЕ вызываем callback.answer() здесь - он уже вызван в menu_priority.py
 
     try:
         db = await get_sniper_db()
@@ -636,9 +638,20 @@ async def show_my_filters(callback: CallbackQuery):
         )
 
     except Exception as e:
-        await callback.message.answer(
-            f"❌ Ошибка при получении фильтров: {str(e)}"
-        )
+        logger.error(f"❌ Ошибка в show_my_filters: {e}", exc_info=True)
+        try:
+            await callback.message.edit_text(
+                f"❌ <b>Ошибка при получении фильтров</b>\n\n{str(e)[:200]}",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔄 Повторить", callback_data="sniper_my_filters")],
+                    [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+                ])
+            )
+        except Exception:
+            await callback.message.answer(
+                f"❌ Ошибка при получении фильтров: {str(e)[:200]}"
+            )
 
 
 async def show_my_filters_message(message: Message):
