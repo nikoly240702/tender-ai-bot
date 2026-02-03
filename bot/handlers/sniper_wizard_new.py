@@ -2069,6 +2069,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             'okpd2_codes': json_lib.dumps([], ensure_ascii=False),
             'min_deadline_days': None,
             'customer_keywords': json_lib.dumps([], ensure_ascii=False),
+            'ai_intent': ai_intent,  # Передаём AI intent для семантической проверки
         }
 
         # Выполняем поиск с указанным лимитом
@@ -2670,6 +2671,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             'okpd2_codes': json_lib.dumps([], ensure_ascii=False),
             'min_deadline_days': None,
             'customer_keywords': json_lib.dumps([], ensure_ascii=False),
+            'ai_intent': ai_intent,  # Передаём AI intent для семантической проверки
         }
 
         # Выполняем поиск
