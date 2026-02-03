@@ -608,6 +608,12 @@ class InstantSearch:
             ai_filtered_matches = []
             ai_rejected_count = 0
 
+            # Если ai_intent отсутствует, генерируем его на лету из названия фильтра и ключевых слов
+            if use_ai_check and not ai_intent and original_keywords:
+                filter_name = filter_data.get('name', '')
+                ai_intent = f"Ищу тендеры по запросу '{filter_name}'. Ключевые слова: {', '.join(original_keywords)}. Меня интересуют ТОЛЬКО тендеры, которые напрямую связаны с этими ключевыми словами."
+                logger.info(f"   ⚠️ ai_intent отсутствует, сгенерирован fallback")
+
             if use_ai_check and ai_intent and matches:
                 logger.info(f"   🤖 AI проверка релевантности ({len(matches)} тендеров)...")
 

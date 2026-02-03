@@ -388,7 +388,17 @@ async def priority_toggle_monitoring(message: Message, state: FSMContext):
 async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Callback главного меню - работает в любом состоянии."""
     try:
-        await callback.answer()
+        # ВАЖНО: Сначала показываем загрузку, потом делаем async операции
+        await callback.answer("⏳ Загрузка...")
+
+        # Показываем индикатор загрузки СРАЗУ (до async операций)
+        try:
+            await callback.message.edit_text(
+                "🎯 <b>TENDER SNIPER</b>\n\n⏳ Загрузка меню...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass  # Если не удалось - не страшно
 
         current_state = await state.get_state()
         if current_state:
@@ -473,13 +483,22 @@ async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext
 async def priority_my_filters_callback(callback: CallbackQuery, state: FSMContext):
     """Callback Мои фильтры - работает в любом состоянии."""
     try:
+        # Мгновенный ответ + индикатор загрузки
+        await callback.answer("⏳ Загрузка фильтров...")
+        try:
+            await callback.message.edit_text(
+                "📋 <b>Мои фильтры</b>\n\n⏳ Загрузка...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
         current_state = await state.get_state()
         if current_state:
             logger.info(f"Прерывание FSM состояния {current_state} для sniper_my_filters callback")
             await state.clear()
 
         # Импортируем и вызываем handler для отображения фильтров
-        # НЕ вызываем callback.answer() - это сделает show_my_filters
         from bot.handlers.sniper import show_my_filters
         await show_my_filters(callback)
     except Exception as e:
@@ -491,6 +510,16 @@ async def priority_my_filters_callback(callback: CallbackQuery, state: FSMContex
 async def priority_sniper_menu_callback(callback: CallbackQuery, state: FSMContext):
     """Callback меню Sniper - работает в любом состоянии."""
     try:
+        # Мгновенный ответ + индикатор загрузки
+        await callback.answer("⏳ Загрузка...")
+        try:
+            await callback.message.edit_text(
+                "🎯 <b>TENDER SNIPER</b>\n\n⏳ Загрузка...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
         current_state = await state.get_state()
         if current_state:
             logger.info(f"Прерывание FSM состояния {current_state} для sniper_menu callback")
