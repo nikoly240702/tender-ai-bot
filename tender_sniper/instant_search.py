@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.parsers.zakupki_rss_parser import ZakupkiRSSParser
 from tender_sniper.matching import SmartMatcher
 from src.utils.transliterator import Transliterator
+from tender_sniper.ai_relevance_checker import get_relevance_checker, check_tender_relevance
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,10 @@ class InstantSearch:
         self,
         filter_data: Dict[str, Any],
         max_tenders: int = 25,
-        expanded_keywords: List[str] = None
+        expanded_keywords: List[str] = None,
+        use_ai_check: bool = True,
+        user_id: int = None,
+        subscription_tier: str = 'trial'
     ) -> Dict[str, Any]:
         """
         Поиск тендеров по критериям фильтра.
@@ -511,6 +515,73 @@ class InstantSearch:
 
                 matches.append(tender_with_score)
 
+            # ============================================
+            # AI СЕМАНТИЧЕСКАЯ ПРОВЕРКА
+            # ============================================
+            ai_intent = filter_data.get('ai_intent')
+            ai_filtered_matches = []
+            ai_rejected_count = 0
+
+            if use_ai_check and ai_intent and matches:
+                logger.info(f"   🤖 AI проверка релевантности ({len(matches)} тендеров)...")
+
+                for tender in matches:
+                    tender_score = tender.get('match_score', 0)
+
+                    # Высокий score (>=85) — пропускаем без AI проверки
+                    if tender_score >= 85:
+                        tender['ai_verified'] = False
+                        tender['ai_skipped'] = True
+                        ai_filtered_matches.append(tender)
+                        continue
+
+                    # Проверяем через AI
+                    try:
+                        ai_result = await check_tender_relevance(
+                            tender_name=tender.get('name', ''),
+                            filter_intent=ai_intent,
+                            filter_keywords=original_keywords,
+                            tender_description=tender.get('description', '') or tender.get('summary', ''),
+                            user_id=user_id,
+                            subscription_tier=subscription_tier
+                        )
+
+                        if ai_result.get('is_relevant', True):
+                            # AI подтвердил релевантность
+                            tender['ai_verified'] = True
+                            tender['ai_confidence'] = ai_result.get('confidence', 0)
+                            tender['ai_reason'] = ai_result.get('reason', '')
+                            # Корректируем score на основе AI уверенности
+                            ai_confidence = ai_result.get('confidence', 50)
+                            tender['match_score'] = (tender_score + ai_confidence) // 2
+                            ai_filtered_matches.append(tender)
+                        else:
+                            # AI отклонил — НЕ показываем
+                            ai_rejected_count += 1
+                            logger.info(f"      ❌ AI отклонил: {tender.get('name', '')[:50]}... "
+                                       f"({ai_result.get('reason', 'нет причины')})")
+
+                        # Проверяем квоту
+                        if ai_result.get('source') == 'quota_exceeded':
+                            logger.warning(f"   ⚠️ Квота AI исчерпана, остальные без проверки")
+                            # Добавляем оставшиеся без AI проверки
+                            remaining_idx = matches.index(tender) + 1
+                            for remaining in matches[remaining_idx:]:
+                                remaining['ai_verified'] = False
+                                remaining['ai_skipped'] = True
+                                ai_filtered_matches.append(remaining)
+                            break
+
+                    except Exception as e:
+                        logger.warning(f"      ⚠️ Ошибка AI: {e}")
+                        # При ошибке — пропускаем тендер (лучше показать)
+                        tender['ai_verified'] = False
+                        tender['ai_error'] = str(e)
+                        ai_filtered_matches.append(tender)
+
+                matches = ai_filtered_matches
+                logger.info(f"   🤖 AI результат: {len(ai_filtered_matches)} одобрено, {ai_rejected_count} отклонено")
+
             # Сортируем по скору
             matches.sort(key=lambda x: x['match_score'], reverse=True)
 
@@ -527,7 +598,11 @@ class InstantSearch:
                     'expanded_keywords': expanded_keywords or [],
                     'original_keywords': original_keywords,
                     'high_score_count': len([m for m in matches if m['match_score'] >= 70]),
-                    'medium_score_count': len([m for m in matches if 40 <= m['match_score'] < 70])
+                    'medium_score_count': len([m for m in matches if 40 <= m['match_score'] < 70]),
+                    # AI статистика
+                    'ai_enabled': bool(use_ai_check and ai_intent) if 'ai_intent' in dir() else False,
+                    'ai_verified_count': len([m for m in matches if m.get('ai_verified')]),
+                    'ai_rejected_count': ai_rejected_count if 'ai_rejected_count' in locals() else 0
                 }
             }
 

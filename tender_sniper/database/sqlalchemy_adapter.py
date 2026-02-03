@@ -19,6 +19,7 @@ from database import (
     TenderCache as TenderCacheModel,
     FilterDraft as FilterDraftModel,  # 🧪 БЕТА: Черновики фильтров
     HiddenTender as HiddenTenderModel,  # Для feedback learning
+    AIFeedback as AIFeedbackModel,  # AI семантика feedback
     # Phase 2.1 models
     SearchHistory as SearchHistoryModel,
     UserFeedback as UserFeedbackModel,
@@ -470,10 +471,154 @@ class TenderSniperDB:
             'primary_keywords': safe_list(getattr(filter_obj, 'primary_keywords', [])),
             'secondary_keywords': safe_list(getattr(filter_obj, 'secondary_keywords', [])),
             'search_in': safe_list(getattr(filter_obj, 'search_in', [])),
+            # AI семантика
+            'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'is_active': filter_obj.is_active,
             'created_at': filter_obj.created_at.isoformat() if filter_obj.created_at else None,
             'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None
         }
+
+    # ============================================
+    # AI INTENT & FEEDBACK
+    # ============================================
+
+    async def get_filters_without_intent(self, limit: int = 1000) -> List[Dict[str, Any]]:
+        """
+        Получает фильтры, у которых нет AI intent.
+
+        Используется для background job генерации intent.
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperFilterModel)
+                .where(
+                    and_(
+                        SniperFilterModel.is_active == True,
+                        or_(
+                            SniperFilterModel.ai_intent == None,
+                            SniperFilterModel.ai_intent == ''
+                        )
+                    )
+                )
+                .limit(limit)
+            )
+            filters = result.scalars().all()
+            return [self._filter_to_dict(f) for f in filters]
+
+    async def update_filter_intent(self, filter_id: int, intent: str) -> bool:
+        """
+        Обновляет AI intent для фильтра.
+
+        Args:
+            filter_id: ID фильтра
+            intent: Сгенерированный AI intent
+
+        Returns:
+            True если успешно обновлено
+        """
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(ai_intent=intent, updated_at=datetime.utcnow())
+            )
+            await session.commit()
+            return result.rowcount > 0
+
+    async def save_ai_feedback(
+        self,
+        user_id: int,
+        tender_number: str,
+        tender_name: str,
+        feedback_type: str,
+        filter_id: int = None,
+        filter_keywords: List[str] = None,
+        filter_intent: str = None,
+        ai_decision: bool = None,
+        ai_confidence: int = None,
+        ai_reason: str = None,
+        subscription_tier: str = None
+    ) -> int:
+        """
+        Сохраняет feedback для обучения AI.
+
+        Args:
+            user_id: ID пользователя
+            tender_number: Номер тендера
+            tender_name: Название тендера
+            feedback_type: 'hidden', 'favorited', 'clicked', 'applied'
+            filter_id: ID фильтра (опционально)
+            filter_keywords: Ключевые слова фильтра
+            filter_intent: AI intent фильтра
+            ai_decision: Решение AI (True/False)
+            ai_confidence: Уверенность AI (0-100)
+            ai_reason: Причина от AI
+            subscription_tier: Тариф пользователя
+
+        Returns:
+            ID созданной записи
+        """
+        from database import AIFeedback as AIFeedbackModel
+
+        async with DatabaseSession() as session:
+            feedback = AIFeedbackModel(
+                user_id=user_id,
+                filter_id=filter_id,
+                tender_number=tender_number,
+                tender_name=tender_name,
+                filter_keywords=filter_keywords,
+                filter_intent=filter_intent,
+                ai_decision=ai_decision,
+                ai_confidence=ai_confidence,
+                ai_reason=ai_reason,
+                feedback_type=feedback_type,
+                subscription_tier=subscription_tier
+            )
+            session.add(feedback)
+            await session.commit()
+            await session.refresh(feedback)
+            logger.info(f"📝 AI Feedback saved: {feedback_type} for tender {tender_number}")
+            return feedback.id
+
+    async def get_recent_ai_mistakes(
+        self,
+        filter_keywords: List[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Получает недавние ошибки AI (тендеры, которые пользователи скрыли).
+
+        Используется для динамического промпта с примерами.
+
+        Args:
+            filter_keywords: Ключевые слова для фильтрации (опционально)
+            limit: Максимум записей
+
+        Returns:
+            Список ошибок с tender_name и причиной
+        """
+        from database import AIFeedback as AIFeedbackModel
+
+        async with DatabaseSession() as session:
+            query = select(AIFeedbackModel).where(
+                and_(
+                    AIFeedbackModel.feedback_type == 'hidden',
+                    AIFeedbackModel.ai_decision == True  # AI сказал релевантен, но юзер скрыл
+                )
+            ).order_by(AIFeedbackModel.feedback_at.desc()).limit(limit)
+
+            result = await session.execute(query)
+            feedbacks = result.scalars().all()
+
+            return [
+                {
+                    'tender_name': f.tender_name,
+                    'filter_keywords': f.filter_keywords,
+                    'ai_reason': f.ai_reason,
+                    'feedback_at': f.feedback_at.isoformat() if f.feedback_at else None
+                }
+                for f in feedbacks
+            ]
 
     # ============================================
     # NOTIFICATIONS

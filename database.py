@@ -130,6 +130,9 @@ class SniperFilter(Base):
     customer_keywords = Column(JSON, default=list)  # List[str]
     exact_match = Column(Boolean, default=False, nullable=False)  # Точный поиск (без AI расширения)
 
+    # AI Семантика
+    ai_intent = Column(Text, nullable=True)  # Детальное описание намерения фильтра для AI проверки
+
     # 🧪 БЕТА: Фаза 2 - Расширенные фильтры
     purchase_number = Column(String(100), nullable=True)  # Поиск по номеру закупки
     customer_inn = Column(JSON, default=list)  # List[str] - ИНН заказчиков
@@ -254,6 +257,49 @@ class HiddenTender(Base):
     # Indexes
     __table_args__ = (
         Index('ix_hidden_tenders_user_tender', 'user_id', 'tender_number', unique=True),
+    )
+
+
+class AIFeedback(Base):
+    """
+    Feedback для обучения AI семантики.
+
+    Записывается когда:
+    - Пользователь скрывает тендер (negative feedback)
+    - Пользователь добавляет в избранное (positive feedback)
+    - Пользователь переходит по ссылке (implicit positive)
+    """
+    __tablename__ = 'ai_feedback'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    filter_id = Column(Integer, ForeignKey('sniper_filters.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    # Данные тендера
+    tender_number = Column(String(100), nullable=False, index=True)
+    tender_name = Column(Text, nullable=False)
+
+    # Контекст фильтра на момент события
+    filter_keywords = Column(JSON, nullable=True)  # Ключевые слова фильтра
+    filter_intent = Column(Text, nullable=True)  # AI intent фильтра
+
+    # AI решение на момент отправки
+    ai_decision = Column(Boolean, nullable=True)  # True = AI сказал релевантен
+    ai_confidence = Column(Integer, nullable=True)  # Уверенность AI (0-100)
+    ai_reason = Column(Text, nullable=True)  # Причина от AI
+
+    # Feedback пользователя
+    feedback_type = Column(String(50), nullable=False)  # 'hidden', 'favorited', 'clicked', 'applied'
+    feedback_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Дополнительно
+    subscription_tier = Column(String(50), nullable=True)  # Тариф на момент события
+
+    # Indexes
+    __table_args__ = (
+        Index('ix_ai_feedback_filter', 'filter_id'),
+        Index('ix_ai_feedback_type', 'feedback_type'),
+        Index('ix_ai_feedback_date', 'feedback_at'),
     )
 
 

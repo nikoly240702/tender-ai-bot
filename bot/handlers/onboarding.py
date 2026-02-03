@@ -307,6 +307,20 @@ async def callback_confirm_template(callback: CallbackQuery, state: FSMContext):
         is_active=True
     )
 
+    # 🤖 Генерируем AI intent для семантической проверки
+    try:
+        from tender_sniper.ai_relevance_checker import generate_intent
+        ai_intent = await generate_intent(
+            filter_name=f"{template['emoji']} {template['name']}",
+            keywords=template['keywords'],
+            exclude_keywords=[]
+        )
+        if ai_intent:
+            await db.update_filter_intent(filter_id, ai_intent)
+            logger.info(f"AI intent generated for onboarding filter {filter_id}")
+    except Exception as e:
+        logger.warning(f"Failed to generate AI intent for onboarding filter {filter_id}: {e}")
+
     await state.clear()
 
     # Показываем успех

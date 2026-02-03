@@ -2026,6 +2026,20 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}, automonitor={automonitor}")
 
+        # 🤖 Генерируем AI intent для семантической проверки (в фоне)
+        try:
+            from tender_sniper.ai_relevance_checker import generate_intent
+            ai_intent = await generate_intent(
+                filter_name=filter_name,
+                keywords=keywords,
+                exclude_keywords=exclude_keywords
+            )
+            if ai_intent:
+                await db.update_filter_intent(filter_id, ai_intent)
+                logger.info(f"AI intent generated for filter {filter_id}")
+        except Exception as e:
+            logger.warning(f"Failed to generate AI intent for filter {filter_id}: {e}")
+
         # 🆕 Удаляем черновик после успешного создания фильтра
         await delete_draft(callback.from_user.id)
 
@@ -2612,6 +2626,20 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         )
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}")
+
+        # 🤖 Генерируем AI intent для семантической проверки
+        try:
+            from tender_sniper.ai_relevance_checker import generate_intent
+            ai_intent = await generate_intent(
+                filter_name=filter_name,
+                keywords=keywords,
+                exclude_keywords=exclude_keywords
+            )
+            if ai_intent:
+                await db.update_filter_intent(filter_id, ai_intent)
+                logger.info(f"AI intent generated for filter {filter_id}")
+        except Exception as e:
+            logger.warning(f"Failed to generate AI intent for filter {filter_id}: {e}")
 
         # 🆕 Удаляем черновик после успешного создания фильтра
         await delete_draft(callback.from_user.id)

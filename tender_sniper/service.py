@@ -256,12 +256,15 @@ class TenderSniperService:
                     logger.warning(f"      ⚠️  Нет ключевых слов, пропускаем")
                     continue
 
-                # Делаем поиск по фильтру (БЕЗ AI расширения для скорости)
+                # Делаем поиск по фильтру (С AI проверкой релевантности)
                 try:
                     search_results = await searcher.search_by_filter(
                         filter_data=filter_data,
-                        max_tenders=5,  # Только топ-5 для мониторинга
-                        expanded_keywords=[]  # Без AI расширения
+                        max_tenders=10,  # Больше тендеров, AI отфильтрует нерелевантные
+                        expanded_keywords=[],  # Без AI расширения ключевых слов
+                        use_ai_check=True,  # AI проверка релевантности
+                        user_id=user_id,
+                        subscription_tier=subscription_tier
                     )
 
                     matches = search_results.get('matches', [])
