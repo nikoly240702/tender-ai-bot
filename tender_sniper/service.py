@@ -464,6 +464,11 @@ class TenderSniperService:
 
                 logger.info(f"   ✅ Уведомления отправлены: {self.stats['notifications_sent']}")
 
+            # Очищаем кэш обогащения после каждого цикла (экономия памяти)
+            cache_stats = InstantSearch.get_cache_stats()
+            if cache_stats['size'] > 100:
+                InstantSearch.clear_cache()
+
         except Exception as e:
             logger.error(f"❌ Ошибка обработки тендеров: {e}", exc_info=True)
             self.stats['errors'] += 1

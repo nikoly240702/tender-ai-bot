@@ -25,10 +25,33 @@ logger = logging.getLogger(__name__)
 class InstantSearch:
     """Мгновенный поиск тендеров по фильтру."""
 
+    # Кэш обогащённых тендеров (по номеру тендера)
+    # Сохраняет данные на время сессии, экономит HTTP запросы
+    _enrichment_cache: Dict[str, Dict[str, Any]] = {}
+    _cache_max_size = 500  # Максимум кэшированных тендеров
+
+    # Минимальный pre-score для обогащения (без обогащения - пропускаем)
+    MIN_PRESCORE_FOR_ENRICHMENT = 35
+
     def __init__(self):
         """Инициализация компонентов поиска."""
         self.parser = ZakupkiRSSParser()
         self.matcher = SmartMatcher()
+
+    @classmethod
+    def clear_cache(cls):
+        """Очищает кэш обогащённых тендеров."""
+        cache_size = len(cls._enrichment_cache)
+        cls._enrichment_cache.clear()
+        logger.info(f"🗑️ Кэш обогащения очищен ({cache_size} записей)")
+
+    @classmethod
+    def get_cache_stats(cls) -> Dict[str, int]:
+        """Возвращает статистику кэша."""
+        return {
+            'size': len(cls._enrichment_cache),
+            'max_size': cls._cache_max_size
+        }
 
     async def search_by_filter(
         self,
@@ -273,20 +296,91 @@ class InstantSearch:
             search_results = all_results[:max_tenders]
             logger.info(f"   ✅ Итого найдено тендеров: {len(search_results)}")
 
-            # === Обогащаем тендеры данными со страниц ===
+            # === ОПТИМИЗАЦИЯ: Pre-scoring + обогащение только нужных тендеров ===
+            # Вместо обогащения ВСЕХ тендеров (медленно), сначала делаем быстрый pre-scoring
+            # и обогащаем только те, которые потенциально релевантны
+
             if search_results:
-                logger.info(f"   📥 Загрузка полных данных тендеров...")
-                enriched_results = []
-                for i, tender in enumerate(search_results):
-                    try:
-                        logger.debug(f"      [{i+1}/{len(search_results)}] Обогащение: {tender.get('number', 'N/A')}")
-                        enriched = self.parser.enrich_tender_from_page(tender)
-                        enriched_results.append(enriched)
-                    except Exception as e:
-                        logger.error(f"      ⚠️ Ошибка обогащения тендера {tender.get('number', 'N/A')}: {e}", exc_info=True)
-                        enriched_results.append(tender)
-                search_results = enriched_results
-                logger.info(f"   ✅ Данные обогащены")
+                # 1. Создаём временный фильтр для pre-scoring
+                temp_filter = {
+                    'id': filter_data['id'],
+                    'name': filter_data['name'],
+                    'keywords': original_keywords,
+                    'price_min': price_min,
+                    'price_max': price_max,
+                    'regions': regions
+                }
+
+                # 2. Quick pre-scoring (без обогащения, на основе RSS данных)
+                logger.info(f"   ⚡ Быстрый pre-scoring ({len(search_results)} тендеров)...")
+                tenders_to_enrich = []
+                tenders_skipped = 0
+
+                for tender in search_results:
+                    tender_number = tender.get('number', '')
+
+                    # Проверяем кэш обогащённых тендеров
+                    if tender_number and tender_number in self._enrichment_cache:
+                        # Используем кэшированные данные
+                        cached = self._enrichment_cache[tender_number]
+                        tender.update(cached)
+                        tenders_to_enrich.append(tender)
+                        logger.debug(f"      💾 Из кэша: {tender_number}")
+                        continue
+
+                    # Pre-scoring на основе RSS данных (без HTTP запросов)
+                    pre_match = self.matcher.match_tender(tender, temp_filter)
+                    pre_score = pre_match.get('score', 0) if pre_match else 0
+
+                    # Если pre-score слишком низкий - пропускаем обогащение
+                    if pre_score < self.MIN_PRESCORE_FOR_ENRICHMENT:
+                        tenders_skipped += 1
+                        logger.debug(f"      ⏭️ Pre-score {pre_score} < {self.MIN_PRESCORE_FOR_ENRICHMENT}, пропускаем обогащение: {tender.get('name', '')[:50]}")
+                        continue
+
+                    tenders_to_enrich.append(tender)
+
+                if tenders_skipped > 0:
+                    logger.info(f"   ⏭️ Пропущено по pre-score: {tenders_skipped}")
+
+                # 3. Обогащаем только отобранные тендеры
+                if tenders_to_enrich:
+                    logger.info(f"   📥 Загрузка данных для {len(tenders_to_enrich)} тендеров (из {len(search_results)})...")
+                    enriched_results = []
+
+                    for i, tender in enumerate(tenders_to_enrich):
+                        tender_number = tender.get('number', '')
+
+                        # Уже обогащён из кэша - пропускаем
+                        if tender_number in self._enrichment_cache:
+                            enriched_results.append(tender)
+                            continue
+
+                        try:
+                            enriched = self.parser.enrich_tender_from_page(tender)
+                            enriched_results.append(enriched)
+
+                            # Сохраняем в кэш (ограничиваем размер)
+                            if tender_number and len(self._enrichment_cache) < self._cache_max_size:
+                                # Кэшируем только обогащённые поля
+                                self._enrichment_cache[tender_number] = {
+                                    'price': enriched.get('price'),
+                                    'price_formatted': enriched.get('price_formatted'),
+                                    'submission_deadline': enriched.get('submission_deadline'),
+                                    'customer_region': enriched.get('customer_region'),
+                                    'customer_city': enriched.get('customer_city'),
+                                    'customer': enriched.get('customer'),
+                                    'customer_address': enriched.get('customer_address'),
+                                }
+                        except Exception as e:
+                            logger.error(f"      ⚠️ Ошибка обогащения {tender_number}: {e}")
+                            enriched_results.append(tender)
+
+                    search_results = enriched_results
+                    logger.info(f"   ✅ Данные обогащены")
+                else:
+                    search_results = []
+                    logger.info(f"   ℹ️ Нет тендеров для обогащения после pre-scoring")
 
             # === CLIENT-SIDE ФИЛЬТРАЦИЯ ПО СТАТУСУ ЗАКУПКИ ===
             # Режим "archive" - ищем ТОЛЬКО архивные тендеры (с прошедшим дедлайном)
@@ -442,15 +536,7 @@ class InstantSearch:
             search_results = filtered_results
 
             # Ранжируем результаты через SmartMatcher
-            # Создаем временный фильтр для матчинга
-            temp_filter = {
-                'id': filter_data['id'],
-                'name': filter_data['name'],
-                'keywords': original_keywords,  # Используем оригинальные для матчинга
-                'price_min': price_min,
-                'price_max': price_max,
-                'regions': regions
-            }
+            # temp_filter уже создан ранее для pre-scoring
 
             matches = []
             for tender in search_results:

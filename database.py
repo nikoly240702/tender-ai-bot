@@ -189,6 +189,8 @@ class SniperNotification(Base):
     __table_args__ = (
         Index('ix_sniper_notifications_user_sent', 'user_id', 'sent_at'),
         Index('ix_sniper_notifications_tender', 'tender_number'),
+        # Составной индекс для is_tender_notified() - ускоряет проверку дубликатов
+        Index('ix_sniper_notifications_user_tender', 'user_id', 'tender_number'),
     )
 
 
