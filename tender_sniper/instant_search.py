@@ -6,6 +6,8 @@ Instant Search - мгновенный поиск тендеров по крит�
 
 import sys
 import re
+import asyncio
+import functools
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -187,16 +189,23 @@ class InstantSearch:
                         # 2 типа - без фильтрации на RSS уровне
                         tender_type_for_rss = None
 
-                    results = self.parser.search_tenders_rss(
-                        keywords=variant,
-                        price_min=price_min,
-                        price_max=price_max,
-                        regions=regions,
-                        max_results=results_per_query,
-                        tender_type=tender_type_for_rss,
-                        law_type=law_type,
-                        purchase_stage=effective_purchase_stage,
-                        purchase_method=purchase_method,
+                    # Запускаем синхронный HTTP запрос в thread executor,
+                    # чтобы не блокировать event loop бота
+                    loop = asyncio.get_event_loop()
+                    results = await loop.run_in_executor(
+                        None,
+                        functools.partial(
+                            self.parser.search_tenders_rss,
+                            keywords=variant,
+                            price_min=price_min,
+                            price_max=price_max,
+                            regions=regions,
+                            max_results=results_per_query,
+                            tender_type=tender_type_for_rss,
+                            law_type=law_type,
+                            purchase_stage=effective_purchase_stage,
+                            purchase_method=purchase_method,
+                        )
                     )
 
                     # Дедупликация по номеру тендера + client-side фильтрация
@@ -357,7 +366,11 @@ class InstantSearch:
                             continue
 
                         try:
-                            enriched = self.parser.enrich_tender_from_page(tender)
+                            # Синхронный HTTP в thread executor
+                            loop = asyncio.get_event_loop()
+                            enriched = await loop.run_in_executor(
+                                None, self.parser.enrich_tender_from_page, tender
+                            )
                             enriched_results.append(enriched)
 
                             # Сохраняем в кэш (ограничиваем размер)

@@ -428,7 +428,8 @@ async def main():
 
     try:
         # Удаляем старые webhook (если были)
-        await bot.delete_webhook(drop_pending_updates=True)
+        # ВАЖНО: НЕ удаляем pending updates, чтобы не терять сообщения при перезапуске
+        await bot.delete_webhook(drop_pending_updates=False)
 
         # Устанавливаем команды бота
         commands = [
