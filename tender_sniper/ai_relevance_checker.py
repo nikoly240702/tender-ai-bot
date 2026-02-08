@@ -30,8 +30,8 @@ class AIRelevanceChecker:
     MODEL = "gpt-4o-mini"
 
     # Пороги уверенности
-    CONFIDENCE_THRESHOLD_ACCEPT = 85  # Минимум для одобрения
-    CONFIDENCE_THRESHOLD_RECHECK = 70  # Ниже этого — точно отклоняем
+    CONFIDENCE_THRESHOLD_ACCEPT = 60  # Минимум для одобрения
+    CONFIDENCE_THRESHOLD_RECHECK = 40  # Ниже этого — точно отклоняем
 
     # Кэш решений (in-memory, для production лучше Redis)
     _cache: Dict[str, Tuple[bool, int, str, datetime]] = {}

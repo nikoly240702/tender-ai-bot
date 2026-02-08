@@ -275,35 +275,41 @@ class ZakupkiRSSParser:
                 if not tender:
                     continue
 
-                # Client-side СТРОГАЯ фильтрация по типу закупки (если указан)
+                # Client-side фильтрация по типу закупки (если указан)
                 if tender_type == "товары":
-                    # СТРОГАЯ фильтрация для товаров - исключаем все услуги и работы
+                    # Фильтрация для товаров - исключаем явные услуги и работы
                     name_lower = tender.get('name', '').lower()
-                    summary_lower = tender.get('summary', '').lower()
-                    full_text = name_lower + ' ' + summary_lower
 
-                    # Индикаторы услуг/работ - если они есть, это НЕ товары
-                    service_work_indicators = [
-                        'оказание услуг', 'выполнение работ', 'проведение работ',
-                        'оказание услуги', 'выполнение услуг',
-                        'ремонт', 'монтаж', 'установка', 'обслуживание',
-                        'консультирование', 'разработка', 'проектирование',
-                        'техническое обслуживание', 'техобслуживание',
-                        'услуги по', 'работы по', 'сервисное обслуживание',
-                        'медицинские услуги', 'медицинская помощь',
-                        'сопровождение', 'настройка', 'наладка'
+                    # Если название начинается с индикатора товаров - НЕ фильтруем
+                    # (даже если в описании есть "ремонт", "монтаж" и т.д.)
+                    goods_start_indicators = [
+                        'поставка', 'закупка', 'приобретение', 'купля',
+                        'покупка', 'снабжение'
                     ]
+                    is_goods_by_name = any(name_lower.startswith(ind) for ind in goods_start_indicators)
 
-                    # СТРОГАЯ проверка: если есть индикатор услуг/работ - отфильтровываем
-                    is_service_or_work = False
-                    for indicator in service_work_indicators:
-                        if indicator in full_text:
-                            filtered_count += 1
-                            print(f"   ⛔ Отфильтрован (услуга/работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
-                            is_service_or_work = True
-                            break
-                    if is_service_or_work:
-                        continue
+                    if not is_goods_by_name:
+                        # Проверяем только НАЗВАНИЕ на индикаторы услуг/работ
+                        # (не проверяем summary - слишком много ложных срабатываний)
+                        service_work_indicators = [
+                            'оказание услуг', 'выполнение работ', 'проведение работ',
+                            'оказание услуги', 'выполнение услуг',
+                            'услуги по', 'работы по',
+                            'медицинские услуги', 'медицинская помощь',
+                            'консультирование', 'проектирование',
+                            'техническое обслуживание', 'техобслуживание',
+                            'сервисное обслуживание',
+                        ]
+
+                        is_service_or_work = False
+                        for indicator in service_work_indicators:
+                            if indicator in name_lower:
+                                filtered_count += 1
+                                print(f"   ⛔ Отфильтрован (услуга/работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                                is_service_or_work = True
+                                break
+                        if is_service_or_work:
+                            continue
 
                 elif tender_type == "услуги":
                     # СТРОГАЯ фильтрация для услуг - исключаем товары и работы

@@ -33,7 +33,7 @@ class InstantSearch:
     _cache_max_size = 500  # Максимум кэшированных тендеров
 
     # Минимальный pre-score для обогащения (без обогащения - пропускаем)
-    MIN_PRESCORE_FOR_ENRICHMENT = 35
+    MIN_PRESCORE_FOR_ENRICHMENT = 15
 
     def __init__(self):
         """Инициализация компонентов поиска."""
@@ -585,16 +585,17 @@ class InstantSearch:
                 # ФИЛЬТР 2: ДВОЙНАЯ ПРОВЕРКА ТИПА - дополнительная защита от услуг в товарах
                 if tender_types and len(tender_types) > 0:
                     tender_name = tender.get('name', '').lower()
-                    tender_summary = tender.get('summary', '').lower()
-                    full_text = tender_name + ' ' + tender_summary
 
                     # Если выбраны только товары - исключаем явные услуги
+                    # Но НЕ фильтруем если название начинается с "поставка", "закупка" и т.д.
                     if tender_types == ['товары']:
-                        service_indicators = ['оказание услуг', 'выполнение работ', 'медицинские услуги',
-                                             'ремонт', 'обслуживание', 'услуги по', 'работы по']
-                        if any(ind in full_text for ind in service_indicators):
-                            logger.debug(f"      ⛔ Исключен при scoring (услуга): {tender.get('name', '')[:60]}")
-                            continue
+                        goods_start = ['поставка', 'закупка', 'приобретение', 'купля', 'покупка']
+                        if not any(tender_name.startswith(g) for g in goods_start):
+                            service_indicators = ['оказание услуг', 'выполнение работ',
+                                                 'медицинские услуги', 'услуги по', 'работы по']
+                            if any(ind in tender_name for ind in service_indicators):
+                                logger.debug(f"      ⛔ Исключен при scoring (услуга): {tender.get('name', '')[:60]}")
+                                continue
 
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
@@ -652,13 +653,12 @@ class InstantSearch:
                         )
 
                         if ai_result.get('is_relevant', True):
-                            # AI подтвердил релевантность
+                            # AI подтвердил релевантность — сохраняем SmartMatcher score
                             tender['ai_verified'] = True
                             tender['ai_confidence'] = ai_result.get('confidence', 0)
                             tender['ai_reason'] = ai_result.get('reason', '')
-                            # Корректируем score на основе AI уверенности
-                            ai_confidence = ai_result.get('confidence', 50)
-                            tender['match_score'] = (tender_score + ai_confidence) // 2
+                            # НЕ усредняем с AI — используем SmartMatcher score как основной
+                            # AI работает только как фильтр отклонения нерелевантных
                             ai_filtered_matches.append(tender)
                         else:
                             # AI отклонил — НЕ показываем
@@ -690,8 +690,8 @@ class InstantSearch:
             # Сортируем по скору
             matches.sort(key=lambda x: x['match_score'], reverse=True)
 
-            high_score = len([m for m in matches if m['match_score'] >= 50])
-            logger.info(f"   🎯 Всего тендеров: {len(matches)} (высокий score ≥50: {high_score})")
+            high_score = len([m for m in matches if m['match_score'] >= 35])
+            logger.info(f"   🎯 Всего тендеров: {len(matches)} (высокий score ≥35: {high_score})")
 
             return {
                 'tenders': search_results,

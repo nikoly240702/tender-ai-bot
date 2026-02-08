@@ -725,7 +725,7 @@ async def diagnostic_test_search(callback: CallbackQuery, state: FSMContext):
         already_notified = 0
         new_tenders = 0
         low_score = 0
-        MIN_SCORE = 50
+        MIN_SCORE = 35
 
         tender_details = []
         for m in matches:
