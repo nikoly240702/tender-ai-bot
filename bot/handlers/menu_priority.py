@@ -646,7 +646,17 @@ async def filter_diagnostics_callback(callback: CallbackQuery, state: FSMContext
         monitoring_text = "🟢 Автомониторинг <b>ВКЛЮЧЁН</b>" if is_monitoring else "🔴 Автомониторинг <b>ВЫКЛЮЧЕН</b>"
         text += f"\n{monitoring_text}\n"
 
+        # Кнопки тестового поиска для каждого фильтра
+        test_buttons = []
+        for d in diagnostics:
+            if d['is_active']:
+                test_buttons.append([InlineKeyboardButton(
+                    text=f"🧪 Тест #{d['id']} {d['name'][:20]}",
+                    callback_data=f"diag_test_{d['id']}"
+                )])
+
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            *test_buttons,
             [InlineKeyboardButton(text="🔄 Обновить", callback_data="filter_diagnostics")],
             [InlineKeyboardButton(text="« Настройки", callback_data="open_settings")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
@@ -662,6 +672,129 @@ async def filter_diagnostics_callback(callback: CallbackQuery, state: FSMContext
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="« Назад", callback_data="open_settings")]
+                ])
+            )
+        except Exception:
+            await callback.answer("❌ Ошибка", show_alert=True)
+
+
+# ============================================
+# ТЕСТОВЫЙ ПОИСК ДЛЯ ДИАГНОСТИКИ
+# ============================================
+
+@router.callback_query(StateFilter("*"), F.data.startswith("diag_test_"))
+async def diagnostic_test_search(callback: CallbackQuery, state: FSMContext):
+    """Тестовый поиск по фильтру для диагностики."""
+    try:
+        filter_id = int(callback.data.replace("diag_test_", ""))
+        await callback.answer("⏳ Запускаю тестовый поиск...")
+
+        await callback.message.edit_text(
+            f"🧪 <b>Тестовый поиск фильтра #{filter_id}</b>\n\n⏳ Поиск на zakupki.gov.ru...",
+            parse_mode="HTML"
+        )
+
+        from tender_sniper.database import get_sniper_db
+        from tender_sniper.instant_search import InstantSearch
+
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.edit_text("❌ Пользователь не найден")
+            return
+
+        filter_data = await db.get_filter_by_id(filter_id)
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден")
+            return
+
+        # Запускаем поиск
+        searcher = InstantSearch()
+        search_results = await searcher.search_by_filter(
+            filter_data=filter_data,
+            max_tenders=25,
+            expanded_keywords=[],
+            use_ai_check=False  # Без AI для скорости диагностики
+        )
+
+        matches = search_results.get('matches', [])
+        total_from_rss = search_results.get('total_found', 0)
+
+        # Проверяем сколько уже уведомлены
+        already_notified = 0
+        new_tenders = 0
+        low_score = 0
+        MIN_SCORE = 50
+
+        tender_details = []
+        for m in matches:
+            tender_number = m.get('number', '')
+            score = m.get('match_score', 0)
+            name = m.get('name', '')[:60]
+
+            if score < MIN_SCORE:
+                low_score += 1
+                tender_details.append(f"   ⬇️ {score}% | {name}")
+                continue
+
+            is_notified = await db.is_tender_notified(tender_number, user['id'])
+            if is_notified:
+                already_notified += 1
+                tender_details.append(f"   ✅ {score}% | {name}")
+            else:
+                new_tenders += 1
+                tender_details.append(f"   🆕 {score}% | {name}")
+
+        # Формируем отчёт
+        import json
+        keywords_raw = filter_data.get('keywords', '[]')
+        keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else keywords_raw
+
+        text = (
+            f"🧪 <b>Тест фильтра #{filter_id}: {filter_data['name']}</b>\n\n"
+            f"🔑 Ключевые слова: {', '.join(keywords[:5])}\n\n"
+            f"📡 <b>Результаты RSS:</b>\n"
+            f"   Всего от RSS: <b>{total_from_rss}</b>\n"
+            f"   После скоринга: <b>{len(matches)}</b>\n\n"
+            f"📊 <b>Анализ совпадений:</b>\n"
+            f"   🆕 Новых (не уведомлены): <b>{new_tenders}</b>\n"
+            f"   ✅ Уже отправлены: <b>{already_notified}</b>\n"
+            f"   ⬇️ Низкий score (&lt;{MIN_SCORE}): <b>{low_score}</b>\n\n"
+        )
+
+        if new_tenders == 0 and already_notified > 0:
+            text += "💡 <b>Вывод:</b> Все найденные тендеры уже были отправлены ранее. Новых тендеров по этим ключевым словам на zakupki.gov.ru пока нет.\n\n"
+        elif new_tenders == 0 and total_from_rss == 0:
+            text += "💡 <b>Вывод:</b> RSS не вернул результатов. Возможно, нет активных тендеров по этим ключевым словам.\n\n"
+        elif new_tenders > 0:
+            text += f"💡 <b>Вывод:</b> Есть {new_tenders} новых тендеров! Они должны прийти в ближайшем цикле мониторинга.\n\n"
+
+        # Показываем детали (первые 10)
+        if tender_details:
+            text += "<b>Топ тендеров:</b>\n"
+            for detail in tender_details[:10]:
+                text += f"{detail}\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Диагностика", callback_data="filter_diagnostics")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        # Telegram limit: 4096 chars
+        if len(text) > 4000:
+            text = text[:3950] + "\n\n<i>...обрезано</i>"
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в diagnostic_test_search: {e}", exc_info=True)
+        try:
+            await callback.message.edit_text(
+                f"❌ <b>Ошибка тестового поиска</b>\n\n{str(e)[:300]}",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔍 Диагностика", callback_data="filter_diagnostics")]
                 ])
             )
         except Exception:
