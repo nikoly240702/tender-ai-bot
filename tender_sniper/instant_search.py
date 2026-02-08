@@ -661,18 +661,24 @@ class InstantSearch:
                             tender['ai_reason'] = ai_result.get('reason', '')
                             ai_filtered_matches.append(tender)
                         else:
-                            # AI считает нерелевантным — НО показываем со сниженным score
-                            # Score используется для СОРТИРОВКИ, не для ФИЛЬТРАЦИИ
                             ai_rejected_count += 1
-                            original_score = tender.get('match_score', 0)
-                            tender['match_score'] = max(5, int(original_score * 0.7))  # -30% штраф
-                            tender['ai_verified'] = True
-                            tender['ai_low_relevance'] = True
-                            tender['ai_confidence'] = ai_result.get('confidence', 0)
-                            tender['ai_reason'] = ai_result.get('reason', '')
-                            ai_filtered_matches.append(tender)
-                            logger.info(f"      ⚠️ AI низкая релевантность (показываем): {tender.get('name', '')[:50]}... "
-                                       f"score {original_score}→{tender['match_score']} ({ai_result.get('reason', '')})")
+                            ai_confidence = ai_result.get('confidence', 0)
+
+                            if ai_confidence < 15:
+                                # Совершенно нерелевантный — убираем из выдачи
+                                logger.info(f"      ❌ AI отклонил ({ai_confidence}%): {tender.get('name', '')[:50]}... "
+                                           f"({ai_result.get('reason', '')})")
+                            else:
+                                # Пограничный — показываем со сниженным score
+                                original_score = tender.get('match_score', 0)
+                                tender['match_score'] = max(5, int(original_score * 0.7))  # -30% штраф
+                                tender['ai_verified'] = True
+                                tender['ai_low_relevance'] = True
+                                tender['ai_confidence'] = ai_confidence
+                                tender['ai_reason'] = ai_result.get('reason', '')
+                                ai_filtered_matches.append(tender)
+                                logger.info(f"      ⚠️ AI пограничный ({ai_confidence}%): {tender.get('name', '')[:50]}... "
+                                           f"score {original_score}→{tender['match_score']}")
 
                         # Проверяем квоту
                         if ai_result.get('source') == 'quota_exceeded':
