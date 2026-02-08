@@ -587,12 +587,20 @@ class InstantSearch:
                     tender_name = tender.get('name', '').lower()
 
                     # Если выбраны только товары - исключаем явные услуги
-                    # Но НЕ фильтруем если название начинается с "поставка", "закупка" и т.д.
                     if tender_types == ['товары']:
+                        # Если название НАЧИНАЕТСЯ с сервисного слова — это услуга
+                        service_start = ['услуга ', 'услуги ', 'ремонт ', 'обслуживание ',
+                                        'выполнение ', 'оказание ', 'работы по']
+                        if any(tender_name.startswith(s) for s in service_start):
+                            logger.debug(f"      ⛔ Исключен (услуга по началу): {tender.get('name', '')[:60]}")
+                            continue
+
+                        # Если не начинается с товарного слова — проверяем содержание
                         goods_start = ['поставка', 'закупка', 'приобретение', 'купля', 'покупка']
                         if not any(tender_name.startswith(g) for g in goods_start):
                             service_indicators = ['оказание услуг', 'выполнение работ',
-                                                 'медицинские услуги', 'услуги по', 'работы по']
+                                                 'медицинские услуги', 'услуги по', 'услуга по',
+                                                 'работы по', 'ремонт ']
                             if any(ind in tender_name for ind in service_indicators):
                                 logger.debug(f"      ⛔ Исключен при scoring (услуга): {tender.get('name', '')[:60]}")
                                 continue
@@ -664,7 +672,7 @@ class InstantSearch:
                             ai_rejected_count += 1
                             ai_confidence = ai_result.get('confidence', 0)
 
-                            if ai_confidence < 15:
+                            if ai_confidence < 20:
                                 # Совершенно нерелевантный — убираем из выдачи
                                 logger.info(f"      ❌ AI отклонил ({ai_confidence}%): {tender.get('name', '')[:50]}... "
                                            f"({ai_result.get('reason', '')})")
