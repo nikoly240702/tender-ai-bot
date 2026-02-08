@@ -260,7 +260,7 @@ class TenderSniperService:
                 try:
                     search_results = await searcher.search_by_filter(
                         filter_data=filter_data,
-                        max_tenders=10,  # Больше тендеров, AI отфильтрует нерелевантные
+                        max_tenders=25,  # Больше тендеров для лучшего покрытия
                         expanded_keywords=[],  # Без AI расширения ключевых слов
                         use_ai_check=True,  # AI проверка релевантности
                         user_id=user_id,
@@ -398,11 +398,7 @@ class TenderSniperService:
                         user_data_cache[telegram_id] = await self.db.get_user_by_telegram_id(telegram_id)
 
                     user_data = user_data_cache.get(telegram_id, {})
-                    if not await self._should_send_notification(user_data):
-                        logger.info(f"   🌙 Пропускаем уведомление для {telegram_id} (тихие часы)")
-                        # Тендер всё равно сохраняем в БД, но не отправляем уведомление
-                        # Он будет показан в утреннем дайджесте
-                        continue
+                    is_quiet_hours = not await self._should_send_notification(user_data)
 
                     tender = notif['tender']
 
@@ -416,29 +412,40 @@ class TenderSniperService:
                     # Заменяем название в тендере на короткое
                     tender['name'] = short_name
 
+                    # Нормализуем данные тендера (маппинг из InstantSearch формата в БД формат)
+                    tender_data = {
+                        'number': tender.get('number', ''),
+                        'name': short_name,
+                        'price': tender.get('price'),
+                        'url': tender.get('url', ''),
+                        'region': tender.get('customer_region', tender.get('region', '')),
+                        'customer_name': tender.get('customer', tender.get('customer_name', '')),
+                        'published_date': tender.get('published', tender.get('published_date', ''))
+                    }
+
+                    if is_quiet_hours:
+                        logger.info(f"   🌙 Тихие часы для {telegram_id} — сохраняем тендер без отправки")
+                        # Сохраняем в БД без отправки уведомления
+                        await self.db.save_notification(
+                            user_id=notif['user_id'],
+                            filter_id=notif['filter_id'],
+                            filter_name=notif['filter_name'],
+                            tender_data=tender_data,
+                            score=notif['score'],
+                            matched_keywords=notif['match_info'].get('matched_keywords', [])
+                        )
+                        continue
+
                     success = await self.notifier.send_tender_notification(
                         telegram_id=notif['telegram_id'],
                         tender=tender,
                         match_info=notif['match_info'],
                         filter_name=notif['filter_name'],
-                        is_auto_notification=True,  # Уведомление из автомониторинга
-                        subscription_tier=notif.get('subscription_tier', 'trial')  # Для AI кнопок
+                        is_auto_notification=True,
+                        subscription_tier=notif.get('subscription_tier', 'trial')
                     )
 
                     if success:
-                        # Нормализуем данные тендера (маппинг из InstantSearch формата в БД формат)
-                        # Используем уже сгенерированное короткое название!
-                        tender_data = {
-                            'number': tender.get('number', ''),
-                            'name': short_name,  # Сохраняем AI-название в БД!
-                            'price': tender.get('price'),
-                            'url': tender.get('url', ''),
-                            # InstantSearch возвращает customer/customer_region, БД ожидает customer_name/region
-                            'region': tender.get('customer_region', tender.get('region', '')),
-                            'customer_name': tender.get('customer', tender.get('customer_name', '')),
-                            'published_date': tender.get('published', tender.get('published_date', ''))
-                        }
-
                         logger.debug(f"   💾 Сохранение тендера {tender_data['number']}: "
                                    f"region={tender_data['region']}, customer={tender_data['customer_name']}")
 

@@ -554,6 +554,8 @@ async def open_settings_callback(callback: CallbackQuery, state: FSMContext):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔔 Уведомления", callback_data="settings_notifications")],
             [InlineKeyboardButton(text="⚙️ Расширенные настройки", callback_data="settings_advanced")],
+            [InlineKeyboardButton(text="🔍 Диагностика фильтров", callback_data="filter_diagnostics")],
+            [InlineKeyboardButton(text="🗑 Очистка истории", callback_data="cleanup_history")],
             [InlineKeyboardButton(text="« Назад", callback_data="main_menu")],
         ])
 
@@ -562,13 +564,190 @@ async def open_settings_callback(callback: CallbackQuery, state: FSMContext):
             "🔔 <b>Уведомления</b>\n"
             "Включение/выключение автомониторинга, лимиты\n\n"
             "⚙️ <b>Расширенные настройки</b>\n"
-            "Тихие часы, дайджест, интеграции (CRM, Email), профиль компании",
+            "Тихие часы, дайджест, интеграции\n\n"
+            "🔍 <b>Диагностика</b>\n"
+            "Статус фильтров, ошибки, последние уведомления\n\n"
+            "🗑 <b>Очистка истории</b>\n"
+            "Удаление старых тендеров по возрасту",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
     except Exception as e:
         logger.error(f"Ошибка в open_settings: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# ============================================
+# ДИАГНОСТИКА ФИЛЬТРОВ
+# ============================================
+
+@router.callback_query(StateFilter("*"), F.data == "filter_diagnostics")
+async def filter_diagnostics_callback(callback: CallbackQuery, state: FSMContext):
+    """Показать диагностику фильтров."""
+    try:
+        await callback.answer("⏳ Загрузка диагностики...")
+        try:
+            await callback.message.edit_text(
+                "🔍 <b>Диагностика фильтров</b>\n\n⏳ Загрузка...",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.edit_text("❌ Пользователь не найден")
+            return
+
+        diagnostics = await db.get_filter_diagnostics(user['id'])
+
+        if not diagnostics:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« Назад", callback_data="open_settings")]
+            ])
+            await callback.message.edit_text(
+                "🔍 <b>Диагностика фильтров</b>\n\n"
+                "У вас нет фильтров.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        text = "🔍 <b>ДИАГНОСТИКА ФИЛЬТРОВ</b>\n\n"
+
+        for d in diagnostics:
+            status = "🟢 Активен" if d['is_active'] else "🔴 Неактивен"
+            errors = f"⚠️ Ошибок: {d['error_count']}" if d['error_count'] > 0 else "✅ Без ошибок"
+            ai = "🤖 AI" if d['has_ai_intent'] else "❌ Нет AI"
+
+            last_notif = "—"
+            if d['last_notification_at']:
+                last_dt = d['last_notification_at']
+                last_notif = last_dt.strftime('%d.%m.%Y %H:%M')
+
+            created = d['created_at'].strftime('%d.%m.%Y') if d['created_at'] else "?"
+
+            keywords_str = ', '.join(d['keywords'][:3])
+
+            text += (
+                f"<b>#{d['id']} {d['name']}</b>\n"
+                f"   {status} | {errors} | {ai}\n"
+                f"   🔑 {keywords_str}\n"
+                f"   📬 Уведомлений: {d['notification_count']}\n"
+                f"   📅 Последнее: {last_notif}\n"
+                f"   📆 Создан: {created}\n\n"
+            )
+
+        # Проверяем статус автомониторинга
+        is_monitoring = await db.get_monitoring_status(callback.from_user.id)
+        monitoring_text = "🟢 Автомониторинг <b>ВКЛЮЧЁН</b>" if is_monitoring else "🔴 Автомониторинг <b>ВЫКЛЮЧЕН</b>"
+        text += f"\n{monitoring_text}\n"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Обновить", callback_data="filter_diagnostics")],
+            [InlineKeyboardButton(text="« Настройки", callback_data="open_settings")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка в filter_diagnostics: {e}", exc_info=True)
+        try:
+            await callback.message.edit_text(
+                f"❌ <b>Ошибка диагностики</b>\n\n{str(e)[:300]}",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="« Назад", callback_data="open_settings")]
+                ])
+            )
+        except Exception:
+            await callback.answer("❌ Ошибка", show_alert=True)
+
+
+# ============================================
+# ОЧИСТКА ИСТОРИИ ТЕНДЕРОВ
+# ============================================
+
+@router.callback_query(StateFilter("*"), F.data == "cleanup_history")
+async def cleanup_history_callback(callback: CallbackQuery, state: FSMContext):
+    """Меню очистки истории тендеров."""
+    try:
+        await callback.answer()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Старше 30 дней", callback_data="cleanup_30")],
+            [InlineKeyboardButton(text="🗑 Старше 60 дней", callback_data="cleanup_60")],
+            [InlineKeyboardButton(text="🗑 Старше 90 дней", callback_data="cleanup_90")],
+            [InlineKeyboardButton(text="🗑 Старше 120 дней", callback_data="cleanup_120")],
+            [InlineKeyboardButton(text="« Назад", callback_data="open_settings")],
+        ])
+
+        await callback.message.edit_text(
+            "🗑 <b>ОЧИСТКА ИСТОРИИ ТЕНДЕРОВ</b>\n\n"
+            "Выберите возраст тендеров для удаления.\n\n"
+            "⚠️ <b>Внимание:</b> удалённые тендеры нельзя восстановить. "
+            "Избранные тендеры НЕ удаляются.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка в cleanup_history: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(StateFilter("*"), F.data.startswith("cleanup_"))
+async def cleanup_execute_callback(callback: CallbackQuery, state: FSMContext):
+    """Выполнить очистку истории тендеров по возрасту."""
+    try:
+        days_str = callback.data.replace("cleanup_", "")
+        if days_str == "history":
+            return  # Это сам пункт меню, обрабатывается выше
+
+        days = int(days_str)
+
+        await callback.answer(f"⏳ Удаление тендеров старше {days} дней...")
+
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.answer("❌ Пользователь не найден", show_alert=True)
+            return
+
+        deleted_count = await db.cleanup_old_notifications(user['id'], days)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Ещё очистка", callback_data="cleanup_history")],
+            [InlineKeyboardButton(text="« Настройки", callback_data="open_settings")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        if deleted_count > 0:
+            await callback.message.edit_text(
+                f"✅ <b>Очистка завершена!</b>\n\n"
+                f"🗑 Удалено тендеров: <b>{deleted_count}</b>\n"
+                f"📅 Критерий: старше {days} дней",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            await callback.message.edit_text(
+                f"ℹ️ <b>Нечего удалять</b>\n\n"
+                f"Тендеров старше {days} дней не найдено.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+
+    except ValueError:
+        await callback.answer("❌ Некорректный параметр", show_alert=True)
+    except Exception as e:
+        logger.error(f"Ошибка в cleanup_execute: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка при очистке", show_alert=True)
 
 
 @router.callback_query(StateFilter("*"), F.data == "sniper_favorites")

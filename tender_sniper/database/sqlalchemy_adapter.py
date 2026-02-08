@@ -1068,6 +1068,96 @@ class TenderSniperDB:
             await session.commit()
 
     # ============================================
+    # ДИАГНОСТИКА ФИЛЬТРОВ
+    # ============================================
+
+    async def get_filter_diagnostics(self, user_id: int) -> List[Dict[str, Any]]:
+        """
+        Диагностика фильтров пользователя.
+        Показывает статус, error_count, дату последнего уведомления, кол-во уведомлений.
+        """
+        async with DatabaseSession() as session:
+            filters_result = await session.execute(
+                select(SniperFilterModel).where(SniperFilterModel.user_id == user_id)
+                .order_by(SniperFilterModel.created_at.desc())
+            )
+            filters = filters_result.scalars().all()
+
+            diagnostics = []
+            for f in filters:
+                # Количество уведомлений по этому фильтру
+                notif_count = await session.scalar(
+                    select(func.count(SniperNotificationModel.id)).where(
+                        SniperNotificationModel.filter_id == f.id
+                    )
+                ) or 0
+
+                # Дата последнего уведомления
+                last_notif = await session.scalar(
+                    select(func.max(SniperNotificationModel.sent_at)).where(
+                        SniperNotificationModel.filter_id == f.id
+                    )
+                )
+
+                # Парсим keywords
+                keywords = f.keywords
+                if isinstance(keywords, str):
+                    try:
+                        keywords = json.loads(keywords)
+                    except:
+                        keywords = []
+
+                diagnostics.append({
+                    'id': f.id,
+                    'name': f.name,
+                    'keywords': keywords[:5] if isinstance(keywords, list) else [],
+                    'is_active': f.is_active,
+                    'error_count': f.error_count,
+                    'created_at': f.created_at,
+                    'notification_count': notif_count,
+                    'last_notification_at': last_notif,
+                    'has_ai_intent': bool(f.ai_intent),
+                })
+
+            return diagnostics
+
+    # ============================================
+    # ОЧИСТКА ИСТОРИИ ТЕНДЕРОВ
+    # ============================================
+
+    async def cleanup_old_notifications(self, user_id: int, days: int) -> int:
+        """
+        Удалить уведомления старше указанного количества дней.
+        Возвращает количество удалённых записей.
+        """
+        from datetime import timedelta
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+        async with DatabaseSession() as session:
+            # Считаем перед удалением
+            count = await session.scalar(
+                select(func.count(SniperNotificationModel.id)).where(
+                    and_(
+                        SniperNotificationModel.user_id == user_id,
+                        SniperNotificationModel.sent_at < cutoff_date
+                    )
+                )
+            ) or 0
+
+            if count > 0:
+                await session.execute(
+                    delete(SniperNotificationModel).where(
+                        and_(
+                            SniperNotificationModel.user_id == user_id,
+                            SniperNotificationModel.sent_at < cutoff_date
+                        )
+                    )
+                )
+                await session.commit()
+
+            return count
+
+    # ============================================
     # 🧪 БЕТА: Черновики фильтров
     # ============================================
 
