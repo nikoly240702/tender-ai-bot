@@ -810,11 +810,23 @@ class SmartMatcher:
         # 1. ПРОВЕРКА ИСКЛЮЧАЮЩИХ ФИЛЬТРОВ
         # ============================================
 
-        # 1.1 Проверка негативных паттернов (автоматическое исключение)
+        # 1.1 Проверка негативных паттернов (низкий score, но не исключаем)
         negative_match = self._check_negative_patterns(searchable_text)
         if negative_match:
-            logger.debug(f"   ⛔ Исключено по негативному паттерну: {negative_match}")
-            return None
+            logger.debug(f"   ⚠️ Негативный паттерн (low score): {negative_match}")
+            return {
+                'filter_id': filter_config.get('id'),
+                'filter_name': filter_config.get('name'),
+                'score': 5,
+                'matched_keywords': [],
+                'reasons': [f'Негативный паттерн: {negative_match}'],
+                'matched_at': datetime.now().isoformat(),
+                'tender_number': tender.get('number'),
+                'tender_name': tender.get('name'),
+                'tender_price': tender_price,
+                'tender_url': tender.get('url'),
+                'red_flags': detect_red_flags(tender)
+            }
 
         # 1.2 Проверка пользовательских исключающих слов (с границами слов)
         if exclude_keywords:
@@ -969,24 +981,33 @@ class SmartMatcher:
 
             # ШАГ 6: Проверка на минимум совпадений
             if not matched_keywords:
-                logger.debug(f"   ⛔ Нет совпадений по значимым критериям")
-                return None
+                logger.debug(f"   ⚠️ Нет совпадений по SmartMatcher, но найден по RSS")
+                return {
+                    'filter_id': filter_config.get('id'),
+                    'filter_name': filter_config.get('name'),
+                    'score': 10,
+                    'matched_keywords': [],
+                    'reasons': ['Найден по поисковому запросу RSS'],
+                    'matched_at': datetime.now().isoformat(),
+                    'tender_number': tender.get('number'),
+                    'tender_name': tender.get('name'),
+                    'tender_price': tender_price,
+                    'tender_url': tender.get('url'),
+                    'red_flags': detect_red_flags(tender)
+                }
 
             # ШАГ 7: СТРОГИЙ РЕЖИМ для фильтров с множеством ключевых слов
             # Если пользователь указал 5+ слов, требуем качественного матчинга
             match_ratio = len(matched_keywords) / total_criteria
 
             if total_criteria >= self.MIN_KEYWORDS_FOR_STRICT_MODE:
-                # Строгий режим: требуем минимум 2 совпадения И минимум 15% от всех keywords
-                if len(matched_keywords) < self.MIN_MATCHES_ABSOLUTE:
-                    logger.debug(f"   ⛔ Строгий режим: недостаточно совпадений ({len(matched_keywords)} < {self.MIN_MATCHES_ABSOLUTE})")
-                    return None
-
-                if match_ratio < self.MIN_MATCH_RATIO_STRICT:
-                    logger.debug(f"   ⛔ Строгий режим: слишком низкий % совпадений ({match_ratio:.0%} < {self.MIN_MATCH_RATIO_STRICT:.0%})")
-                    return None
-
-                logger.debug(f"   ✅ Строгий режим пройден: {len(matched_keywords)} совпадений ({match_ratio:.0%})")
+                # Строгий режим: штраф за мало совпадений (но не отсекаем!)
+                if len(matched_keywords) < self.MIN_MATCHES_ABSOLUTE or match_ratio < self.MIN_MATCH_RATIO_STRICT:
+                    penalty = int(score * 0.40)
+                    score -= penalty
+                    logger.debug(f"   ⚠️ Строгий режим: штраф -{penalty} ({len(matched_keywords)} совпадений, {match_ratio:.0%})")
+                else:
+                    logger.debug(f"   ✅ Строгий режим пройден: {len(matched_keywords)} совпадений ({match_ratio:.0%})")
 
             # ШАГ 8: Бонус/штраф за процент совпадений
             # Умеренные штрафы - не слишком агрессивные, чтобы не отсекать релевантные тендеры
@@ -1074,6 +1095,7 @@ class SmartMatcher:
             'filter_name': filter_config.get('name'),
             'score': score,
             'matched_keywords': matched_keywords,
+            'reasons': [f'Совпадение: {kw}' for kw in matched_keywords],
             'matched_at': datetime.now().isoformat(),
             'tender_number': tender.get('number'),
             'tender_name': tender.get('name'),

@@ -33,7 +33,7 @@ class InstantSearch:
     _cache_max_size = 500  # Максимум кэшированных тендеров
 
     # Минимальный pre-score для обогащения (без обогащения - пропускаем)
-    MIN_PRESCORE_FOR_ENRICHMENT = 15
+    MIN_PRESCORE_FOR_ENRICHMENT = 0
 
     def __init__(self):
         """Инициализация компонентов поиска."""
@@ -607,11 +607,13 @@ class InstantSearch:
                     # Есть совпадение - используем score от matcher
                     tender_with_score['match_score'] = match_result['score']
                     tender_with_score['match_reasons'] = match_result.get('reasons', [])
+                    tender_with_score['matched_keywords'] = match_result.get('matched_keywords', [])
                 else:
                     # Нет совпадения по SmartMatcher, но тендер найден RSS по ключевым словам
                     # Даём базовый score 20 чтобы показать пользователю
                     tender_with_score['match_score'] = 20
                     tender_with_score['match_reasons'] = ['Найден по поисковому запросу RSS']
+                    tender_with_score['matched_keywords'] = []
 
                 matches.append(tender_with_score)
 
@@ -657,14 +659,20 @@ class InstantSearch:
                             tender['ai_verified'] = True
                             tender['ai_confidence'] = ai_result.get('confidence', 0)
                             tender['ai_reason'] = ai_result.get('reason', '')
-                            # НЕ усредняем с AI — используем SmartMatcher score как основной
-                            # AI работает только как фильтр отклонения нерелевантных
                             ai_filtered_matches.append(tender)
                         else:
-                            # AI отклонил — НЕ показываем
+                            # AI считает нерелевантным — НО показываем со сниженным score
+                            # Score используется для СОРТИРОВКИ, не для ФИЛЬТРАЦИИ
                             ai_rejected_count += 1
-                            logger.info(f"      ❌ AI отклонил: {tender.get('name', '')[:50]}... "
-                                       f"({ai_result.get('reason', 'нет причины')})")
+                            original_score = tender.get('match_score', 0)
+                            tender['match_score'] = max(5, int(original_score * 0.7))  # -30% штраф
+                            tender['ai_verified'] = True
+                            tender['ai_low_relevance'] = True
+                            tender['ai_confidence'] = ai_result.get('confidence', 0)
+                            tender['ai_reason'] = ai_result.get('reason', '')
+                            ai_filtered_matches.append(tender)
+                            logger.info(f"      ⚠️ AI низкая релевантность (показываем): {tender.get('name', '')[:50]}... "
+                                       f"score {original_score}→{tender['match_score']} ({ai_result.get('reason', '')})")
 
                         # Проверяем квоту
                         if ai_result.get('source') == 'quota_exceeded':
