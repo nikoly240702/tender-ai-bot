@@ -256,12 +256,22 @@ class TenderSniperService:
                     logger.warning(f"      ⚠️  Нет ключевых слов, пропускаем")
                     continue
 
-                # Делаем поиск по фильтру (С AI проверкой релевантности)
+                # Читаем AI-расширенные ключевые слова (сохранены при создании фильтра)
+                expanded_keywords_raw = filter_data.get('expanded_keywords', [])
+                if isinstance(expanded_keywords_raw, str):
+                    try:
+                        expanded_keywords = json.loads(expanded_keywords_raw)
+                    except:
+                        expanded_keywords = []
+                else:
+                    expanded_keywords = expanded_keywords_raw or []
+
+                # Делаем поиск по фильтру (С AI проверкой релевантности и расширенными словами)
                 try:
                     search_results = await searcher.search_by_filter(
                         filter_data=filter_data,
                         max_tenders=25,  # Больше тендеров для лучшего покрытия
-                        expanded_keywords=[],  # Без AI расширения ключевых слов
+                        expanded_keywords=expanded_keywords,  # AI-расширенные ключевые слова
                         use_ai_check=True,  # AI проверка релевантности
                         user_id=user_id,
                         subscription_tier=subscription_tier

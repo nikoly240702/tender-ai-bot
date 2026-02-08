@@ -288,7 +288,7 @@ def get_current_settings_text(data: dict) -> str:
     return (
         f"<b>Текущие настройки:</b>\n"
         f"📦 Тип: <b>{tender_type}</b>\n"
-        f"🔑 Слова: <b>{', '.join(keywords[:5]) if keywords else 'не указаны'}</b>\n"
+        f"🔑 Слова: <b>{', '.join(keywords) if keywords else 'не указаны'}</b>\n"
         f"💰 Бюджет: <b>{budget_text}</b>\n"
         f"📍 Регион: <b>{region_text}</b>\n"
         f"📜 Закон: <b>{law_type}</b>\n"
@@ -1015,7 +1015,7 @@ async def handle_keywords_input(message: Message, state: FSMContext):
     await message.answer(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>"
+        f"✅ Слова: <b>{', '.join(keywords)}</b>"
         f"{recommendations_text}\n\n"
         f"<b>Шаг 3/9:</b> Название фильтра\n\n"
         f"Введите название для фильтра (для удобства поиска).\n\n"
@@ -1069,7 +1069,7 @@ async def handle_filter_name_input(message: Message, state: FSMContext):
     await message.answer(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Название: <b>{custom_name}</b>\n\n"
         f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
@@ -1108,7 +1108,7 @@ async def skip_filter_name(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n"
+        f"✅ Слова: <b>{', '.join(keywords)}</b>\n"
         f"✅ Название: <b>{auto_name}</b>\n\n"
         f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
@@ -1336,7 +1336,7 @@ async def back_to_filter_name(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(keywords[:5])}</b>\n\n"
+        f"✅ Слова: <b>{', '.join(keywords)}</b>\n\n"
         f"<b>Шаг 3/9:</b> Название фильтра\n\n"
         f"Введите название для фильтра (для удобства поиска).\n\n"
         f"💡 Или нажмите «Пропустить» - название будет:\n"
@@ -1360,7 +1360,7 @@ async def back_to_budget_min(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:5])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Название: <b>{data.get('filter_name', 'авто')}</b>\n\n"
         f"<b>Шаг 4/9:</b> Укажите бюджет\n\n"
         f"Введите <b>минимальную</b> сумму контракта (в рублях).\n\n"
@@ -1429,7 +1429,7 @@ async def go_to_region_step(message, state: FSMContext):
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Бюджет: <b>{budget_text}</b>\n\n"
         f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:"
     )
@@ -1495,7 +1495,7 @@ async def toggle_federal_district(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     settings_text = (
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Бюджет: <b>{_format_budget_text(data)}</b>"
     )
 
@@ -1517,7 +1517,7 @@ async def reset_region_selection(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     settings_text = (
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Бюджет: <b>{_format_budget_text(data)}</b>"
     )
 
@@ -1583,7 +1583,7 @@ async def go_to_law_step(message, state: FSMContext):
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Регион: <b>{data.get('region_name', 'Вся Россия')}</b>\n\n"
         f"<b>Шаг 6/9:</b> Выберите закон"
     )
@@ -1625,7 +1625,7 @@ async def go_to_exclusions_step(message, state: FSMContext):
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n"
         f"✅ Закон: <b>{data.get('law_type_name', 'Любой')}</b>\n\n"
         f"<b>Шаг 7/9:</b> Исключить слова\n\n"
         f"Введите слова, которые НЕ должны встречаться в тендерах.\n"
@@ -1675,7 +1675,7 @@ async def go_to_search_settings_step(message, state: FSMContext):
     text = (
         f"🎯 <b>Создание фильтра</b>\n\n"
         f"✅ Тип: <b>{data.get('tender_type_name', 'Любые')}</b>\n"
-        f"✅ Слова: <b>{', '.join(data.get('keywords', [])[:3])}</b>\n\n"
+        f"✅ Слова: <b>{', '.join(data.get('keywords', []))}</b>\n\n"
         f"<b>Шаг 8/9:</b> Настройки поиска\n\n"
         f"Сколько тендеров найти при мгновенном поиске?"
     )
@@ -2004,7 +2004,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             f"🔄 <b>Создание фильтра...</b>\n\n"
             f"📝 Название: {filter_name}\n"
-            f"🔑 Слова: {', '.join(keywords[:5])}\n\n"
+            f"🔑 Слова: {', '.join(keywords)}\n\n"
             f"⏳ Пожалуйста, подождите...",
             parse_mode="HTML"
         )
@@ -2040,6 +2040,18 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         except Exception as e:
             logger.warning(f"Failed to generate AI intent for filter {filter_id}: {e}")
 
+        # 🤖 AI расширение ключевых слов (синонимы, связанные термины)
+        expanded_keywords = []
+        try:
+            expander = QueryExpander()
+            expansion = await expander.expand_keywords(keywords)
+            expanded_keywords = expansion.get('expanded_keywords', [])
+            if expanded_keywords:
+                await db.update_filter_expanded_keywords(filter_id, expanded_keywords)
+                logger.info(f"Expanded keywords for filter {filter_id}: {expanded_keywords}")
+        except Exception as e:
+            logger.warning(f"Failed to expand keywords for filter {filter_id}: {e}")
+
         # 🆕 Удаляем черновик после успешного создания фильтра
         await delete_draft(callback.from_user.id)
 
@@ -2047,7 +2059,8 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             f"✅ <b>Фильтр создан!</b>\n\n"
             f"📝 Название: {filter_name}\n"
-            f"🔑 Слова: {', '.join(keywords[:5])}\n\n"
+            f"🔑 Слова: {', '.join(keywords)}\n"
+            f"{'🧠 AI доп. слова: ' + ', '.join(expanded_keywords[:5]) if expanded_keywords else ''}\n\n"
             f"🔍 Запускаю поиск тендеров ({search_limit} шт.)...",
             parse_mode="HTML"
         )
@@ -2072,12 +2085,12 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             'ai_intent': ai_intent,  # Передаём AI intent для семантической проверки
         }
 
-        # Выполняем поиск с указанным лимитом
+        # Выполняем поиск С расширенными ключевыми словами
         searcher = InstantSearch()
         search_results = await searcher.search_by_filter(
             filter_data=filter_data,
             max_tenders=search_limit,
-            expanded_keywords=[]
+            expanded_keywords=expanded_keywords
         )
 
         matches = search_results.get('matches', [])
@@ -2169,7 +2182,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             caption=(
                 f"📊 <b>Результаты поиска</b>\n\n"
                 f"📝 Фильтр: {filter_name}\n"
-                f"🔑 Слова: {', '.join(keywords[:3])}\n"
+                f"🔑 Слова: {', '.join(keywords)}\n"
                 f"📊 Найдено: {len(matches)} тендеров\n\n"
                 f"{'🔔 Автомониторинг активирован!' if data.get('automonitor', True) else '🔕 Только разовый поиск'}"
             ),
@@ -2427,7 +2440,7 @@ async def run_archive_simplified_search(message_or_callback, state: FSMContext):
             f"📦 <b>Поиск в архиве</b>\n\n"
             f"🔄 Ищу завершённые закупки...\n\n"
             f"📅 Период: <b>{period_text}</b>\n"
-            f"🔑 Слова: <b>{', '.join(keywords[:5])}</b>",
+            f"🔑 Слова: <b>{', '.join(keywords)}</b>",
             parse_mode="HTML"
         )
     else:
@@ -2437,7 +2450,7 @@ async def run_archive_simplified_search(message_or_callback, state: FSMContext):
             f"📦 <b>Поиск в архиве</b>\n\n"
             f"🔄 Ищу завершённые закупки...\n\n"
             f"📅 Период: <b>{period_text}</b>\n"
-            f"🔑 Слова: <b>{', '.join(keywords[:5])}</b>",
+            f"🔑 Слова: <b>{', '.join(keywords)}</b>",
             parse_mode="HTML"
         )
         message = status_msg
@@ -2534,7 +2547,7 @@ async def run_archive_simplified_search(message_or_callback, state: FSMContext):
             caption=(
                 f"📦 <b>Результаты архивного поиска</b>\n\n"
                 f"📅 Период: <b>{period_text}</b>\n"
-                f"🔑 Слова: <b>{', '.join(keywords[:3])}</b>\n"
+                f"🔑 Слова: <b>{', '.join(keywords)}</b>\n"
                 f"📊 Найдено: <b>{len(matches)}</b> тендеров"
             ),
             parse_mode="HTML"
@@ -2609,7 +2622,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         await callback.message.edit_text(
             f"🔄 <b>Создание фильтра...</b>\n\n"
             f"📝 Название: {filter_name}\n"
-            f"🔑 Слова: {', '.join(keywords[:5])}\n\n"
+            f"🔑 Слова: {', '.join(keywords)}\n\n"
             f"⏳ Пожалуйста, подождите...",
             parse_mode="HTML"
         )
@@ -2642,14 +2655,33 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         except Exception as e:
             logger.warning(f"Failed to generate AI intent for filter {filter_id}: {e}")
 
+        # 🤖 AI расширение ключевых слов (синонимы, связанные термины)
+        expanded_keywords = []
+        try:
+            expander = QueryExpander()
+            expansion = await expander.expand_keywords(keywords)
+            expanded_keywords = expansion.get('expanded_keywords', [])
+            if expanded_keywords:
+                await db.update_filter_expanded_keywords(filter_id, expanded_keywords)
+                logger.info(f"Expanded keywords for filter {filter_id}: {expanded_keywords}")
+        except Exception as e:
+            logger.warning(f"Failed to expand keywords for filter {filter_id}: {e}")
+
         # 🆕 Удаляем черновик после успешного создания фильтра
         await delete_draft(callback.from_user.id)
 
         # Запускаем мгновенный поиск
+        all_keywords_display = keywords.copy()
+        if expanded_keywords:
+            extra = [kw for kw in expanded_keywords if kw.lower() not in {k.lower() for k in keywords}]
+            if extra:
+                all_keywords_display.extend(extra[:3])
+
         await callback.message.edit_text(
             f"✅ <b>Фильтр создан!</b>\n\n"
             f"📝 Название: {filter_name}\n"
-            f"🔑 Слова: {', '.join(keywords[:5])}\n\n"
+            f"🔑 Слова: {', '.join(keywords)}\n"
+            f"{'🧠 AI доп. слова: ' + ', '.join(expanded_keywords[:5]) if expanded_keywords else ''}\n\n"
             f"🔍 Запускаю поиск тендеров...",
             parse_mode="HTML"
         )
@@ -2674,12 +2706,12 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             'ai_intent': ai_intent,  # Передаём AI intent для семантической проверки
         }
 
-        # Выполняем поиск
+        # Выполняем поиск С расширенными ключевыми словами
         searcher = InstantSearch()
         search_results = await searcher.search_by_filter(
             filter_data=filter_data,
             max_tenders=25,
-            expanded_keywords=[]
+            expanded_keywords=expanded_keywords
         )
 
         matches = search_results.get('matches', [])
@@ -2771,7 +2803,7 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             caption=(
                 f"📊 <b>Результаты поиска</b>\n\n"
                 f"📝 Фильтр: {filter_name}\n"
-                f"🔑 Слова: {', '.join(keywords[:3])}\n"
+                f"🔑 Слова: {', '.join(keywords)}\n"
                 f"📊 Найдено: {len(matches)} тендеров\n\n"
                 f"{'🔔 Автомониторинг активирован!' if data.get('automonitor', True) else '🔕 Только разовый поиск'}"
             ),

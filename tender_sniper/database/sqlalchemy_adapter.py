@@ -473,6 +473,7 @@ class TenderSniperDB:
             'search_in': safe_list(getattr(filter_obj, 'search_in', [])),
             # AI семантика
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
+            'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),
             'is_active': filter_obj.is_active,
             'created_at': filter_obj.created_at.isoformat() if filter_obj.created_at else None,
             'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None
@@ -521,6 +522,17 @@ class TenderSniperDB:
                 update(SniperFilterModel)
                 .where(SniperFilterModel.id == filter_id)
                 .values(ai_intent=intent, updated_at=datetime.utcnow())
+            )
+            await session.commit()
+            return result.rowcount > 0
+
+    async def update_filter_expanded_keywords(self, filter_id: int, expanded_keywords: list) -> bool:
+        """Сохраняет AI-расширенные ключевые слова для фильтра."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(expanded_keywords=expanded_keywords, updated_at=datetime.utcnow())
             )
             await session.commit()
             return result.rowcount > 0

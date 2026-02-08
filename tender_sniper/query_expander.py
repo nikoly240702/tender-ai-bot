@@ -6,6 +6,8 @@ Query Expander - AI расширение пользовательских кри
 """
 
 import os
+import asyncio
+import functools
 from typing import List, Dict, Any
 from openai import OpenAI
 import logging
@@ -54,15 +56,20 @@ class QueryExpander:
         prompt = self._build_expansion_prompt(keywords, context)
 
         try:
-            # Запрос к OpenAI
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",  # Быстрая и дешевая модель
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }],
-                temperature=0.3,
-                max_tokens=1000
+            # Запрос к OpenAI (sync вызов в executor, чтобы не блокировать event loop)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    self.client.chat.completions.create,
+                    model="gpt-4o-mini",
+                    messages=[{
+                        "role": "user",
+                        "content": prompt
+                    }],
+                    temperature=0.3,
+                    max_tokens=1000
+                )
             )
 
             # Парсим ответ
