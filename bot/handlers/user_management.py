@@ -1347,6 +1347,7 @@ async def integration_sheets_handler(callback: CallbackQuery):
 
         sheets_sync = get_sheets_sync()
         service_email = sheets_sync.get_service_email() if sheets_sync else ''
+        logger.info(f"Google Sheets: sync={sheets_sync is not None}, email='{service_email}'")
 
         # Проверяем существующий конфиг
         db = await get_sniper_db()

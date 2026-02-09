@@ -209,10 +209,16 @@ _sheets_sync_instance: Optional[GoogleSheetsSync] = None
 def get_sheets_sync() -> Optional[GoogleSheetsSync]:
     """Возвращает singleton GoogleSheetsSync или None если не настроен."""
     global _sheets_sync_instance
-    if _sheets_sync_instance is None:
-        creds = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '')
-        if creds:
-            _sheets_sync_instance = GoogleSheetsSync(creds)
-        else:
-            return None
-    return _sheets_sync_instance
+    if _sheets_sync_instance is not None:
+        return _sheets_sync_instance
+    creds = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+    if not creds:
+        logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON не задан в env")
+        return None
+    try:
+        _sheets_sync_instance = GoogleSheetsSync(creds)
+        logger.info(f"GoogleSheetsSync инициализирован, email: {_sheets_sync_instance.get_service_email()}")
+        return _sheets_sync_instance
+    except Exception as e:
+        logger.error(f"Ошибка инициализации GoogleSheetsSync: {e}")
+        return None
