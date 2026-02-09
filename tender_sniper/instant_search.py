@@ -588,22 +588,25 @@ class InstantSearch:
 
                     # Если выбраны только товары - исключаем явные услуги
                     if tender_types == ['товары']:
-                        # Если название НАЧИНАЕТСЯ с сервисного слова — это услуга
+                        # ШАГ 1: Название НАЧИНАЕТСЯ с сервисного слова → точно услуга
                         service_start = ['услуга ', 'услуги ', 'ремонт ', 'обслуживание ',
-                                        'выполнение ', 'оказание ', 'работы по']
+                                        'выполнение ', 'оказание ', 'работы по ',
+                                        'техническое обслуживание', 'сервисное обслуживание',
+                                        'монтаж ', 'демонтаж ', 'проектирование ',
+                                        'разработка проект', 'консультирование ']
                         if any(tender_name.startswith(s) for s in service_start):
                             logger.debug(f"      ⛔ Исключен (услуга по началу): {tender.get('name', '')[:60]}")
                             continue
 
-                        # Если не начинается с товарного слова — проверяем содержание
-                        goods_start = ['поставка', 'закупка', 'приобретение', 'купля', 'покупка']
-                        if not any(tender_name.startswith(g) for g in goods_start):
-                            service_indicators = ['оказание услуг', 'выполнение работ',
-                                                 'медицинские услуги', 'услуги по', 'услуга по',
-                                                 'работы по', 'ремонт ']
-                            if any(ind in tender_name for ind in service_indicators):
-                                logger.debug(f"      ⛔ Исключен при scoring (услуга): {tender.get('name', '')[:60]}")
-                                continue
+                        # ШАГ 2: Содержит индикаторы услуг ВЕЗДЕ в названии
+                        service_indicators = ['оказание услуг', 'выполнение работ', 'проведение работ',
+                                             'медицинские услуги', 'услуги по', 'услуга по',
+                                             'работы по ', 'ремонт и обслуживание',
+                                             'техническое обслуживание', 'сервисное обслуживание',
+                                             'текущий ремонт', 'капитальный ремонт']
+                        if any(ind in tender_name for ind in service_indicators):
+                            logger.debug(f"      ⛔ Исключен (индикатор услуги): {tender.get('name', '')[:60]}")
+                            continue
 
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
@@ -659,7 +662,8 @@ class InstantSearch:
                             filter_keywords=original_keywords,
                             tender_description=tender.get('description', '') or tender.get('summary', ''),
                             user_id=user_id,
-                            subscription_tier=subscription_tier
+                            subscription_tier=subscription_tier,
+                            tender_types=tender_types
                         )
 
                         if ai_result.get('is_relevant', True):

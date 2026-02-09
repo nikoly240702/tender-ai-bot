@@ -833,9 +833,8 @@ async def download_by_period(callback: CallbackQuery, state: FSMContext):
             await callback.message.answer("❌ У вас пока нет найденных тендеров")
             return
 
-        # Вычисляем дату отсечки
-        from datetime import timezone
-        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
+        # Вычисляем дату отсечки (naive UTC для совместимости с БД)
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
 
         # Фильтруем тендеры по дате
         filtered_tenders = []
@@ -844,17 +843,18 @@ async def download_by_period(callback: CallbackQuery, state: FSMContext):
             if sent_at:
                 try:
                     if isinstance(sent_at, str):
-                        # Парсим строку даты
-                        tender_date = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
+                        # Парсим строку даты, убираем timezone info для naive сравнения
+                        clean = sent_at.replace('Z', '').replace('+00:00', '')
+                        tender_date = datetime.fromisoformat(clean)
                     else:
                         tender_date = sent_at
-                        if tender_date.tzinfo is None:
-                            tender_date = tender_date.replace(tzinfo=timezone.utc)
+                        if tender_date.tzinfo is not None:
+                            tender_date = tender_date.replace(tzinfo=None)
 
                     if tender_date >= cutoff_date:
                         filtered_tenders.append(tender)
-                except Exception:
-                    pass  # Не включаем тендеры с невалидной датой
+                except Exception as e:
+                    logger.debug(f"Ошибка парсинга даты '{sent_at}': {e}")
             # Если нет даты - не включаем (это старые данные)
 
         if not filtered_tenders:

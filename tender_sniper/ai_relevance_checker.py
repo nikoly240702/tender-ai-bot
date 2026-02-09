@@ -226,7 +226,8 @@ class AIRelevanceChecker:
         filter_intent: str,
         filter_keywords: List[str],
         user_id: int = None,
-        subscription_tier: str = 'trial'
+        subscription_tier: str = 'trial',
+        tender_types: List[str] = None
     ) -> Dict[str, Any]:
         """
         Проверяет семантическую релевантность тендера фильтру.
@@ -290,7 +291,8 @@ class AIRelevanceChecker:
                 tender_name,
                 tender_description,
                 filter_intent,
-                filter_keywords
+                filter_keywords,
+                tender_types=tender_types
             )
 
             # Сохраняем в кэш
@@ -326,11 +328,30 @@ class AIRelevanceChecker:
         tender_name: str,
         tender_description: str,
         filter_intent: str,
-        filter_keywords: List[str]
+        filter_keywords: List[str],
+        tender_types: List[str] = None
     ) -> Dict[str, Any]:
         """Выполняет AI запрос для проверки релевантности."""
 
         description_text = f"\nОписание: {tender_description[:500]}" if tender_description else ""
+
+        # Формируем блок о типе закупки
+        type_instruction = ""
+        if tender_types:
+            types_str = ', '.join(tender_types)
+            if tender_types == ['товары']:
+                type_instruction = f"""
+ТИП ЗАКУПКИ: Пользователь ищет ТОЛЬКО товары (поставки).
+КРИТИЧЕСКИ ВАЖНО: Если тендер — это УСЛУГА или РАБОТА (ремонт, обслуживание, консультирование,
+разработка документации, оказание услуг, выполнение работ, сервисное обслуживание, техническое
+обслуживание, монтаж, демонтаж, проектирование) — ОТКЛОНИ с confidence 5-10.
+Товары = поставка физических предметов (оборудование, техника, материалы, запчасти)."""
+            elif tender_types == ['услуги']:
+                type_instruction = f"""
+ТИП ЗАКУПКИ: Пользователь ищет ТОЛЬКО услуги.
+Если тендер — это ТОВАР (поставка оборудования, материалов) — ОТКЛОНИ с confidence 5-10."""
+            else:
+                type_instruction = f"\nТИП ЗАКУПКИ: {types_str}"
 
         prompt = f"""Ты эксперт по госзакупкам. Определи, насколько тендер релевантен запросу пользователя.
 
@@ -338,24 +359,24 @@ class AIRelevanceChecker:
 {filter_intent}
 
 Ключевые слова: {', '.join(filter_keywords)}
-
+{type_instruction}
 ТЕНДЕР:
 Название: "{tender_name}"{description_text}
 
 ПРИНЦИП ОЦЕНКИ:
-- При сомнениях — скорее одобряй с confidence 30-50%
-- Отклоняй (relevant=false, confidence 5-10) очевидно нерелевантные тендеры:
-  * Тема СОВЕРШЕННО другая (автомобили vs компьютеры, военная техника vs IT, спорт vs IT)
-  * Совпадение ТОЛЬКО по общим словам ("оборудование", "техника", "поставка") без тематической связи
-- Одобряй пограничные случаи (расходники, смежные товары) с confidence 30-50%
+1. Сначала проверь ТИП — если тип не совпадает (услуга вместо товара и наоборот), ОТКЛОНИ (confidence 5-10)
+2. Затем проверь ТЕМУ — связан ли тендер с запросом по смыслу
+3. При сомнениях по теме — скорее одобряй с confidence 30-50%
+4. Отклоняй по теме (confidence 5-10) только если тема СОВЕРШЕННО другая
 
-ПРИМЕРЫ:
-- "Поставка персонального компьютера" при запросе "компьютеры" → relevant=true, confidence=90
-- "Средства криптографической защиты" при запросе "компьютеры" → relevant=true, confidence=35
+ПРИМЕРЫ ОТКЛОНЕНИЙ ПО ТИПУ (если фильтр ищет товары):
+- "Услуга по ремонту офисной техники" → relevant=false, confidence=5, reason="услуга, не товар"
+- "Техническое обслуживание компьютеров" → relevant=false, confidence=5, reason="услуга, не товар"
+- "Выполнение работ по монтажу оборудования" → relevant=false, confidence=5, reason="работа, не товар"
+
+ПРИМЕРЫ ОТКЛОНЕНИЙ ПО ТЕМЕ:
 - "Автомобиль легковой HAVAL" при запросе "компьютеры" → relevant=false, confidence=3
 - "Ремонт вооружения, военной техники" при запросе "компьютеры" → relevant=false, confidence=5
-- "Поставка спортивного оборудования" при запросе "компьютеры" → relevant=false, confidence=5
-- "Закупка звукового оборудования" при запросе "компьютеры" → relevant=false, confidence=8
 
 Ответь СТРОГО в формате JSON:
 {{"relevant": true/false, "confidence": 0-100, "reason": "краткое объяснение на русском"}}"""
@@ -473,7 +494,8 @@ async def check_tender_relevance(
     filter_keywords: List[str],
     tender_description: str = "",
     user_id: int = None,
-    subscription_tier: str = 'trial'
+    subscription_tier: str = 'trial',
+    tender_types: List[str] = None
 ) -> Dict[str, Any]:
     """
     Проверяет релевантность тендера (удобная обёртка).
@@ -488,7 +510,8 @@ async def check_tender_relevance(
         filter_intent=filter_intent,
         filter_keywords=filter_keywords,
         user_id=user_id,
-        subscription_tier=subscription_tier
+        subscription_tier=subscription_tier,
+        tender_types=tender_types
     )
 
 
