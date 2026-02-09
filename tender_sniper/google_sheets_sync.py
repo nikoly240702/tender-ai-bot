@@ -215,9 +215,23 @@ def get_sheets_sync() -> Optional[GoogleSheetsSync]:
     if not creds:
         logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON не задан в env")
         return None
+    # Поддержка base64-кодированного JSON (для Railway)
+    if not creds.startswith('{'):
+        import base64
+        try:
+            creds = base64.b64decode(creds).decode('utf-8')
+            logger.info("Google Sheets: JSON декодирован из base64")
+        except Exception as e:
+            logger.error(f"Ошибка декодирования base64: {e}")
+            return None
     try:
-        _sheets_sync_instance = GoogleSheetsSync(creds)
-        logger.info(f"GoogleSheetsSync инициализирован, email: {_sheets_sync_instance.get_service_email()}")
+        instance = GoogleSheetsSync(creds)
+        email = instance.get_service_email()
+        if not email:
+            logger.error(f"Google Sheets: client_email не найден в JSON (первые 100 символов: {creds[:100]})")
+            return None
+        _sheets_sync_instance = instance
+        logger.info(f"GoogleSheetsSync инициализирован, email: {email}")
         return _sheets_sync_instance
     except Exception as e:
         logger.error(f"Ошибка инициализации GoogleSheetsSync: {e}")
