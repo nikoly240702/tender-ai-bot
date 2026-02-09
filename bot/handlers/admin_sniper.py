@@ -794,38 +794,37 @@ async def unblock_user(message: Message):
 
 @router.message(Command("test_sheets"))
 async def test_sheets_command(message: Message):
-    """Тест Google Sheets: берёт 4 последних тендера и отправляет в таблицу."""
+    """Тест Google Sheets: берёт 4 последних тендера и отправляет в таблицу с AI обогащением."""
     if not is_admin(message.from_user.id):
         await message.answer("❌ Нет доступа")
         return
 
     from database import GoogleSheetsConfig
 
-    await message.answer("🔄 Запускаю тест Google Sheets...")
+    status_msg = await message.answer("🔄 Запускаю тест Google Sheets...")
 
     try:
         async with DatabaseSession() as session:
-            # Находим пользователя
             user = await session.scalar(
                 select(SniperUser).where(SniperUser.telegram_id == message.from_user.id)
             )
             if not user:
-                await message.answer("❌ Пользователь не найден в БД")
+                await status_msg.edit_text("❌ Пользователь не найден в БД")
                 return
 
-            # Получаем Google Sheets конфиг
             gs_config = await session.scalar(
                 select(GoogleSheetsConfig).where(GoogleSheetsConfig.user_id == user.id)
             )
             if not gs_config:
-                await message.answer("❌ Google Sheets не настроен.\nПодключите через: Настройки → Google Sheets")
+                await status_msg.edit_text("❌ Google Sheets не настроен.\nПодключите через: Настройки → Google Sheets")
                 return
 
             if not gs_config.enabled:
-                await message.answer("⚠️ Google Sheets отключён. Включите в настройках.")
+                await status_msg.edit_text("⚠️ Google Sheets отключён. Включите в настройках.")
                 return
 
-            # Получаем последние 4 тендера
+            subscription_tier = user.subscription_tier or 'trial'
+
             result = await session.execute(
                 select(SniperNotification)
                 .where(SniperNotification.user_id == user.id)
@@ -835,24 +834,37 @@ async def test_sheets_command(message: Message):
             notifications = result.scalars().all()
 
             if not notifications:
-                await message.answer("❌ Нет уведомлений для отправки")
+                await status_msg.edit_text("❌ Нет уведомлений для отправки")
                 return
 
-        # Отправляем в Google Sheets
-        from tender_sniper.google_sheets_sync import get_sheets_sync
+        from tender_sniper.google_sheets_sync import (
+            get_sheets_sync, AI_COLUMNS, DEFAULT_COLUMNS, enrich_tender_with_ai
+        )
 
         sheets_sync = get_sheets_sync()
         if not sheets_sync:
-            await message.answer("❌ Google Sheets sync не инициализирован (проверьте GOOGLE_SERVICE_ACCOUNT_JSON)")
+            await status_msg.edit_text("❌ Google Sheets sync не инициализирован (проверьте GOOGLE_SERVICE_ACCOUNT_JSON)")
             return
 
         columns = gs_config.columns if isinstance(gs_config.columns, list) else []
         if not columns:
-            from tender_sniper.google_sheets_sync import DEFAULT_COLUMNS
             columns = DEFAULT_COLUMNS
 
+        # Проверяем нужно ли AI обогащение
+        has_ai_columns = bool(set(columns) & AI_COLUMNS)
+        is_premium = subscription_tier == 'premium'
+        do_ai = has_ai_columns and is_premium
+
+        if do_ai:
+            await status_msg.edit_text(
+                f"🔄 Отправляю {len(notifications)} тендеров в Google Sheets...\n"
+                f"🤖 AI-обогащение включено (это может занять 1-2 мин на тендер)"
+            )
+        else:
+            await status_msg.edit_text(f"🔄 Отправляю {len(notifications)} тендеров в Google Sheets...")
+
         results = []
-        for n in notifications:
+        for i, n in enumerate(notifications, 1):
             tender_data = {
                 'number': n.tender_number or '',
                 'name': n.tender_name or '',
@@ -863,11 +875,25 @@ async def test_sheets_command(message: Message):
                 'published_date': n.published_date.strftime('%d.%m.%Y') if n.published_date else '',
                 'submission_deadline': n.submission_deadline.strftime('%d.%m.%Y %H:%M') if n.submission_deadline else '',
             }
+
+            # AI обогащение
+            ai_data = {}
+            if do_ai and n.tender_number:
+                try:
+                    ai_data = await enrich_tender_with_ai(
+                        tender_number=n.tender_number,
+                        tender_price=n.tender_price,
+                        customer_name=n.tender_customer or '',
+                        subscription_tier='premium'
+                    )
+                except Exception as ai_err:
+                    logger.warning(f"AI enrichment ошибка для {n.tender_number}: {ai_err}")
+
             match_data = {
                 'score': n.score or 0,
                 'red_flags': [],
                 'filter_name': n.filter_name or '',
-                'ai_data': {},
+                'ai_data': ai_data,
             }
 
             try:
@@ -878,19 +904,23 @@ async def test_sheets_command(message: Message):
                     columns=columns,
                     sheet_name=gs_config.sheet_name or 'Тендеры'
                 )
-                status = "✅" if success else "❌"
-                name_short = (n.tender_name or '')[:40]
-                results.append(f"{status} {name_short}")
+                name_short = (n.tender_name or '')[:35]
+                ai_tag = f" (AI: {len(ai_data)} полей)" if ai_data else ""
+                if success:
+                    results.append(f"✅ {name_short}{ai_tag}")
+                else:
+                    results.append(f"❌ {name_short}")
             except Exception as e:
                 results.append(f"❌ Ошибка: {str(e)[:50]}")
 
         success_count = sum(1 for r in results if r.startswith("✅"))
         text = (
             f"📊 <b>Тест Google Sheets</b>\n\n"
-            f"Отправлено: {success_count}/{len(notifications)}\n\n"
+            f"Отправлено: {success_count}/{len(notifications)}\n"
+            f"AI обогащение: {'✅ Да' if do_ai else '❌ Нет'}\n\n"
             + "\n".join(results)
         )
-        await message.answer(text, parse_mode="HTML")
+        await status_msg.edit_text(text, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Ошибка test_sheets: {e}", exc_info=True)

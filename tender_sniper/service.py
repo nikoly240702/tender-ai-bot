@@ -482,14 +482,31 @@ class TenderSniperService:
                     try:
                         gs_config = await self.db.get_google_sheets_config(notif['user_id'])
                         if gs_config and gs_config.get('enabled'):
-                            from tender_sniper.google_sheets_sync import get_sheets_sync
+                            from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai
                             sheets_sync = get_sheets_sync()
                             if sheets_sync:
+                                # AI обогащение для Premium пользователей
+                                ai_data = {}
+                                user_columns = set(gs_config.get('columns', []))
+                                has_ai_columns = bool(user_columns & AI_COLUMNS)
+                                is_premium = notif.get('subscription_tier') == 'premium'
+
+                                if has_ai_columns and is_premium and gs_config.get('ai_enrichment', False):
+                                    try:
+                                        ai_data = await enrich_tender_with_ai(
+                                            tender_number=tender_data.get('number', ''),
+                                            tender_price=tender_data.get('price'),
+                                            customer_name=tender_data.get('customer_name', ''),
+                                            subscription_tier='premium'
+                                        )
+                                    except Exception as ai_err:
+                                        logger.warning(f"   ⚠️ AI enrichment ошибка: {ai_err}")
+
                                 match_data = {
                                     'score': notif.get('score', 0),
                                     'red_flags': notif['match_info'].get('red_flags', []),
                                     'filter_name': notif.get('filter_name', ''),
-                                    'ai_data': {},
+                                    'ai_data': ai_data,
                                 }
                                 await sheets_sync.append_tender(
                                     spreadsheet_id=gs_config['spreadsheet_id'],
