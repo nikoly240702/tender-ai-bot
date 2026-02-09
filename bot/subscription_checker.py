@@ -90,6 +90,15 @@ class SubscriptionChecker:
 
                 # Проверяем, нужно ли отправить напоминание
                 if days_left in self.REMINDER_DAYS:
+                    # Проверяем что не отправляли сегодня
+                    user_data = user.data if isinstance(user.data, dict) else {}
+                    last_reminder = user_data.get('last_subscription_reminder', '')
+                    today_str = now.strftime('%Y-%m-%d')
+
+                    if last_reminder == today_str:
+                        logger.debug(f"⏭️ Напоминание уже отправлено сегодня: user={user.telegram_id}")
+                        continue
+
                     try:
                         await self._send_expiration_reminder(
                             bot=bot,
@@ -99,6 +108,17 @@ class SubscriptionChecker:
                             days_left=days_left
                         )
                         notified_count += 1
+
+                        # Сохраняем дату отправки
+                        async with DatabaseSession() as save_session:
+                            from sqlalchemy import select as sel
+                            u = await save_session.scalar(
+                                sel(SniperUser).where(SniperUser.id == user.id)
+                            )
+                            if u:
+                                d = u.data if isinstance(u.data, dict) else {}
+                                d['last_subscription_reminder'] = today_str
+                                u.data = d
 
                         # Небольшая задержка между сообщениями
                         await asyncio.sleep(0.1)
