@@ -1525,7 +1525,7 @@ async def process_google_sheet_url(message: Message, state: FSMContext):
     await _show_column_selection(message, state)
 
 
-async def _show_column_selection(message_or_callback, state: FSMContext):
+async def _show_column_selection(message_or_callback, state: FSMContext, edit: bool = False):
     """Показывает интерфейс выбора колонок."""
     from tender_sniper.google_sheets_sync import COLUMN_DEFINITIONS, AI_COLUMNS, DEFAULT_COLUMNS
 
@@ -1561,8 +1561,11 @@ async def _show_column_selection(message_or_callback, state: FSMContext):
         f"Выбрано: {len(selected)} колонок"
     )
 
-    if hasattr(message_or_callback, 'edit_text'):
-        await message_or_callback.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    if edit and hasattr(message_or_callback, 'edit_text'):
+        try:
+            await message_or_callback.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML")
     else:
         await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
@@ -1583,7 +1586,7 @@ async def gsheets_toggle_column(callback: CallbackQuery, state: FSMContext):
         selected.append(col_key)
 
     await state.update_data(selected_columns=selected)
-    await _show_column_selection(callback.message, state)
+    await _show_column_selection(callback.message, state, edit=True)
 
 
 @router.callback_query(F.data == "gsheets_columns_done")
@@ -1779,7 +1782,7 @@ async def gsheets_edit_columns_handler(callback: CallbackQuery, state: FSMContex
             editing_columns=True  # Флаг для обновления вместо создания
         )
 
-        await _show_column_selection(callback.message, state)
+        await _show_column_selection(callback.message, state, edit=True)
 
     except Exception as e:
         logger.error(f"Ошибка редактирования колонок: {e}", exc_info=True)
