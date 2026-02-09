@@ -790,3 +790,108 @@ async def unblock_user(message: Message):
     except Exception as e:
         logger.error(f"Ошибка разблокировки: {e}", exc_info=True)
         await message.answer("❌ Произошла ошибка при разблокировке")
+
+
+@router.message(Command("test_sheets"))
+async def test_sheets_command(message: Message):
+    """Тест Google Sheets: берёт 4 последних тендера и отправляет в таблицу."""
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Нет доступа")
+        return
+
+    from database import GoogleSheetsConfig
+
+    await message.answer("🔄 Запускаю тест Google Sheets...")
+
+    try:
+        async with DatabaseSession() as session:
+            # Находим пользователя
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == message.from_user.id)
+            )
+            if not user:
+                await message.answer("❌ Пользователь не найден в БД")
+                return
+
+            # Получаем Google Sheets конфиг
+            gs_config = await session.scalar(
+                select(GoogleSheetsConfig).where(GoogleSheetsConfig.user_id == user.id)
+            )
+            if not gs_config:
+                await message.answer("❌ Google Sheets не настроен.\nПодключите через: Настройки → Google Sheets")
+                return
+
+            if not gs_config.enabled:
+                await message.answer("⚠️ Google Sheets отключён. Включите в настройках.")
+                return
+
+            # Получаем последние 4 тендера
+            result = await session.execute(
+                select(SniperNotification)
+                .where(SniperNotification.user_id == user.id)
+                .order_by(SniperNotification.sent_at.desc())
+                .limit(4)
+            )
+            notifications = result.scalars().all()
+
+            if not notifications:
+                await message.answer("❌ Нет уведомлений для отправки")
+                return
+
+        # Отправляем в Google Sheets
+        from tender_sniper.google_sheets_sync import get_sheets_sync
+
+        sheets_sync = get_sheets_sync()
+        if not sheets_sync:
+            await message.answer("❌ Google Sheets sync не инициализирован (проверьте GOOGLE_SERVICE_ACCOUNT_JSON)")
+            return
+
+        columns = gs_config.columns if isinstance(gs_config.columns, list) else []
+        if not columns:
+            from tender_sniper.google_sheets_sync import DEFAULT_COLUMNS
+            columns = DEFAULT_COLUMNS
+
+        results = []
+        for n in notifications:
+            tender_data = {
+                'number': n.tender_number or '',
+                'name': n.tender_name or '',
+                'price': n.tender_price,
+                'url': n.tender_url or '',
+                'region': n.tender_region or '',
+                'customer_name': n.tender_customer or '',
+                'published_date': n.published_date.strftime('%d.%m.%Y') if n.published_date else '',
+                'submission_deadline': n.submission_deadline.strftime('%d.%m.%Y %H:%M') if n.submission_deadline else '',
+            }
+            match_data = {
+                'score': n.score or 0,
+                'red_flags': [],
+                'filter_name': n.filter_name or '',
+                'ai_data': {},
+            }
+
+            try:
+                success = await sheets_sync.append_tender(
+                    spreadsheet_id=gs_config.spreadsheet_id,
+                    tender_data=tender_data,
+                    match_data=match_data,
+                    columns=columns,
+                    sheet_name=gs_config.sheet_name or 'Тендеры'
+                )
+                status = "✅" if success else "❌"
+                name_short = (n.tender_name or '')[:40]
+                results.append(f"{status} {name_short}")
+            except Exception as e:
+                results.append(f"❌ Ошибка: {str(e)[:50]}")
+
+        success_count = sum(1 for r in results if r.startswith("✅"))
+        text = (
+            f"📊 <b>Тест Google Sheets</b>\n\n"
+            f"Отправлено: {success_count}/{len(notifications)}\n\n"
+            + "\n".join(results)
+        )
+        await message.answer(text, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Ошибка test_sheets: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {str(e)[:200]}")
