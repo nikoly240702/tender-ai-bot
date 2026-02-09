@@ -593,7 +593,9 @@ class InstantSearch:
                                         'выполнение ', 'оказание ', 'работы по ',
                                         'техническое обслуживание', 'сервисное обслуживание',
                                         'монтаж ', 'демонтаж ', 'проектирование ',
-                                        'разработка проект', 'консультирование ']
+                                        'разработка проект', 'консультирование ',
+                                        'заправка ', 'восстановление ', 'диагностика ',
+                                        'расчет ', 'расчёт ', 'создание ']
                         if any(tender_name.startswith(s) for s in service_start):
                             logger.debug(f"      ⛔ Исключен (услуга по началу): {tender.get('name', '')[:60]}")
                             continue
@@ -603,7 +605,9 @@ class InstantSearch:
                                              'медицинские услуги', 'услуги по', 'услуга по',
                                              'работы по ', 'ремонт и обслуживание',
                                              'техническое обслуживание', 'сервисное обслуживание',
-                                             'текущий ремонт', 'капитальный ремонт']
+                                             'текущий ремонт', 'капитальный ремонт',
+                                             'заправка картридж', 'восстановление картридж',
+                                             'заправка и восстановление', 'диагностика и ремонт']
                         if any(ind in tender_name for ind in service_indicators):
                             logger.debug(f"      ⛔ Исключен (индикатор услуги): {tender.get('name', '')[:60]}")
                             continue
@@ -673,24 +677,10 @@ class InstantSearch:
                             tender['ai_reason'] = ai_result.get('reason', '')
                             ai_filtered_matches.append(tender)
                         else:
+                            # AI сказал "не релевантно" — доверяем, убираем из выдачи
                             ai_rejected_count += 1
-                            ai_confidence = ai_result.get('confidence', 0)
-
-                            if ai_confidence < 20:
-                                # Совершенно нерелевантный — убираем из выдачи
-                                logger.info(f"      ❌ AI отклонил ({ai_confidence}%): {tender.get('name', '')[:50]}... "
-                                           f"({ai_result.get('reason', '')})")
-                            else:
-                                # Пограничный — показываем со сниженным score
-                                original_score = tender.get('match_score', 0)
-                                tender['match_score'] = max(5, int(original_score * 0.7))  # -30% штраф
-                                tender['ai_verified'] = True
-                                tender['ai_low_relevance'] = True
-                                tender['ai_confidence'] = ai_confidence
-                                tender['ai_reason'] = ai_result.get('reason', '')
-                                ai_filtered_matches.append(tender)
-                                logger.info(f"      ⚠️ AI пограничный ({ai_confidence}%): {tender.get('name', '')[:50]}... "
-                                           f"score {original_score}→{tender['match_score']}")
+                            logger.info(f"      ❌ AI отклонил ({ai_result.get('confidence', 0)}%): "
+                                       f"{tender.get('name', '')[:50]}... ({ai_result.get('reason', '')})")
 
                         # Проверяем квоту
                         if ai_result.get('source') == 'quota_exceeded':

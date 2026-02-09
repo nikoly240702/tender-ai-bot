@@ -430,7 +430,8 @@ class TenderSniperService:
                         'url': tender.get('url', ''),
                         'region': tender.get('customer_region', tender.get('region', '')),
                         'customer_name': tender.get('customer', tender.get('customer_name', '')),
-                        'published_date': tender.get('published', tender.get('published_date', ''))
+                        'published_date': tender.get('published', tender.get('published_date', '')),
+                        'submission_deadline': tender.get('submission_deadline', '')
                     }
 
                     if is_quiet_hours:

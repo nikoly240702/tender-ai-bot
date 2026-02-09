@@ -1,14 +1,16 @@
 """
-AI Relevance Checker - мягкая проверка семантической релевантности тендеров.
+AI Relevance Checker - сбалансированная проверка семантической релевантности тендеров.
 
-Принцип: Лучше показать лишний тендер, чем пропустить нужный.
-AI используется для СОРТИРОВКИ (score), а не для ФИЛЬТРАЦИИ (reject).
+Принцип: Пропускать пограничные тендеры, но отсекать явно нерелевантные.
+AI проверяет: 1) соответствие типа (товар/услуга), 2) тематическую релевантность.
 """
 
 import os
 import json
 import hashlib
 import logging
+import asyncio
+import functools
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from openai import OpenAI
@@ -381,11 +383,17 @@ class AIRelevanceChecker:
 Ответь СТРОГО в формате JSON:
 {{"relevant": true/false, "confidence": 0-100, "reason": "краткое объяснение на русском"}}"""
 
-        response = self.client.chat.completions.create(
-            model=self.MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,  # Низкая температура для консистентности
-            max_tokens=150
+        # Синхронный OpenAI клиент — оборачиваем в executor чтобы не блокировать event loop
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            functools.partial(
+                self.client.chat.completions.create,
+                model=self.MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.1,
+                max_tokens=150
+            )
         )
 
         response_text = response.choices[0].message.content.strip()
