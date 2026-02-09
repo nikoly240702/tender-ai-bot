@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.parsers.zakupki_rss_parser import ZakupkiRSSParser
 from tender_sniper.matching import SmartMatcher
+from tender_sniper.matching.smart_matcher import detect_red_flags
 from src.utils.transliterator import Transliterator
 from tender_sniper.ai_relevance_checker import get_relevance_checker, check_tender_relevance
 
@@ -629,6 +630,9 @@ class InstantSearch:
                     tender_with_score['match_score'] = 20
                     tender_with_score['match_reasons'] = ['Найден по поисковому запросу RSS']
                     tender_with_score['matched_keywords'] = []
+
+                # Detect red flags for each tender
+                tender_with_score['red_flags'] = detect_red_flags(tender_with_score)
 
                 matches.append(tender_with_score)
 

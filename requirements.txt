@@ -68,6 +68,10 @@ uvicorn>=0.27.0  # ASGI server для FastAPI
 # Payments
 yookassa>=3.0.0  # YooKassa payment integration
 
+# Google Sheets Integration
+gspread>=6.0.0
+google-auth>=2.0.0
+
 # Level 2 Analysis Dependencies
 pydantic>=2.5.0  # Структурированные модели
 pydantic-settings>=2.1.0

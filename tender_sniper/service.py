@@ -362,7 +362,8 @@ class TenderSniperService:
                             'tender': tender,
                             'match_info': {
                                 'score': score,  # Используем match_score как score
-                                'matched_keywords': tender.get('match_reasons', [])
+                                'matched_keywords': tender.get('match_reasons', []),
+                                'red_flags': tender.get('red_flags', [])
                             },
                             'filter_id': filter_id,
                             'filter_name': filter_name,
@@ -476,6 +477,29 @@ class TenderSniperService:
                             await self.db.increment_notification_quota(notif['user_id'])
 
                         self.stats['notifications_sent'] += 1
+
+                    # Google Sheets sync (не блокирует отправку)
+                    try:
+                        gs_config = await self.db.get_google_sheets_config(notif['user_id'])
+                        if gs_config and gs_config.get('enabled'):
+                            from tender_sniper.google_sheets_sync import get_sheets_sync
+                            sheets_sync = get_sheets_sync()
+                            if sheets_sync:
+                                match_data = {
+                                    'score': notif.get('score', 0),
+                                    'red_flags': notif['match_info'].get('red_flags', []),
+                                    'filter_name': notif.get('filter_name', ''),
+                                    'ai_data': {},
+                                }
+                                await sheets_sync.append_tender(
+                                    spreadsheet_id=gs_config['spreadsheet_id'],
+                                    tender_data=tender_data,
+                                    match_data=match_data,
+                                    columns=gs_config.get('columns', []),
+                                    sheet_name=gs_config.get('sheet_name', 'Тендеры')
+                                )
+                    except Exception as gs_err:
+                        logger.warning(f"   ⚠️ Google Sheets ошибка (не критично): {gs_err}")
 
                     # Небольшая задержка между уведомлениями
                     await asyncio.sleep(0.1)

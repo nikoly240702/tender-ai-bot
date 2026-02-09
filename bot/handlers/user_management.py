@@ -949,6 +949,8 @@ class IntegrationSetup(StatesGroup):
     webhook_url = State()
     email_address = State()
     google_sheet_id = State()
+    google_sheet_url = State()  # Ввод ссылки на таблицу
+    google_sheet_columns = State()  # Выбор колонок
 
 
 @router.callback_query(F.data == "settings_integrations")
@@ -1340,27 +1342,453 @@ async def integration_sheets_handler(callback: CallbackQuery):
     """Настройка Google Sheets."""
     await callback.answer()
 
+    try:
+        from tender_sniper.google_sheets_sync import get_sheets_sync, COLUMN_DEFINITIONS, AI_COLUMNS
+
+        sheets_sync = get_sheets_sync()
+        service_email = sheets_sync.get_service_email() if sheets_sync else ''
+
+        # Проверяем существующий конфиг
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        config = await db.get_google_sheets_config(sniper_user['id'])
+
+        if config and config.get('enabled'):
+            # Уже настроен — показываем статус и управление
+            cols_display = ', '.join(
+                COLUMN_DEFINITIONS.get(c, (c, None))[0]
+                for c in config.get('columns', [])
+            )
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Изменить колонки", callback_data="gsheets_edit_columns")],
+                [InlineKeyboardButton(text="🔄 Сменить таблицу", callback_data="gsheets_setup")],
+                [InlineKeyboardButton(text="⏸ Выключить", callback_data="gsheets_toggle_off")],
+                [InlineKeyboardButton(text="🗑 Удалить", callback_data="gsheets_delete")],
+                [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
+            ])
+
+            await callback.message.edit_text(
+                "📊 <b>GOOGLE SHEETS</b>\n\n"
+                f"✅ <b>Подключено</b>\n\n"
+                f"<b>Таблица:</b> <code>{config['spreadsheet_id']}</code>\n"
+                f"<b>Лист:</b> {config.get('sheet_name', 'Тендеры')}\n"
+                f"<b>Колонки:</b> {cols_display}\n"
+                f"<b>AI-обогащение:</b> {'✅' if config.get('ai_enrichment') else '❌'}\n\n"
+                "Каждый новый тендер автоматически добавляется строкой в таблицу.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        elif config and not config.get('enabled'):
+            # Отключён
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="▶️ Включить", callback_data="gsheets_toggle_on")],
+                [InlineKeyboardButton(text="🗑 Удалить", callback_data="gsheets_delete")],
+                [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
+            ])
+
+            await callback.message.edit_text(
+                "📊 <b>GOOGLE SHEETS</b>\n\n"
+                "⏸ <b>Отключено</b>\n\n"
+                "Интеграция настроена, но отключена. Включите для автоматического экспорта тендеров.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+        else:
+            # Не настроен — показываем wizard
+            if not service_email:
+                await callback.message.edit_text(
+                    "📊 <b>GOOGLE SHEETS</b>\n\n"
+                    "⚠️ <b>Сервис временно недоступен</b>\n\n"
+                    "Google Sheets интеграция не настроена администратором.\n"
+                    "Пожалуйста, попробуйте позже.",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
+                    ]),
+                    parse_mode="HTML"
+                )
+                return
+
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🚀 Подключить", callback_data="gsheets_setup")],
+                [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
+            ])
+
+            await callback.message.edit_text(
+                "📊 <b>GOOGLE SHEETS</b>\n\n"
+                "Автоматическая выгрузка тендеров в Google-таблицу.\n\n"
+                "━━━━━━━━━━━━━━━\n"
+                "<b>Как подключить:</b>\n\n"
+                f"1️⃣ Создайте таблицу в Google Sheets\n"
+                f"2️⃣ Откройте доступ для:\n"
+                f"<code>{service_email}</code>\n"
+                f"(роль: <b>Редактор</b>)\n"
+                f"3️⃣ Нажмите «Подключить» и вставьте ссылку на таблицу\n"
+                f"4️⃣ Выберите нужные колонки\n\n"
+                "<b>Кому полезно:</b>\n"
+                "• Командная работа с тендерами\n"
+                "• Построение отчётов и аналитики\n"
+                "• Архив всех найденных тендеров\n"
+                "• Интеграция с Excel/CRM",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+
+    except Exception as e:
+        logger.error(f"Ошибка Google Sheets настроек: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "gsheets_setup")
+async def gsheets_setup_handler(callback: CallbackQuery, state: FSMContext):
+    """Начало wizard подключения Google Sheets."""
+    await callback.answer()
+    await state.set_state(IntegrationSetup.google_sheet_url)
+
+    from tender_sniper.google_sheets_sync import get_sheets_sync
+    sheets_sync = get_sheets_sync()
+    service_email = sheets_sync.get_service_email() if sheets_sync else 'бот'
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="integration_sheets")]
+    ])
+
     await callback.message.edit_text(
-        "📊 <b>GOOGLE SHEETS</b>\n\n"
-        "⚠️ <b>В разработке</b>\n\n"
+        "📊 <b>ПОДКЛЮЧЕНИЕ GOOGLE SHEETS</b>\n\n"
+        "<b>Шаг 1 из 2:</b> Вставьте ссылку на таблицу\n\n"
         "━━━━━━━━━━━━━━━\n"
-        "<b>Что это такое?</b>\n\n"
-        "Автоматическая выгрузка всех найденных тендеров в Google-таблицу.\n\n"
-        "<b>Как будет работать:</b>\n"
-        "1. Вы создаёте таблицу в Google Sheets\n"
-        "2. Указываете её ID в настройках\n"
-        "3. Каждый новый тендер автоматически добавляется строкой\n\n"
-        "<b>Кому полезно:</b>\n"
-        "• Командам — совместная работа\n"
-        "• Аналитикам — построение отчётов\n"
-        "• Для архива всех тендеров\n"
-        "• Интеграция с Excel через import\n\n"
-        "🔜 Функция появится в ближайшем обновлении!",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="« К расширенным настройкам", callback_data="settings_advanced")]
-        ]),
+        f"⚠️ Убедитесь, что вы дали доступ <b>Редактор</b> для:\n"
+        f"<code>{service_email}</code>\n\n"
+        "Отправьте ссылку на таблицу:\n"
+        "<i>Пример: https://docs.google.com/spreadsheets/d/abc123.../edit</i>",
+        reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+
+@router.message(IntegrationSetup.google_sheet_url)
+async def process_google_sheet_url(message: Message, state: FSMContext):
+    """Обработка ссылки на Google Sheets."""
+    import re
+
+    url = message.text.strip()
+
+    # Извлекаем spreadsheet_id из URL
+    match = re.search(r'/spreadsheets/d/([a-zA-Z0-9_-]+)', url)
+    if not match:
+        await message.answer(
+            "❌ Неверный формат ссылки.\n\n"
+            "Ссылка должна выглядеть так:\n"
+            "<code>https://docs.google.com/spreadsheets/d/...</code>\n\n"
+            "Попробуйте ещё раз:",
+            parse_mode="HTML"
+        )
+        return
+
+    spreadsheet_id = match.group(1)
+
+    # Проверяем доступ
+    from tender_sniper.google_sheets_sync import get_sheets_sync
+    sheets_sync = get_sheets_sync()
+
+    if not sheets_sync:
+        await state.clear()
+        await message.answer("❌ Google Sheets интеграция не настроена")
+        return
+
+    await message.answer("🔍 Проверяю доступ к таблице...")
+
+    has_access = await sheets_sync.check_access(spreadsheet_id)
+
+    if not has_access:
+        service_email = sheets_sync.get_service_email()
+        await message.answer(
+            "❌ <b>Нет доступа к таблице</b>\n\n"
+            "Убедитесь, что вы:\n"
+            f"1. Дали доступ <b>Редактор</b> для <code>{service_email}</code>\n"
+            "2. Правильно скопировали ссылку\n\n"
+            "Попробуйте ещё раз — отправьте ссылку:",
+            parse_mode="HTML"
+        )
+        return
+
+    # Доступ есть — сохраняем ID и переходим к выбору колонок
+    await state.update_data(spreadsheet_id=spreadsheet_id)
+    await state.set_state(IntegrationSetup.google_sheet_columns)
+
+    # Показываем выбор колонок
+    await _show_column_selection(message, state)
+
+
+async def _show_column_selection(message_or_callback, state: FSMContext):
+    """Показывает интерфейс выбора колонок."""
+    from tender_sniper.google_sheets_sync import COLUMN_DEFINITIONS, AI_COLUMNS, DEFAULT_COLUMNS
+
+    data = await state.get_data()
+    selected = data.get('selected_columns', DEFAULT_COLUMNS.copy())
+
+    buttons = []
+    for col_key, (col_name, _) in COLUMN_DEFINITIONS.items():
+        is_ai = col_key in AI_COLUMNS
+        is_selected = col_key in selected
+        check = "✅" if is_selected else "⬜"
+        ai_mark = " 🤖" if is_ai else ""
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{check} {col_name}{ai_mark}",
+                callback_data=f"gsheets_col_{col_key}"
+            )
+        ])
+
+    buttons.append([InlineKeyboardButton(text="━━━━━━━━━━━━", callback_data="noop")])
+    buttons.append([
+        InlineKeyboardButton(text="✅ Готово", callback_data="gsheets_columns_done"),
+        InlineKeyboardButton(text="❌ Отмена", callback_data="integration_sheets")
+    ])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+    text = (
+        "📊 <b>ПОДКЛЮЧЕНИЕ GOOGLE SHEETS</b>\n\n"
+        "<b>Шаг 2 из 2:</b> Выберите колонки\n\n"
+        "Нажимайте на колонки, чтобы включить/выключить:\n"
+        "🤖 — требует AI (Premium)\n\n"
+        f"Выбрано: {len(selected)} колонок"
+    )
+
+    if hasattr(message_or_callback, 'edit_text'):
+        await message_or_callback.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await message_or_callback.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("gsheets_col_"))
+async def gsheets_toggle_column(callback: CallbackQuery, state: FSMContext):
+    """Переключение колонки в выборе."""
+    col_key = callback.data.replace("gsheets_col_", "")
+    await callback.answer()
+
+    data = await state.get_data()
+    from tender_sniper.google_sheets_sync import DEFAULT_COLUMNS
+    selected = data.get('selected_columns', DEFAULT_COLUMNS.copy())
+
+    if col_key in selected:
+        selected.remove(col_key)
+    else:
+        selected.append(col_key)
+
+    await state.update_data(selected_columns=selected)
+    await _show_column_selection(callback.message, state)
+
+
+@router.callback_query(F.data == "gsheets_columns_done")
+async def gsheets_columns_done(callback: CallbackQuery, state: FSMContext):
+    """Завершение настройки Google Sheets."""
+    await callback.answer()
+
+    data = await state.get_data()
+    spreadsheet_id = data.get('spreadsheet_id', '')
+    from tender_sniper.google_sheets_sync import DEFAULT_COLUMNS, AI_COLUMNS, get_sheets_sync
+    selected = data.get('selected_columns', DEFAULT_COLUMNS.copy())
+
+    if not selected:
+        await callback.answer("⚠️ Выберите хотя бы одну колонку", show_alert=True)
+        return
+
+    if not spreadsheet_id:
+        await state.clear()
+        await callback.message.edit_text("❌ Ошибка: не найден ID таблицы. Начните заново.")
+        return
+
+    # Проверяем есть ли AI колонки
+    has_ai_columns = any(c in AI_COLUMNS for c in selected)
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not sniper_user:
+            await state.clear()
+            await callback.message.edit_text("❌ Пользователь не найден")
+            return
+
+        # Проверяем Premium для AI колонок
+        subscription_tier = sniper_user.get('subscription_tier', 'trial')
+        ai_enrichment = has_ai_columns and subscription_tier == 'premium'
+
+        # Если не premium а выбрал AI колонки — убираем их
+        if has_ai_columns and subscription_tier != 'premium':
+            selected = [c for c in selected if c not in AI_COLUMNS]
+            ai_enrichment = False
+
+        # Сохраняем конфиг
+        await db.save_google_sheets_config(
+            user_id=sniper_user['id'],
+            spreadsheet_id=spreadsheet_id,
+            columns=selected,
+            sheet_name='Тендеры',
+            ai_enrichment=ai_enrichment
+        )
+
+        # Создаём заголовки
+        sheets_sync = get_sheets_sync()
+        if sheets_sync:
+            await sheets_sync.setup_headers(spreadsheet_id, selected, 'Тендеры')
+
+        await state.clear()
+
+        non_premium_warning = ""
+        if has_ai_columns and subscription_tier != 'premium':
+            non_premium_warning = (
+                "\n\n⚠️ AI-колонки были убраны — они доступны только на Premium тарифе."
+            )
+
+        await callback.message.edit_text(
+            "✅ <b>Google Sheets подключен!</b>\n\n"
+            f"<b>Таблица:</b> <code>{spreadsheet_id}</code>\n"
+            f"<b>Колонок:</b> {len(selected)}\n"
+            f"<b>AI-обогащение:</b> {'✅ Включено' if ai_enrichment else '❌ Выключено'}\n\n"
+            "Теперь каждый найденный тендер будет автоматически добавляться в таблицу."
+            f"{non_premium_warning}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Настройки Sheets", callback_data="integration_sheets")],
+                [InlineKeyboardButton(text="« К настройкам", callback_data="settings_advanced")]
+            ]),
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка сохранения Google Sheets: {e}", exc_info=True)
+        await state.clear()
+        await callback.message.edit_text("❌ Произошла ошибка при сохранении настроек")
+
+
+@router.callback_query(F.data == "gsheets_toggle_off")
+async def gsheets_toggle_off_handler(callback: CallbackQuery):
+    """Выключить Google Sheets."""
+    await callback.answer()
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if sniper_user:
+            await db.toggle_google_sheets(sniper_user['id'], enabled=False)
+        await callback.message.edit_text(
+            "⏸ <b>Google Sheets отключен</b>\n\n"
+            "Тендеры больше не будут добавляться в таблицу.\n"
+            "Конфигурация сохранена — можно включить обратно.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Настройки Sheets", callback_data="integration_sheets")],
+                [InlineKeyboardButton(text="« К настройкам", callback_data="settings_advanced")]
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка отключения Google Sheets: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "gsheets_toggle_on")
+async def gsheets_toggle_on_handler(callback: CallbackQuery):
+    """Включить Google Sheets."""
+    await callback.answer()
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if sniper_user:
+            await db.toggle_google_sheets(sniper_user['id'], enabled=True)
+        await callback.message.edit_text(
+            "▶️ <b>Google Sheets включен!</b>\n\n"
+            "Тендеры снова будут автоматически добавляться в таблицу.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📊 Настройки Sheets", callback_data="integration_sheets")],
+                [InlineKeyboardButton(text="« К настройкам", callback_data="settings_advanced")]
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка включения Google Sheets: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "gsheets_delete")
+async def gsheets_delete_handler(callback: CallbackQuery):
+    """Удалить Google Sheets конфиг."""
+    await callback.answer()
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Да, удалить", callback_data="gsheets_delete_confirm"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="integration_sheets")
+        ]
+    ])
+    await callback.message.edit_text(
+        "🗑 <b>Удалить Google Sheets?</b>\n\n"
+        "Конфигурация будет удалена. Данные в таблице сохранятся.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "gsheets_delete_confirm")
+async def gsheets_delete_confirm_handler(callback: CallbackQuery):
+    """Подтверждение удаления Google Sheets."""
+    await callback.answer()
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if sniper_user:
+            await db.delete_google_sheets_config(sniper_user['id'])
+        await callback.message.edit_text(
+            "✅ <b>Google Sheets отключен и удалён</b>\n\n"
+            "Можете подключить заново в любое время.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« К настройкам", callback_data="settings_advanced")]
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Ошибка удаления Google Sheets: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "gsheets_edit_columns")
+async def gsheets_edit_columns_handler(callback: CallbackQuery, state: FSMContext):
+    """Изменение колонок Google Sheets."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not sniper_user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        config = await db.get_google_sheets_config(sniper_user['id'])
+        if not config:
+            await callback.message.edit_text("❌ Конфиг не найден")
+            return
+
+        # Устанавливаем текущие колонки в состояние
+        await state.set_state(IntegrationSetup.google_sheet_columns)
+        await state.update_data(
+            spreadsheet_id=config['spreadsheet_id'],
+            selected_columns=config.get('columns', []),
+            editing_columns=True  # Флаг для обновления вместо создания
+        )
+
+        await _show_column_selection(callback.message, state)
+
+    except Exception as e:
+        logger.error(f"Ошибка редактирования колонок: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "noop")
+async def noop_handler(callback: CallbackQuery):
+    """Пустой обработчик для разделителей."""
+    await callback.answer()
 
 
 # Экспортируем router

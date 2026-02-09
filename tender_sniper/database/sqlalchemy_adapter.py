@@ -26,6 +26,7 @@ from database import (
     Subscription as SubscriptionModel,
     SatisfactionSurvey as SatisfactionSurveyModel,
     ViewedTender as ViewedTenderModel,
+    GoogleSheetsConfig as GoogleSheetsConfigModel,
     get_session,
     DatabaseSession
 )
@@ -2106,6 +2107,144 @@ class TenderSniperDB:
 
 
 # Глобальный singleton
+    # ============================================
+    # GOOGLE SHEETS ИНТЕГРАЦИЯ
+    # ============================================
+
+    async def save_google_sheets_config(
+        self,
+        user_id: int,
+        spreadsheet_id: str,
+        columns: List[str],
+        sheet_name: str = 'Тендеры',
+        ai_enrichment: bool = False
+    ) -> int:
+        """
+        Сохранить конфигурацию Google Sheets (upsert).
+
+        Returns:
+            ID конфига
+        """
+        try:
+            async with DatabaseSession() as session:
+                # Проверяем существующий конфиг
+                existing = await session.scalar(
+                    select(GoogleSheetsConfigModel).where(
+                        GoogleSheetsConfigModel.user_id == user_id
+                    )
+                )
+
+                if existing:
+                    existing.spreadsheet_id = spreadsheet_id
+                    existing.columns = columns
+                    existing.sheet_name = sheet_name
+                    existing.ai_enrichment = ai_enrichment
+                    existing.enabled = True
+                    existing.updated_at = datetime.utcnow()
+                    await session.flush()
+                    return existing.id
+                else:
+                    config = GoogleSheetsConfigModel(
+                        user_id=user_id,
+                        spreadsheet_id=spreadsheet_id,
+                        columns=columns,
+                        sheet_name=sheet_name,
+                        ai_enrichment=ai_enrichment,
+                        enabled=True
+                    )
+                    session.add(config)
+                    await session.flush()
+                    return config.id
+
+        except Exception as e:
+            logger.error(f"Ошибка сохранения Google Sheets config: {e}")
+            return 0
+
+    async def get_google_sheets_config(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Получить конфигурацию Google Sheets.
+
+        Returns:
+            Dict с конфигом или None
+        """
+        try:
+            async with DatabaseSession() as session:
+                config = await session.scalar(
+                    select(GoogleSheetsConfigModel).where(
+                        GoogleSheetsConfigModel.user_id == user_id
+                    )
+                )
+
+                if not config:
+                    return None
+
+                return {
+                    'id': config.id,
+                    'user_id': config.user_id,
+                    'spreadsheet_id': config.spreadsheet_id,
+                    'sheet_name': config.sheet_name,
+                    'columns': config.columns if isinstance(config.columns, list) else [],
+                    'ai_enrichment': config.ai_enrichment,
+                    'enabled': config.enabled,
+                    'created_at': config.created_at,
+                    'updated_at': config.updated_at,
+                }
+
+        except Exception as e:
+            logger.error(f"Ошибка получения Google Sheets config: {e}")
+            return None
+
+    async def update_google_sheets_columns(self, user_id: int, columns: List[str]) -> bool:
+        """Обновить список колонок."""
+        try:
+            async with DatabaseSession() as session:
+                config = await session.scalar(
+                    select(GoogleSheetsConfigModel).where(
+                        GoogleSheetsConfigModel.user_id == user_id
+                    )
+                )
+                if config:
+                    config.columns = columns
+                    config.updated_at = datetime.utcnow()
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка обновления Google Sheets columns: {e}")
+            return False
+
+    async def toggle_google_sheets(self, user_id: int, enabled: bool) -> bool:
+        """Включить/выключить Google Sheets интеграцию."""
+        try:
+            async with DatabaseSession() as session:
+                config = await session.scalar(
+                    select(GoogleSheetsConfigModel).where(
+                        GoogleSheetsConfigModel.user_id == user_id
+                    )
+                )
+                if config:
+                    config.enabled = enabled
+                    config.updated_at = datetime.utcnow()
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка toggle Google Sheets: {e}")
+            return False
+
+    async def delete_google_sheets_config(self, user_id: int) -> bool:
+        """Удалить конфигурацию Google Sheets."""
+        try:
+            async with DatabaseSession() as session:
+                await session.execute(
+                    delete(GoogleSheetsConfigModel).where(
+                        GoogleSheetsConfigModel.user_id == user_id
+                    )
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка удаления Google Sheets config: {e}")
+            return False
+
+
 _sniper_db_instance = None
 
 

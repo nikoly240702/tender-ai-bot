@@ -623,6 +623,29 @@ class UserEvent(Base):
     )
 
 
+class GoogleSheetsConfig(Base):
+    """Конфигурация Google Sheets интеграции для пользователя."""
+    __tablename__ = 'google_sheets_config'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    spreadsheet_id = Column(String(255), nullable=False)
+    sheet_name = Column(String(255), default='Тендеры')
+    columns = Column(JSON, nullable=False)  # ['link', 'name', 'customer', ...]
+    ai_enrichment = Column(Boolean, default=False)  # Premium: обогащение из документации
+    enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+    # Unique per user
+    __table_args__ = (
+        Index('ix_google_sheets_config_user', 'user_id', unique=True),
+    )
+
+
 # ============================================
 # DATABASE ENGINE & SESSION
 # ============================================
@@ -788,6 +811,8 @@ __all__ = [
     'Promocode',
     'Payment',
     'Referral',
+    # Google Sheets Integration
+    'GoogleSheetsConfig',
     # Functions
     'init_database',
     'get_session',

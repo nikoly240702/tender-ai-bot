@@ -253,6 +253,26 @@ class TelegramNotifier:
                 )
             ])
 
+            # AI кнопки для Premium
+            if subscription_tier == 'premium':
+                buttons.append([
+                    InlineKeyboardButton(
+                        text="📝 AI-резюме",
+                        callback_data=f"ai_summary_{tender_number}"
+                    ),
+                    InlineKeyboardButton(
+                        text="📄 Анализ докум.",
+                        callback_data=f"analyze_docs_{tender_number}"
+                    )
+                ])
+            else:
+                buttons.append([
+                    InlineKeyboardButton(
+                        text="⭐ AI-функции (Premium)",
+                        callback_data="show_premium_ai"
+                    )
+                ])
+
         return InlineKeyboardMarkup(inline_keyboard=buttons)
 
     async def send_batch_notifications(
