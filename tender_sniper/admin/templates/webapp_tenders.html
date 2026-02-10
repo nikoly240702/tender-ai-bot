@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Мои тендеры</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --bg-color: var(--tg-theme-bg-color, #ffffff);
+            --text-color: var(--tg-theme-text-color, #000000);
+            --hint-color: var(--tg-theme-hint-color, #999999);
+            --link-color: var(--tg-theme-link-color, #2481cc);
+            --button-color: var(--tg-theme-button-color, #2481cc);
+            --button-text-color: var(--tg-theme-button-text-color, #ffffff);
+            --secondary-bg: var(--tg-theme-secondary-bg-color, #f0f0f0);
+            --section-bg: var(--tg-theme-section-bg-color, var(--bg-color));
+            --card-radius: 12px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--secondary-bg);
+            color: var(--text-color);
+            padding-bottom: 80px;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        .header {
+            background: var(--bg-color);
+            padding: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            border-bottom: 1px solid rgba(128,128,128,0.15);
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .filters-row {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .filter-chip {
+            flex-shrink: 0;
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 13px;
+            background: var(--secondary-bg);
+            color: var(--text-color);
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-chip.active {
+            background: var(--button-color);
+            color: var(--button-text-color);
+        }
+
+        .counter {
+            padding: 8px 16px;
+            font-size: 13px;
+            color: var(--hint-color);
+            background: var(--bg-color);
+            border-bottom: 1px solid rgba(128,128,128,0.1);
+        }
+
+        .tender-list {
+            padding: 8px;
+        }
+
+        .tender-card {
+            background: var(--section-bg);
+            border-radius: var(--card-radius);
+            padding: 14px;
+            margin-bottom: 8px;
+            position: relative;
+            transition: all 0.15s;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+
+        .tender-card.selected {
+            border-color: var(--button-color);
+        }
+
+        .tender-card.exported {
+            opacity: 0.7;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .checkbox {
+            width: 22px;
+            height: 22px;
+            border-radius: 6px;
+            border: 2px solid var(--hint-color);
+            flex-shrink: 0;
+            margin-top: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .tender-card.selected .checkbox {
+            background: var(--button-color);
+            border-color: var(--button-color);
+        }
+
+        .checkbox-check {
+            display: none;
+            color: var(--button-text-color);
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .tender-card.selected .checkbox-check {
+            display: block;
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            line-height: 1.3;
+            flex: 1;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .card-info {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px 12px;
+        }
+
+        .info-item {
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .info-item .emoji {
+            flex-shrink: 0;
+        }
+
+        .info-item .value {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .score-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 18px;
+            border-radius: 9px;
+            font-size: 11px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .score-green { background: #34c759; }
+        .score-yellow { background: #ff9500; }
+        .score-red { background: #ff3b30; }
+
+        .card-badges {
+            margin-top: 8px;
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--secondary-bg);
+            color: var(--hint-color);
+        }
+
+        .badge-exported {
+            background: rgba(52, 199, 89, 0.15);
+            color: #34c759;
+        }
+
+        .card-details {
+            display: none;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(128,128,128,0.15);
+        }
+
+        .card-details.open {
+            display: block;
+        }
+
+        .card-details p {
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: var(--hint-color);
+        }
+
+        .card-details a {
+            color: var(--link-color);
+            text-decoration: none;
+        }
+
+        .bottom-bar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--bg-color);
+            padding: 12px 16px;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            border-top: 1px solid rgba(128,128,128,0.15);
+            display: flex;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            text-align: center;
+            transition: opacity 0.15s;
+        }
+
+        .btn:active {
+            opacity: 0.7;
+        }
+
+        .btn-secondary {
+            background: var(--secondary-bg);
+            color: var(--text-color);
+        }
+
+        .btn-primary {
+            background: var(--button-color);
+            color: var(--button-text-color);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .progress-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .progress-overlay.active {
+            display: flex;
+        }
+
+        .progress-box {
+            background: var(--bg-color);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            width: 280px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--secondary-bg);
+            margin: 16px 0;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--button-color);
+            border-radius: 3px;
+            transition: width 0.3s;
+            width: 0%;
+        }
+
+        .progress-text {
+            font-size: 14px;
+            color: var(--hint-color);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--hint-color);
+        }
+
+        .empty-state .emoji-big {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--hint-color);
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--secondary-bg);
+            border-top-color: var(--button-color);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .price-text {
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Мои тендеры</h1>
+    <div class="filters-row">
+        <button class="filter-chip active" data-period="7">Неделя</button>
+        <button class="filter-chip" data-period="3">3 дня</button>
+        <button class="filter-chip" data-period="1">Сегодня</button>
+    </div>
+</div>
+
+<div class="counter" id="counter">Загрузка...</div>
+
+<div class="tender-list" id="tenderList">
+    <div class="loading">
+        <div class="spinner"></div>
+        <p>Загружаю тендеры...</p>
+    </div>
+</div>
+
+<div class="bottom-bar">
+    <button class="btn btn-secondary" id="btnSelectAll">Выбрать все</button>
+    <button class="btn btn-primary" id="btnExport" disabled>📊 Экспорт (0)</button>
+</div>
+
+<div class="progress-overlay" id="progressOverlay">
+    <div class="progress-box">
+        <p style="font-size:16px;font-weight:600;">Экспорт в Google Sheets</p>
+        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+        <p class="progress-text" id="progressText">Подготовка...</p>
+    </div>
+</div>
+
+<script>
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+const initData = tg.initData;
+let allTenders = [];
+let selectedIds = new Set();
+let currentPeriod = 7;
+let allSelected = false;
+
+// Format price
+function formatPrice(price) {
+    if (!price) return 'Не указана';
+    return new Intl.NumberFormat('ru-RU').format(Math.round(price)) + ' ₽';
+}
+
+// Score badge
+function scoreBadge(score) {
+    const cls = score >= 80 ? 'score-green' : score >= 50 ? 'score-yellow' : 'score-red';
+    return `<span class="score-badge ${cls}">${score}</span>`;
+}
+
+// Truncate
+function trunc(s, n) {
+    if (!s) return '';
+    return s.length > n ? s.substring(0, n - 1) + '…' : s;
+}
+
+// Filter tenders by period
+function filterByPeriod(tenders, days) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    return tenders.filter(t => {
+        if (!t.sent_at) return true;
+        return new Date(t.sent_at) >= since;
+    });
+}
+
+// Render tenders
+function render() {
+    const filtered = filterByPeriod(allTenders, currentPeriod);
+    const list = document.getElementById('tenderList');
+    const counter = document.getElementById('counter');
+
+    const selectedCount = selectedIds.size;
+    counter.textContent = `Выбрано: ${selectedCount} из ${filtered.length}`;
+
+    if (filtered.length === 0) {
+        list.innerHTML = `
+            <div class="empty-state">
+                <div class="emoji-big">📭</div>
+                <p>Нет тендеров за выбранный период</p>
+            </div>
+        `;
+        updateExportButton();
+        return;
+    }
+
+    list.innerHTML = filtered.map(t => {
+        const isSelected = selectedIds.has(t.id);
+        const classes = ['tender-card'];
+        if (isSelected) classes.push('selected');
+        if (t.sheets_exported) classes.push('exported');
+
+        return `
+        <div class="${classes.join(' ')}" data-id="${t.id}" onclick="toggleSelect(${t.id}, event)">
+            <div class="card-header">
+                <div class="checkbox"><span class="checkbox-check">✓</span></div>
+                <div class="card-title">${trunc(t.name, 80)}</div>
+            </div>
+            <div class="card-info">
+                <div class="info-item"><span class="emoji">💰</span><span class="value price-text">${formatPrice(t.price)}</span></div>
+                <div class="info-item"><span class="emoji">📊</span>${scoreBadge(t.score)}</div>
+                <div class="info-item"><span class="emoji">⏰</span><span class="value">${t.deadline || '—'}</span></div>
+                <div class="info-item"><span class="emoji">📍</span><span class="value">${trunc(t.region, 20) || '—'}</span></div>
+                <div class="info-item" style="grid-column: span 2"><span class="emoji">🏢</span><span class="value">${trunc(t.customer, 40) || '—'}</span></div>
+            </div>
+            <div class="card-badges">
+                <span class="badge">🎯 ${t.filter_name || '—'}</span>
+                ${t.sheets_exported ? '<span class="badge badge-exported">✅ В таблице</span>' : ''}
+            </div>
+            <div class="card-details" id="details-${t.id}">
+                <p><strong>№</strong> ${t.number || '—'}</p>
+                <p><strong>Дата:</strong> ${t.published_date || '—'}</p>
+                <p><strong>Полное название:</strong> ${t.name}</p>
+                <p><strong>Заказчик:</strong> ${t.customer || '—'}</p>
+                ${t.url ? `<p><a href="${t.url}" target="_blank">Открыть на zakupki.gov.ru ↗</a></p>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+
+    updateExportButton();
+}
+
+function toggleSelect(id, event) {
+    // If tap is on the link inside details, don't toggle
+    if (event && event.target.tagName === 'A') return;
+
+    // Check if details area was tapped
+    const details = document.getElementById(`details-${id}`);
+    if (event && details && details.contains(event.target) && details.classList.contains('open')) {
+        return;
+    }
+
+    if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+    } else {
+        selectedIds.add(id);
+    }
+
+    // Toggle details on double selection (already selected)
+    const card = document.querySelector(`[data-id="${id}"]`);
+    if (card) {
+        card.classList.toggle('selected', selectedIds.has(id));
+    }
+
+    // Long press to expand details
+    if (details) {
+        if (event && event.detail === 2) {  // double click
+            details.classList.toggle('open');
+        }
+    }
+
+    updateCounter();
+    updateExportButton();
+}
+
+function updateCounter() {
+    const filtered = filterByPeriod(allTenders, currentPeriod);
+    document.getElementById('counter').textContent = `Выбрано: ${selectedIds.size} из ${filtered.length}`;
+}
+
+function updateExportButton() {
+    const btn = document.getElementById('btnExport');
+    const count = selectedIds.size;
+    btn.textContent = `📊 Экспорт (${count})`;
+    btn.disabled = count === 0;
+}
+
+// Select all / deselect all
+document.getElementById('btnSelectAll').addEventListener('click', () => {
+    const filtered = filterByPeriod(allTenders, currentPeriod);
+    if (allSelected) {
+        selectedIds.clear();
+        allSelected = false;
+        document.getElementById('btnSelectAll').textContent = 'Выбрать все';
+    } else {
+        filtered.forEach(t => selectedIds.add(t.id));
+        allSelected = true;
+        document.getElementById('btnSelectAll').textContent = 'Снять все';
+    }
+    render();
+});
+
+// Period filter chips
+document.querySelectorAll('.filter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        currentPeriod = parseInt(chip.dataset.period);
+        allSelected = false;
+        document.getElementById('btnSelectAll').textContent = 'Выбрать все';
+        render();
+    });
+});
+
+// Export
+document.getElementById('btnExport').addEventListener('click', async () => {
+    if (selectedIds.size === 0) return;
+
+    const ids = Array.from(selectedIds);
+    const overlay = document.getElementById('progressOverlay');
+    const fill = document.getElementById('progressFill');
+    const text = document.getElementById('progressText');
+
+    overlay.classList.add('active');
+    fill.style.width = '10%';
+    text.textContent = `Экспорт ${ids.length} тендеров...`;
+
+    try {
+        fill.style.width = '30%';
+        text.textContent = 'Отправляю в Google Sheets...';
+
+        const resp = await fetch('/webapp/api/export', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Telegram-Init-Data': initData
+            },
+            body: JSON.stringify({ tender_ids: ids })
+        });
+
+        fill.style.width = '80%';
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+            text.textContent = data.error || 'Ошибка экспорта';
+            fill.style.width = '100%';
+            fill.style.background = '#ff3b30';
+            setTimeout(() => {
+                overlay.classList.remove('active');
+                fill.style.background = '';
+            }, 2500);
+            return;
+        }
+
+        fill.style.width = '100%';
+        const successCount = data.success ? data.success.length : 0;
+        const failCount = data.failed ? data.failed.length : 0;
+        text.textContent = `Готово! ${successCount} добавлено` + (failCount ? `, ${failCount} ошибок` : '');
+
+        // Update local state
+        if (data.success) {
+            data.success.forEach(id => {
+                const t = allTenders.find(x => x.id === id);
+                if (t) t.sheets_exported = true;
+            });
+        }
+
+        selectedIds.clear();
+        allSelected = false;
+        document.getElementById('btnSelectAll').textContent = 'Выбрать все';
+
+        setTimeout(() => {
+            overlay.classList.remove('active');
+            render();
+        }, 1500);
+
+    } catch (err) {
+        fill.style.width = '100%';
+        fill.style.background = '#ff3b30';
+        text.textContent = 'Ошибка сети';
+        setTimeout(() => {
+            overlay.classList.remove('active');
+            fill.style.background = '';
+        }, 2500);
+    }
+});
+
+// Load tenders
+async function loadTenders() {
+    try {
+        const resp = await fetch('/webapp/api/tenders', {
+            headers: { 'X-Telegram-Init-Data': initData }
+        });
+
+        if (!resp.ok) {
+            const err = await resp.json();
+            document.getElementById('tenderList').innerHTML = `
+                <div class="empty-state">
+                    <div class="emoji-big">⚠️</div>
+                    <p>${err.detail || 'Ошибка загрузки'}</p>
+                </div>
+            `;
+            return;
+        }
+
+        const data = await resp.json();
+        allTenders = data.tenders || [];
+        render();
+
+    } catch (err) {
+        document.getElementById('tenderList').innerHTML = `
+            <div class="empty-state">
+                <div class="emoji-big">⚠️</div>
+                <p>Ошибка подключения</p>
+            </div>
+        `;
+    }
+}
+
+// Long press to expand details
+let longPressTimer = null;
+document.addEventListener('touchstart', (e) => {
+    const card = e.target.closest('.tender-card');
+    if (!card) return;
+    const id = parseInt(card.dataset.id);
+    longPressTimer = setTimeout(() => {
+        const details = document.getElementById(`details-${id}`);
+        if (details) details.classList.toggle('open');
+    }, 500);
+});
+
+document.addEventListener('touchend', () => {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+});
+
+document.addEventListener('touchmove', () => {
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+});
+
+// Init
+loadTenders();
+</script>
+</body>
+</html>

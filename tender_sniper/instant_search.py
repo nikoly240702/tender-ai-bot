@@ -236,11 +236,13 @@ class InstantSearch:
                             for keyword in original_keywords:
                                 kw_lower = keyword.lower()
                                 # Проверяем точное вхождение слова (с границами для коротких слов)
-                                if len(kw_lower) <= 3:
+                                if len(kw_lower) <= 4:
                                     pattern = r'\b' + re.escape(kw_lower) + r'\b'
                                 else:
-                                    # Для длинных слов - проверяем начало слова (для морфологии)
-                                    pattern = r'\b' + re.escape(kw_lower[:min(len(kw_lower), 5)])
+                                    # Для длинных слов - минимум 7 символов корня (было 5)
+                                    # "разработка" → "разрабо" (не "разра" → ловит "разгрузка")
+                                    min_chars = min(len(kw_lower), max(7, len(kw_lower) - 3))
+                                    pattern = r'\b' + re.escape(kw_lower[:min_chars])
 
                                 if re.search(pattern, tender_text, re.IGNORECASE):
                                     keyword_found = True

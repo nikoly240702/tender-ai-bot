@@ -26,6 +26,8 @@ from bot.handlers import sniper_wizard_new
 from bot.handlers import subscriptions
 # Реферальная программа
 from bot.handlers import referral
+# Telegram Mini App (WebApp)
+from bot.handlers import webapp
 # Engagement Scheduler (follow-ups, digest, deadline reminders)
 from bot.engagement_scheduler import engagement_router, EngagementScheduler
 from bot.db import get_database
@@ -278,6 +280,7 @@ async def main():
     dp.include_router(sniper_wizard_new.router)  # Новый упрощённый wizard (feature flag)
     dp.include_router(subscriptions.router)  # Подписки (Phase 2.1)
     dp.include_router(referral.router)  # Реферальная программа
+    dp.include_router(webapp.router)  # Telegram Mini App (/tenders)
     dp.include_router(engagement_router)  # Engagement (digest, deadlines)
     dp.include_router(sniper_search.router)  # Tender Sniper Search (старый workflow)
     dp.include_router(sniper.router)  # Tender Sniper меню

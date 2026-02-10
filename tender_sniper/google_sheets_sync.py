@@ -44,6 +44,37 @@ AI_COLUMNS = {'ai_delivery_date', 'ai_quantities', 'ai_contract_security',
 DEFAULT_COLUMNS = ['link', 'name', 'customer', 'region', 'deadline', 'price', 'score', 'status']
 
 
+def _normalize_date(value: str) -> str:
+    """Нормализует дату в формат ДД.ММ.ГГГГ."""
+    import re
+    from datetime import datetime, timedelta
+
+    if not value:
+        return value
+
+    # Уже в формате ДД.ММ.ГГГГ
+    if re.match(r'^\d{2}\.\d{2}\.\d{4}$', value):
+        return value
+
+    # Формат ГГГГ-ММ-ДД
+    m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', value)
+    if m:
+        return f"{m.group(3)}.{m.group(2)}.{m.group(1)}"
+
+    # "XX рабочих дней" / "XX календарных дней" / "XX дней"
+    m = re.search(r'(\d+)\s*(?:рабочих|календарных)?\s*дн', value)
+    if m:
+        days = int(m.group(1))
+        # Для рабочих дней умножаем на ~1.4
+        if 'рабочих' in value:
+            target = datetime.now() + timedelta(days=int(days * 1.4))
+        else:
+            target = datetime.now() + timedelta(days=days)
+        return f"{value} (ориент. {target.strftime('%d.%m.%Y')})"
+
+    return value
+
+
 def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
     """
     Преобразует вложенную структуру AI-извлечения в плоский формат для Google Sheets.
@@ -65,9 +96,9 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         desc = deadlines.get('execution_description', '')
         days = deadlines.get('execution_days')
         if desc:
-            flat['execution_description'] = str(desc)
+            flat['execution_description'] = _normalize_date(str(desc))
         elif days:
-            flat['execution_description'] = f"{days} дней"
+            flat['execution_description'] = _normalize_date(f"{days} дней")
 
     # Количество наименований
     specs = extraction.get('technical_specs', {})
@@ -91,37 +122,51 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         if parts:
             flat['contract_security'] = '; '.join(parts)
 
-    # Условия оплаты
+    # Условия оплаты — компактный формат
     payment = extraction.get('payment_terms', {})
     if isinstance(payment, dict):
         parts = []
         if payment.get('advance_percent'):
-            parts.append(f"Аванс: {payment['advance_percent']}%")
+            parts.append(f"Аванс {payment['advance_percent']}%")
         if payment.get('payment_deadline_days'):
-            parts.append(f"Оплата: {payment['payment_deadline_days']} дней")
-        if payment.get('payment_conditions'):
-            parts.append(str(payment['payment_conditions']))
-        if payment.get('payment_stages'):
+            parts.append(f"оплата {payment['payment_deadline_days']} дней после приёмки")
+        elif payment.get('payment_conditions'):
+            cond = str(payment['payment_conditions'])
+            # Обрезаем длинные условия
+            if len(cond) > 80:
+                cond = cond[:77] + '...'
+            parts.append(cond)
+        if not parts and payment.get('payment_stages'):
             stages = payment['payment_stages']
             if isinstance(stages, list) and stages:
-                parts.append('; '.join(str(s) for s in stages))
+                parts.append('; '.join(str(s) for s in stages[:3]))
         if parts:
-            flat['payment_terms'] = '; '.join(parts)
+            flat['payment_terms'] = ', '.join(parts)
 
-    # Резюме
+    # Резюме — обрезаем до 2 предложений
     summary = extraction.get('summary', '')
     if summary:
-        flat['summary'] = str(summary)
+        summary = str(summary)
+        # Оставляем максимум 2 предложения
+        sentences = summary.replace('! ', '. ').split('. ')
+        if len(sentences) > 2:
+            summary = '. '.join(sentences[:2]) + '.'
+        flat['summary'] = summary
 
-    # Лицензии
+    # Лицензии — только конкретные
     reqs = extraction.get('requirements', {})
     if isinstance(reqs, dict):
         licenses = reqs.get('licenses', [])
         if isinstance(licenses, list) and licenses:
-            flat['licenses'] = '; '.join(str(lic) for lic in licenses)
+            # Фильтруем общие фразы
+            specific = [lic for lic in licenses if lic and
+                        not any(skip in str(lic).lower() for skip in
+                                ['соответствие', 'требования законодательства', 'не требуется', 'нет'])]
+            if specific:
+                flat['licenses'] = '; '.join(str(lic) for lic in specific)
 
         exp = reqs.get('experience_years')
-        if exp is not None:
+        if exp is not None and exp != 'null':
             flat['experience_years'] = f"{exp} лет" if isinstance(exp, (int, float)) else str(exp)
 
     return flat

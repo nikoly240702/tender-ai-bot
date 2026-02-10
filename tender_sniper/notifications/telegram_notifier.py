@@ -176,34 +176,59 @@ class TelegramNotifier:
             max_length=80  # Короткие названия для уведомлений
         )
 
-        # Формируем сообщение
-        message = f"""
-{score_emoji} <b>Новый тендер!</b>
+        # Форматируем deadline
+        deadline = tender.get('submission_deadline')
+        deadline_str = None
+        if deadline:
+            try:
+                if isinstance(deadline, str):
+                    # Пробуем разные форматы
+                    for fmt in ['%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S']:
+                        try:
+                            deadline_dt = datetime.strptime(deadline.split('+')[0].split('Z')[0], fmt)
+                            deadline_str = deadline_dt.strftime('%d.%m.%Y')
+                            break
+                        except ValueError:
+                            continue
+                    if not deadline_str:
+                        deadline_str = str(deadline)[:10]
+                elif isinstance(deadline, datetime):
+                    deadline_str = deadline.strftime('%d.%m.%Y')
+            except Exception:
+                pass
 
-<b>Название:</b> {name}
+        # Регион и заказчик
+        region = tender.get('customer_region', tender.get('region', 'Не указан'))
+        customer = tender.get('customer', tender.get('customer_name', 'Не указан'))
+        if len(customer) > 40:
+            customer = customer[:37] + '...'
 
-<b>📊 Релевантность:</b> {score}/100
-<b>🎯 Фильтр:</b> {filter_name}
+        # Формируем сообщение (новый визуал)
+        message = f"""{score_emoji} <b>Новый тендер!</b>
 
-<b>💰 Цена:</b> {price_str}
-<b>📅 Опубликован:</b> {pub_str}
-<b>📍 Регион:</b> {tender.get('customer_region', tender.get('region', 'Не указан'))}
-<b>🏢 Заказчик:</b> {tender.get('customer', tender.get('customer_name', 'Не указан'))[:100]}
+<b>📋 {name}</b>
 
-<b>🔑 Совпадения:</b> {', '.join(matched_keywords[:5]) if matched_keywords else 'Базовый фильтр'}
-"""
+━━━━━━━━━━━━━━━━━━━━━━
+💰 {price_str}         📊 {score}/100"""
 
-        # Добавляем номер тендера
-        tender_number = tender.get('number')
-        if tender_number:
-            message += f"\n<b>№</b> {tender_number}"
+        if deadline_str:
+            message += f"\n⏰ Подача до: {deadline_str}"
+
+        message += f"""
+📍 {region}
+🏢 {customer}
+🎯 Фильтр: {filter_name}
+━━━━━━━━━━━━━━━━━━━━━━"""
 
         # Добавляем красные флаги если есть
         red_flags = match_info.get('red_flags', [])
         if red_flags:
-            message += "\n\n<b>🚩 Обратите внимание:</b>"
-            for flag in red_flags[:5]:  # Ограничиваем до 5 флагов
-                message += f"\n• {flag}"
+            message += "\n\n🚩 " + " | ".join(red_flags[:3])
+
+        # Добавляем номер тендера
+        tender_number = tender.get('number')
+        if tender_number:
+            message += f"\n\n№ {tender_number}"
 
         return message.strip()
 

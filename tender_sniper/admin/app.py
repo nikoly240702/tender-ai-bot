@@ -68,6 +68,10 @@ BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
+# Telegram Mini App API (webapp)
+from tender_sniper.admin.webapp_api import router as webapp_router
+app.include_router(webapp_router)
+
 # Security
 security = HTTPBasic()
 

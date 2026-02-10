@@ -950,6 +950,16 @@ class ZakupkiRSSParser:
             if match:
                 return match.group(1)
 
+        # Широкий fallback: любая дата рядом со словами "подач" или "окончан"
+        fallback_patterns = [
+            r'(?:подач[иа]\s+заявок|окончани[ея])[^0-9]{0,40}(\d{2}\.\d{2}\.\d{4})',
+            r'(\d{2}\.\d{2}\.\d{4})[^0-9]{0,40}(?:подач[иа]\s+заявок|окончани[ея])',
+        ]
+        for pattern in fallback_patterns:
+            match = re.search(pattern, html, re.IGNORECASE | re.DOTALL)
+            if match:
+                return match.group(1)
+
         return None
 
     def _extract_address_from_page(self, html: str) -> Optional[Dict[str, str]]:

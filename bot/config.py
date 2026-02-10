@@ -54,6 +54,9 @@ class BotConfig:
     # Лимиты анализа (количество тендеров для AI-анализа)
     MAX_ANALYSIS_PER_SEARCH = 5
 
+    # Telegram Mini App (WebApp) URL
+    WEBAPP_BASE_URL = os.getenv('WEBAPP_BASE_URL', 'https://tender-ai-bot-fresh-production.up.railway.app')
+
     @classmethod
     def validate(cls):
         """Проверяет, что все необходимые настройки заданы."""
