@@ -137,7 +137,7 @@ async def export_single_tender(callback: CallbackQuery):
     await callback.answer("Экспортирую в Google Sheets...")
 
     try:
-        db = get_sniper_db()
+        db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(telegram_id)
         if not user:
             await callback.answer("Пользователь не найден", show_alert=True)
@@ -289,7 +289,7 @@ async def export_by_period(callback: CallbackQuery):
     )
 
     try:
-        db = get_sniper_db()
+        db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(telegram_id)
         if not user:
             await status_msg.edit_text("❌ Пользователь не найден")
@@ -371,7 +371,7 @@ async def cmd_export_selected(message: Message):
     )
 
     try:
-        db = get_sniper_db()
+        db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(telegram_id)
         if not user:
             await status_msg.edit_text("❌ Пользователь не найден")
@@ -530,7 +530,7 @@ async def cmd_analyze(message: Message, state: FSMContext):
     telegram_id = message.from_user.id
 
     try:
-        db = get_sniper_db()
+        db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(telegram_id)
         if not user:
             await message.answer("❌ Пользователь не найден")
@@ -585,7 +585,7 @@ async def analyze_start_callback(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
     try:
-        db = get_sniper_db()
+        db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(telegram_id)
         if not user:
             await callback.message.answer("❌ Пользователь не найден")
@@ -646,7 +646,7 @@ async def process_analyze_input(message: Message, state: FSMContext):
     await state.clear()
 
     # Получаем subscription_tier
-    db = get_sniper_db()
+    db = await get_sniper_db()
     user = await db.get_user_by_telegram_id(message.from_user.id)
     subscription_tier = user.get('subscription_tier', 'trial') if user else 'trial'
 
