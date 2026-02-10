@@ -69,8 +69,12 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 # Telegram Mini App API (webapp)
-from tender_sniper.admin.webapp_api import router as webapp_router
-app.include_router(webapp_router)
+try:
+    from tender_sniper.admin.webapp_api import router as webapp_router
+    app.include_router(webapp_router)
+    logger.info("✅ WebApp router loaded")
+except Exception as e:
+    logger.error(f"❌ Failed to load WebApp router: {e}")
 
 # Security
 security = HTTPBasic()

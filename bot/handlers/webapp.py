@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 router = Router(name="webapp")
 
-WEBAPP_BASE_URL = os.getenv('WEBAPP_BASE_URL', 'https://tender-ai-bot-fresh-production.up.railway.app')
+WEBAPP_BASE_URL = os.getenv('WEBAPP_BASE_URL', 'https://tender-ai-bot-production.up.railway.app')
 
 
 @router.message(Command("tenders"))
