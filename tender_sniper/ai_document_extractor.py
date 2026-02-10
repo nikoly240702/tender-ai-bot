@@ -31,7 +31,7 @@ class TenderDocumentExtractor:
 
     MODEL = "gpt-4o-mini"
     MAX_INPUT_CHARS = 30000  # ~8k токенов
-    MAX_OUTPUT_TOKENS = 2000
+    MAX_OUTPUT_TOKENS = 3000
 
     EXTRACTION_PROMPT = """Ты эксперт по анализу тендерной документации госзакупок России.
 
@@ -62,7 +62,8 @@ class TenderDocumentExtractor:
     "deadlines": {
         "execution_days": число или null,
         "execution_description": "СТРОГО: '20 рабочих дней' или '01.03.2026' — НИКАКИХ описательных фраз",
-        "delivery_address": "адрес поставки или null",
+        "submission_deadline": "дата/время окончания подачи заявок, например '15.03.2026 10:00' или null",
+        "delivery_address": "ПОЛНЫЙ адрес ПОСТАВКИ товара/выполнения работ (НЕ адрес заказчика!) или null",
         "stages": ["этапы выполнения если есть"]
     },
     "evaluation_criteria": {
@@ -71,11 +72,21 @@ class TenderDocumentExtractor:
         "other_criteria": ["другие критерии оценки"]
     },
     "technical_specs": {
+        "items_count": число наименований товаров/позиций или null,
+        "items_details": [
+            {
+                "name": "название позиции",
+                "quantity": "количество с единицей: '500 шт', '10 м²'",
+                "characteristics": "ключевые характеристики: размер, мощность, тип и т.д.",
+                "brand": "бренд/марка если указан, иначе null"
+            }
+        ],
         "main_items": ["основные позиции/товары/работы (макс 5)"],
         "quantities": "СТРОГО: 'X наименований, Y единиц' — различай ассортимент и количество",
-        "quality_standards": ["стандарты качества"],
+        "quality_standards": ["стандарты качества: ГОСТ, ТУ, ISO и т.п."],
         "special_requirements": ["особые технические требования"]
     },
+    "trading_platform": "название ЭТП (электронной торговой площадки): 'РТС-тендер', 'Сбербанк-АСТ', 'ЕИС' и т.п. или null",
     "risks": ["выявленные риски и проблемные моменты"],
     "summary": "СТРОГО: макс 2 предложения, только бизнес-условия"
 }
@@ -92,6 +103,10 @@ class TenderDocumentExtractor:
 9. Если информация не найдена — ставь null
 10. Числа указывай без единиц измерения (просто число)
 11. Проценты указывай как число (10, а не "10%")
+12. ТОВАРЫ: извлеки ВСЕ позиции из спецификации (макс 10). Для каждой укажи название, количество, характеристики, бренд
+13. АДРЕС ПОСТАВКИ: это адрес куда доставлять товар, НЕ юридический адрес заказчика
+14. ПОДАЧА: укажи дату/время окончания приёма заявок если найдена
+15. ПЛОЩАДКА: найди название электронной торговой площадки (ЭТП)
 
 ДОКУМЕНТАЦИЯ ТЕНДЕРА:
 """
@@ -389,6 +404,60 @@ def format_extraction_for_telegram(extraction: Dict[str, Any], is_ai: bool) -> s
     source = "🤖 AI" if is_ai else "📋 Базовый"
     lines.append(f"<b>📄 Анализ документации</b> ({source})\n")
 
+    # Площадка
+    if extraction.get('trading_platform'):
+        lines.append(f"<b>🏛 Площадка:</b> {extraction['trading_platform']}\n")
+
+    # Товарные позиции
+    specs = extraction.get('technical_specs', {})
+    items = specs.get('items_details', [])
+    items_count = specs.get('items_count')
+    if items:
+        count_str = f" ({items_count} наим.)" if items_count else ""
+        lines.append(f"<b>📦 Товары/работы{count_str}:</b>")
+        for item in items[:10]:
+            name = item.get('name', '')
+            qty = item.get('quantity', '')
+            chars = item.get('characteristics', '')
+            brand = item.get('brand')
+
+            line_parts = [f"<b>{name}</b>"]
+            if qty:
+                line_parts.append(f"— {qty}")
+            lines.append(f"• {' '.join(line_parts)}")
+            if chars:
+                lines.append(f"  ↳ {chars[:120]}")
+            if brand:
+                lines.append(f"  ↳ Бренд: {brand}")
+        lines.append("")
+    elif specs.get('main_items'):
+        lines.append("<b>📦 Позиции:</b>")
+        for item in specs['main_items'][:5]:
+            lines.append(f"• {item}")
+        if specs.get('quantities'):
+            lines.append(f"Кол-во: {specs['quantities']}")
+        lines.append("")
+
+    # Сроки
+    deadlines = extraction.get('deadlines', {})
+    has_deadlines = any([
+        deadlines.get('execution_days'),
+        deadlines.get('execution_description'),
+        deadlines.get('submission_deadline'),
+        deadlines.get('delivery_address'),
+    ])
+    if has_deadlines:
+        lines.append("<b>📅 Сроки:</b>")
+        if deadlines.get('submission_deadline'):
+            lines.append(f"• Подача заявок до: <b>{deadlines['submission_deadline']}</b>")
+        if deadlines.get('execution_days'):
+            lines.append(f"• Исполнение: {deadlines['execution_days']} дней")
+        if deadlines.get('execution_description'):
+            lines.append(f"• {deadlines['execution_description'][:100]}")
+        if deadlines.get('delivery_address'):
+            lines.append(f"• Адрес поставки: {deadlines['delivery_address'][:120]}")
+        lines.append("")
+
     # Требования
     req = extraction.get('requirements', {})
     if any([req.get('licenses'), req.get('experience_years'), req.get('sro_required')]):
@@ -413,18 +482,6 @@ def format_extraction_for_telegram(extraction: Dict[str, Any], is_ai: bool) -> s
             lines.append("• Банковская гарантия: допускается")
         lines.append("")
 
-    # Сроки
-    deadlines = extraction.get('deadlines', {})
-    if deadlines.get('execution_days') or deadlines.get('execution_description'):
-        lines.append("<b>📅 Сроки:</b>")
-        if deadlines.get('execution_days'):
-            lines.append(f"• Исполнение: {deadlines['execution_days']} дней")
-        if deadlines.get('execution_description'):
-            lines.append(f"• {deadlines['execution_description'][:100]}")
-        if deadlines.get('delivery_address'):
-            lines.append(f"• Адрес: {deadlines['delivery_address'][:80]}")
-        lines.append("")
-
     # Оплата
     pay = extraction.get('payment_terms', {})
     if any([pay.get('advance_percent'), pay.get('payment_deadline_days')]):
@@ -433,6 +490,12 @@ def format_extraction_for_telegram(extraction: Dict[str, Any], is_ai: bool) -> s
             lines.append(f"• Аванс: {pay['advance_percent']}%")
         if pay.get('payment_deadline_days'):
             lines.append(f"• Срок оплаты: {pay['payment_deadline_days']} дней")
+        lines.append("")
+
+    # Стандарты качества
+    if specs.get('quality_standards'):
+        lines.append("<b>📐 Стандарты:</b>")
+        lines.append(f"• {', '.join(specs['quality_standards'][:5])}")
         lines.append("")
 
     # Риски
