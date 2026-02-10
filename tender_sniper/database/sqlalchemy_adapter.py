@@ -2245,6 +2245,87 @@ class TenderSniperDB:
             return False
 
 
+    # ============================================
+    # GOOGLE SHEETS EXPORT HELPERS
+    # ============================================
+
+    async def get_notification_by_tender_number(self, user_id: int, tender_number: str) -> Optional[Dict[str, Any]]:
+        """Получает уведомление по номеру тендера для пользователя."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.user_id == user_id,
+                        SniperNotificationModel.tender_number == tender_number
+                    )
+                ).order_by(SniperNotificationModel.sent_at.desc())
+            )
+            notif = result.scalar_one_or_none()
+            if not notif:
+                return None
+
+            return {
+                'id': notif.id,
+                'tender_number': notif.tender_number,
+                'tender_name': notif.tender_name,
+                'tender_price': notif.tender_price,
+                'tender_url': notif.tender_url,
+                'tender_region': notif.tender_region,
+                'tender_customer': notif.tender_customer,
+                'filter_name': notif.filter_name,
+                'score': notif.score,
+                'published_date': notif.published_date.strftime('%d.%m.%Y') if notif.published_date else '',
+                'submission_deadline': notif.submission_deadline.strftime('%d.%m.%Y') if notif.submission_deadline else '',
+                'sheets_exported': notif.sheets_exported if hasattr(notif, 'sheets_exported') else False,
+            }
+
+    async def mark_notification_exported(self, notification_id: int) -> bool:
+        """Помечает уведомление как экспортированное в Google Sheets."""
+        try:
+            async with DatabaseSession() as session:
+                await session.execute(
+                    update(SniperNotificationModel).where(
+                        SniperNotificationModel.id == notification_id
+                    ).values(
+                        sheets_exported=True,
+                        sheets_exported_at=datetime.utcnow()
+                    )
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка mark_notification_exported: {e}")
+            return False
+
+    async def get_unexported_notifications(self, user_id: int, days: int = 7) -> List[Dict[str, Any]]:
+        """Получает неэкспортированные уведомления за указанный период."""
+        async with DatabaseSession() as session:
+            since = datetime.utcnow() - timedelta(days=days)
+            result = await session.execute(
+                select(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.user_id == user_id,
+                        SniperNotificationModel.sent_at >= since,
+                        SniperNotificationModel.sheets_exported == False
+                    )
+                ).order_by(SniperNotificationModel.sent_at.desc())
+            )
+            notifications = result.scalars().all()
+
+            return [{
+                'id': n.id,
+                'tender_number': n.tender_number,
+                'tender_name': n.tender_name,
+                'tender_price': n.tender_price,
+                'tender_url': n.tender_url,
+                'tender_region': n.tender_region,
+                'tender_customer': n.tender_customer,
+                'filter_name': n.filter_name,
+                'score': n.score,
+                'published_date': n.published_date.strftime('%d.%m.%Y') if n.published_date else '',
+                'submission_deadline': n.submission_deadline.strftime('%d.%m.%Y') if n.submission_deadline else '',
+            } for n in notifications]
+
+
 _sniper_db_instance = None
 
 

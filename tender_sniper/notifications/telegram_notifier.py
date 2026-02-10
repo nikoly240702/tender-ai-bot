@@ -273,6 +273,10 @@ class TelegramNotifier:
                     callback_data=f"interested_{tender_number}"
                 ),
                 InlineKeyboardButton(
+                    text="📊 В таблицу",
+                    callback_data=f"sheets_{tender_number}"
+                ),
+                InlineKeyboardButton(
                     text="❌ Пропустить",
                     callback_data=f"skip_{tender_number}"
                 )
