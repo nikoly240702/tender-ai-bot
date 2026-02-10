@@ -2422,6 +2422,7 @@ async def show_premium_ai_features(callback: CallbackQuery):
 async def analyze_tender_documentation(callback: CallbackQuery):
     """
     Анализирует документацию тендера и извлекает структурированные данные (Premium).
+    Использует общую функцию _run_ai_analysis() из webapp.py.
     """
     await callback.answer("🔍 Загружаю документацию...")
 
@@ -2439,10 +2440,6 @@ async def analyze_tender_documentation(callback: CallbackQuery):
 
         # Импортируем AI модули
         from tender_sniper.ai_features import AIFeatureGate, format_ai_feature_locked_message
-        from tender_sniper.ai_document_extractor import (
-            get_document_extractor,
-            format_extraction_for_telegram
-        )
 
         gate = AIFeatureGate(subscription_tier)
 
@@ -2464,66 +2461,10 @@ async def analyze_tender_documentation(callback: CallbackQuery):
             parse_mode="HTML"
         )
 
-        # Пробуем получить документацию тендера
         try:
-            import asyncio
-            from src.parsers.zakupki_document_downloader import ZakupkiDocumentDownloader
+            from bot.handlers.webapp import _run_ai_analysis
 
-            downloader = ZakupkiDocumentDownloader()
-
-            # Формируем URL для получения документов (по умолчанию ea44)
-            tender_url = f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={tender_number}"
-
-            # Запускаем синхронный downloader в отдельном потоке
-            result = await asyncio.to_thread(
-                downloader.download_documents,
-                tender_url,
-                tender_number,
-                None  # Все типы документов
-            )
-
-            if not result or result.get('downloaded', 0) == 0:
-                await status_msg.edit_text(
-                    f"❌ Не удалось загрузить документацию тендера {tender_number}.\n\n"
-                    f"Возможно, документы недоступны или тендер завершён.",
-                    parse_mode="HTML"
-                )
-                return
-
-            # Извлекаем текст из документов
-            from src.document_processor.text_extractor import TextExtractor
-
-            combined_text = ""
-            files = result.get('files', [])[:3]  # Анализируем до 3 документов
-            for doc_info in files:
-                doc_path = doc_info.get('path')
-                if not doc_path:
-                    continue
-                try:
-                    extract_result = TextExtractor.extract_text(doc_path)
-                    if extract_result['text'] and not extract_result['text'].startswith('[Не удалось'):
-                        combined_text += f"\n\n=== {extract_result['file_name']} ===\n{extract_result['text']}"
-                except Exception as e:
-                    logger.warning(f"Не удалось извлечь текст из {doc_path}: {e}")
-
-            if not combined_text:
-                await status_msg.edit_text(
-                    "❌ Не удалось извлечь текст из документации.\n\n"
-                    "Возможно, документы в неподдерживаемом формате.",
-                    parse_mode="HTML"
-                )
-                return
-
-            # Анализируем документацию
-            extractor = get_document_extractor()
-            extraction, is_ai = await extractor.extract_from_text(
-                combined_text,
-                subscription_tier,
-                {'number': tender_number}
-            )
-
-            # Форматируем и отправляем результат
-            formatted = format_extraction_for_telegram(extraction, is_ai)
+            formatted, is_ai = await _run_ai_analysis(tender_number, subscription_tier)
 
             await status_msg.edit_text(
                 formatted,
@@ -2542,6 +2483,14 @@ async def analyze_tender_documentation(callback: CallbackQuery):
             await status_msg.edit_text(
                 "❌ Функция анализа документации временно недоступна.\n\n"
                 "Необходимые модули не установлены.",
+                parse_mode="HTML"
+            )
+
+        except RuntimeError as re_err:
+            await status_msg.edit_text(
+                f"❌ {re_err}\n\n"
+                f"Тендер: {tender_number}\n"
+                "Возможно, документы недоступны или тендер завершён.",
                 parse_mode="HTML"
             )
 

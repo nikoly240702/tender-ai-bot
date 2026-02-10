@@ -414,6 +414,103 @@ def generate_html_report(
             display: none;
         }}
 
+        /* Чекбокс выбора тендера */
+        .tender-checkbox {{
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            width: 22px;
+            height: 22px;
+            cursor: pointer;
+            accent-color: #667eea;
+        }}
+
+        .tender-card {{
+            position: relative;
+        }}
+
+        /* Sticky панель экспорта */
+        .export-panel {{
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 2px solid #667eea;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            z-index: 1000;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            flex-wrap: wrap;
+        }}
+
+        .export-panel .selected-count {{
+            font-weight: 600;
+            color: #667eea;
+            font-size: 15px;
+        }}
+
+        .export-panel button {{
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }}
+
+        .btn-select-all {{
+            background: #f0f0f0;
+            color: #333;
+        }}
+
+        .btn-select-all:hover {{
+            background: #e0e0e0;
+        }}
+
+        .btn-deselect {{
+            background: #f0f0f0;
+            color: #333;
+        }}
+
+        .btn-deselect:hover {{
+            background: #e0e0e0;
+        }}
+
+        .btn-copy-cmd {{
+            background: #667eea;
+            color: white;
+        }}
+
+        .btn-copy-cmd:hover {{
+            background: #5568d3;
+        }}
+
+        /* Toast уведомление */
+        .toast {{
+            position: fixed;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            z-index: 1001;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }}
+
+        .toast.show {{
+            opacity: 1;
+        }}
+
         @media (max-width: 768px) {{
             .header h1 {{
                 font-size: 24px;
@@ -556,6 +653,7 @@ def generate_html_report(
 
                 tender_source = tender.get('source', 'automonitoring')
 
+                tender_num = html.escape(tender.get('number', 'N/A'))
                 html_content += f"""
             <div class="tender-card"
                  data-name="{html.escape(tender_name.lower())}"
@@ -564,8 +662,9 @@ def generate_html_report(
                  data-filter="{html.escape(filter_name)}"
                  data-source="{html.escape(tender_source)}"
                  data-date="{html.escape(tender_date)}">
+                <input type="checkbox" class="tender-checkbox" data-number="{tender_num}">
                 <div class="tender-header">
-                    <div class="tender-number">№ {html.escape(tender.get('number', 'N/A'))}</div>
+                    <div class="tender-number">№ {tender_num}</div>
                 </div>
 
                 <div class="tender-name">{html.escape(tender_name)}</div>
@@ -623,8 +722,19 @@ def generate_html_report(
         </div>
     </div>
 
+    <!-- Панель экспорта -->
+    <div class="export-panel" id="exportPanel" style="display:none">
+        <span class="selected-count" id="selectedCount">Выбрано: 0</span>
+        <button class="btn-select-all" onclick="selectAllVisible()">Выбрать все</button>
+        <button class="btn-deselect" onclick="deselectAll()">Снять все</button>
+        <button class="btn-copy-cmd" onclick="copyExportCommand()" id="copyBtn">📋 Скопировать команду</button>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
     <script>
-        // JavaScript для фильтрации и сортировки тендеров
+        // JavaScript для фильтрации, сортировки и экспорта тендеров
         document.addEventListener('DOMContentLoaded', function() {{
             const searchInput = document.getElementById('searchInput');
             const regionFilter = document.getElementById('regionFilter');
@@ -636,6 +746,9 @@ def generate_html_report(
             const resetButton = document.getElementById('resetFilters');
             const resultsCount = document.getElementById('resultsCount');
             const tenderCards = Array.from(document.querySelectorAll('.tender-card'));
+            const exportPanel = document.getElementById('exportPanel');
+            const selectedCountEl = document.getElementById('selectedCount');
+            const toastEl = document.getElementById('toast');
 
             // Собираем уникальные регионы и фильтры
             const regions = new Set();
@@ -723,6 +836,15 @@ def generate_html_report(
 
                 // Обновляем счетчик
                 resultsCount.textContent = `Найдено: ${{visibleCount}}`;
+
+                // Обновляем панель экспорта (сбрасываем скрытые чекбоксы)
+                tenderCards.forEach(function(card) {{
+                    if (card.classList.contains('hidden')) {{
+                        var cb = card.querySelector('.tender-checkbox');
+                        if (cb) cb.checked = false;
+                    }}
+                }});
+                updateExportPanel();
             }}
 
             // Функция сортировки
@@ -769,6 +891,93 @@ def generate_html_report(
             sortBySelect.addEventListener('change', applyFilters);
             filterSourceSelect.addEventListener('change', applyFilters);
             resetButton.addEventListener('click', resetFilters);
+
+            // === Панель экспорта ===
+
+            // Обновление панели при изменении чекбоксов
+            function updateExportPanel() {{
+                const checked = document.querySelectorAll('.tender-checkbox:checked');
+                const count = checked.length;
+                if (count > 0) {{
+                    exportPanel.style.display = 'flex';
+                    selectedCountEl.textContent = 'Выбрано: ' + count;
+                }} else {{
+                    exportPanel.style.display = 'none';
+                }}
+            }}
+
+            // Слушаем изменения чекбоксов
+            document.addEventListener('change', function(e) {{
+                if (e.target.classList.contains('tender-checkbox')) {{
+                    updateExportPanel();
+                }}
+            }});
+
+            // Выбрать все видимые
+            window.selectAllVisible = function() {{
+                tenderCards.forEach(function(card) {{
+                    if (!card.classList.contains('hidden')) {{
+                        const cb = card.querySelector('.tender-checkbox');
+                        if (cb) cb.checked = true;
+                    }}
+                }});
+                updateExportPanel();
+            }};
+
+            // Снять все
+            window.deselectAll = function() {{
+                document.querySelectorAll('.tender-checkbox').forEach(function(cb) {{
+                    cb.checked = false;
+                }});
+                updateExportPanel();
+            }};
+
+            // Скопировать команду
+            window.copyExportCommand = function() {{
+                const checked = document.querySelectorAll('.tender-checkbox:checked');
+                if (checked.length === 0) return;
+
+                const numbers = [];
+                checked.forEach(function(cb) {{
+                    numbers.push(cb.dataset.number);
+                }});
+
+                const command = '/export_selected ' + numbers.join(' ');
+
+                if (navigator.clipboard && navigator.clipboard.writeText) {{
+                    navigator.clipboard.writeText(command).then(function() {{
+                        showToast('Скопировано! Вставьте команду в бот.');
+                    }}).catch(function() {{
+                        fallbackCopy(command);
+                    }});
+                }} else {{
+                    fallbackCopy(command);
+                }}
+            }};
+
+            function fallbackCopy(text) {{
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                try {{
+                    document.execCommand('copy');
+                    showToast('Скопировано! Вставьте команду в бот.');
+                }} catch(e) {{
+                    showToast('Не удалось скопировать. Команда: ' + text);
+                }}
+                document.body.removeChild(ta);
+            }}
+
+            function showToast(msg) {{
+                toastEl.textContent = msg;
+                toastEl.classList.add('show');
+                setTimeout(function() {{
+                    toastEl.classList.remove('show');
+                }}, 3000);
+            }}
 
             // Инициализация при загрузке
             applyFilters();
