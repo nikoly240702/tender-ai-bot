@@ -64,6 +64,7 @@ class SubscriptionChecker:
         logger.info("🔍 Проверка истекающих подписок...")
 
         now = datetime.utcnow()
+        today_str = now.strftime('%Y-%m-%d')
         bot = Bot(token=self.bot_token)
 
         try:
@@ -88,12 +89,22 @@ class SubscriptionChecker:
                 # Вычисляем дни до истечения
                 days_left = (user.trial_expires_at - now).days
 
+                # Пропускаем если подписка давно истекла (более 1 дня назад)
+                if days_left < -1:
+                    continue
+
                 # Проверяем, нужно ли отправить напоминание
                 if days_left in self.REMINDER_DAYS:
-                    # Проверяем что не отправляли сегодня
-                    user_data = user.data if isinstance(user.data, dict) else {}
-                    last_reminder = user_data.get('last_subscription_reminder', '')
-                    today_str = now.strftime('%Y-%m-%d')
+                    # Читаем last_reminder из СВЕЖЕЙ сессии (не из detached объекта)
+                    async with DatabaseSession() as check_session:
+                        from sqlalchemy import select as sel2
+                        fresh_user = await check_session.scalar(
+                            sel2(SniperUser).where(SniperUser.id == user.id)
+                        )
+                        if not fresh_user:
+                            continue
+                        fresh_data = fresh_user.data if isinstance(fresh_user.data, dict) else {}
+                        last_reminder = fresh_data.get('last_subscription_reminder', '')
 
                     if last_reminder == today_str:
                         logger.debug(f"⏭️ Напоминание уже отправлено сегодня: user={user.telegram_id}")
@@ -109,16 +120,18 @@ class SubscriptionChecker:
                         )
                         notified_count += 1
 
-                        # Сохраняем дату отправки
+                        # Сохраняем дату отправки (flag_modified для JSON mutation tracking)
+                        from sqlalchemy.orm.attributes import flag_modified
                         async with DatabaseSession() as save_session:
                             from sqlalchemy import select as sel
                             u = await save_session.scalar(
                                 sel(SniperUser).where(SniperUser.id == user.id)
                             )
                             if u:
-                                d = u.data if isinstance(u.data, dict) else {}
+                                d = dict(u.data) if isinstance(u.data, dict) else {}
                                 d['last_subscription_reminder'] = today_str
                                 u.data = d
+                                flag_modified(u, 'data')
 
                         # Небольшая задержка между сообщениями
                         await asyncio.sleep(0.1)
