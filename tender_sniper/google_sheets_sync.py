@@ -78,20 +78,77 @@ def _normalize_date(value: str) -> str:
 
 def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Преобразует вложенную структуру AI-извлечения в плоский формат для Google Sheets.
+    Преобразует AI-извлечение в плоский формат для Google Sheets.
 
-    Вход (от TenderDocumentExtractor):
-        {deadlines: {execution_description: ...}, technical_specs: {quantities: ...}, ...}
-
-    Выход (для COLUMN_DEFINITIONS):
-        {execution_description: "30 дней", quantities: "100 шт", contract_security: "10%", ...}
+    Поддерживает обе схемы:
+    - Новую: {items: [...], items_count: N, deadlines: {...}, ...}
+    - Старую: {technical_specs: {quantities: ...}, ...}
     """
     if not extraction or extraction.get('error'):
         return {}
 
     flat = {}
 
-    # Дата поставки / сроки исполнения
+    # === Товарные позиции (ГЛАВНАЯ часть анализа) ===
+    items = extraction.get('items', [])
+    items_count = extraction.get('items_count')
+
+    if items and isinstance(items, list):
+        # Количество наименований
+        count = items_count or len(items)
+        flat['quantities'] = str(count)
+
+        # Комментарий из items: краткое описание позиций
+        item_parts = []
+        for item in items[:5]:
+            name = item.get('name', '')
+            qty = item.get('quantity', '')
+            brand = item.get('brand')
+            chars = item.get('characteristics', '')
+
+            desc = name
+            if qty:
+                desc += f" ({qty})"
+            if brand:
+                desc += f" [{brand}]"
+            # Краткие характеристики если есть
+            if chars:
+                chars_str = str(chars)
+                if len(chars_str) > 100:
+                    chars_str = chars_str[:97] + '...'
+                desc += f" — {chars_str}"
+            item_parts.append(desc)
+
+        # Формируем summary из items + оригинального summary
+        original_summary = str(extraction.get('summary', ''))
+        items_text = '; '.join(item_parts)
+        if original_summary and items_text:
+            flat['summary'] = f"{items_text}. {original_summary}"
+        elif items_text:
+            flat['summary'] = items_text
+        elif original_summary:
+            flat['summary'] = original_summary
+    else:
+        # Fallback: старая схема technical_specs
+        specs = extraction.get('technical_specs', {})
+        if isinstance(specs, dict):
+            quantities = specs.get('quantities', '')
+            if quantities:
+                flat['quantities'] = str(quantities)
+            if not items_count and specs.get('items_count'):
+                items_count = specs['items_count']
+                flat['quantities'] = str(items_count)
+
+        # Резюме (старая схема)
+        summary = extraction.get('summary', '')
+        if summary:
+            summary = str(summary)
+            sentences = summary.replace('! ', '. ').split('. ')
+            if len(sentences) > 2:
+                summary = '. '.join(sentences[:2]) + '.'
+            flat['summary'] = summary
+
+    # === Сроки поставки ===
     deadlines = extraction.get('deadlines', {})
     if isinstance(deadlines, dict):
         desc = deadlines.get('execution_description', '')
@@ -101,14 +158,7 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         elif days:
             flat['execution_description'] = _normalize_date(f"{days} дней")
 
-    # Количество наименований
-    specs = extraction.get('technical_specs', {})
-    if isinstance(specs, dict):
-        quantities = specs.get('quantities', '')
-        if quantities:
-            flat['quantities'] = str(quantities)
-
-    # Обеспечение контракта
+    # === Обеспечение ===
     security = extraction.get('contract_security', {})
     if isinstance(security, dict):
         parts = []
@@ -123,7 +173,7 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         if parts:
             flat['contract_security'] = '; '.join(parts)
 
-    # Условия оплаты — компактный формат
+    # === Оплата ===
     payment = extraction.get('payment_terms', {})
     if isinstance(payment, dict):
         parts = []
@@ -133,7 +183,6 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
             parts.append(f"оплата {payment['payment_deadline_days']} дней после приёмки")
         elif payment.get('payment_conditions'):
             cond = str(payment['payment_conditions'])
-            # Обрезаем длинные условия
             if len(cond) > 80:
                 cond = cond[:77] + '...'
             parts.append(cond)
@@ -144,22 +193,11 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         if parts:
             flat['payment_terms'] = ', '.join(parts)
 
-    # Резюме — обрезаем до 2 предложений
-    summary = extraction.get('summary', '')
-    if summary:
-        summary = str(summary)
-        # Оставляем максимум 2 предложения
-        sentences = summary.replace('! ', '. ').split('. ')
-        if len(sentences) > 2:
-            summary = '. '.join(sentences[:2]) + '.'
-        flat['summary'] = summary
-
-    # Лицензии — только конкретные
+    # === Лицензии ===
     reqs = extraction.get('requirements', {})
     if isinstance(reqs, dict):
         licenses = reqs.get('licenses', [])
         if isinstance(licenses, list) and licenses:
-            # Фильтруем общие фразы
             specific = [lic for lic in licenses if lic and
                         not any(skip in str(lic).lower() for skip in
                                 ['соответствие', 'требования законодательства', 'не требуется', 'нет'])]
