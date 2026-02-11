@@ -134,7 +134,8 @@ async def export_single_tender(callback: CallbackQuery):
     tender_number = callback.data.replace("sheets_", "")
     telegram_id = callback.from_user.id
 
-    await callback.answer("Экспортирую в Google Sheets...")
+    # НЕ отвечаем на callback сразу — ответим с результатом в конце,
+    # иначе Telegram не покажет popup с ошибкой/успехом (callback можно ответить только раз)
 
     try:
         db = await get_sniper_db()
@@ -165,11 +166,14 @@ async def export_single_tender(callback: CallbackQuery):
             await callback.answer("Уже в таблице ✅", show_alert=True)
             return
 
+        # Отвечаем на callback (показываем toast) — дальше все ошибки через message
+        await callback.answer("Экспортирую в Google Sheets...")
+
         # Экспортируем
         from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai
         sheets_sync = get_sheets_sync()
         if not sheets_sync:
-            await callback.answer("Google Sheets сервис недоступен", show_alert=True)
+            await callback.message.answer("❌ Google Sheets сервис недоступен")
             return
 
         tender_data = {
@@ -207,7 +211,7 @@ async def export_single_tender(callback: CallbackQuery):
             'ai_data': ai_data,
         }
 
-        await sheets_sync.append_tender(
+        success = await sheets_sync.append_tender(
             spreadsheet_id=gs_config['spreadsheet_id'],
             tender_data=tender_data,
             match_data=match_data,
@@ -215,11 +219,12 @@ async def export_single_tender(callback: CallbackQuery):
             sheet_name=gs_config.get('sheet_name', 'Тендеры')
         )
 
+        if not success:
+            await callback.message.answer("❌ Ошибка записи в Google Sheets. Попробуйте позже.")
+            return
+
         # Помечаем как экспортированный
         await db.mark_notification_exported(notification.get('id'))
-
-        # Обновляем кнопку
-        await callback.answer("✅ Добавлено в Google Sheets!", show_alert=True)
 
         # Заменяем кнопку на "✅ В таблице"
         try:
@@ -244,7 +249,10 @@ async def export_single_tender(callback: CallbackQuery):
 
     except Exception as e:
         logger.error(f"Export single tender error: {e}", exc_info=True)
-        await callback.answer("Ошибка экспорта. Попробуйте позже.", show_alert=True)
+        try:
+            await callback.answer("Ошибка экспорта", show_alert=True)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("sheets_done_"))

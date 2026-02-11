@@ -296,7 +296,7 @@ class GoogleSheetsSync:
                 existing_rows = len(worksheet.col_values(1))  # строк с данными в колонке A
                 next_row = existing_rows + 1
                 day = datetime.now().strftime('%d')
-                row[idx] = f"Заявка {next_row:02d}{day}"
+                row[idx] = f"{next_row:02d}{day}"
 
         worksheet.append_row(row, value_input_option='USER_ENTERED')
 
