@@ -198,6 +198,7 @@ class GoogleSheetsSync:
         """
         self._credentials_json = credentials_json or os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', '')
         self._client = None
+        self._verified_sheets: set = set()  # (spreadsheet_id, sheet_name) — уже проверены заголовки
 
     def _get_client(self):
         """Создаёт или возвращает gspread клиент (синхронный)."""
@@ -255,10 +256,33 @@ class GoogleSheetsSync:
                 'backgroundColor': {'red': 0.9, 'green': 0.93, 'blue': 0.98}
             })
 
-    def _append_row_sync(self, spreadsheet_id: str, row: List[str], sheet_name: str):
+    def _ensure_headers_exist(self, worksheet, columns: List[str]):
+        """Проверяет наличие заголовков и создаёт их если нужно."""
+        try:
+            first_cell = worksheet.acell('A1').value
+            if first_cell:
+                return  # Заголовки уже есть
+        except Exception:
+            pass
+
+        headers = [COLUMN_DEFINITIONS[col][0] for col in columns if col in COLUMN_DEFINITIONS]
+        if headers:
+            worksheet.update(range_name='A1', values=[headers])
+            worksheet.format('A1:Z1', {
+                'textFormat': {'bold': True},
+                'backgroundColor': {'red': 0.9, 'green': 0.93, 'blue': 0.98}
+            })
+            logger.info(f"📊 Google Sheets: заголовки созданы автоматически ({len(headers)} колонок)")
+
+    def _append_row_sync(self, spreadsheet_id: str, row: List[str], sheet_name: str,
+                         columns: Optional[List[str]] = None):
         """Добавляет строку в таблицу (синхронно)."""
         spreadsheet = self._open_spreadsheet(spreadsheet_id)
         worksheet = self._get_or_create_sheet(spreadsheet, sheet_name)
+        cache_key = (spreadsheet_id, sheet_name)
+        if columns and cache_key not in self._verified_sheets:
+            self._ensure_headers_exist(worksheet, columns)
+            self._verified_sheets.add(cache_key)
         worksheet.append_row(row, value_input_option='USER_ENTERED')
 
     def _check_access_sync(self, spreadsheet_id: str) -> bool:
@@ -302,10 +326,12 @@ class GoogleSheetsSync:
             True если успешно
         """
         try:
+            if not columns:
+                columns = DEFAULT_COLUMNS
             row = self._format_row(tender_data, match_data, columns)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
-                None, functools.partial(self._append_row_sync, spreadsheet_id, row, sheet_name)
+                None, functools.partial(self._append_row_sync, spreadsheet_id, row, sheet_name, columns)
             )
             logger.info(f"📊 Google Sheets: добавлен тендер {tender_data.get('number', '?')}")
             return True
