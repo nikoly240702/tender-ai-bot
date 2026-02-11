@@ -80,8 +80,6 @@ def detect_red_flags(tender: Dict[str, Any]) -> List[str]:
 
     # 4. Проверка на обеспечение заявки/контракта
     if 'обеспечение заявки' in text or 'обеспечение исполнения' in text:
-        # Ищем процент или сумму обеспечения
-        import re
         # Ищем большие проценты обеспечения (>10%)
         percent_matches = re.findall(r'(\d+)\s*%\s*(?:от\s+)?(?:нмцк|цены|контракта|обеспечен)', text)
         for match in percent_matches:
