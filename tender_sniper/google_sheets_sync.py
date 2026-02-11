@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Маппинг колонок: ключ → (заголовок RU, функция извлечения данных)
 COLUMN_DEFINITIONS = {
+    'request_number': ('№ заявки', lambda t, m: ''),  # Заполняется динамически в _append_row_sync
     'link': ('Ссылка', lambda t, m: t.get('url', '')),
     'name': ('Объект закупки', lambda t, m: t.get('name', '')),
     'customer': ('Заказчик', lambda t, m: t.get('customer_name') or t.get('customer', '')),
@@ -41,7 +42,7 @@ AI_COLUMNS = {'ai_delivery_date', 'ai_quantities', 'ai_contract_security',
               'ai_payment_terms', 'ai_summary', 'ai_licenses', 'ai_experience'}
 
 # Базовые колонки по умолчанию
-DEFAULT_COLUMNS = ['link', 'name', 'customer', 'region', 'deadline', 'price', 'score', 'status']
+DEFAULT_COLUMNS = ['request_number', 'link', 'name', 'customer', 'region', 'deadline', 'price', 'score', 'status']
 
 
 def _normalize_date(value: str) -> str:
@@ -257,32 +258,46 @@ class GoogleSheetsSync:
             })
 
     def _ensure_headers_exist(self, worksheet, columns: List[str]):
-        """Проверяет наличие заголовков и создаёт их если нужно."""
+        """Проверяет наличие заголовков и создаёт/обновляет если нужно."""
+        headers = [COLUMN_DEFINITIONS[col][0] for col in columns if col in COLUMN_DEFINITIONS]
+        if not headers:
+            return
+
         try:
-            first_cell = worksheet.acell('A1').value
-            if first_cell:
-                return  # Заголовки уже есть
+            existing = worksheet.row_values(1)
+            if existing == headers:
+                return  # Заголовки совпадают
         except Exception:
             pass
 
-        headers = [COLUMN_DEFINITIONS[col][0] for col in columns if col in COLUMN_DEFINITIONS]
-        if headers:
-            worksheet.update(range_name='A1', values=[headers])
-            worksheet.format('A1:Z1', {
-                'textFormat': {'bold': True},
-                'backgroundColor': {'red': 0.9, 'green': 0.93, 'blue': 0.98}
-            })
-            logger.info(f"📊 Google Sheets: заголовки созданы автоматически ({len(headers)} колонок)")
+        worksheet.update(range_name='A1', values=[headers])
+        worksheet.format('A1:Z1', {
+            'textFormat': {'bold': True},
+            'backgroundColor': {'red': 0.9, 'green': 0.93, 'blue': 0.98}
+        })
+        logger.info(f"📊 Google Sheets: заголовки обновлены ({len(headers)} колонок)")
 
     def _append_row_sync(self, spreadsheet_id: str, row: List[str], sheet_name: str,
                          columns: Optional[List[str]] = None):
         """Добавляет строку в таблицу (синхронно)."""
+        from datetime import datetime
+
         spreadsheet = self._open_spreadsheet(spreadsheet_id)
         worksheet = self._get_or_create_sheet(spreadsheet, sheet_name)
         cache_key = (spreadsheet_id, sheet_name)
         if columns and cache_key not in self._verified_sheets:
             self._ensure_headers_exist(worksheet, columns)
             self._verified_sheets.add(cache_key)
+
+        # Заполняем № заявки: "Заявка XXYY" (XX=строка, YY=день)
+        if columns and 'request_number' in columns:
+            idx = list(columns).index('request_number')
+            if idx < len(row):
+                existing_rows = len(worksheet.col_values(1))  # строк с данными в колонке A
+                next_row = existing_rows + 1
+                day = datetime.now().strftime('%d')
+                row[idx] = f"Заявка {next_row:02d}{day}"
+
         worksheet.append_row(row, value_input_option='USER_ENTERED')
 
     def _check_access_sync(self, spreadsheet_id: str) -> bool:
@@ -328,6 +343,8 @@ class GoogleSheetsSync:
         try:
             if not columns:
                 columns = DEFAULT_COLUMNS
+            if 'request_number' not in columns:
+                columns = ['request_number'] + list(columns)
             row = self._format_row(tender_data, match_data, columns)
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(
