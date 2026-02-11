@@ -161,13 +161,9 @@ async def export_single_tender(callback: CallbackQuery):
             await callback.answer("Тендер не найден в истории", show_alert=True)
             return
 
-        # Проверяем, не экспортирован ли уже
-        if notification.get('sheets_exported'):
-            await callback.answer("Уже в таблице ✅", show_alert=True)
-            return
-
         # Отвечаем на callback (показываем toast) — дальше все ошибки через message
-        await callback.answer("Экспортирую в Google Sheets...")
+        re_export = notification.get('sheets_exported', False)
+        await callback.answer("Повторный экспорт..." if re_export else "Экспортирую в Google Sheets...")
 
         # Экспортируем
         from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai
