@@ -705,7 +705,8 @@ class TenderSniperDB:
                 if submission_deadline and submission_deadline.tzinfo is not None:
                     submission_deadline = submission_deadline.replace(tzinfo=None)
 
-            notification = SniperNotificationModel(
+            try:
+              notification = SniperNotificationModel(
                 user_id=user_id,
                 filter_id=filter_id,
                 filter_name=filter_name,
@@ -722,14 +723,19 @@ class TenderSniperDB:
                 tender_source=source,
                 telegram_message_id=telegram_message_id
             )
-            session.add(notification)
-            await session.flush()
+              session.add(notification)
+              await session.flush()
 
-            # DEBUG: Логируем что сохранилось
-            logger.debug(f"   ✅ Saved notification id={notification.id}, "
-                        f"tender_region='{notification.tender_region}', tender_customer='{notification.tender_customer}'")
+              # DEBUG: Логируем что сохранилось
+              logger.debug(f"   ✅ Saved notification id={notification.id}, "
+                          f"tender_region='{notification.tender_region}', tender_customer='{notification.tender_customer}'")
 
-            return notification.id
+              return notification.id
+
+            except IntegrityError:
+              await session.rollback()
+              logger.warning(f"   ⚠️ Дубликат уведомления (IntegrityError): tender={tender_number}, user={user_id}")
+              return None
 
     async def get_user_tenders(self, user_id: int, limit: int = 100) -> List[Dict[str, Any]]:
         """Получение тендеров пользователя."""

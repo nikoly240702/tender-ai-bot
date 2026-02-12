@@ -401,8 +401,13 @@ class TenderSniperService:
                 # Кэшируем данные пользователей для проверки тихих часов
                 user_data_cache = {}
 
+                sent_count = 0
+                failed_count = 0
+
                 for notif in notifications_to_send:
+                  try:
                     telegram_id = notif['telegram_id']
+                    tender_number = notif['tender'].get('number', '?')
 
                     # Проверяем тихие часы (получаем данные пользователя из кэша или БД)
                     if telegram_id not in user_data_cache:
@@ -458,6 +463,7 @@ class TenderSniperService:
                     )
 
                     if success:
+                        logger.info(f"   ✅ Отправлено: {tender_number} → {telegram_id}")
                         logger.debug(f"   💾 Сохранение тендера {tender_data['number']}: "
                                    f"region={tender_data['region']}, customer={tender_data['customer_name']}")
 
@@ -476,14 +482,21 @@ class TenderSniperService:
                         if not is_admin:
                             await self.db.increment_notification_quota(notif['user_id'])
 
+                        sent_count += 1
                         self.stats['notifications_sent'] += 1
+                    else:
+                        logger.warning(f"   ❌ Не удалось отправить: {tender_number} → {telegram_id}")
+                        failed_count += 1
 
-                    # Google Sheets: авто-sync убран, экспорт через Mini App (/tenders)
+                  except Exception as e:
+                    failed_count += 1
+                    t_num = notif.get('tender', {}).get('number', '?')
+                    logger.error(f"   ❌ Ошибка отправки уведомления {t_num}: {e}", exc_info=True)
 
-                    # Небольшая задержка между уведомлениями
-                    await asyncio.sleep(0.1)
+                  # Небольшая задержка между уведомлениями
+                  await asyncio.sleep(0.1)
 
-                logger.info(f"   ✅ Уведомления отправлены: {self.stats['notifications_sent']}")
+                logger.info(f"   📊 Итог отправки: {sent_count} отправлено, {failed_count} ошибок")
 
             # Очищаем кэш обогащения после каждого цикла (экономия памяти)
             cache_stats = InstantSearch.get_cache_stats()
