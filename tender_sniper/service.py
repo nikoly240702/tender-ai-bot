@@ -297,13 +297,7 @@ class TenderSniperService:
                         score = tender.get('match_score', 0)
 
                         # === ФИЛЬТР ПО SCORE ===
-                        # Не отправляем тендеры с низким score
-                        if score < MIN_SCORE_FOR_NOTIFICATION:
-                            logger.info(f"         ⏭️  Низкий score ({score}), пропускаем: {tender_name}")
-                            continue
-
-                        if not tender_number:
-                            logger.warning(f"         ⚠️  Тендер без номера, пропускаем")
+                        if score < MIN_SCORE_FOR_NOTIFICATION or not tender_number:
                             continue
 
                         # === ПРОВЕРКА: дедлайн не просрочен ===
@@ -313,35 +307,26 @@ class TenderSniperService:
                                 from datetime import datetime
                                 deadline_date = None
                                 deadline_str = str(deadline)
-
-                                # Пробуем разные форматы
                                 for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%d.%m.%Y', '%d.%m.%Y %H:%M']:
                                     try:
                                         deadline_date = datetime.strptime(deadline_str[:len(fmt.replace('%', ''))], fmt)
                                         break
                                     except:
                                         continue
-
                                 if deadline_date and deadline_date < datetime.now():
-                                    logger.info(f"         ⏭️  Просрочен дедлайн: {tender_number} ({deadline_str})")
                                     continue
-                            except Exception as e:
-                                logger.debug(f"         ⚠️ Не удалось проверить дедлайн: {e}")
-
-                        logger.info(f"         🔍 Проверка тендера: {tender_number}")
-                        logger.info(f"            Название: {tender_name}...")
-                        logger.info(f"            Score: {score}")
+                            except Exception:
+                                pass
 
                         # Проверяем, не отправляли ли уже (БД)
                         already_notified = await self.db.is_tender_notified(tender_number, user_id)
                         if already_notified:
-                            logger.info(f"         ⏭️  Уже уведомлен ранее: {tender_number}")
                             continue
 
                         # Проверяем, не в очереди ли уже (другой фильтр в этом цикле)
                         dedup_key = (user_id, tender_number)
                         if dedup_key in seen_tenders:
-                            logger.info(f"         ⏭️  Уже в очереди (другой фильтр): {tender_number}")
+                            logger.info(f"         ⏭️  Дедупликация: {tender_number} (уже от другого фильтра)")
                             continue
                         seen_tenders.add(dedup_key)
 

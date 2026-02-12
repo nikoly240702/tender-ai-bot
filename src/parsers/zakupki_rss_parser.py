@@ -9,12 +9,15 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from urllib.parse import urlencode, quote_plus
 import re
+import logging
 import warnings
 import os
 import html
 import time
 from threading import Lock
 from bs4 import BeautifulSoup
+
+_log = logging.getLogger(__name__)
 
 # Отключаем предупреждения SSL (для zakupki.gov.ru)
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
@@ -166,7 +169,7 @@ class ZakupkiRSSParser:
 
             if time_since_last_request < self.min_request_interval:
                 sleep_time = self.min_request_interval - time_since_last_request
-                print(f"   ⏱️  Rate limit: ожидание {sleep_time:.1f}с...")
+                _log.debug(f"   ⏱️  Rate limit: ожидание {sleep_time:.1f}с...")
                 time.sleep(sleep_time)
 
             self.last_request_time = time.time()
@@ -200,9 +203,9 @@ class ZakupkiRSSParser:
         Returns:
             Список найденных тендеров
         """
-        print(f"📡 Получение RSS-фида от zakupki.gov.ru...")
+        _log.debug(f"📡 Получение RSS-фида от zakupki.gov.ru...")
         if tender_type:
-            print(f"   🎯 Фильтр по типу: {tender_type}")
+            _log.debug(f"   🎯 Фильтр по типу: {tender_type}")
 
         try:
             # Формируем URL RSS-фида с параметрами
@@ -219,7 +222,7 @@ class ZakupkiRSSParser:
                 date_to=date_to
             )
 
-            print(f"   RSS URL: {rss_url[:100]}...")
+            _log.debug(f"   RSS URL: {rss_url[:100]}...")
 
             # Получаем RSS через requests (обходим SSL проблему)
             try:
@@ -305,7 +308,7 @@ class ZakupkiRSSParser:
                         for indicator in service_work_indicators:
                             if indicator in name_lower:
                                 filtered_count += 1
-                                print(f"   ⛔ Отфильтрован (услуга/работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                                _log.debug(f"   ⛔ Отфильтрован (услуга/работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
                                 is_service_or_work = True
                                 break
                         if is_service_or_work:
@@ -333,7 +336,7 @@ class ZakupkiRSSParser:
                     for indicator in goods_indicators + work_indicators:
                         if indicator in full_text:
                             filtered_count += 1
-                            print(f"   ⛔ Отфильтрован (не услуга, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                            _log.debug(f"   ⛔ Отфильтрован (не услуга, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
                             is_goods_or_work = True
                             break
                     if is_goods_or_work:
@@ -360,7 +363,7 @@ class ZakupkiRSSParser:
                     for indicator in goods_indicators + service_indicators:
                         if indicator in full_text:
                             filtered_count += 1
-                            print(f"   ⛔ Отфильтрован (не работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
+                            _log.debug(f"   ⛔ Отфильтрован (не работа, найдено '{indicator}'): {tender.get('name', '')[:60]}...")
                             is_goods_or_service = True
                             break
                     if is_goods_or_service:
@@ -372,9 +375,9 @@ class ZakupkiRSSParser:
                 if len(tenders) >= max_results:
                     break
 
-            print(f"✓ Получено тендеров из RSS: {len(tenders)}")
+            _log.debug(f"✓ Получено тендеров из RSS: {len(tenders)}")
             if filtered_count > 0:
-                print(f"   📊 Отфильтровано по типу: {filtered_count}")
+                _log.debug(f"   📊 Отфильтровано по типу: {filtered_count}")
             return tenders
 
         except Exception as e:
@@ -466,7 +469,7 @@ class ZakupkiRSSParser:
             if region_codes:
                 # zakupki.gov.ru принимает множественные регионы
                 params['selectedSubjectsIdNameHidden'] = ','.join(region_codes)
-                print(f"   📍 Фильтр по регионам: {', '.join(regions)} (коды: {', '.join(region_codes)})")
+                _log.debug(f"   📍 Фильтр по регионам: {', '.join(regions)} (коды: {', '.join(region_codes)})")
 
         # Ценовой диапазон
         if price_min:
@@ -480,9 +483,9 @@ class ZakupkiRSSParser:
         if tender_type:
             if tender_type.lower() == "товары":
                 # НЕ применяем фильтр для товаров - будем фильтровать на клиенте
-                print(f"   ⚠️  Фильтр по типу ОТКЛЮЧЕН для '{tender_type}'")
-                print(f"      (zakupki.gov.ru часто неправильно классифицирует товары)")
-                print(f"      Будет применена клиентская фильтрация после получения результатов")
+                _log.debug(f"   ⚠️  Фильтр по типу ОТКЛЮЧЕН для '{tender_type}'")
+                _log.debug(f"      (zakupki.gov.ru часто неправильно классифицирует товары)")
+                _log.debug(f"      Будет применена клиентская фильтрация после получения результатов")
             else:
                 # Для услуг и работ фильтр работает нормально
                 type_code_map = {
@@ -492,7 +495,7 @@ class ZakupkiRSSParser:
                 type_code = type_code_map.get(tender_type.lower())
                 if type_code:
                     params['purchaseObjectTypeCode'] = type_code
-                    print(f"   ✅ Применен фильтр: purchaseObjectTypeCode={type_code} ({tender_type})")
+                    _log.debug(f"   ✅ Применен фильтр: purchaseObjectTypeCode={type_code} ({tender_type})")
 
         # Формируем query string с правильным кодированием
         query_string = urlencode(params, quote_via=quote_plus)
@@ -777,7 +780,7 @@ class ZakupkiRSSParser:
             print(f"   ⚠️ Обогащение: URL отсутствует, пропускаем")
             return tender
 
-        print(f"   🌐 Загружаем страницу тендера: {url[:80]}...")
+        _log.debug(f"   🌐 Загружаем страницу тендера: {url[:80]}...")
 
         try:
             # Соблюдаем rate limit
@@ -817,7 +820,7 @@ class ZakupkiRSSParser:
 
             # === Извлекаем объект закупки со страницы если в name бюрократия ===
             current_name = tender.get('name', '')
-            print(f"   📋 Проверка названия тендера: {current_name[:80]}...")
+            _log.debug(f"   📋 Проверка названия тендера: {current_name[:80]}...")
 
             # Проверяем признаки бюрократического названия
             bureaucratic_indicators = [
@@ -830,57 +833,57 @@ class ZakupkiRSSParser:
             is_bureaucratic = any(indicator in current_name.lower() for indicator in bureaucratic_indicators)
 
             if is_bureaucratic:
-                print(f"   ⚠️ Обнаружено бюрократическое название, попытка заменить...")
+                _log.debug(f"   ⚠️ Обнаружено бюрократическое название, попытка заменить...")
                 purchase_object = self._extract_purchase_object_from_page(html_content)
 
                 # Если не нашли на common-info, пробуем вкладку purchase-objects
                 if not purchase_object or len(purchase_object) <= 10:
                     purchase_objects_url = url.replace('common-info.html', 'purchase-objects.html')
                     if purchase_objects_url != url:
-                        print(f"   🔄 Пробуем вкладку purchase-objects...")
+                        _log.debug(f"   🔄 Пробуем вкладку purchase-objects...")
                         try:
                             self._wait_for_rate_limit()
                             po_response = self.session.get(purchase_objects_url, timeout=30, verify=False)
                             if po_response.status_code == 200:
                                 purchase_object = self._extract_purchase_object_from_page(po_response.text)
                         except Exception as e:
-                            print(f"   ⚠️ Ошибка загрузки purchase-objects: {e}")
+                            _log.debug(f"   ⚠️ Ошибка загрузки purchase-objects: {e}")
 
                 if purchase_object and len(purchase_object) > 10:
                     old_name = tender['name']
                     tender['name'] = purchase_object
-                    print(f"   ✅ Заменено название:")
-                    print(f"      Было: {old_name[:80]}...")
-                    print(f"      Стало: {purchase_object[:80]}...")
+                    _log.debug(f"   ✅ Заменено название:")
+                    _log.debug(f"      Было: {old_name[:80]}...")
+                    _log.debug(f"      Стало: {purchase_object[:80]}...")
                 else:
-                    print(f"   ⚠️ Объект закупки не извлечен, оставляем исходное название")
+                    _log.debug(f"   ⚠️ Объект закупки не извлечен, оставляем исходное название")
             elif len(current_name) < 20:
-                print(f"   ⚠️ Название слишком короткое ({len(current_name)} символов), попытка заменить...")
+                _log.debug(f"   ⚠️ Название слишком короткое ({len(current_name)} символов), попытка заменить...")
                 purchase_object = self._extract_purchase_object_from_page(html_content)
 
                 # Если не нашли на common-info, пробуем вкладку purchase-objects
                 if not purchase_object or len(purchase_object) <= 10:
                     purchase_objects_url = url.replace('common-info.html', 'purchase-objects.html')
                     if purchase_objects_url != url:
-                        print(f"   🔄 Пробуем вкладку purchase-objects...")
+                        _log.debug(f"   🔄 Пробуем вкладку purchase-objects...")
                         try:
                             self._wait_for_rate_limit()
                             po_response = self.session.get(purchase_objects_url, timeout=30, verify=False)
                             if po_response.status_code == 200:
                                 purchase_object = self._extract_purchase_object_from_page(po_response.text)
                         except Exception as e:
-                            print(f"   ⚠️ Ошибка загрузки purchase-objects: {e}")
+                            _log.debug(f"   ⚠️ Ошибка загрузки purchase-objects: {e}")
 
                 if purchase_object and len(purchase_object) > 10:
                     tender['name'] = purchase_object
-                    print(f"   ✅ Заменено короткое название на: {purchase_object[:60]}...")
+                    _log.debug(f"   ✅ Заменено короткое название на: {purchase_object[:60]}...")
                 else:
-                    print(f"   ⚠️ Объект закупки не извлечен, оставляем исходное название")
+                    _log.debug(f"   ⚠️ Объект закупки не извлечен, оставляем исходное название")
             else:
-                print(f"   ✓ Название в порядке, замена не требуется")
+                _log.debug(f"   ✓ Название в порядке, замена не требуется")
 
             # Логируем что было извлечено
-            print(f"   ✅ Обогащено: цена={tender.get('price', 'Н/Д')}, дедлайн={tender.get('submission_deadline', 'Н/Д')}, регион={tender.get('customer_region', 'Н/Д')}")
+            _log.debug(f"   ✅ Обогащено: цена={tender.get('price', 'Н/Д')}, дедлайн={tender.get('submission_deadline', 'Н/Д')}, регион={tender.get('customer_region', 'Н/Д')}")
 
         except requests.exceptions.Timeout:
             print(f"   ⏱️ Таймаут при загрузке страницы тендера")
@@ -1110,7 +1113,7 @@ class ZakupkiRSSParser:
         Returns:
             Описание объекта закупки или None если не найдено
         """
-        print(f"   🔍 Попытка извлечь объект закупки из страницы...")
+        _log.debug(f"   🔍 Попытка извлечь объект закупки из страницы...")
 
         # Бюрократические фразы которые нужно отфильтровать
         bureaucratic_phrases = [
@@ -1156,19 +1159,19 @@ class ZakupkiRSSParser:
             match = re.search(pattern, html_content, re.IGNORECASE | re.DOTALL)
             if match:
                 purchase_object = clean_text(match.group(1))
-                print(f"      ✓ Regex #{i} нашел: {purchase_object[:80]}...")
+                _log.debug(f"      ✓ Regex #{i} нашел: {purchase_object[:80]}...")
 
                 if is_valid_purchase_object(purchase_object):
-                    print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
+                    _log.debug(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
                     return purchase_object
                 else:
                     if len(purchase_object) <= 10:
-                        print(f"      ⚠️ Объект слишком короткий (длина: {len(purchase_object)})")
+                        _log.debug(f"      ⚠️ Объект слишком короткий (длина: {len(purchase_object)})")
                     else:
-                        print(f"      ⚠️ Объект содержит бюрократические фразы, пропускаем")
+                        _log.debug(f"      ⚠️ Объект содержит бюрократические фразы, пропускаем")
 
         # === МЕТОД 2: BeautifulSoup парсинг ===
-        print(f"      🔄 Regex не нашел, пробуем BeautifulSoup...")
+        _log.debug(f"      🔄 Regex не нашел, пробуем BeautifulSoup...")
 
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -1181,9 +1184,9 @@ class ZakupkiRSSParser:
                     title_text = title.get_text(strip=True).lower()
                     if 'объект закупки' in title_text:
                         purchase_object = clean_text(content.get_text(strip=True))
-                        print(f"      ✓ BS cardMainInfo нашел: {purchase_object[:80]}...")
+                        _log.debug(f"      ✓ BS cardMainInfo нашел: {purchase_object[:80]}...")
                         if is_valid_purchase_object(purchase_object):
-                            print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
+                            _log.debug(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
                             return purchase_object
 
             # 2.2 Ищем в section__title + section__info
@@ -1193,9 +1196,9 @@ class ZakupkiRSSParser:
                     info_span = title_span.find_next_sibling(class_='section__info')
                     if info_span:
                         purchase_object = clean_text(info_span.get_text(strip=True))
-                        print(f"      ✓ BS section__info нашел: {purchase_object[:80]}...")
+                        _log.debug(f"      ✓ BS section__info нашел: {purchase_object[:80]}...")
                         if is_valid_purchase_object(purchase_object):
-                            print(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
+                            _log.debug(f"      ✅ Объект закупки валиден: {purchase_object[:80]}...")
                             return purchase_object
 
             # 2.3 Ищем в таблице позиций закупки (fallback)
@@ -1231,15 +1234,15 @@ class ZakupkiRSSParser:
 
                                     product_name = clean_text(product_text)
                                     if product_name and len(product_name) > 5:
-                                        print(f"      ✓ BS таблица позиций нашла: {product_name[:80]}...")
+                                        _log.debug(f"      ✓ BS таблица позиций нашла: {product_name[:80]}...")
                                         if is_valid_purchase_object(product_name):
-                                            print(f"      ✅ Объект закупки из таблицы: {product_name[:80]}...")
+                                            _log.debug(f"      ✅ Объект закупки из таблицы: {product_name[:80]}...")
                                             return product_name
 
         except Exception as e:
-            print(f"      ⚠️ Ошибка BeautifulSoup: {e}")
+            _log.debug(f"      ⚠️ Ошибка BeautifulSoup: {e}")
 
-        print(f"      ❌ Объект закупки не найден ни одним методом")
+        _log.debug(f"      ❌ Объект закупки не найден ни одним методом")
 
         # Сохраняем debug HTML для анализа проблемных страниц
         try:
@@ -1249,9 +1252,9 @@ class ZakupkiRSSParser:
             debug_file = os.path.join(debug_dir, f"debug_purchase_object_not_found_{timestamp}.html")
             with open(debug_file, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            print(f"      💾 Debug HTML сохранен: {debug_file}")
+            _log.debug(f"      💾 Debug HTML сохранен: {debug_file}")
         except Exception as e:
-            print(f"      ⚠️ Не удалось сохранить debug HTML: {e}")
+            _log.debug(f"      ⚠️ Не удалось сохранить debug HTML: {e}")
 
         return None
 

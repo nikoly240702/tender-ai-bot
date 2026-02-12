@@ -136,27 +136,11 @@ class InstantSearch:
             extra_keywords = [kw for kw in expanded_keywords if kw not in original_keywords][:3]
             search_queries.extend(extra_keywords)
 
-        logger.info(f"   🔑 Поисковые запросы ({len(search_queries)}): {', '.join(search_queries)}")
-        logger.info(f"   💰 Цена: {price_min} - {price_max}")
-        logger.info(f"   📍 Регионы: {regions if regions else 'Все'}")
-        logger.info(f"   📜 Закон: {law_type if law_type else 'Все'}")
-        logger.info(f"   📝 Этап: {purchase_stage if purchase_stage else 'Все'}")
-        logger.info(f"   🔨 Способ: {purchase_method if purchase_method else 'Все'}")
-        if okpd2_codes:
-            logger.info(f"   📋 ОКПД2: {', '.join(okpd2_codes)}")
-        if min_deadline_days:
-            logger.info(f"   ⏰ Мин. дней до дедлайна: {min_deadline_days}")
-        if customer_keywords:
-            logger.info(f"   🏢 Заказчик содержит: {', '.join(customer_keywords)}")
-        if exclude_keywords:
-            logger.info(f"   ❌ Исключаем: {', '.join(exclude_keywords)}")
-        if publication_days:
-            logger.info(f"   📅 Публикация за: {publication_days} дней")
+        logger.debug(f"   🔑 Запросы ({len(search_queries)}): {', '.join(search_queries)}")
+        logger.debug(f"   💰 Цена: {price_min} - {price_max}, 📍 Регионы: {regions if regions else 'Все'}")
 
         # По умолчанию ищем только АКТИВНЫЕ тендеры (идёт приём заявок)
-        # Если пользователь не указал этап - используем "submission"
         effective_purchase_stage = purchase_stage if purchase_stage else "submission"
-        logger.info(f"   🎯 Этап закупки: {effective_purchase_stage}")
 
         try:
             # Выполняем ОТДЕЛЬНЫЙ поиск для каждого ключевого слова
@@ -171,7 +155,7 @@ class InstantSearch:
                 query_variants = Transliterator.generate_variants(query)
 
                 for variant in query_variants:
-                    logger.info(f"   🔎 Поиск: '{variant}'" + (" (транслит)" if variant != query else ""))
+                    logger.debug(f"   🔎 Поиск: '{variant}'" + (" (транслит)" if variant != query else ""))
 
                     # Определяем тип закупки для RSS
                     # Если выбраны все типы (3) или ничего не выбрано - не фильтруем
@@ -295,7 +279,7 @@ class InstantSearch:
                             seen_numbers.add(number)
                             all_results.append(tender)
 
-                    logger.info(f"      Найдено: {len(results)}, уникальных всего: {len(all_results)}")
+                    logger.debug(f"      Найдено: {len(results)}, уникальных всего: {len(all_results)}")
 
                     # Достаточно результатов - выходим из обоих циклов
                     if len(all_results) >= max_tenders:
@@ -324,7 +308,7 @@ class InstantSearch:
                 }
 
                 # 2. Quick pre-scoring (без обогащения, на основе RSS данных)
-                logger.info(f"   ⚡ Быстрый pre-scoring ({len(search_results)} тендеров)...")
+                logger.debug(f"   ⚡ Быстрый pre-scoring ({len(search_results)} тендеров)...")
                 tenders_to_enrich = []
                 tenders_skipped = 0
 
@@ -353,11 +337,11 @@ class InstantSearch:
                     tenders_to_enrich.append(tender)
 
                 if tenders_skipped > 0:
-                    logger.info(f"   ⏭️ Пропущено по pre-score: {tenders_skipped}")
+                    logger.debug(f"   ⏭️ Пропущено по pre-score: {tenders_skipped}")
 
                 # 3. Обогащаем только отобранные тендеры
                 if tenders_to_enrich:
-                    logger.info(f"   📥 Загрузка данных для {len(tenders_to_enrich)} тендеров (из {len(search_results)})...")
+                    logger.debug(f"   📥 Загрузка данных для {len(tenders_to_enrich)} тендеров (из {len(search_results)})...")
                     enriched_results = []
 
                     for i, tender in enumerate(tenders_to_enrich):
@@ -393,10 +377,10 @@ class InstantSearch:
                             enriched_results.append(tender)
 
                     search_results = enriched_results
-                    logger.info(f"   ✅ Данные обогащены")
+                    logger.debug(f"   ✅ Данные обогащены")
                 else:
                     search_results = []
-                    logger.info(f"   ℹ️ Нет тендеров для обогащения после pre-scoring")
+                    logger.debug(f"   ℹ️ Нет тендеров для обогащения")
 
             # === CLIENT-SIDE ФИЛЬТРАЦИЯ ПО СТАТУСУ ЗАКУПКИ ===
             # Режим "archive" - ищем ТОЛЬКО архивные тендеры (с прошедшим дедлайном)
@@ -649,10 +633,9 @@ class InstantSearch:
             if use_ai_check and not ai_intent and original_keywords:
                 filter_name = filter_data.get('name', '')
                 ai_intent = f"Ищу тендеры по запросу '{filter_name}'. Ключевые слова: {', '.join(original_keywords)}. Меня интересуют ТОЛЬКО тендеры, которые напрямую связаны с этими ключевыми словами."
-                logger.info(f"   ⚠️ ai_intent отсутствует, сгенерирован fallback")
+                logger.debug(f"   ⚠️ ai_intent отсутствует, сгенерирован fallback")
 
             if use_ai_check and ai_intent and matches:
-                logger.info(f"   🤖 AI проверка релевантности ({len(matches)} тендеров)...")
 
                 for tender in matches:
                     tender_score = tender.get('match_score', 0)
@@ -683,10 +666,7 @@ class InstantSearch:
                             tender['ai_reason'] = ai_result.get('reason', '')
                             ai_filtered_matches.append(tender)
                         else:
-                            # AI сказал "не релевантно" — доверяем, убираем из выдачи
                             ai_rejected_count += 1
-                            logger.info(f"      ❌ AI отклонил ({ai_result.get('confidence', 0)}%): "
-                                       f"{tender.get('name', '')[:50]}... ({ai_result.get('reason', '')})")
 
                         # Проверяем квоту
                         if ai_result.get('source') == 'quota_exceeded':
