@@ -11,7 +11,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, Boolean,
-    DateTime, Text, JSON, ForeignKey, Index
+    DateTime, Text, JSON, ForeignKey, Index, UniqueConstraint
 )
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -188,12 +188,14 @@ class SniperNotification(Base):
     user = relationship("SniperUser", back_populates="notifications")
     filter = relationship("SniperFilter", back_populates="notifications")
 
-    # Indexes
+    # Indexes + Constraints
     __table_args__ = (
         Index('ix_sniper_notifications_user_sent', 'user_id', 'sent_at'),
         Index('ix_sniper_notifications_tender', 'tender_number'),
         # Составной индекс для is_tender_notified() - ускоряет проверку дубликатов
         Index('ix_sniper_notifications_user_tender', 'user_id', 'tender_number'),
+        # Unique constraint — предотвращает дубли уведомлений
+        UniqueConstraint('user_id', 'filter_id', 'tender_number', name='uq_notification_user_filter_tender'),
     )
 
 

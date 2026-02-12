@@ -649,9 +649,15 @@ class TenderSniperDB:
         source: str = 'automonitoring'
     ) -> int:
         """Сохранение уведомления."""
+        # Проверка дубликата перед INSERT
+        tender_number = tender_data.get('number', '')
+        if tender_number and await self.is_tender_notified(tender_number, user_id):
+            logger.info(f"Tender {tender_number} already notified for user {user_id}, skipping save")
+            return None
+
         async with DatabaseSession() as session:
             # DEBUG: Логируем что именно сохраняем
-            logger.debug(f"   💾 save_notification: number={tender_data.get('number')}, "
+            logger.debug(f"   💾 save_notification: number={tender_number}, "
                         f"region='{tender_data.get('region')}', customer='{tender_data.get('customer_name')}'")
 
             # Парсинг даты публикации (поддержка RFC 2822 и ISO форматов)
@@ -772,7 +778,7 @@ class TenderSniperDB:
                     )
                 )
             )
-            return result.scalar_one_or_none() is not None
+            return result.first() is not None
 
     async def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         """
@@ -851,7 +857,7 @@ class TenderSniperDB:
                     )
                 )
             )
-            return result.scalar_one_or_none() is not None
+            return result.first() is not None
 
     async def mark_tender_processed(self, tender_number: str, tender_hash: str):
         """Отметить тендер как обработанный."""
@@ -860,7 +866,7 @@ class TenderSniperDB:
             result = await session.execute(
                 select(TenderCacheModel).where(TenderCacheModel.tender_number == tender_number)
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             if existing:
                 # Обновляем
@@ -1206,7 +1212,7 @@ class TenderSniperDB:
             result = await session.execute(
                 select(FilterDraftModel).where(FilterDraftModel.user_id == user.id)
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             if existing:
                 # Обновляем существующий
@@ -1250,7 +1256,7 @@ class TenderSniperDB:
             result = await session.execute(
                 select(FilterDraftModel).where(FilterDraftModel.telegram_id == telegram_id)
             )
-            draft = result.scalar_one_or_none()
+            draft = result.scalars().first()
 
             if draft:
                 return {
@@ -1537,7 +1543,7 @@ class TenderSniperDB:
             result = await session.execute(
                 select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             expires_at = datetime.utcnow() + timedelta(days=days)
 
@@ -1580,7 +1586,7 @@ class TenderSniperDB:
             result = await session.execute(
                 select(SubscriptionModel).where(SubscriptionModel.user_id == user_id)
             )
-            sub = result.scalar_one_or_none()
+            sub = result.scalars().first()
 
             if not sub:
                 return None
@@ -1682,7 +1688,7 @@ class TenderSniperDB:
                     )
                 )
             )
-            return result.scalar_one_or_none() is not None
+            return result.first() is not None
 
     async def get_viewed_tenders_count(self, user_id: int) -> int:
         """
@@ -1814,7 +1820,7 @@ class TenderSniperDB:
             result = await session.execute(
                 select(PromocodeModel).where(PromocodeModel.code == code.upper())
             )
-            promocode = result.scalar_one_or_none()
+            promocode = result.scalars().first()
 
             if not promocode:
                 return {'success': False, 'error': 'not_found'}
@@ -2100,7 +2106,7 @@ class TenderSniperDB:
                         HiddenTenderModel.tender_number == tender_number
                     )
                 )
-                return result.scalar_one_or_none() is not None
+                return result.first() is not None
         except Exception as e:
             logger.error(f"Ошибка проверки скрытого тендера: {e}")
             return False
@@ -2260,7 +2266,7 @@ class TenderSniperDB:
                     )
                 ).order_by(SniperNotificationModel.sent_at.desc())
             )
-            notif = result.scalar_one_or_none()
+            notif = result.scalars().first()
             if not notif:
                 return None
 

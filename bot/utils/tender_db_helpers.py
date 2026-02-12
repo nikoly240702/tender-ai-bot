@@ -43,7 +43,7 @@ async def add_to_favorites(
                     )
                 )
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             if existing:
                 logger.info(f"Тендер {tender_number} уже в избранном у user {user_id}")
@@ -131,7 +131,7 @@ async def hide_tender(user_id: int, tender_number: str, reason: str = None) -> b
                     )
                 )
             )
-            existing = result.scalar_one_or_none()
+            existing = result.scalars().first()
 
             if existing:
                 logger.info(f"Тендер {tender_number} уже скрыт у user {user_id}")
@@ -207,7 +207,7 @@ async def is_tender_hidden(user_id: int, tender_number: str) -> bool:
                     )
                 )
             )
-            return result.scalar_one_or_none() is not None
+            return result.first() is not None
 
     except Exception as e:
         logger.error(f"Ошибка проверки скрытого: {e}", exc_info=True)

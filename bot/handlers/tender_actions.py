@@ -67,7 +67,7 @@ async def show_tender_details(callback: CallbackQuery):
                     SniperNotification.tender_number == tender_number
                 ).order_by(SniperNotification.sent_at.desc())
             )
-            notification = result.scalar_one_or_none()
+            notification = result.scalars().first()
 
             if notification:
                 tender_data = {
@@ -144,7 +144,7 @@ async def add_tender_to_favorites(callback: CallbackQuery):
                     SniperNotification.tender_number == tender_number
                 ).order_by(SniperNotification.sent_at.desc())
             )
-            notification = result.scalar_one_or_none()
+            notification = result.scalars().first()
 
         if not notification:
             await callback.answer("❌ Тендер не найден", show_alert=True)
@@ -253,7 +253,7 @@ async def set_reminder_handler(callback: CallbackQuery):
                     SniperNotification.tender_number == tender_number
                 ).order_by(SniperNotification.sent_at.desc())
             )
-            notification = result.scalar_one_or_none()
+            notification = result.scalars().first()
 
         if not notification:
             await callback.answer("❌ Тендер не найден", show_alert=True)
