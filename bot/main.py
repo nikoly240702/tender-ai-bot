@@ -303,10 +303,19 @@ async def main():
                         "❌ Произошла ошибка. Попробуйте /start для перезапуска."
                     )
                 elif update.callback_query:
-                    await update.callback_query.answer(
-                        "❌ Ошибка. Попробуйте /start",
-                        show_alert=True
-                    )
+                    try:
+                        await update.callback_query.answer(
+                            "❌ Ошибка. Попробуйте /start",
+                            show_alert=True
+                        )
+                    except Exception:
+                        # Query уже протухла — отправить обычное сообщение
+                        try:
+                            await update.callback_query.message.answer(
+                                "❌ Произошла ошибка. Попробуйте /start"
+                            )
+                        except Exception:
+                            pass
         except Exception as notify_error:
             logger.error(f"Не удалось уведомить пользователя об ошибке: {notify_error}")
 

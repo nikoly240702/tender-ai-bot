@@ -11,6 +11,7 @@ from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
 
 from tender_sniper.database import get_sniper_db
+from bot.utils import safe_callback_data
 from bot.utils.access_check import require_feature
 from bot.utils.tender_notifications import (
     format_detailed_tender_info,
@@ -90,7 +91,7 @@ async def show_tender_details(callback: CallbackQuery):
         detailed_message = format_detailed_tender_info(tender_data)
 
         # Создаем клавиатуру с кнопками
-        keyboard = [[InlineKeyboardButton(text="« Назад", callback_data=f"tender_back_{tender_number}")]]
+        keyboard = [[InlineKeyboardButton(text="« Назад", callback_data=safe_callback_data("tender_back", tender_number))]]
 
         # Добавляем ссылку
         tender_url = tender_data.get('tender_url')

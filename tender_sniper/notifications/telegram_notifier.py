@@ -18,6 +18,8 @@ from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
+from bot.utils import safe_callback_data
+
 # Импортируем AI генератор названий
 try:
     from tender_sniper.ai_name_generator import generate_tender_name
@@ -270,15 +272,15 @@ class TelegramNotifier:
             buttons.append([
                 InlineKeyboardButton(
                     text="✅ Интересно",
-                    callback_data=f"interested_{tender_number}"
+                    callback_data=safe_callback_data("interested", tender_number)
                 ),
                 InlineKeyboardButton(
                     text="📊 В таблицу",
-                    callback_data=f"sheets_{tender_number}"
+                    callback_data=safe_callback_data("sheets", tender_number)
                 ),
                 InlineKeyboardButton(
                     text="❌ Пропустить",
-                    callback_data=f"skip_{tender_number}"
+                    callback_data=safe_callback_data("skip", tender_number)
                 )
             ])
 
@@ -287,11 +289,11 @@ class TelegramNotifier:
                 buttons.append([
                     InlineKeyboardButton(
                         text="📝 AI-резюме",
-                        callback_data=f"ai_summary_{tender_number}"
+                        callback_data=safe_callback_data("ai_summary", tender_number)
                     ),
                     InlineKeyboardButton(
                         text="📄 Анализ докум.",
-                        callback_data=f"analyze_docs_{tender_number}"
+                        callback_data=safe_callback_data("analyze_docs", tender_number)
                     )
                 ])
             else:

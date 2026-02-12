@@ -19,6 +19,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from tender_sniper.database import get_sniper_db
+from bot.utils import safe_callback_data
 
 logger = logging.getLogger(__name__)
 
@@ -229,10 +230,10 @@ async def export_single_tender(callback: CallbackQuery):
                 for row in callback.message.reply_markup.inline_keyboard:
                     new_row = []
                     for btn in row:
-                        if btn.callback_data == f"sheets_{tender_number}":
+                        if btn.callback_data and btn.callback_data.startswith("sheets_") and not btn.callback_data.startswith("sheets_done_"):
                             new_row.append(InlineKeyboardButton(
                                 text="✅ В таблице",
-                                callback_data=f"sheets_done_{tender_number}"
+                                callback_data=safe_callback_data("sheets_done", tender_number)
                             ))
                         else:
                             new_row.append(btn)
