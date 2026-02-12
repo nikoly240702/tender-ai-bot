@@ -594,17 +594,30 @@ def format_extraction_for_telegram(extraction: Dict[str, Any], is_ai: bool) -> s
         return _format_old_schema(extraction, is_ai)
 
 
+def _classify_red_flag(flag: str) -> str:
+    """Определяет иконку для red flag: ⛔ критичный или ⚠️ жёлтый."""
+    flag_lower = flag.lower()
+    critical_keywords = ['фсб', 'фстэк', 'истёк', 'истек', 'менее 3 дней', 'менее 2 дней', 'менее 1 дня', '1 день', '2 дня']
+    for kw in critical_keywords:
+        if kw in flag_lower:
+            return '⛔'
+    return '⚠️'
+
+
 def _format_new_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     """Форматирование нового flat-формата."""
     lines = []
 
-    source = "AI" if is_ai else "Базовый"
-    lines.append(f"<b>Анализ документации</b> ({source})\n")
+    if is_ai:
+        lines.append("🔍 <b>AI-анализ документации</b>\n")
+    else:
+        lines.append("📋 <b>Базовый анализ документации</b>\n")
 
     # Подача заявок
     submission = extraction.get('submission_deadline', '')
     if submission and submission not in ('Не указано', 'Не удалось определить'):
-        lines.append(f"<b>Подача заявок до:</b> {submission}")
+        lines.append(f"⏰ <b>Подача заявок до:</b> {submission}")
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
         lines.append("")
 
     # Товары/работы
@@ -612,13 +625,13 @@ def _format_new_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     items_count = extraction.get('items_count', '')
     if items_desc and items_desc not in ('Не указано', 'Не удалось определить'):
         count_str = f" ({items_count} наим.)" if items_count and items_count not in ('Не указано', 'Не удалось определить') else ""
-        lines.append(f"<b>Товары/работы{count_str}:</b>")
+        lines.append(f"📦 <b>Товары/работы{count_str}:</b>")
         # Разбиваем нумерованный список по "; N." для читаемости
         items_lines = re.split(r';\s*(?=\d+\.)', items_desc)
         for item_line in items_lines[:10]:
             item_line = item_line.strip()
             if item_line:
-                lines.append(f"  {item_line}")
+                lines.append(f"• {item_line}")
         lines.append("")
 
     # Сроки
@@ -627,11 +640,11 @@ def _format_new_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     has_deadlines = (exec_deadline and exec_deadline not in ('Не указано', 'Не удалось определить')) or \
                     (delivery and delivery not in ('Не указано', 'Не удалось определить'))
     if has_deadlines:
-        lines.append("<b>Сроки и логистика:</b>")
+        lines.append("📅 <b>Сроки и логистика:</b>")
         if exec_deadline and exec_deadline not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Исполнение: {exec_deadline[:120]}")
+            lines.append(f"• Исполнение: {exec_deadline[:120]}")
         if delivery and delivery not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Адрес: {delivery[:120]}")
+            lines.append(f"• Адрес: {delivery[:120]}")
         lines.append("")
 
     # Требования
@@ -640,11 +653,11 @@ def _format_new_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     has_reqs = (licenses and licenses not in ('Не указано', 'Не удалось определить', 'Не требуются')) or \
                (experience and experience not in ('Не указано', 'Не удалось определить'))
     if has_reqs:
-        lines.append("<b>Требования к участнику:</b>")
+        lines.append("⚠️ <b>Требования к участнику:</b>")
         if licenses and licenses not in ('Не указано', 'Не удалось определить', 'Не требуются'):
-            lines.append(f"  Лицензии: {licenses}")
+            lines.append(f"• Лицензии: {licenses}")
         if experience and experience not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Опыт: {experience}")
+            lines.append(f"• Опыт: {experience}")
         lines.append("")
 
     # Обеспечение
@@ -654,13 +667,13 @@ def _format_new_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     has_security = (app_sec and app_sec not in ('Не указано', 'Не удалось определить')) or \
                    (con_sec and con_sec not in ('Не указано', 'Не удалось определить'))
     if has_security:
-        lines.append("<b>Обеспечение:</b>")
+        lines.append("💳 <b>Обеспечение:</b>")
         if app_sec and app_sec not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Заявка: {app_sec}")
+            lines.append(f"• Заявка: {app_sec}")
         if con_sec and con_sec not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Контракт: {con_sec}")
+            lines.append(f"• Контракт: {con_sec}")
         if bg and bg not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Банковская гарантия: {bg}")
+            lines.append(f"• Банковская гарантия: {bg}")
         lines.append("")
 
     # Оплата
@@ -669,25 +682,26 @@ def _format_new_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     has_payment = (advance and advance not in ('Не указано', 'Не удалось определить')) or \
                   (pay_deadline and pay_deadline not in ('Не указано', 'Не удалось определить'))
     if has_payment:
-        lines.append("<b>Оплата:</b>")
+        lines.append("💰 <b>Оплата:</b>")
         if advance and advance not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Аванс: {advance}")
+            lines.append(f"• Аванс: {advance}")
         if pay_deadline and pay_deadline not in ('Не указано', 'Не удалось определить'):
-            lines.append(f"  Срок оплаты: {pay_deadline}")
+            lines.append(f"• Срок оплаты: {pay_deadline}")
         lines.append("")
 
     # Red flags
     red_flags = extraction.get('red_flags', [])
     if red_flags:
-        lines.append("<b>Риски:</b>")
+        lines.append("🚩 <b>Риски:</b>")
         for flag in red_flags[:5]:
-            lines.append(f"  {flag}")
+            icon = _classify_red_flag(flag)
+            lines.append(f"• {icon} {flag}")
         lines.append("")
 
     # Резюме
     summary = extraction.get('summary', '')
     if summary and summary not in ('Не указано', 'Не удалось определить'):
-        lines.append(f"<b>Резюме:</b> {summary}")
+        lines.append(f"📝 <b>Резюме:</b> {summary}")
 
     return "\n".join(lines)
 
@@ -696,19 +710,22 @@ def _format_old_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     """Форматирование старого nested-формата (обратная совместимость)."""
     lines = []
 
-    source = "AI" if is_ai else "Базовый"
-    lines.append(f"<b>Анализ документации</b> ({source})\n")
+    if is_ai:
+        lines.append("🔍 <b>AI-анализ документации</b>\n")
+    else:
+        lines.append("📋 <b>Базовый анализ документации</b>\n")
 
     # Площадка
     if extraction.get('trading_platform'):
-        lines.append(f"<b>Площадка:</b> {extraction['trading_platform']}")
+        lines.append(f"• <b>Площадка:</b> {extraction['trading_platform']}")
 
     # Подача заявок (top-level)
     submission = extraction.get('submission_deadline')
     if submission:
-        lines.append(f"<b>Подача заявок до:</b> {submission}")
+        lines.append(f"⏰ <b>Подача заявок до:</b> {submission}")
 
     if extraction.get('trading_platform') or submission:
+        lines.append("━━━━━━━━━━━━━━━━━━━━")
         lines.append("")
 
     # Товарные позиции
@@ -722,7 +739,7 @@ def _format_old_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
 
     if items:
         count_str = f" ({items_count} наим.)" if items_count else ""
-        lines.append(f"<b>Товары/работы{count_str}:</b>")
+        lines.append(f"📦 <b>Товары/работы{count_str}:</b>")
         for item in items[:10]:
             name = item.get('name', '')
             qty = item.get('quantity', '')
@@ -732,7 +749,7 @@ def _format_old_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
             line_parts = [f"<b>{name}</b>"]
             if qty:
                 line_parts.append(f"— {qty}")
-            lines.append(f"  {' '.join(line_parts)}")
+            lines.append(f"• {' '.join(line_parts)}")
             if chars:
                 lines.append(f"    {chars[:150]}")
             if brand:
@@ -741,11 +758,11 @@ def _format_old_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
     else:
         specs = extraction.get('technical_specs', {})
         if specs.get('main_items'):
-            lines.append("<b>Позиции:</b>")
+            lines.append("📦 <b>Позиции:</b>")
             for item in specs['main_items'][:5]:
-                lines.append(f"  {item}")
+                lines.append(f"• {item}")
             if specs.get('quantities'):
-                lines.append(f"Кол-во: {specs['quantities']}")
+                lines.append(f"• Кол-во: {specs['quantities']}")
             lines.append("")
 
     # Сроки
@@ -758,62 +775,63 @@ def _format_old_schema(extraction: Dict[str, Any], is_ai: bool) -> str:
         deadlines.get('delivery_address'),
     ])
     if has_deadlines:
-        lines.append("<b>Сроки исполнения:</b>")
+        lines.append("📅 <b>Сроки исполнения:</b>")
         if deadlines.get('execution_days'):
-            lines.append(f"  Исполнение: {deadlines['execution_days']} дней")
+            lines.append(f"• Исполнение: {deadlines['execution_days']} дней")
         if deadlines.get('execution_description'):
-            lines.append(f"  {deadlines['execution_description'][:100]}")
+            lines.append(f"• {deadlines['execution_description'][:100]}")
         if deadlines.get('delivery_address'):
-            lines.append(f"  Адрес поставки: {deadlines['delivery_address'][:120]}")
+            lines.append(f"• Адрес поставки: {deadlines['delivery_address'][:120]}")
         if not extraction.get('submission_deadline') and deadlines.get('submission_deadline'):
-            lines.append(f"  Подача заявок до: <b>{deadlines['submission_deadline']}</b>")
+            lines.append(f"• Подача заявок до: <b>{deadlines['submission_deadline']}</b>")
         lines.append("")
 
     # Требования
     req = extraction.get('requirements', {})
     if any([req.get('licenses'), req.get('experience_years'), req.get('sro_required')]):
-        lines.append("<b>Требования к участнику:</b>")
+        lines.append("⚠️ <b>Требования к участнику:</b>")
         if req.get('licenses'):
-            lines.append(f"  Лицензии: {', '.join(req['licenses'])}")
+            lines.append(f"• Лицензии: {', '.join(req['licenses'])}")
         if req.get('experience_years'):
-            lines.append(f"  Опыт: от {req['experience_years']} лет")
+            lines.append(f"• Опыт: от {req['experience_years']} лет")
         if req.get('sro_required'):
-            lines.append("  Членство в СРО: требуется")
+            lines.append("• Членство в СРО: требуется")
         lines.append("")
 
     # Обеспечение
     sec = extraction.get('contract_security', {})
     if any([sec.get('application_security_percent'), sec.get('contract_security_percent')]):
-        lines.append("<b>Обеспечение:</b>")
+        lines.append("💳 <b>Обеспечение:</b>")
         if sec.get('application_security_percent'):
-            lines.append(f"  Заявка: {sec['application_security_percent']}%")
+            lines.append(f"• Заявка: {sec['application_security_percent']}%")
         if sec.get('contract_security_percent'):
-            lines.append(f"  Контракт: {sec['contract_security_percent']}%")
+            lines.append(f"• Контракт: {sec['contract_security_percent']}%")
         if sec.get('bank_guarantee_allowed'):
-            lines.append("  Банковская гарантия: допускается")
+            lines.append("• Банковская гарантия: допускается")
         lines.append("")
 
     # Оплата
     pay = extraction.get('payment_terms', {})
     if any([pay.get('advance_percent'), pay.get('payment_deadline_days')]):
-        lines.append("<b>Оплата:</b>")
+        lines.append("💰 <b>Оплата:</b>")
         if pay.get('advance_percent'):
-            lines.append(f"  Аванс: {pay['advance_percent']}%")
+            lines.append(f"• Аванс: {pay['advance_percent']}%")
         if pay.get('payment_deadline_days'):
-            lines.append(f"  Срок оплаты: {pay['payment_deadline_days']} дней")
+            lines.append(f"• Срок оплаты: {pay['payment_deadline_days']} дней")
         lines.append("")
 
     # Риски
     risks = extraction.get('risks', [])
     if risks:
-        lines.append("<b>Риски:</b>")
+        lines.append("🚩 <b>Риски:</b>")
         for risk in risks[:5]:
-            lines.append(f"  {risk}")
+            icon = _classify_red_flag(risk)
+            lines.append(f"• {icon} {risk}")
         lines.append("")
 
     # Резюме
     if extraction.get('summary'):
-        lines.append(f"<b>Резюме:</b> {extraction['summary']}")
+        lines.append(f"📝 <b>Резюме:</b> {extraction['summary']}")
 
     return "\n".join(lines)
 

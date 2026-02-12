@@ -206,12 +206,11 @@ class TelegramNotifier:
             customer = customer[:37] + '...'
 
         # Формируем сообщение (новый визуал)
-        message = f"""{score_emoji} <b>Новый тендер!</b>
+        message = f"""{score_emoji} <b>Новый тендер!</b>  📊 {score}/100
 
 <b>📋 {name}</b>
-
 ━━━━━━━━━━━━━━━━━━━━━━
-💰 {price_str}         📊 {score}/100"""
+💰 {price_str}"""
 
         if deadline_str:
             message += f"\n⏰ Подача до: {deadline_str}"
@@ -219,8 +218,7 @@ class TelegramNotifier:
         message += f"""
 📍 {region}
 🏢 {customer}
-🎯 Фильтр: {filter_name}
-━━━━━━━━━━━━━━━━━━━━━━"""
+🎯 Фильтр: {filter_name}"""
 
         # Добавляем красные флаги если есть
         red_flags = match_info.get('red_flags', [])
@@ -230,7 +228,7 @@ class TelegramNotifier:
         # Добавляем номер тендера
         tender_number = tender.get('number')
         if tender_number:
-            message += f"\n\n№ {tender_number}"
+            message += f"\n\n🔗 № {tender_number}"
 
         return message.strip()
 
