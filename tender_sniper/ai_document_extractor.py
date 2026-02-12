@@ -43,6 +43,9 @@ class TenderDocumentExtractor:
     MODEL = "gpt-4o-mini"
     CHUNK_MAX_CHARS = 25000
     CHUNK_OVERLAP = 2000
+    MAX_CHUNKS = 3  # Limit chunks to avoid rate limits
+    RETRY_ATTEMPTS = 3
+    RETRY_BASE_DELAY = 2.0  # seconds
 
     # --- Pass 1: Сроки и логистика ---
     PROMPT_DATES = """Ты эксперт по анализу тендерной документации госзакупок России.
@@ -138,12 +141,22 @@ class TenderDocumentExtractor:
         return ""
 
     def _chunk_text(self, text: str) -> List[str]:
-        """Разбивает текст на chunks с overlap по границам предложений."""
+        """Разбивает текст на chunks с overlap по границам предложений.
+        Ограничивает максимум MAX_CHUNKS чанков для контроля rate limits."""
         max_chars = self.CHUNK_MAX_CHARS
         overlap = self.CHUNK_OVERLAP
 
         if len(text) <= max_chars:
             return [text]
+
+        # Для очень длинных документов — умная обрезка перед chunking
+        max_total = max_chars * self.MAX_CHUNKS
+        if len(text) > max_total:
+            # Берём начало (основные условия) + конец (приложения со спецификациями)
+            head_size = max_total * 2 // 3
+            tail_size = max_total - head_size
+            text = text[:head_size] + "\n\n[...]\n\n" + text[-tail_size:]
+            logger.info(f"Документ обрезан: {len(text)} символов (head={head_size}, tail={tail_size})")
 
         chunks = []
         start = 0
@@ -168,6 +181,9 @@ class TenderDocumentExtractor:
             chunks.append(text[start:end])
             start = end - overlap
 
+            if len(chunks) >= self.MAX_CHUNKS:
+                break
+
         logger.info(f"Текст разбит на {len(chunks)} chunk(s), overlap={overlap}")
         return chunks
 
@@ -178,25 +194,33 @@ class TenderDocumentExtractor:
         context: str,
         max_tokens: int = 500
     ) -> Dict[str, Any]:
-        """Один pass извлечения через API."""
-        try:
-            response = await self.client.chat.completions.create(
-                model=self.MODEL,
-                messages=[
-                    {"role": "user", "content": prompt + context + "ДОКУМЕНТАЦИЯ ТЕНДЕРА:\n" + text}
-                ],
-                max_tokens=max_tokens,
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
-            result_text = response.choices[0].message.content.strip()
-            return json.loads(result_text)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parse error in pass: {e}")
-            return {}
-        except Exception as e:
-            logger.error(f"API error in pass: {e}")
-            return {}
+        """Один pass извлечения через API с retry на 429."""
+        for attempt in range(self.RETRY_ATTEMPTS):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.MODEL,
+                    messages=[
+                        {"role": "user", "content": prompt + context + "ДОКУМЕНТАЦИЯ ТЕНДЕРА:\n" + text}
+                    ],
+                    max_tokens=max_tokens,
+                    temperature=0.1,
+                    response_format={"type": "json_object"}
+                )
+                result_text = response.choices[0].message.content.strip()
+                return json.loads(result_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON parse error in pass: {e}")
+                return {}
+            except Exception as e:
+                error_str = str(e)
+                if '429' in error_str and attempt < self.RETRY_ATTEMPTS - 1:
+                    delay = self.RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(f"Rate limit hit, retry {attempt + 1}/{self.RETRY_ATTEMPTS} in {delay}s")
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(f"API error in pass (attempt {attempt + 1}): {e}")
+                return {}
+        return {}
 
     def _merge_chunk_results(self, all_results: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Объединяет результаты из нескольких chunks."""
@@ -363,17 +387,18 @@ class TenderDocumentExtractor:
 
         try:
             all_results = []
-            for chunk in chunks:
-                tasks = [
-                    self._extract_pass(chunk, self.PROMPT_DATES, context, max_tokens=500),
-                    self._extract_pass(chunk, self.PROMPT_FINANCE, context, max_tokens=500),
-                    self._extract_pass(chunk, self.PROMPT_ITEMS, context, max_tokens=2000),
-                ]
-                pass_results = await asyncio.gather(*tasks, return_exceptions=True)
+            passes = [
+                (self.PROMPT_DATES, 500),
+                (self.PROMPT_FINANCE, 500),
+                (self.PROMPT_ITEMS, 2000),
+            ]
+            for chunk_idx, chunk in enumerate(chunks):
                 merged = {}
-                for r in pass_results:
-                    if isinstance(r, dict):
-                        merged.update(r)
+                # Run passes sequentially to avoid rate limit bursts
+                for prompt, max_tok in passes:
+                    result = await self._extract_pass(chunk, prompt, context, max_tokens=max_tok)
+                    if isinstance(result, dict):
+                        merged.update(result)
                 all_results.append(merged)
 
             final = self._merge_chunk_results(all_results)
