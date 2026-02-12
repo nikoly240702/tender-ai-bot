@@ -81,24 +81,97 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
     Преобразует AI-извлечение в плоский формат для Google Sheets.
 
     Поддерживает обе схемы:
-    - Новую: {items: [...], items_count: N, deadlines: {...}, ...}
-    - Старую: {technical_specs: {quantities: ...}, ...}
+    - Новую flat: {execution_deadline: str, items_description: str, ...}
+    - Старую nested: {deadlines: {...}, items: [...], requirements: {...}, ...}
     """
     if not extraction or extraction.get('error'):
         return {}
 
+    # Определяем формат: если есть execution_deadline (строка) — новый flat
+    is_new_format = isinstance(extraction.get('execution_deadline'), str)
+
+    if is_new_format:
+        return _flatten_new_format(extraction)
+    else:
+        return _flatten_old_format(extraction)
+
+
+def _flatten_new_format(extraction: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten для нового flat-формата — поля уже плоские, просто маппим."""
     flat = {}
 
-    # === Товарные позиции (ГЛАВНАЯ часть анализа) ===
+    _not_empty = ('Не указано', 'Не удалось определить', 'Не требуются')
+
+    # Сроки поставки
+    val = extraction.get('execution_deadline', '')
+    if val and val not in _not_empty:
+        flat['execution_description'] = _normalize_date(str(val))
+
+    # Количество наименований
+    val = extraction.get('items_count', '')
+    if val and val not in _not_empty:
+        flat['quantities'] = str(val)
+
+    # Обеспечение — собираем в одну строку
+    parts = []
+    app_sec = extraction.get('application_security', '')
+    con_sec = extraction.get('contract_security', '')
+    bg = extraction.get('bank_guarantee_allowed', '')
+    if app_sec and app_sec not in _not_empty:
+        parts.append(f"Заявка: {app_sec}")
+    if con_sec and con_sec not in _not_empty:
+        parts.append(f"Контракт: {con_sec}")
+    if bg == 'Да':
+        parts.append("БГ допускается")
+    if parts:
+        flat['contract_security'] = '; '.join(parts)
+
+    # Оплата — собираем из advance_percent + payment_deadline
+    pay_parts = []
+    advance = extraction.get('advance_percent', '')
+    if advance and advance not in _not_empty and advance != 'Не предусмотрен':
+        pay_parts.append(f"Аванс {advance}")
+    pay_dl = extraction.get('payment_deadline', '')
+    if pay_dl and pay_dl not in _not_empty:
+        pay_parts.append(pay_dl)
+    if pay_parts:
+        flat['payment_terms'] = ', '.join(pay_parts)
+
+    # Summary — items_description + summary
+    items_desc = extraction.get('items_description', '')
+    summary = extraction.get('summary', '')
+    if items_desc and items_desc not in _not_empty and summary and summary not in _not_empty:
+        flat['summary'] = f"{items_desc}. {summary}"
+    elif items_desc and items_desc not in _not_empty:
+        flat['summary'] = items_desc
+    elif summary and summary not in _not_empty:
+        flat['summary'] = summary
+
+    # Лицензии
+    val = extraction.get('licenses_required', '')
+    if val and val not in _not_empty:
+        flat['licenses'] = str(val)
+
+    # Опыт
+    val = extraction.get('experience_required', '')
+    if val and val not in _not_empty:
+        flat['experience_years'] = str(val)
+
+    return flat
+
+
+def _flatten_old_format(extraction: Dict[str, Any]) -> Dict[str, Any]:
+    """Flatten для старого nested-формата (обратная совместимость)."""
+    flat = {}
+
+    # === Товарные позиции ===
     items = extraction.get('items', [])
     items_count = extraction.get('items_count')
 
     if items and isinstance(items, list):
-        # Количество наименований
         count = items_count or len(items)
         flat['quantities'] = str(count)
 
-        # Комментарий из items: краткое описание позиций
         item_parts = []
         for item in items[:5]:
             name = item.get('name', '')
@@ -111,7 +184,6 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
                 desc += f" ({qty})"
             if brand:
                 desc += f" [{brand}]"
-            # Краткие характеристики если есть
             if chars:
                 chars_str = str(chars)
                 if len(chars_str) > 100:
@@ -119,7 +191,6 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
                 desc += f" — {chars_str}"
             item_parts.append(desc)
 
-        # Формируем summary из items + оригинального summary
         original_summary = str(extraction.get('summary', ''))
         items_text = '; '.join(item_parts)
         if original_summary and items_text:
@@ -129,7 +200,6 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
         elif original_summary:
             flat['summary'] = original_summary
     else:
-        # Fallback: старая схема technical_specs
         specs = extraction.get('technical_specs', {})
         if isinstance(specs, dict):
             quantities = specs.get('quantities', '')
@@ -139,7 +209,6 @@ def flatten_ai_extraction(extraction: Dict[str, Any]) -> Dict[str, Any]:
                 items_count = specs['items_count']
                 flat['quantities'] = str(items_count)
 
-        # Резюме (старая схема)
         summary = extraction.get('summary', '')
         if summary:
             summary = str(summary)
