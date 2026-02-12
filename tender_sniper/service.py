@@ -235,6 +235,8 @@ class TenderSniperService:
             # 2. Для КАЖДОГО фильтра делаем целевой поиск
             searcher = InstantSearch()
             notifications_to_send = []
+            # Дедупликация: один тендер → одно уведомление для пользователя
+            seen_tenders = set()  # (user_id, tender_number)
 
             for filter_data in filters:
                 filter_id = filter_data['id']
@@ -330,11 +332,18 @@ class TenderSniperService:
                         logger.info(f"            Название: {tender_name}...")
                         logger.info(f"            Score: {score}")
 
-                        # Проверяем, не отправляли ли уже
+                        # Проверяем, не отправляли ли уже (БД)
                         already_notified = await self.db.is_tender_notified(tender_number, user_id)
                         if already_notified:
                             logger.info(f"         ⏭️  Уже уведомлен ранее: {tender_number}")
                             continue
+
+                        # Проверяем, не в очереди ли уже (другой фильтр в этом цикле)
+                        dedup_key = (user_id, tender_number)
+                        if dedup_key in seen_tenders:
+                            logger.info(f"         ⏭️  Уже в очереди (другой фильтр): {tender_number}")
+                            continue
+                        seen_tenders.add(dedup_key)
 
                         # Проверяем квоту (админы имеют неограниченный доступ)
                         is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
