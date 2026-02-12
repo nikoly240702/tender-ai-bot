@@ -799,6 +799,22 @@ class SmartMatcher:
         Returns:
             Результат матчинга со score или None если не подходит
         """
+        try:
+            return self._match_tender_internal(tender, filter_config, user_negative_keywords)
+        except Exception as e:
+            logger.error(
+                f"Error scoring tender {tender.get('number', '?')}: {e}",
+                exc_info=True
+            )
+            return None  # Безопасный fallback — не крашим pipeline
+
+    def _match_tender_internal(
+        self,
+        tender: Dict[str, Any],
+        filter_config: Dict[str, Any],
+        user_negative_keywords: Optional[List[str]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Внутренняя логика match_tender, обёрнутая в try/except."""
         # Извлекаем параметры фильтра
         keywords = self._parse_json_field(filter_config.get('keywords', '[]'))
         exclude_keywords = self._parse_json_field(filter_config.get('exclude_keywords', '[]'))
