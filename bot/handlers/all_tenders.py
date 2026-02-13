@@ -293,12 +293,13 @@ async def show_tenders_last_24h(callback: CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_text("⏳ Загрузка тендеров за сутки...")
 
-        # Получаем все тендеры
-        all_tenders = await get_all_user_tenders(callback.from_user.id)
+        # Получаем все тендеры БЕЗ фильтрации по дедлайну
+        # (дайджест считает все уведомления, не фильтруя по дедлайну)
+        all_tenders = await get_all_user_tenders(callback.from_user.id, filter_expired=False)
 
         # Фильтруем за последние 24 часа
-        from datetime import timezone
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        # Используем naive UTC — БД хранит даты без timezone
+        cutoff = datetime.utcnow() - timedelta(hours=24)
 
         filtered_tenders = []
         for tender in all_tenders:
@@ -306,16 +307,18 @@ async def show_tenders_last_24h(callback: CallbackQuery, state: FSMContext):
             if sent_at:
                 try:
                     if isinstance(sent_at, str):
-                        tender_date = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
+                        # Убираем timezone info для naive сравнения
+                        clean = sent_at.replace('Z', '').replace('+00:00', '')
+                        tender_date = datetime.fromisoformat(clean)
                     else:
                         tender_date = sent_at
-                        if tender_date.tzinfo is None:
-                            tender_date = tender_date.replace(tzinfo=timezone.utc)
+                        if tender_date.tzinfo is not None:
+                            tender_date = tender_date.replace(tzinfo=None)
 
                     if tender_date >= cutoff:
                         filtered_tenders.append(tender)
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Ошибка парсинга даты '{sent_at}': {e}")
 
         if not filtered_tenders:
             await callback.message.edit_text(
