@@ -2026,6 +2026,17 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}, automonitor={automonitor}")
 
+        # Track filter creation
+        import asyncio as _asyncio
+        try:
+            from bot.analytics import track_filter_action
+            _asyncio.create_task(track_filter_action(
+                callback.from_user.id, 'created',
+                filter_name=filter_name, filter_id=filter_id
+            ))
+        except Exception:
+            pass
+
         # 🤖 Генерируем AI intent для семантической проверки (в фоне)
         try:
             from tender_sniper.ai_relevance_checker import generate_intent
@@ -2640,6 +2651,17 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
         )
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}")
+
+        # Track filter creation
+        import asyncio as _asyncio
+        try:
+            from bot.analytics import track_filter_action
+            _asyncio.create_task(track_filter_action(
+                callback.from_user.id, 'created',
+                filter_name=filter_name, filter_id=filter_id
+            ))
+        except Exception:
+            pass
 
         # 🤖 Генерируем AI intent для семантической проверки
         try:

@@ -2506,6 +2506,18 @@ async def process_tender_count(message: Message, state: FSMContext):
                 expanded_keywords=expanded_keywords
             )
 
+            # Track search performed
+            import asyncio as _asyncio
+            try:
+                from bot.analytics import track_search
+                _asyncio.create_task(track_search(
+                    callback.from_user.id,
+                    keywords=keywords,
+                    results_count=len(search_results.get('matches', []))
+                ))
+            except Exception:
+                pass
+
             # Сохраняем результаты поиска в БД (включая архивные тендеры)
             source_type = 'archive_search' if archive_mode else 'instant_search'
             logger.info(f"💾 Сохранение {len(search_results['matches'])} тендеров в БД (источник: {source_type})...")

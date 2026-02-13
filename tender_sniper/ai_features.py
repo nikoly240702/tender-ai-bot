@@ -2,17 +2,26 @@
 AI Features Access Control для Tender Sniper.
 
 Модуль для управления доступом к AI функциям.
-AI функции доступны только premium пользователям.
+AI функции доступны для basic и premium пользователей (с месячными лимитами).
 """
 
 import logging
-from typing import Optional, Dict, Any, List
+from datetime import datetime
+from typing import Optional, Dict, Any, List, Tuple
 from functools import wraps
 
 logger = logging.getLogger(__name__)
 
 # Тарифы с AI функциями
-AI_ENABLED_TIERS = {'premium'}
+AI_ENABLED_TIERS = {'basic', 'premium'}
+
+# Месячные лимиты AI-анализов
+AI_MONTHLY_LIMITS = {
+    'trial': 0,
+    'basic': 10,
+    'premium': 50,
+    'admin': 100000,
+}
 
 # Список AI функций
 AI_FEATURES = {
@@ -41,13 +50,87 @@ def get_ai_upgrade_message() -> str:
     """Возвращает сообщение о необходимости upgrade для AI функций."""
     features_list = "\n".join([f"• {desc}" for desc in AI_FEATURES.values()])
     return f"""
-🤖 <b>AI-функции доступны на тарифе Premium</b>
+🤖 <b>AI-функции доступны на тарифах Basic и Premium</b>
 
 Что входит в AI-пакет:
 {features_list}
 
-Перейдите на Premium для доступа к умным функциям!
+• Basic: 10 AI-анализов/мес
+• Premium: 50 AI-анализов/мес
+• AI Unlimited: безлимит (+1 490 ₽/мес)
+
+Оформите подписку для доступа к умным функциям!
 """
+
+
+async def check_ai_analysis_quota(telegram_id: int) -> Tuple[bool, int, int]:
+    """
+    Проверяет месячную квоту AI-анализов.
+
+    Returns:
+        (can_use, used, limit)
+    """
+    from tender_sniper.database import get_sniper_db
+    from database import DatabaseSession, SniperUser
+    from sqlalchemy import select, update
+
+    db = await get_sniper_db()
+    user = await db.get_user_by_telegram_id(telegram_id)
+    if not user:
+        return (False, 0, 0)
+
+    tier = user.get('subscription_tier', 'trial')
+
+    # AI Unlimited — безлимит
+    if user.get('has_ai_unlimited'):
+        ai_unlimited_expires = user.get('ai_unlimited_expires_at')
+        if ai_unlimited_expires and isinstance(ai_unlimited_expires, datetime) and ai_unlimited_expires > datetime.now():
+            return (True, 0, 999999)
+
+    limit = AI_MONTHLY_LIMITS.get(tier, 0)
+    if limit == 0:
+        return (False, 0, 0)
+
+    used = user.get('ai_analyses_used_month', 0)
+    month_reset = user.get('ai_analyses_month_reset')
+
+    # Сброс счётчика если новый месяц
+    now = datetime.now()
+    need_reset = False
+    if month_reset:
+        if isinstance(month_reset, str):
+            try:
+                month_reset = datetime.fromisoformat(month_reset)
+            except:
+                need_reset = True
+        if isinstance(month_reset, datetime) and (now.year > month_reset.year or now.month > month_reset.month):
+            need_reset = True
+    else:
+        need_reset = True
+
+    if need_reset:
+        used = 0
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperUser)
+                .where(SniperUser.telegram_id == telegram_id)
+                .values(ai_analyses_used_month=0, ai_analyses_month_reset=now)
+            )
+
+    return (used < limit, used, limit)
+
+
+async def increment_ai_analysis_usage(telegram_id: int) -> None:
+    """Увеличивает счётчик использований AI-анализа."""
+    from database import DatabaseSession, SniperUser
+    from sqlalchemy import update
+
+    async with DatabaseSession() as session:
+        await session.execute(
+            update(SniperUser)
+            .where(SniperUser.telegram_id == telegram_id)
+            .values(ai_analyses_used_month=SniperUser.ai_analyses_used_month + 1)
+        )
 
 
 def check_ai_feature(feature_name: str):
@@ -149,11 +232,11 @@ def format_ai_feature_locked_message(feature: str) -> str:
     return f"""
 🔒 <b>Функция недоступна</b>
 
-<b>{feature_name}</b> доступна только на тарифе Premium.
+<b>{feature_name}</b> доступна на тарифах Basic и Premium.
 
-Перейдите на Premium чтобы использовать:
-• AI-резюме тендеров
-• Умные рекомендации
-• Обучение на ваших действиях
-• И многое другое!
+• Basic (990 ₽/мес): 10 AI-анализов/мес
+• Premium (2 990 ₽/мес): 50 AI-анализов/мес
+• AI Unlimited (+1 490 ₽/мес): безлимит
+
+Оформите подписку: /subscription
 """

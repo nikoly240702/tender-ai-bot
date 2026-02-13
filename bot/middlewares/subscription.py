@@ -113,6 +113,22 @@ class SubscriptionMiddleware(BaseMiddleware):
         cached_user = data.get('cached_user')
 
         if cached_user:
+            tier = cached_user.get('subscription_tier', 'trial')
+
+            # Уже даунгрейднутый — блокируем
+            if tier == 'expired':
+                expired_message = (
+                    "⚠️ <b>Ваш пробный период закончился</b>\n\n"
+                    "Для продолжения работы оформите подписку.\n\n"
+                    "Нажмите /subscription для выбора тарифа."
+                )
+                if isinstance(event, Message):
+                    await event.answer(expired_message, parse_mode="HTML")
+                elif isinstance(event, CallbackQuery):
+                    await event.message.answer(expired_message, parse_mode="HTML")
+                    await event.answer()
+                return
+
             # Проверяем истечение подписки
             trial_expires_at = cached_user.get('trial_expires_at')
 
@@ -125,12 +141,28 @@ class SubscriptionMiddleware(BaseMiddleware):
                         trial_expires_at = None
 
                 if trial_expires_at and datetime.now() > trial_expires_at:
-                    tier = cached_user.get('subscription_tier', 'trial')
                     tier_name = {
                         'trial': 'пробный период',
                         'basic': 'подписка Basic',
                         'premium': 'подписка Premium',
                     }.get(tier, 'подписка')
+
+                    # === LAZY DOWNGRADE: обновляем tier в БД ===
+                    if tier == 'trial':
+                        try:
+                            from database import DatabaseSession, SniperUser
+                            from sqlalchemy import update as sa_update
+                            async with DatabaseSession() as session:
+                                await session.execute(
+                                    sa_update(SniperUser)
+                                    .where(SniperUser.telegram_id == user_id)
+                                    .values(subscription_tier='expired')
+                                )
+                            logger.info(f"Trial expired for user {user_id} — downgraded to 'expired'")
+                            # Обновляем кэш чтобы не делать повторный запрос
+                            cached_user['subscription_tier'] = 'expired'
+                        except Exception as e:
+                            logger.error(f"Failed to downgrade user {user_id}: {e}")
 
                     message = (
                         f"⚠️ <b>Ваш {tier_name} закончился</b>\n\n"
@@ -145,8 +177,23 @@ class SubscriptionMiddleware(BaseMiddleware):
                         await event.answer()
                     return
 
-            elif cached_user.get('subscription_tier') == 'trial':
+            elif tier == 'trial':
                 # Нет даты окончания для триала - считаем истекшей
+                # Lazy downgrade
+                try:
+                    from database import DatabaseSession, SniperUser
+                    from sqlalchemy import update as sa_update
+                    async with DatabaseSession() as session:
+                        await session.execute(
+                            sa_update(SniperUser)
+                            .where(SniperUser.telegram_id == user_id)
+                            .values(subscription_tier='expired')
+                        )
+                    logger.info(f"Trial without expiry for user {user_id} — downgraded to 'expired'")
+                    cached_user['subscription_tier'] = 'expired'
+                except Exception as e:
+                    logger.error(f"Failed to downgrade user {user_id}: {e}")
+
                 message = (
                     "⚠️ <b>Ваш пробный период закончился</b>\n\n"
                     "Для продолжения работы оформите подписку.\n\n"

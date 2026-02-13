@@ -244,28 +244,53 @@ async def users_list(
             total = await session.scalar(count_query) or 0
             total_pages = (total + per_page - 1) // per_page
 
-            # Получаем пользователей
-            query = query.order_by(SniperUser.created_at.desc()).offset(offset).limit(per_page)
-            result = await session.execute(query)
-            users = result.scalars().all()
+            # Получаем пользователей с агрегированной статистикой одним запросом
+            from sqlalchemy import case
+            from sqlalchemy.orm import aliased
 
-            # Получаем статистику для каждого пользователя
+            # Подзапросы для агрегаций
+            filters_sub = (
+                select(
+                    SniperFilter.user_id,
+                    func.count(SniperFilter.id).label('total_filters'),
+                    func.count(case((SniperFilter.is_active == True, 1))).label('active_filters')
+                )
+                .group_by(SniperFilter.user_id)
+            ).subquery()
+
+            notif_sub = (
+                select(
+                    SniperNotification.user_id,
+                    func.count(SniperNotification.id).label('total_notifications')
+                )
+                .group_by(SniperNotification.user_id)
+            ).subquery()
+
+            # Основной запрос с LEFT JOIN
+            main_query = (
+                query
+                .outerjoin(filters_sub, SniperUser.id == filters_sub.c.user_id)
+                .outerjoin(notif_sub, SniperUser.id == notif_sub.c.user_id)
+                .add_columns(
+                    func.coalesce(filters_sub.c.total_filters, 0).label('filters_count'),
+                    func.coalesce(filters_sub.c.active_filters, 0).label('active_filters_count'),
+                    func.coalesce(notif_sub.c.total_notifications, 0).label('notifications_count'),
+                )
+                .order_by(SniperUser.created_at.desc())
+                .offset(offset)
+                .limit(per_page)
+            )
+            result = await session.execute(main_query)
+            rows = result.all()
+
+            # Формируем данные
             users_data = []
             now = datetime.now()
-            for user in users:
-                filters_count = await session.scalar(
-                    select(func.count(SniperFilter.id)).where(SniperFilter.user_id == user.id)
-                ) or 0
-                active_filters = await session.scalar(
-                    select(func.count(SniperFilter.id)).where(
-                        and_(SniperFilter.user_id == user.id, SniperFilter.is_active == True)
-                    )
-                ) or 0
-                notifications_count = await session.scalar(
-                    select(func.count(SniperNotification.id)).where(
-                        SniperNotification.user_id == user.id
-                    )
-                ) or 0
+            for row in rows:
+                user = row[0]
+                filters_count = row[1]
+                active_filters = row[2]
+                notifications_count = row[3]
 
                 # Вычисляем оставшиеся дни подписки
                 days_left = None
@@ -1365,8 +1390,9 @@ async def activate_promocode(
 TARIFF_SETTINGS = {
     'free': {'filters': 3, 'notifications': 20, 'price': 0},
     'trial': {'filters': 3, 'notifications': 20, 'price': 0},
-    'basic': {'filters': 5, 'notifications': 100, 'price': 490},
-    'premium': {'filters': 20, 'notifications': 9999, 'price': 990},
+    'basic': {'filters': 5, 'notifications': 100, 'price': 990},
+    'premium': {'filters': 20, 'notifications': 9999, 'price': 2990},
+    'ai_unlimited': {'filters': 0, 'notifications': 0, 'price': 1490},
 }
 
 @app.get("/tariffs", response_class=HTMLResponse)

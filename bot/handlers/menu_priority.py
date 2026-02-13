@@ -516,6 +516,15 @@ async def priority_sniper_menu_callback(callback: CallbackQuery, state: FSMConte
     try:
         # Мгновенный ответ + индикатор загрузки
         await callback.answer("⏳ Загрузка...")
+
+        # Track menu open
+        import asyncio
+        try:
+            from bot.analytics import track_event, EventType
+            asyncio.create_task(track_event(EventType.MENU_OPENED, telegram_id=callback.from_user.id))
+        except Exception:
+            pass
+
         try:
             await callback.message.edit_text(
                 "🎯 <b>TENDER SNIPER</b>\n\n⏳ Загрузка...",

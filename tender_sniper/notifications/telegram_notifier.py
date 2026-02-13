@@ -282,8 +282,8 @@ class TelegramNotifier:
                 )
             ])
 
-            # AI кнопки для Premium
-            if subscription_tier == 'premium':
+            # AI кнопки для Basic и Premium
+            if subscription_tier in ('basic', 'premium'):
                 buttons.append([
                     InlineKeyboardButton(
                         text="📝 AI-резюме",
@@ -297,7 +297,7 @@ class TelegramNotifier:
             else:
                 buttons.append([
                     InlineKeyboardButton(
-                        text="⭐ AI-функции (Premium)",
+                        text="⭐ AI-функции (Basic+)",
                         callback_data="show_premium_ai"
                     )
                 ])

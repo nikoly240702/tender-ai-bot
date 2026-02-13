@@ -1212,6 +1212,18 @@ async def toggle_filter_status(callback: CallbackQuery):
         )
 
         status_text = "возобновлен ▶️" if new_status else "приостановлен ⏸️"
+
+        # Track filter toggle
+        import asyncio
+        try:
+            from bot.analytics import track_filter_action
+            asyncio.create_task(track_filter_action(
+                callback.from_user.id, 'toggled',
+                filter_name=filter_data.get('name'), filter_id=filter_id
+            ))
+        except Exception:
+            pass
+
         await callback.answer(f"Фильтр {status_text}", show_alert=True)
 
         # Обновляем отображение фильтра
@@ -1299,6 +1311,17 @@ async def delete_filter(callback: CallbackQuery):
 
         # Удаляем фильтр
         await db.delete_filter(filter_id)
+
+        # Track filter deletion
+        import asyncio
+        try:
+            from bot.analytics import track_filter_action
+            asyncio.create_task(track_filter_action(
+                callback.from_user.id, 'deleted',
+                filter_name=filter_data.get('name'), filter_id=filter_id
+            ))
+        except Exception:
+            pass
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],

@@ -93,21 +93,27 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
 
 # Базовые тарифы (месячная цена)
 BASE_PRICES = {
-    'basic': 490,
-    'premium': 990,
+    'basic': 990,
+    'premium': 2990,
+    'ai_unlimited': 1490,
 }
 
 # Фиксированные цены для разных периодов
 FIXED_PRICES = {
     'basic': {
-        1: 490,    # 1 месяц
-        3: 1400,   # 3 месяца (экономия 70₽)
-        6: 2350,   # 6 месяцев (экономия 590₽)
+        1: 990,    # 1 месяц
+        3: 2670,   # 3 месяца (скидка 300₽)
+        6: 4750,   # 6 месяцев (скидка 1190₽)
     },
     'premium': {
-        1: 990,    # 1 месяц
-        3: 2650,   # 3 месяца (экономия 320₽)
-        6: 4750,   # 6 месяцев (экономия 1190₽)
+        1: 2990,   # 1 месяц
+        3: 8070,   # 3 месяца (скидка 900₽)
+        6: 14350,  # 6 месяцев (скидка 3590₽)
+    },
+    'ai_unlimited': {
+        1: 1490,   # 1 месяц
+        3: 4020,   # 3 месяца (скидка 450₽)
+        6: 7150,   # 6 месяцев (скидка 1790₽)
     }
 }
 
@@ -123,7 +129,7 @@ SUBSCRIPTION_TIERS = {
         'name': 'Пробный период',
         'emoji': '🎁',
         'price': 0,
-        'days': 7,
+        'days': 14,
         'max_filters': 3,
         'max_notifications_per_day': 20,
         'features': [
@@ -136,7 +142,7 @@ SUBSCRIPTION_TIERS = {
     'basic': {
         'name': 'Basic',
         'emoji': '⭐',
-        'price': 490,
+        'price': 990,
         'days': 30,
         'max_filters': 5,
         'max_notifications_per_day': 100,
@@ -144,23 +150,23 @@ SUBSCRIPTION_TIERS = {
             '5 фильтров мониторинга',
             '100 уведомлений/день',
             'Мгновенный поиск',
-            'Базовые настройки фильтров',
+            'AI-анализ (10/мес)',
             'Telegram-поддержка',
         ]
     },
     'premium': {
         'name': 'Premium',
         'emoji': '💎',
-        'price': 990,
+        'price': 2990,
         'days': 30,
         'max_filters': 20,
         'max_notifications_per_day': 9999,
         'features': [
             '20 фильтров мониторинга',
             'Безлимит уведомлений',
+            'AI-анализ (50/мес)',
             'Архивный поиск',
             'Расширенные настройки фильтров',
-            'Доступ к бета-функциям',
             'Приоритетная поддержка',
         ]
     }
@@ -372,6 +378,33 @@ async def callback_select_tier(callback: CallbackQuery):
     await callback.answer()
 
     tier_name = callback.data.replace("subscription_select_", "")
+
+    # AI Unlimited — аддон
+    if tier_name == 'ai_unlimited':
+        text = (
+            "🤖 <b>AI Unlimited (аддон)</b>\n\n"
+            "Безлимитный AI-анализ документов тендеров.\n"
+            "Работает поверх любого тарифа (Basic/Premium).\n\n"
+            "<b>Выберите период:</b>\n"
+        )
+        buttons = []
+        for months in [1, 3, 6]:
+            price_info = calculate_price('ai_unlimited', months)
+            if price_info['has_discount']:
+                btn_text = f"{price_info['badge']} {price_info['label']} — {price_info['final_price']} ₽"
+                text += f"\n{price_info['badge']} <b>{price_info['label']}</b>: <s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b>"
+            else:
+                btn_text = f"📅 {price_info['label']} — {price_info['final_price']} ₽"
+                text += f"\n📅 <b>{price_info['label']}</b>: <b>{price_info['final_price']} ₽</b>"
+            buttons.append([InlineKeyboardButton(
+                text=btn_text,
+                callback_data=f"subscription_pay_ai_unlimited_{months}"
+            )])
+        buttons.append([InlineKeyboardButton(text="◀️ Назад к тарифам", callback_data="subscription_tiers")])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+        return
+
     tier_info = SUBSCRIPTION_TIERS.get(tier_name)
 
     if not tier_info:
@@ -514,6 +547,17 @@ async def callback_pay_tier(callback: CallbackQuery):
 
         logger.info(f"Payment created for user {callback.from_user.id}, tier {tier_name}, months {months}, amount {price_info['final_price']}, payment_id {result['payment_id']}")
 
+        # Track subscription purchase intent
+        import asyncio
+        try:
+            from bot.analytics import track_subscription_action
+            asyncio.create_task(track_subscription_action(
+                callback.from_user.id, 'purchased',
+                tier=tier_name, amount=price_info['final_price']
+            ))
+        except Exception:
+            pass
+
     except ImportError:
         logger.warning("YooKassa module not available")
         await callback.message.edit_text(
@@ -544,6 +588,14 @@ async def callback_show_tiers(callback: CallbackQuery):
     """Show all available subscription tiers."""
     await callback.answer()
 
+    # Track subscription viewed
+    import asyncio
+    try:
+        from bot.analytics import track_subscription_action
+        asyncio.create_task(track_subscription_action(callback.from_user.id, 'viewed'))
+    except Exception:
+        pass
+
     text = "📦 <b>Тарифные планы</b>\n\n"
 
     for tier_id, tier_info in SUBSCRIPTION_TIERS.items():
@@ -558,6 +610,8 @@ async def callback_show_tiers(callback: CallbackQuery):
 • {tier_info['max_notifications_per_day']} уведомлений/день
 """
 
+    text += "\n🤖 <b>AI Unlimited</b> — аддон +1 490 ₽/мес\n• Безлимитный AI-анализ документов\n"
+
     text += "\n<i>Выберите тариф для подробностей:</i>"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -568,6 +622,7 @@ async def callback_show_tiers(callback: CallbackQuery):
         for tier_id, info in SUBSCRIPTION_TIERS.items()
         if tier_id != 'trial'
     ] + [
+        [InlineKeyboardButton(text="🤖 AI Unlimited — 1 490 ₽/мес", callback_data="subscription_select_ai_unlimited")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="sniper_subscription")]
     ])
 
@@ -671,7 +726,7 @@ async def get_subscription_status_line(telegram_id: int) -> str:
     # Check if subscription is active
     is_active = tier in ['basic', 'premium'] or (tier == 'trial' and days_remaining > 0)
 
-    if not is_active:
+    if not is_active or tier == 'expired':
         return "❌ Подписка неактивна"
 
     tier_info = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS['trial'])

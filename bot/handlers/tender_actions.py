@@ -102,6 +102,17 @@ async def show_tender_details(callback: CallbackQuery):
 
         reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+        # Track tender viewed
+        import asyncio
+        try:
+            from bot.analytics import track_event, EventType
+            asyncio.create_task(track_event(
+                EventType.TENDER_VIEWED, telegram_id=callback.from_user.id,
+                data={'tender_number': tender_number, 'score': tender_data.get('score')}
+            ))
+        except Exception:
+            pass
+
         # Отправляем детали
         await callback.message.edit_text(
             text=detailed_message,
@@ -172,6 +183,17 @@ async def add_tender_to_favorites(callback: CallbackQuery):
                         button.callback_data = "noop"  # Делаем неактивной
 
             new_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+            # Track tender favorited
+            import asyncio
+            try:
+                from bot.analytics import track_event, EventType
+                asyncio.create_task(track_event(
+                    EventType.TENDER_FAVORITED, telegram_id=callback.from_user.id,
+                    data={'tender_number': tender_number}
+                ))
+            except Exception:
+                pass
 
             await callback.message.edit_reply_markup(reply_markup=new_markup)
             await callback.answer("⭐ Тендер добавлен в избранное!", show_alert=False)

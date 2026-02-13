@@ -11,6 +11,25 @@ from aiogram.fsm.context import FSMContext
 logger = logging.getLogger(__name__)
 router = Router()
 
+
+async def _track_bot_start(telegram_id: int):
+    """Fire-and-forget: трекинг BOT_START."""
+    try:
+        from bot.analytics import track_event, EventType
+        await track_event(EventType.BOT_START, telegram_id=telegram_id)
+    except Exception:
+        pass
+
+
+async def _track_registration(telegram_id: int, username: str = None, referral_code: str = None):
+    """Fire-and-forget: трекинг REGISTRATION."""
+    try:
+        from bot.analytics import track_registration
+        await track_registration(telegram_id, username=username, referral_code=referral_code)
+    except Exception:
+        pass
+
+
 # Контакт для связи
 DEVELOPER_CONTACT = "@nikolai_chizhik"
 
@@ -106,44 +125,117 @@ async def cmd_start(message: Message, state: FSMContext):
         await start_onboarding(message, state)
         return
 
-    # Проверяем, новый ли пользователь (автоматический онбординг)
-    try:
-        from bot.handlers.onboarding import is_first_time_user, start_onboarding
+    # Проверяем, новый ли пользователь
+    import asyncio
 
-        if await is_first_time_user(message.from_user.id):
-            logger.info(f"Первый запуск для пользователя {message.from_user.id} - показываем онбординг")
-            await start_onboarding(message, state)
-            return
+    try:
+        from bot.handlers.onboarding import is_first_time_user
+        is_new = await is_first_time_user(message.from_user.id)
     except Exception as e:
         logger.error(f"Ошибка проверки нового пользователя: {e}")
+        is_new = False
 
-    welcome_text = (
-        "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
-        "🎯 Автоматический мониторинг и уведомления о тендерах zakupki.gov.ru\n\n"
-        "<b>Что я умею:</b>\n"
-        "🔍 Мгновенный поиск по вашим критериям\n"
-        "🎯 Умное сопоставление (scoring 0-100)\n"
-        "📱 Автоматические уведомления о новых тендерах\n"
-        "📊 Продвинутые фильтры (регион, закон, тип)\n\n"
-        "<i>Нажмите кнопку ниже для начала!</i>"
-    )
+    # Track bot start event (fire-and-forget)
+    asyncio.create_task(_track_bot_start(message.from_user.id))
+
+    if is_new:
+        # === НОВЫЙ ПОЛЬЗОВАТЕЛЬ: Welcome Screen ===
+        logger.info(f"Первый запуск для пользователя {message.from_user.id} - welcome screen")
+
+        # Создаём пользователя в БД если не создан
+        try:
+            from tender_sniper.database import get_sniper_db
+            db = await get_sniper_db()
+            user = await db.get_user_by_telegram_id(message.from_user.id)
+            if not user:
+                asyncio.create_task(_track_registration(
+                    message.from_user.id, message.from_user.username, referral_code
+                ))
+                await db.create_user(
+                    telegram_id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name,
+                    last_name=message.from_user.last_name
+                )
+        except Exception as e:
+            logger.error(f"Ошибка создания пользователя: {e}")
+
+        welcome_text = (
+            "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
+            "Я нахожу тендеры на zakupki.gov.ru по вашим критериям "
+            "и отправляю уведомления прямо в Telegram.\n\n"
+            "🔍 Вы задаёте ключевые слова и параметры\n"
+            "🤖 Бот мониторит новые закупки каждые 5 минут\n"
+            "📱 Получаете уведомление — оцениваете за секунды\n\n"
+            "Хотите посмотреть результат? 👇"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👀 Показать пример", callback_data="demo_show")],
+            [InlineKeyboardButton(text="🔍 Сразу создать фильтр", callback_data="wizard_start")],
+        ])
+
+        await message.answer(
+            welcome_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+        # Обрабатываем реферальный код
+        if referral_code:
+            try:
+                from bot.handlers.referral import process_referral_registration
+                await process_referral_registration(
+                    new_user_telegram_id=message.from_user.id,
+                    referral_code=referral_code,
+                    bot=message.bot
+                )
+            except Exception as e:
+                logger.error(f"Error processing referral: {e}")
+
+        return
+
+    # === ВОЗВРАЩАЮЩИЙСЯ ПОЛЬЗОВАТЕЛЬ ===
+    try:
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(message.from_user.id)
+        filters_count = 0
+        if user:
+            filters = await db.get_user_filters(user['id'])
+            filters_count = len(filters) if filters else 0
+    except Exception:
+        filters_count = 0
+
+    if filters_count > 0:
+        welcome_back_text = (
+            f"👋 <b>С возвращением!</b>\n\n"
+            f"У вас <b>{filters_count}</b> фильтров мониторинга.\n"
+            f"Бот продолжает отслеживать новые тендеры.\n\n"
+            f"Выберите действие:"
+        )
+    else:
+        welcome_back_text = (
+            "👋 <b>С возвращением!</b>\n\n"
+            "У вас пока нет фильтров мониторинга.\n"
+            "Создайте первый фильтр, чтобы начать получать уведомления.\n\n"
+            "Выберите действие:"
+        )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎯 Запустить Tender Sniper", callback_data="sniper_menu")],
+        [InlineKeyboardButton(text="🎯 Tender Sniper", callback_data="sniper_menu")],
         [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")]
     ])
 
     # Получаем клавиатуру с актуальным статусом мониторинга
     reply_keyboard = await get_main_keyboard_for_user(message.from_user.id)
 
-    # Принудительно сбрасываем старую клавиатуру
-    # ReplyKeyboardRemove + пауза + новая клавиатура
-    import asyncio
+    # Обновляем ReplyKeyboard
     await message.answer("🔄 Обновляю меню...", reply_markup=ReplyKeyboardRemove())
-    await asyncio.sleep(0.3)  # Небольшая пауза для применения
+    await asyncio.sleep(0.3)
 
     await message.answer(
-        welcome_text,
+        welcome_back_text,
         reply_markup=reply_keyboard,
         parse_mode="HTML"
     )
@@ -235,6 +327,124 @@ async def callback_start_onboarding(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка в callback_start_onboarding: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+# ============================================
+# WELCOME DEMO FLOW (TZ-018)
+# ============================================
+
+@router.callback_query(F.data == "demo_show")
+async def callback_demo_show(callback: CallbackQuery):
+    """Показ демо-тендера новому пользователю."""
+    await callback.answer()
+
+    demo_text = (
+        "📋 <b>Пример уведомления о тендере:</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔥 <b>Релевантность: 87/100</b>\n\n"
+        "📌 <b>Поставка компьютерного оборудования для нужд учреждения</b>\n\n"
+        "🏢 Заказчик: ГБОУ Школа №1234\n"
+        "💰 Цена: 2 850 000 ₽\n"
+        "📍 Регион: Москва\n"
+        "📅 Подача до: через 7 дней\n"
+        "📜 Закон: 44-ФЗ\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "Так выглядит каждое уведомление. "
+        "Бот автоматически оценивает релевантность и присылает только подходящие тендеры."
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Создать фильтр", callback_data="wizard_start")],
+        [InlineKeyboardButton(text="📖 Подробнее о возможностях", callback_data="demo_features")],
+    ])
+
+    try:
+        await callback.message.edit_text(
+            demo_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            demo_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data == "demo_features")
+async def callback_demo_features(callback: CallbackQuery):
+    """Показ возможностей бота."""
+    await callback.answer()
+
+    features_text = (
+        "🎯 <b>Что умеет Tender Sniper?</b>\n\n"
+        "🔍 <b>Умный поиск</b>\n"
+        "Находит тендеры по ключевым словам, региону, цене и типу закупки\n\n"
+        "📊 <b>Скоринг релевантности</b>\n"
+        "Каждый тендер оценивается 0-100 баллов — вы видите только лучшие\n\n"
+        "🤖 <b>AI-анализ</b>\n"
+        "Резюме тендера и анализ документации одной кнопкой\n\n"
+        "📱 <b>Автомониторинг</b>\n"
+        "Новые тендеры проверяются каждые 5 минут, уведомления приходят мгновенно\n\n"
+        "⭐ <b>Избранное и экспорт</b>\n"
+        "Сохраняйте интересные тендеры и экспортируйте в таблицу\n\n"
+        "Готовы начать? Создайте первый фильтр!"
+    )
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Создать фильтр", callback_data="wizard_start")],
+    ])
+
+    try:
+        await callback.message.edit_text(
+            features_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            features_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data == "wizard_start")
+async def callback_wizard_start(callback: CallbackQuery, state: FSMContext):
+    """Редирект на создание фильтра."""
+    await callback.answer("🔍 Создаю фильтр...")
+
+    # Помечаем онбординг как завершённый
+    try:
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if user:
+            user_data = user.get('data', {}) or {}
+            user_data['onboarding_completed'] = True
+            await db.update_user_data(user['id'], user_data)
+    except Exception as e:
+        logger.error(f"Ошибка обновления данных пользователя: {e}")
+
+    # Перенаправляем на wizard создания фильтра
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔍 Создать фильтр", callback_data="sniper_new_search")]
+    ])
+    try:
+        await callback.message.edit_text(
+            "🔍 <b>Создание фильтра</b>\n\n"
+            "Нажмите кнопку ниже, чтобы начать:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception:
+        await callback.message.answer(
+            "🔍 <b>Создание фильтра</b>\n\n"
+            "Нажмите кнопку ниже, чтобы начать:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
 
 
 @router.callback_query(F.data == "force_restart")

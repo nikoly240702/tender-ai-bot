@@ -92,6 +92,12 @@ class SniperUser(Base):
     trial_started_at = Column(DateTime, nullable=True)
     trial_expires_at = Column(DateTime, nullable=True)
 
+    # AI analysis monthly quota
+    ai_analyses_used_month = Column(Integer, default=0, nullable=False)
+    ai_analyses_month_reset = Column(DateTime, nullable=True)
+    has_ai_unlimited = Column(Boolean, default=False, nullable=False)
+    ai_unlimited_expires_at = Column(DateTime, nullable=True)
+
     # Referral program
     referral_code = Column(String(20), unique=True, nullable=True, index=True)
     referred_by = Column(Integer, nullable=True)  # user_id who referred
