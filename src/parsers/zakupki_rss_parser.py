@@ -809,8 +809,13 @@ class ZakupkiRSSParser:
             address_info = self._extract_address_from_page(html_content)
             if address_info:
                 tender['customer_address'] = address_info.get('full_address', '')
-                tender['customer_region'] = address_info.get('region', '')
-                tender['customer_city'] = address_info.get('city', '')
+                # Регион из адреса — только если ещё не определён из названия заказчика
+                new_region = address_info.get('region', '')
+                if new_region and not tender.get('customer_region'):
+                    tender['customer_region'] = new_region
+                new_city = address_info.get('city', '')
+                if new_city:
+                    tender['customer_city'] = new_city
 
             # === Извлекаем название заказчика если нет ===
             if not tender.get('customer'):
@@ -1057,13 +1062,17 @@ class ZakupkiRSSParser:
                 region = region_part
 
             # Москва и Санкт-Петербург - особые случаи
+            # НЕ перезаписываем если регион уже найден (защита от "ул Петербургская" и т.п.)
             if 'москва' in part_lower and not region:
                 city = 'г. Москва'
                 region = 'Москва'
-            elif 'санкт-петербург' in part_lower or 'петербург' in part_lower:
+            elif not region and ('санкт-петербург' in part_lower
+                                 or re.match(r'^(?:г\.?\s*)?петербург$', part_lower.strip())
+                                 or part_lower.strip() in ('спб', 'с-петербург', 'с.петербург')):
+                # Матчим только если это именно город, а не улица Петербургская и т.п.
                 city = 'г. Санкт-Петербург'
                 region = 'Санкт-Петербург'
-            elif 'севастополь' in part_lower:
+            elif 'севастополь' in part_lower and not region:
                 city = 'г. Севастополь'
                 region = 'Севастополь'
 
