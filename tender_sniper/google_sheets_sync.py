@@ -137,15 +137,31 @@ def _flatten_new_format(extraction: Dict[str, Any]) -> Dict[str, Any]:
     if pay_parts:
         flat['payment_terms'] = ', '.join(pay_parts)
 
-    # Summary — items_description + summary
+    # Summary — структурированный текст для ячейки
     items_desc = extraction.get('items_description', '')
     summary = extraction.get('summary', '')
-    if items_desc and items_desc not in _not_empty and summary and summary not in _not_empty:
-        flat['summary'] = f"{items_desc}. {summary}"
-    elif items_desc and items_desc not in _not_empty:
-        flat['summary'] = items_desc
-    elif summary and summary not in _not_empty:
-        flat['summary'] = summary
+
+    parts = []
+
+    # Позиции — как чистый нумерованный список с переносами строк
+    if items_desc and items_desc not in _not_empty:
+        # Разбиваем "1. X; 2. Y" на отдельные строки
+        import re
+        items_lines = re.split(r';\s*(?=\d+\.)', items_desc)
+        clean_items = []
+        for line in items_lines:
+            line = line.strip().rstrip(';').strip()
+            if line:
+                clean_items.append(line)
+        if clean_items:
+            parts.append('\n'.join(clean_items))
+
+    # Краткий комментарий
+    if summary and summary not in _not_empty:
+        parts.append(summary)
+
+    if parts:
+        flat['summary'] = '\n\n'.join(parts)
 
     # Лицензии
     val = extraction.get('licenses_required', '')
