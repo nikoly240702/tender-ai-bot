@@ -2556,70 +2556,68 @@ async def analyze_tender_documentation(callback: CallbackQuery):
 # PER-FILTER NOTIFICATION TARGETS
 # ============================================
 
+async def _render_notify_targets(message, filter_id: int, user_tg_id: int):
+    """Отрисовка меню выбора адресатов уведомлений."""
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+
+    if not filter_data:
+        await message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+        return
+
+    current_targets = filter_data.get('notify_chat_ids') or []
+    groups = await db.get_user_groups(user_tg_id)
+
+    buttons = []
+
+    # Личный чат
+    personal_check = "✅" if user_tg_id in current_targets or not current_targets else "☐"
+    buttons.append([InlineKeyboardButton(
+        text=f"{personal_check} Мне в личку",
+        callback_data=f"ext_ntgt_{filter_id}_{user_tg_id}"
+    )])
+
+    # Группы
+    for group in groups:
+        group_check = "✅" if group['telegram_id'] in current_targets else "☐"
+        group_name = group['name'][:30]
+        buttons.append([InlineKeyboardButton(
+            text=f"{group_check} {group_name}",
+            callback_data=f"ext_ntgt_{filter_id}_{group['telegram_id']}"
+        )])
+
+    if not groups:
+        buttons.append([InlineKeyboardButton(
+            text="ℹ️ Добавьте бота в группу",
+            callback_data="noop"
+        )])
+
+    buttons.append([InlineKeyboardButton(
+        text="« Назад к настройкам",
+        callback_data=f"ext_filter_{filter_id}"
+    )])
+
+    text = (
+        f"📱 <b>Куда уведомлять</b>\n\n"
+        f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+        f"Выберите, куда отправлять уведомления.\n"
+        f"Если не выбрано ничего — отправка только в личку."
+    )
+
+    await message.edit_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML"
+    )
+
+
 @router.callback_query(F.data.startswith("ext_notify_"))
 async def ext_notify_targets_handler(callback: CallbackQuery):
     """Показывает меню выбора адресатов уведомлений для фильтра."""
     await callback.answer()
-
     try:
         filter_id = int(callback.data.replace("ext_notify_", ""))
-        db = await get_sniper_db()
-        filter_data = await db.get_filter_by_id(filter_id)
-
-        if not filter_data:
-            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
-            return
-
-        # Текущие notify_chat_ids
-        current_targets = filter_data.get('notify_chat_ids') or []
-        user_tg_id = callback.from_user.id
-
-        # Получаем группы пользователя
-        groups = await db.get_user_groups(user_tg_id)
-
-        # Формируем клавиатуру
-        buttons = []
-
-        # Личный чат
-        personal_check = "✅" if user_tg_id in current_targets or not current_targets else "☐"
-        buttons.append([InlineKeyboardButton(
-            text=f"{personal_check} Мне в личку",
-            callback_data=f"ext_ntgt_{filter_id}_{user_tg_id}"
-        )])
-
-        # Группы
-        for group in groups:
-            group_check = "✅" if group['telegram_id'] in current_targets else "☐"
-            group_name = group['name'][:30]
-            buttons.append([InlineKeyboardButton(
-                text=f"{group_check} {group_name}",
-                callback_data=f"ext_ntgt_{filter_id}_{group['telegram_id']}"
-            )])
-
-        if not groups:
-            buttons.append([InlineKeyboardButton(
-                text="ℹ️ Добавьте бота в группу",
-                callback_data="noop"
-            )])
-
-        buttons.append([InlineKeyboardButton(
-            text="« Назад к настройкам",
-            callback_data=f"ext_filter_{filter_id}"
-        )])
-
-        text = (
-            f"📱 <b>Куда уведомлять</b>\n\n"
-            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
-            f"Выберите, куда отправлять уведомления.\n"
-            f"Если не выбрано ничего — отправка только в личку."
-        )
-
-        await callback.message.edit_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
-            parse_mode="HTML"
-        )
-
+        await _render_notify_targets(callback.message, filter_id, callback.from_user.id)
     except Exception as e:
         logger.error(f"Ошибка отображения целей уведомлений: {e}", exc_info=True)
         await callback.message.edit_text("❌ Произошла ошибка", parse_mode="HTML")
@@ -2631,10 +2629,8 @@ async def ext_notify_toggle_target_handler(callback: CallbackQuery):
     await callback.answer()
 
     try:
-        # ext_ntgt_{filter_id}_{chat_id}
+        # ext_ntgt_{filter_id}_{chat_id} (chat_id может быть отрицательным)
         parts = callback.data.split("_")
-        # parts: ['ext', 'ntgt', filter_id, chat_id]
-        # chat_id может быть отрицательным (группы), поэтому собираем всё после 3-го _
         filter_id = int(parts[2])
         chat_id = int("_".join(parts[3:]))
 
@@ -2656,9 +2652,8 @@ async def ext_notify_toggle_target_handler(callback: CallbackQuery):
         # Сохраняем
         await db.update_filter(filter_id, notify_chat_ids=current_targets if current_targets else None)
 
-        # Перерисовываем клавиатуру — вызываем тот же обработчик
-        callback.data = f"ext_notify_{filter_id}"
-        await ext_notify_targets_handler(callback)
+        # Перерисовываем клавиатуру
+        await _render_notify_targets(callback.message, filter_id, callback.from_user.id)
 
     except Exception as e:
         logger.error(f"Ошибка переключения цели уведомлений: {e}", exc_info=True)
