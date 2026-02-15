@@ -40,6 +40,21 @@ class AccessControlMiddleware(BaseMiddleware):
         user = event.from_user
         user_id = user.id
 
+        # Определяем контекст группы
+        chat = getattr(event, 'chat', None)
+        if chat is None and hasattr(event, 'message'):
+            chat = getattr(event.message, 'chat', None)
+
+        is_group_context = chat is not None and chat.type in ('group', 'supergroup')
+        data['is_group_context'] = is_group_context
+        data['group_chat_id'] = chat.id if is_group_context else None
+
+        # В группе lookup по chat.id (группа), в личном — по user.id
+        if is_group_context:
+            lookup_telegram_id = chat.id
+        else:
+            lookup_telegram_id = user_id
+
         # 1. Администратор всегда имеет доступ (БЕЗ запроса к БД!)
         if BotConfig.ADMIN_USER_ID and user_id == BotConfig.ADMIN_USER_ID:
             data['subscription_tier'] = 'premium'
@@ -47,7 +62,7 @@ class AccessControlMiddleware(BaseMiddleware):
             return await handler(event, data)
 
         # 2. Проверяем кэш (избегаем запроса к БД)
-        cached = get_cached_user(user_id)
+        cached = get_cached_user(lookup_telegram_id)
         if cached:
             # Пользователь в кэше - проверяем блокировку
             if cached.get('status') == 'blocked':
@@ -64,11 +79,16 @@ class AccessControlMiddleware(BaseMiddleware):
 
         try:
             async with DatabaseSession() as session:
-                query = select(SniperUser).where(SniperUser.telegram_id == user_id)
+                query = select(SniperUser).where(SniperUser.telegram_id == lookup_telegram_id)
                 result = await session.execute(query)
                 db_user = result.scalar_one_or_none()
 
                 if not db_user:
+                    if is_group_context:
+                        # Группа без записи — пропускаем автосоздание (создаётся в group_chat.py)
+                        data['subscription_tier'] = 'trial'
+                        return await handler(event, data)
+
                     # Новый пользователь - автоматическая регистрация
                     logger.info(f"📝 Новый пользователь {user_id} (@{user.username})")
 
@@ -92,14 +112,14 @@ class AccessControlMiddleware(BaseMiddleware):
                 if db_user.status == 'blocked':
                     return await self._handle_blocked(event, db_user.blocked_reason)
 
-                # Обновляем username если изменился
-                if db_user.username != user.username:
+                # Обновляем username если изменился (только для личных чатов)
+                if not is_group_context and db_user.username != user.username:
                     db_user.username = user.username
                     db_user.first_name = user.first_name
                     db_user.last_name = user.last_name
 
                 # Кэшируем пользователя
-                user_data = {
+                cached_data = {
                     'id': db_user.id,
                     'telegram_id': db_user.telegram_id,
                     'status': db_user.status,
@@ -109,12 +129,12 @@ class AccessControlMiddleware(BaseMiddleware):
                     'notifications_limit': db_user.notifications_limit,
                     'notifications_enabled': db_user.notifications_enabled,
                 }
-                set_cached_user(user_id, user_data)
+                set_cached_user(lookup_telegram_id, cached_data)
 
                 # Добавляем в data
                 data['subscription_tier'] = db_user.subscription_tier
                 data['user_id_db'] = db_user.id
-                data['cached_user'] = user_data
+                data['cached_user'] = cached_data
 
         except Exception as e:
             logger.error(f"❌ Ошибка БД в AccessControlMiddleware: {e}")

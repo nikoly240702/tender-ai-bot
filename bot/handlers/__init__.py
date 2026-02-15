@@ -18,7 +18,8 @@ from . import (
     menu_priority,
     referral,
     subscriptions,
-    sniper_wizard_new
+    sniper_wizard_new,
+    group_chat
 )
 
 __all__ = [
@@ -35,5 +36,6 @@ __all__ = [
     'menu_priority',
     'referral',
     'subscriptions',
-    'sniper_wizard_new'
+    'sniper_wizard_new',
+    'group_chat'
 ]

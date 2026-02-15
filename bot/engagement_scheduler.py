@@ -122,6 +122,10 @@ class EngagementScheduler:
 
         for user in users:
             try:
+                # Пропускаем группы — follow-up только для личных пользователей
+                if getattr(user, 'is_group', False):
+                    continue
+
                 # Проверяем user.data на наличие first_filter_created_at
                 user_data = {}
                 if hasattr(user, 'data') and user.data:
@@ -325,6 +329,11 @@ class EngagementScheduler:
             try:
                 # Проверяем user.data, не отправляли ли уже напоминание
                 user_data = user.data if isinstance(user.data, dict) else {}
+
+                # Проверяем, отключены ли напоминания о дедлайнах
+                if user_data.get('deadline_reminders_disabled', False):
+                    continue
+
                 sent_reminders = user_data.get(sent_reminders_key, [])
 
                 if notification.id in sent_reminders:
@@ -414,6 +423,10 @@ class EngagementScheduler:
 
         for user in users:
             try:
+                # Пропускаем группы — реактивация только для личных пользователей
+                if getattr(user, 'is_group', False):
+                    continue
+
                 # Проверяем данные пользователя
                 user_data = user.data if isinstance(user.data, dict) else {}
 

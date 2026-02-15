@@ -530,6 +530,14 @@ async def settings_advanced_handler(callback: CallbackQuery):
     """Расширенные настройки с подробными описаниями."""
     await callback.answer()
 
+    # Проверяем admin-гард для групповых чатов
+    chat = callback.message.chat if callback.message else None
+    if chat and chat.type in ('group', 'supergroup'):
+        from bot.handlers.group_chat import is_group_admin
+        if not await is_group_admin(callback.bot, chat.id, callback.from_user.id):
+            await callback.answer("Только администратор группы может менять настройки", show_alert=True)
+            return
+
     try:
         db = await get_sniper_db()
         sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
@@ -545,18 +553,21 @@ async def settings_advanced_handler(callback: CallbackQuery):
         quiet_start = user_data.get('quiet_hours_start', 22)
         quiet_end = user_data.get('quiet_hours_end', 8)
         digest_enabled = not user_data.get('digest_disabled', False)
+        deadline_reminders_enabled = not user_data.get('deadline_reminders_disabled', False)
         webhook_url = user_data.get('webhook_url', '')
         email_address = user_data.get('email_notifications', '')
 
         # Формируем статусы
         quiet_status = f"{quiet_start}:00-{quiet_end}:00" if quiet_hours_enabled else "выкл"
         digest_status = "вкл" if digest_enabled else "выкл"
+        deadline_status = "вкл" if deadline_reminders_enabled else "выкл"
         webhook_status = "настроен" if webhook_url else "не настроен"
         email_status = email_address[:15] + "..." if email_address else "не настроен"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"🌙 Тихие часы ({quiet_status})", callback_data="settings_quiet_hours")],
             [InlineKeyboardButton(text=f"📬 Утренний дайджест ({digest_status})", callback_data="adv_digest")],
+            [InlineKeyboardButton(text=f"⏰ Напоминания о дедлайнах ({deadline_status})", callback_data="toggle_deadline_reminders")],
             [InlineKeyboardButton(text=f"🔗 Webhook CRM ({webhook_status})", callback_data="integration_webhook")],
             [InlineKeyboardButton(text=f"📧 Email ({email_status})", callback_data="integration_email")],
             [InlineKeyboardButton(text="📊 Google Sheets", callback_data="integration_sheets")],
@@ -572,6 +583,8 @@ async def settings_advanced_handler(callback: CallbackQuery):
             "<i>Отключает уведомления в ночное время. Пропущенные тендеры придут утром в дайджесте.</i>\n\n"
             "📬 <b>Утренний дайджест</b>\n"
             "<i>Ежедневная сводка в 9:00 МСК: сколько тендеров найдено, статистика и рекомендации.</i>\n\n"
+            "⏰ <b>Напоминания о дедлайнах</b>\n"
+            "<i>Напоминания за 3 дня до окончания приёма заявок по найденным тендерам.</i>\n\n"
             "🔗 <b>Webhook для CRM</b>\n"
             "<i>Автоматическая отправка тендеров в вашу CRM-систему (Bitrix24, amoCRM, 1C и др.)</i>\n\n"
             "📧 <b>Email-уведомления</b>\n"
@@ -856,6 +869,44 @@ async def toggle_digest_handler(callback: CallbackQuery):
 
     except Exception as e:
         logger.error(f"Ошибка переключения дайджеста: {e}", exc_info=True)
+        await callback.answer("❌ Произошла ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "toggle_deadline_reminders")
+async def toggle_deadline_reminders_handler(callback: CallbackQuery):
+    """Переключает напоминания о дедлайнах."""
+    await callback.answer()
+
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import select
+
+        async with DatabaseSession() as session:
+            user = await session.scalar(
+                select(SniperUser).where(SniperUser.telegram_id == callback.from_user.id)
+            )
+
+            if not user:
+                await callback.message.answer("❌ Пользователь не найден")
+                return
+
+            current_data = user.data if isinstance(user.data, dict) else {}
+            deadline_disabled = current_data.get('deadline_reminders_disabled', False)
+
+            # Переключаем
+            current_data['deadline_reminders_disabled'] = not deadline_disabled
+            user.data = current_data
+            await session.commit()
+
+            new_status = "выключены" if current_data['deadline_reminders_disabled'] else "включены"
+
+        await callback.answer(f"⏰ Напоминания о дедлайнах {new_status}")
+
+        # Возвращаемся к расширенным настройкам
+        await settings_advanced_handler(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка переключения напоминаний о дедлайнах: {e}", exc_info=True)
         await callback.answer("❌ Произошла ошибка", show_alert=True)
 
 

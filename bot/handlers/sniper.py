@@ -1193,6 +1193,14 @@ async def toggle_filter_status(callback: CallbackQuery):
     """Переключить статус фильтра (активен/приостановлен)."""
     await callback.answer()
 
+    # Проверяем admin-гард для групповых чатов
+    chat = callback.message.chat if callback.message else None
+    if chat and chat.type in ('group', 'supergroup'):
+        from bot.handlers.group_chat import is_group_admin
+        if not await is_group_admin(callback.bot, chat.id, callback.from_user.id):
+            await callback.answer("Только администратор группы", show_alert=True)
+            return
+
     try:
         filter_id = int(callback.data.replace("toggle_filter_", ""))
 
@@ -1298,6 +1306,14 @@ async def duplicate_filter_handler(callback: CallbackQuery):
 async def delete_filter(callback: CallbackQuery):
     """Удалить фильтр."""
     await callback.answer()
+
+    # Проверяем admin-гард для групповых чатов
+    chat = callback.message.chat if callback.message else None
+    if chat and chat.type in ('group', 'supergroup'):
+        from bot.handlers.group_chat import is_group_admin
+        if not await is_group_admin(callback.bot, chat.id, callback.from_user.id):
+            await callback.answer("Только администратор группы", show_alert=True)
+            return
 
     try:
         filter_id = int(callback.data.replace("delete_filter_", ""))

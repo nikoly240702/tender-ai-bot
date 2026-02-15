@@ -103,6 +103,10 @@ class SniperUser(Base):
     referred_by = Column(Integer, nullable=True)  # user_id who referred
     referral_bonus_days = Column(Integer, default=0)  # Accumulated bonus days
 
+    # Group chat support
+    is_group = Column(Boolean, default=False, server_default='false')
+    group_admin_id = Column(BigInteger, nullable=True)  # telegram_id админа группы
+
     # Flexible data storage (JSON)
     data = Column(JSON, default=dict)  # For follow-ups, reactivation tracking, etc.
 
@@ -189,6 +193,7 @@ class SniperNotification(Base):
     telegram_message_id = Column(BigInteger, nullable=True)
     sheets_exported = Column(Boolean, default=False, nullable=False)  # Экспортирован ли в Google Sheets
     sheets_exported_at = Column(DateTime, nullable=True)
+    sheets_exported_by = Column(BigInteger, nullable=True)  # telegram_id того, кто экспортировал (для групп)
 
     # Relationships
     user = relationship("SniperUser", back_populates="notifications")

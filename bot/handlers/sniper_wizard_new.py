@@ -545,6 +545,14 @@ async def start_extended_wizard(callback: CallbackQuery, state: FSMContext):
     """
     await callback.answer()
 
+    # Проверяем admin-гард для групповых чатов
+    chat = callback.message.chat if callback.message else None
+    if chat and chat.type in ('group', 'supergroup'):
+        from bot.handlers.group_chat import is_group_admin
+        if not await is_group_admin(callback.bot, chat.id, callback.from_user.id):
+            await callback.answer("Только администратор группы может создавать фильтры", show_alert=True)
+            return
+
     # Проверяем feature flag
     if not is_new_feature_enabled('simplified_wizard'):
         # Fallback на старый wizard

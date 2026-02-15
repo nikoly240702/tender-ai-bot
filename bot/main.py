@@ -22,6 +22,8 @@ from bot.config import BotConfig
 from bot.handlers import start, admin, sniper, sniper_search, admin_sniper, onboarding, inline_search, all_tenders, tender_actions, user_management, menu_priority
 # Новый упрощённый wizard
 from bot.handlers import sniper_wizard_new
+# Групповые чаты
+from bot.handlers import group_chat
 # Подписки (Phase 2.1)
 from bot.handlers import subscriptions
 # Реферальная программа
@@ -268,6 +270,8 @@ async def main():
         logger.warning("⚠️ ADMIN_USER_ID не задан - управление пользователями недоступно")
 
     # Регистрируем роутеры
+    # ВАЖНО: group_chat перед остальными — для обработки my_chat_member событий
+    dp.include_router(group_chat.router)
     # ВАЖНО: menu_priority ПЕРВЫМ - для обработки кнопок меню в любом FSM состоянии
     dp.include_router(menu_priority.router)
     dp.include_router(admin.router)  # Админ-панель

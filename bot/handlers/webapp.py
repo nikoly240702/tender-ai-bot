@@ -139,15 +139,22 @@ async def export_single_tender(callback: CallbackQuery):
     # иначе Telegram не покажет popup с ошибкой/успехом (callback можно ответить только раз)
 
     try:
+        # Определяем контекст: группа или личный чат
+        chat = callback.message.chat if callback.message else None
+        is_group = chat is not None and chat.type in ('group', 'supergroup')
+
+        # В группе ищем SniperUser по chat.id, в личном — по from_user.id
+        lookup_id = chat.id if is_group else telegram_id
+
         db = await get_sniper_db()
-        user = await db.get_user_by_telegram_id(telegram_id)
+        user = await db.get_user_by_telegram_id(lookup_id)
         if not user:
             await callback.answer("Пользователь не найден", show_alert=True)
             return
 
         user_id = user.get('id')
 
-        # Проверяем Google Sheets config
+        # Проверяем Google Sheets config — одна общая таблица для группы
         gs_config = await db.get_google_sheets_config(user_id)
         if not gs_config or not gs_config.get('enabled'):
             await callback.answer(
@@ -162,9 +169,26 @@ async def export_single_tender(callback: CallbackQuery):
             await callback.answer("Тендер не найден в истории", show_alert=True)
             return
 
-        # Отвечаем на callback (показываем toast) — дальше все ошибки через message
-        re_export = notification.get('sheets_exported', False)
-        await callback.answer("Повторный экспорт..." if re_export else "Экспортирую в Google Sheets...")
+        # Проверяем дубль — если уже экспортирован
+        if notification.get('sheets_exported', False):
+            if is_group:
+                # В группе показываем кто добавил
+                exported_by_id = notification.get('sheets_exported_by')
+                if exported_by_id:
+                    try:
+                        member = await callback.bot.get_chat_member(chat.id, exported_by_id)
+                        name = member.user.full_name or f"@{member.user.username}" or str(exported_by_id)
+                    except Exception:
+                        name = str(exported_by_id)
+                    await callback.answer(f"Уже в таблице (добавил {name})", show_alert=True)
+                else:
+                    await callback.answer("Уже в таблице ✅", show_alert=True)
+            else:
+                await callback.answer("Уже в таблице ✅", show_alert=True)
+            return
+
+        # Отвечаем на callback (показываем toast)
+        await callback.answer("Экспортирую в Google Sheets...")
 
         # Экспортируем
         from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai
@@ -220,10 +244,10 @@ async def export_single_tender(callback: CallbackQuery):
             await callback.message.answer("❌ Ошибка записи в Google Sheets. Попробуйте позже.")
             return
 
-        # Помечаем как экспортированный
-        await db.mark_notification_exported(notification.get('id'))
+        # Помечаем как экспортированный + кто экспортировал
+        await db.mark_notification_exported(notification.get('id'), exported_by=telegram_id)
 
-        # Заменяем кнопку на "✅ В таблице"
+        # Заменяем кнопку на "✅ В таблице" — в группе это обновляет для ВСЕХ участников
         try:
             if callback.message and callback.message.reply_markup:
                 new_buttons = []

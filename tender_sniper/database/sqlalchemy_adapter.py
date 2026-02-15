@@ -2289,19 +2289,24 @@ class TenderSniperDB:
                 'published_date': notif.published_date.strftime('%d.%m.%Y') if notif.published_date else '',
                 'submission_deadline': notif.submission_deadline.strftime('%d.%m.%Y') if notif.submission_deadline else '',
                 'sheets_exported': notif.sheets_exported if hasattr(notif, 'sheets_exported') else False,
+                'sheets_exported_by': getattr(notif, 'sheets_exported_by', None),
             }
 
-    async def mark_notification_exported(self, notification_id: int) -> bool:
+    async def mark_notification_exported(self, notification_id: int, exported_by: int = None) -> bool:
         """Помечает уведомление как экспортированное в Google Sheets."""
         try:
+            values = {
+                'sheets_exported': True,
+                'sheets_exported_at': datetime.utcnow(),
+            }
+            if exported_by is not None:
+                values['sheets_exported_by'] = exported_by
+
             async with DatabaseSession() as session:
                 await session.execute(
                     update(SniperNotificationModel).where(
                         SniperNotificationModel.id == notification_id
-                    ).values(
-                        sheets_exported=True,
-                        sheets_exported_at=datetime.utcnow()
-                    )
+                    ).values(**values)
                 )
                 return True
         except Exception as e:
