@@ -155,6 +155,9 @@ class SniperFilter(Base):
     secondary_keywords = Column(JSON, default=list)  # List[str] - Дополнительные ключевые слова (вес 1x)
     search_in = Column(JSON, default=list)  # List[str] - Где искать: ['title', 'description', 'documents', 'customer_name']
 
+    # Per-filter notification targets
+    notify_chat_ids = Column(JSON, nullable=True)  # [chat_id, ...] или null = личный чат
+
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

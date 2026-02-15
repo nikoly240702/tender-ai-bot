@@ -197,6 +197,28 @@ class TenderSniperDB:
             await session.commit()
             return True
 
+    async def get_user_groups(self, admin_telegram_id: int) -> List[Dict]:
+        """Получение групп, где пользователь является админом."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(
+                    and_(
+                        SniperUserModel.is_group == True,
+                        SniperUserModel.group_admin_id == admin_telegram_id,
+                        SniperUserModel.status == 'active'
+                    )
+                )
+            )
+            groups = result.scalars().all()
+            return [
+                {
+                    'id': g.id,
+                    'telegram_id': g.telegram_id,
+                    'name': g.first_name or f'Группа {g.telegram_id}'
+                }
+                for g in groups
+            ]
+
     async def reset_daily_notifications(self, user_id: int):
         """Сброс счетчика уведомлений."""
         async with DatabaseSession() as session:
@@ -472,6 +494,8 @@ class TenderSniperDB:
             'primary_keywords': safe_list(getattr(filter_obj, 'primary_keywords', [])),
             'secondary_keywords': safe_list(getattr(filter_obj, 'secondary_keywords', [])),
             'search_in': safe_list(getattr(filter_obj, 'search_in', [])),
+            # Per-filter notification targets
+            'notify_chat_ids': getattr(filter_obj, 'notify_chat_ids', None),
             # AI семантика
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),

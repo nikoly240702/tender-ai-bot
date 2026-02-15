@@ -837,11 +837,10 @@ async def set_quiet_hours_handler(callback: CallbackQuery):
 @router.callback_query(F.data == "toggle_digest")
 async def toggle_digest_handler(callback: CallbackQuery):
     """Переключает утренний дайджест."""
-    await callback.answer()
-
     try:
         from database import DatabaseSession, SniperUser
         from sqlalchemy import select
+        from sqlalchemy.orm.attributes import flag_modified
 
         async with DatabaseSession() as session:
             user = await session.scalar(
@@ -858,6 +857,7 @@ async def toggle_digest_handler(callback: CallbackQuery):
             # Переключаем
             current_data['digest_disabled'] = not digest_disabled
             user.data = current_data
+            flag_modified(user, 'data')
             await session.commit()
 
             new_status = "выключен" if current_data['digest_disabled'] else "включён"
@@ -875,11 +875,10 @@ async def toggle_digest_handler(callback: CallbackQuery):
 @router.callback_query(F.data == "toggle_deadline_reminders")
 async def toggle_deadline_reminders_handler(callback: CallbackQuery):
     """Переключает напоминания о дедлайнах."""
-    await callback.answer()
-
     try:
         from database import DatabaseSession, SniperUser
         from sqlalchemy import select
+        from sqlalchemy.orm.attributes import flag_modified
 
         async with DatabaseSession() as session:
             user = await session.scalar(
@@ -896,6 +895,7 @@ async def toggle_deadline_reminders_handler(callback: CallbackQuery):
             # Переключаем
             current_data['deadline_reminders_disabled'] = not deadline_disabled
             user.data = current_data
+            flag_modified(user, 'data')
             await session.commit()
 
             new_status = "выключены" if current_data['deadline_reminders_disabled'] else "включены"

@@ -67,6 +67,7 @@ async def bot_added_to_group(event: ChatMemberUpdated):
                 existing.status = 'active'
                 existing.is_group = True
                 existing.group_admin_id = from_user.id
+                existing.first_name = chat.title
                 logger.info(f"♻️ Реактивирована группа '{chat.title}' (id={chat.id})")
             else:
                 # Создаём новую запись

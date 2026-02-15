@@ -86,6 +86,12 @@ async def build_filter_extended_options_view(filter_id: int, db) -> tuple:
     else:
         settings_info += "⭐ <b>Приоритет:</b> не настроен\n"
 
+    notify_ids = filter_data.get('notify_chat_ids') or []
+    if notify_ids:
+        settings_info += f"📱 <b>Уведомления:</b> {len(notify_ids)} адресатов\n"
+    else:
+        settings_info += "📱 <b>Уведомления:</b> только в личку\n"
+
     settings_info += "\n<i>Выберите параметр для настройки:</i>"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -94,6 +100,7 @@ async def build_filter_extended_options_view(filter_id: int, db) -> tuple:
         [InlineKeyboardButton(text="🚫 Черный список", callback_data=f"ext_blacklist_{filter_id}")],
         [InlineKeyboardButton(text="📅 Дата публикации", callback_data=f"ext_pubdate_{filter_id}")],
         [InlineKeyboardButton(text="⭐ Приоритет ключевых слов", callback_data=f"ext_priority_{filter_id}")],
+        [InlineKeyboardButton(text="📱 Куда уведомлять", callback_data=f"ext_notify_{filter_id}")],
         [InlineKeyboardButton(text="« Назад к списку", callback_data="sniper_extended_settings")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])
@@ -1654,6 +1661,12 @@ async def show_filter_extended_options(callback: CallbackQuery):
         else:
             settings_info += "⭐ <b>Приоритет:</b> не настроен\n"
 
+        notify_ids = filter_data.get('notify_chat_ids') or []
+        if notify_ids:
+            settings_info += f"📱 <b>Уведомления:</b> {len(notify_ids)} адресатов\n"
+        else:
+            settings_info += "📱 <b>Уведомления:</b> только в личку\n"
+
         settings_info += "\n<i>Выберите параметр для настройки:</i>"
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1662,6 +1675,7 @@ async def show_filter_extended_options(callback: CallbackQuery):
             [InlineKeyboardButton(text="🚫 Черный список", callback_data=f"ext_blacklist_{filter_id}")],
             [InlineKeyboardButton(text="📅 Дата публикации", callback_data=f"ext_pubdate_{filter_id}")],
             [InlineKeyboardButton(text="⭐ Приоритет ключевых слов", callback_data=f"ext_priority_{filter_id}")],
+            [InlineKeyboardButton(text="📱 Куда уведомлять", callback_data=f"ext_notify_{filter_id}")],
             [InlineKeyboardButton(text="« Назад к списку", callback_data="sniper_extended_settings")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
@@ -2536,6 +2550,119 @@ async def analyze_tender_documentation(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка анализа документации: {e}", exc_info=True)
         await callback.message.answer("❌ Не удалось проанализировать документацию")
+
+
+# ============================================
+# PER-FILTER NOTIFICATION TARGETS
+# ============================================
+
+@router.callback_query(F.data.startswith("ext_notify_"))
+async def ext_notify_targets_handler(callback: CallbackQuery):
+    """Показывает меню выбора адресатов уведомлений для фильтра."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("ext_notify_", ""))
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+            return
+
+        # Текущие notify_chat_ids
+        current_targets = filter_data.get('notify_chat_ids') or []
+        user_tg_id = callback.from_user.id
+
+        # Получаем группы пользователя
+        groups = await db.get_user_groups(user_tg_id)
+
+        # Формируем клавиатуру
+        buttons = []
+
+        # Личный чат
+        personal_check = "✅" if user_tg_id in current_targets or not current_targets else "☐"
+        buttons.append([InlineKeyboardButton(
+            text=f"{personal_check} Мне в личку",
+            callback_data=f"ext_ntgt_{filter_id}_{user_tg_id}"
+        )])
+
+        # Группы
+        for group in groups:
+            group_check = "✅" if group['telegram_id'] in current_targets else "☐"
+            group_name = group['name'][:30]
+            buttons.append([InlineKeyboardButton(
+                text=f"{group_check} {group_name}",
+                callback_data=f"ext_ntgt_{filter_id}_{group['telegram_id']}"
+            )])
+
+        if not groups:
+            buttons.append([InlineKeyboardButton(
+                text="ℹ️ Добавьте бота в группу",
+                callback_data="noop"
+            )])
+
+        buttons.append([InlineKeyboardButton(
+            text="« Назад к настройкам",
+            callback_data=f"ext_filter_{filter_id}"
+        )])
+
+        text = (
+            f"📱 <b>Куда уведомлять</b>\n\n"
+            f"Фильтр: <b>{filter_data['name']}</b>\n\n"
+            f"Выберите, куда отправлять уведомления.\n"
+            f"Если не выбрано ничего — отправка только в личку."
+        )
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка отображения целей уведомлений: {e}", exc_info=True)
+        await callback.message.edit_text("❌ Произошла ошибка", parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("ext_ntgt_"))
+async def ext_notify_toggle_target_handler(callback: CallbackQuery):
+    """Тогл конкретного адресата уведомлений для фильтра."""
+    await callback.answer()
+
+    try:
+        # ext_ntgt_{filter_id}_{chat_id}
+        parts = callback.data.split("_")
+        # parts: ['ext', 'ntgt', filter_id, chat_id]
+        # chat_id может быть отрицательным (группы), поэтому собираем всё после 3-го _
+        filter_id = int(parts[2])
+        chat_id = int("_".join(parts[3:]))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+            return
+
+        current_targets = list(filter_data.get('notify_chat_ids') or [])
+
+        # Тоглим
+        if chat_id in current_targets:
+            current_targets.remove(chat_id)
+        else:
+            current_targets.append(chat_id)
+
+        # Сохраняем
+        await db.update_filter(filter_id, notify_chat_ids=current_targets if current_targets else None)
+
+        # Перерисовываем клавиатуру — вызываем тот же обработчик
+        callback.data = f"ext_notify_{filter_id}"
+        await ext_notify_targets_handler(callback)
+
+    except Exception as e:
+        logger.error(f"Ошибка переключения цели уведомлений: {e}", exc_info=True)
+        await callback.message.edit_text("❌ Произошла ошибка", parse_mode="HTML")
 
 
 # ============================================

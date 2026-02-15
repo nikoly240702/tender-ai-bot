@@ -245,6 +245,13 @@ class TenderSniperService:
                 telegram_id = filter_data.get('telegram_id')
                 subscription_tier = filter_data.get('subscription_tier', 'trial')
 
+                # Per-filter routing: определяем куда отправлять
+                notify_chat_ids = filter_data.get('notify_chat_ids') or []
+                if not notify_chat_ids:
+                    target_chat_ids = [telegram_id]
+                else:
+                    target_chat_ids = notify_chat_ids
+
                 logger.info(f"\n   🔍 Проверка фильтра: {filter_name} (ID: {filter_id})")
 
                 # Парсим keywords из JSON
@@ -323,13 +330,6 @@ class TenderSniperService:
                         if already_notified:
                             continue
 
-                        # Проверяем, не в очереди ли уже (другой фильтр в этом цикле)
-                        dedup_key = (user_id, tender_number)
-                        if dedup_key in seen_tenders:
-                            logger.info(f"         ⏭️  Дедупликация: {tender_number} (уже от другого фильтра)")
-                            continue
-                        seen_tenders.add(dedup_key)
-
                         # Проверяем квоту (админы имеют неограниченный доступ)
                         is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
 
@@ -349,23 +349,29 @@ class TenderSniperService:
                         else:
                             logger.info(f"         👑 Админ {telegram_id}: неограниченный доступ")
 
-                        # Добавляем в очередь на отправку
-                        notifications_to_send.append({
-                            'user_id': user_id,
-                            'telegram_id': telegram_id,
-                            'tender': tender,
-                            'match_info': {
-                                'score': score,  # Используем match_score как score
-                                'matched_keywords': tender.get('match_reasons', []),
-                                'red_flags': tender.get('red_flags', [])
-                            },
-                            'filter_id': filter_id,
-                            'filter_name': filter_name,
-                            'score': score,
-                            'subscription_tier': subscription_tier  # Для AI функций
-                        })
+                        # Добавляем в очередь на отправку для каждого target_chat_id
+                        for target_chat_id in target_chat_ids:
+                            dedup_key = (target_chat_id, tender_number)
+                            if dedup_key in seen_tenders:
+                                continue
+                            seen_tenders.add(dedup_key)
 
-                        logger.info(f"         📤 Готово к отправке: {tender_number} (score: {score})")
+                            notifications_to_send.append({
+                                'user_id': user_id,
+                                'telegram_id': target_chat_id,
+                                'tender': tender,
+                                'match_info': {
+                                    'score': score,
+                                    'matched_keywords': tender.get('match_reasons', []),
+                                    'red_flags': tender.get('red_flags', [])
+                                },
+                                'filter_id': filter_id,
+                                'filter_name': filter_name,
+                                'score': score,
+                                'subscription_tier': subscription_tier
+                            })
+
+                        logger.info(f"         📤 Готово к отправке: {tender_number} (score: {score}, targets: {len(target_chat_ids)})")
 
                 except Exception as e:
                     logger.error(f"      ❌ Ошибка поиска для фильтра {filter_id}: {e}", exc_info=True)
