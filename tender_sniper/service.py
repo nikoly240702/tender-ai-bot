@@ -238,6 +238,11 @@ class TenderSniperService:
             # Дедупликация: один тендер → одно уведомление для пользователя
             seen_tenders = set()  # (user_id, tender_number)
 
+            # Кэш данных пользователей и статистика отправки (persistent across filters)
+            user_data_cache = {}
+            sent_count = 0
+            failed_count = 0
+
             for filter_data in filters:
                 filter_id = filter_data['id']
                 filter_name = filter_data['name']
@@ -311,14 +316,13 @@ class TenderSniperService:
                         deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
                         if deadline:
                             try:
-                                from datetime import datetime
                                 deadline_date = None
-                                deadline_str = str(deadline)
-                                for fmt in ['%Y-%m-%dT%H:%M:%S', '%Y-%m-%d', '%d.%m.%Y', '%d.%m.%Y %H:%M']:
+                                deadline_str = str(deadline).strip()
+                                for fmt in ['%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']:
                                     try:
-                                        deadline_date = datetime.strptime(deadline_str[:len(fmt.replace('%', ''))], fmt)
+                                        deadline_date = datetime.strptime(deadline_str, fmt)
                                         break
-                                    except:
+                                    except ValueError:
                                         continue
                                 if deadline_date and deadline_date < datetime.now():
                                     continue
@@ -392,111 +396,103 @@ class TenderSniperService:
 
                     continue
 
-            # 3. Отправляем уведомления
-            logger.info(f"\n   📊 Итого подготовлено уведомлений: {len(notifications_to_send)}")
+                # === НЕМЕДЛЕННАЯ ОТПРАВКА уведомлений этого фильтра ===
+                # Отправляем сразу после каждого фильтра, а не копим до конца цикла.
+                # Защита от потери уведомлений при сбоях/рестартах.
+                if notifications_to_send and self.notifier:
+                    logger.info(f"      📤 Отправка {len(notifications_to_send)} уведомлений фильтра «{filter_name}»...")
 
-            if notifications_to_send and self.notifier:
-                logger.info(f"   📤 Отправка {len(notifications_to_send)} уведомлений...")
+                    for notif in notifications_to_send:
+                      try:
+                        ntf_telegram_id = notif['telegram_id']
+                        tender_number = notif['tender'].get('number', '?')
 
-                # Кэшируем данные пользователей для проверки тихих часов
-                user_data_cache = {}
+                        # Проверяем тихие часы (получаем данные пользователя из кэша или БД)
+                        if ntf_telegram_id not in user_data_cache:
+                            user_data_cache[ntf_telegram_id] = await self.db.get_user_by_telegram_id(ntf_telegram_id)
 
-                sent_count = 0
-                failed_count = 0
+                        user_data = user_data_cache.get(ntf_telegram_id, {})
+                        is_quiet_hours = not await self._should_send_notification(user_data)
 
-                for notif in notifications_to_send:
-                  try:
-                    telegram_id = notif['telegram_id']
-                    tender_number = notif['tender'].get('number', '?')
+                        tender = notif['tender']
 
-                    # Проверяем тихие часы (получаем данные пользователя из кэша или БД)
-                    if telegram_id not in user_data_cache:
-                        user_data_cache[telegram_id] = await self.db.get_user_by_telegram_id(telegram_id)
-
-                    user_data = user_data_cache.get(telegram_id, {})
-                    is_quiet_hours = not await self._should_send_notification(user_data)
-
-                    tender = notif['tender']
-
-                    # Генерируем AI-название ОДИН РАЗ (для уведомления и БД)
-                    original_name = tender.get('name', '')
-                    short_name = generate_tender_name(
-                        original_name,
-                        tender_data=tender,
-                        max_length=80
-                    )
-                    # Заменяем название в тендере на короткое
-                    tender['name'] = short_name
-
-                    # Нормализуем данные тендера (маппинг из InstantSearch формата в БД формат)
-                    tender_data = {
-                        'number': tender.get('number', ''),
-                        'name': short_name,
-                        'price': tender.get('price'),
-                        'url': tender.get('url', ''),
-                        'region': tender.get('customer_region', tender.get('region', '')),
-                        'customer_name': tender.get('customer', tender.get('customer_name', '')),
-                        'published_date': tender.get('published', tender.get('published_date', '')),
-                        'submission_deadline': tender.get('submission_deadline', '')
-                    }
-
-                    if is_quiet_hours:
-                        logger.info(f"   🌙 Тихие часы для {telegram_id} — сохраняем тендер без отправки")
-                        # Сохраняем в БД без отправки уведомления
-                        await self.db.save_notification(
-                            user_id=notif['user_id'],
-                            filter_id=notif['filter_id'],
-                            filter_name=notif['filter_name'],
-                            tender_data=tender_data,
-                            score=notif['score'],
-                            matched_keywords=notif['match_info'].get('matched_keywords', [])
+                        # Генерируем AI-название ОДИН РАЗ (для уведомления и БД)
+                        original_name = tender.get('name', '')
+                        short_name = generate_tender_name(
+                            original_name,
+                            tender_data=tender,
+                            max_length=80
                         )
-                        continue
+                        # Заменяем название в тендере на короткое
+                        tender['name'] = short_name
 
-                    success = await self.notifier.send_tender_notification(
-                        telegram_id=notif['telegram_id'],
-                        tender=tender,
-                        match_info=notif['match_info'],
-                        filter_name=notif['filter_name'],
-                        is_auto_notification=True,
-                        subscription_tier=notif.get('subscription_tier', 'trial')
-                    )
+                        # Нормализуем данные тендера (маппинг из InstantSearch формата в БД формат)
+                        tender_data = {
+                            'number': tender.get('number', ''),
+                            'name': short_name,
+                            'price': tender.get('price'),
+                            'url': tender.get('url', ''),
+                            'region': tender.get('customer_region', tender.get('region', '')),
+                            'customer_name': tender.get('customer', tender.get('customer_name', '')),
+                            'published_date': tender.get('published', tender.get('published_date', '')),
+                            'submission_deadline': tender.get('submission_deadline', '')
+                        }
 
-                    if success:
-                        logger.info(f"   ✅ Отправлено: {tender_number} → {telegram_id}")
-                        logger.debug(f"   💾 Сохранение тендера {tender_data['number']}: "
-                                   f"region={tender_data['region']}, customer={tender_data['customer_name']}")
+                        if is_quiet_hours:
+                            logger.info(f"      🌙 Тихие часы для {ntf_telegram_id} — сохраняем без отправки")
+                            await self.db.save_notification(
+                                user_id=notif['user_id'],
+                                filter_id=notif['filter_id'],
+                                filter_name=notif['filter_name'],
+                                tender_data=tender_data,
+                                score=notif['score'],
+                                matched_keywords=notif['match_info'].get('matched_keywords', [])
+                            )
+                            continue
 
-                        # Сохраняем в базу
-                        await self.db.save_notification(
-                            user_id=notif['user_id'],
-                            filter_id=notif['filter_id'],
+                        success = await self.notifier.send_tender_notification(
+                            telegram_id=ntf_telegram_id,
+                            tender=tender,
+                            match_info=notif['match_info'],
                             filter_name=notif['filter_name'],
-                            tender_data=tender_data,
-                            score=notif['score'],
-                            matched_keywords=notif['match_info'].get('matched_keywords', [])
+                            is_auto_notification=True,
+                            subscription_tier=notif.get('subscription_tier', 'trial')
                         )
 
-                        # Увеличиваем счетчик квоты (кроме админов)
-                        is_admin = BotConfig.ADMIN_USER_ID and notif['telegram_id'] == BotConfig.ADMIN_USER_ID
-                        if not is_admin:
-                            await self.db.increment_notification_quota(notif['user_id'])
+                        if success:
+                            logger.info(f"      ✅ Отправлено: {tender_number} → {ntf_telegram_id}")
 
-                        sent_count += 1
-                        self.stats['notifications_sent'] += 1
-                    else:
-                        logger.warning(f"   ❌ Не удалось отправить: {tender_number} → {telegram_id}")
+                            await self.db.save_notification(
+                                user_id=notif['user_id'],
+                                filter_id=notif['filter_id'],
+                                filter_name=notif['filter_name'],
+                                tender_data=tender_data,
+                                score=notif['score'],
+                                matched_keywords=notif['match_info'].get('matched_keywords', [])
+                            )
+
+                            is_admin = BotConfig.ADMIN_USER_ID and ntf_telegram_id == BotConfig.ADMIN_USER_ID
+                            if not is_admin:
+                                await self.db.increment_notification_quota(notif['user_id'])
+
+                            sent_count += 1
+                            self.stats['notifications_sent'] += 1
+                        else:
+                            logger.warning(f"      ❌ Не удалось отправить: {tender_number} → {ntf_telegram_id}")
+                            failed_count += 1
+
+                      except Exception as e:
                         failed_count += 1
+                        t_num = notif.get('tender', {}).get('number', '?')
+                        logger.error(f"      ❌ Ошибка отправки уведомления {t_num}: {e}", exc_info=True)
 
-                  except Exception as e:
-                    failed_count += 1
-                    t_num = notif.get('tender', {}).get('number', '?')
-                    logger.error(f"   ❌ Ошибка отправки уведомления {t_num}: {e}", exc_info=True)
+                      # Небольшая задержка между уведомлениями
+                      await asyncio.sleep(0.1)
 
-                  # Небольшая задержка между уведомлениями
-                  await asyncio.sleep(0.1)
+                    notifications_to_send = []  # Очищаем после отправки
 
-                logger.info(f"   📊 Итог отправки: {sent_count} отправлено, {failed_count} ошибок")
+            # 3. Итоги цикла
+            logger.info(f"\n   📊 Итого за цикл: {sent_count} отправлено, {failed_count} ошибок")
 
             # Очищаем кэш обогащения после каждого цикла (экономия памяти)
             cache_stats = InstantSearch.get_cache_stats()
