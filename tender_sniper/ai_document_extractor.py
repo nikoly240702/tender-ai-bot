@@ -41,11 +41,16 @@ class TenderDocumentExtractor:
     """
 
     MODEL = "gpt-4o-mini"
+    MODEL_ITEMS = "gpt-4o"  # Более мощная модель для извлечения позиций
     CHUNK_MAX_CHARS = 25000
     CHUNK_OVERLAP = 2000
     MAX_CHUNKS = 3  # Limit chunks to avoid rate limits
     RETRY_ATTEMPTS = 3
     RETRY_BASE_DELAY = 2.0  # seconds
+
+    # --- System messages для каждого pass ---
+    PROMPT_SYSTEM_DATES = "Ты эксперт-аналитик тендерной документации госзакупок РФ. Точно извлекай сроки и адреса из документов."
+    PROMPT_SYSTEM_FINANCE = "Ты эксперт-аналитик тендерной документации госзакупок РФ. Точно извлекай финансовые условия из документов."
 
     # --- Pass 1: Сроки и логистика ---
     PROMPT_DATES = """Ты эксперт по анализу тендерной документации госзакупок России.
@@ -88,30 +93,39 @@ class TenderDocumentExtractor:
 """
 
     # --- Pass 3: Позиции и требования ---
-    PROMPT_ITEMS = """Ты эксперт по анализу тендерной документации госзакупок России.
+    PROMPT_ITEMS_SYSTEM = """Ты эксперт-аналитик тендерной документации госзакупок РФ. Твоя задача — точно извлечь позиции закупки из спецификации/ТЗ. Ты внимательно читаешь таблицы, спецификации и технические задания."""
 
-Извлеки позиции закупки и требования к участнику. Ответ СТРОГО в JSON:
+    PROMPT_ITEMS = """Извлеки позиции закупки и требования к участнику из документации. Ответ СТРОГО в JSON:
 
 {
     "items_count": "число позиций/наименований в спецификации, например '3'. ОБЯЗАТЕЛЬНО!",
-    "items_description": "нумерованный список позиций. Формат: '1. Название (кол-во)\n2. Название (кол-во)'. Максимум 10 позиций. ОБЯЗАТЕЛЬНО!",
+    "items_description": "нумерованный список позиций с количеством. Формат: '1. Название — кол-во шт./компл./м2/и т.д.\n2. Название — кол-во шт.'. Максимум 10 позиций. ОБЯЗАТЕЛЬНО!",
     "licenses_required": "конкретные лицензии: 'Лицензия ФСБ', 'Лицензия ФСТЭК', 'СРО' и т.п. Если не требуются — 'Не требуются'",
     "experience_required": "ТОЛЬКО если в документе ПРЯМО написано требование к опыту участника. Если явного требования нет — 'Не указано'",
     "summary": "1 предложение: что закупают и ключевое условие"
 }
 
-КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА (ЗАПРЕТ НА ГАЛЛЮЦИНАЦИИ):
+КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
+
+ЗАПРЕТ НА ГАЛЛЮЦИНАЦИИ:
 - Извлекай ТОЛЬКО те позиции, которые ЯВНО перечислены в спецификации/ТЗ документа
 - ЗАПРЕЩЕНО додумывать позиции на основе названия заказчика или типа учреждения
-- Если заказчик — больница, школа, детский центр и т.п., это НЕ значит что закупаются медицинские, образовательные или социальные услуги. Закупается ТОЛЬКО то, что написано в спецификации
-- Если в спецификации указаны компьютеры — пиши ТОЛЬКО компьютеры, НЕ добавляй "услуги питания", "услуги досуга" и т.п.
+- Если заказчик — больница, это НЕ значит что закупаются медицинские услуги
+- Если в спецификации указаны компьютеры — пиши ТОЛЬКО компьютеры
 
-ПРАВИЛА:
+ПРАВИЛА ИЗВЛЕЧЕНИЯ КОЛИЧЕСТВА:
+- Количество ВСЕГДА есть в спецификации/ТЗ — ищи внимательно в таблицах, в колонках "Количество", "Кол-во", "Объём", "Ед. изм."
+- Ищи количество рядом с каждой позицией: в той же строке таблицы, в следующей колонке
+- Пиши количество с единицами измерения: "10 шт.", "5 компл.", "100 м2", "1 усл."
+- Если позиция одна и количество не указано отдельно — пиши "1 компл." или "1 усл."
+- НИКОГДА не пиши "кол-во не указано" — количество всегда есть, ищи тщательнее
+
+ПРАВИЛА ФОРМАТИРОВАНИЯ:
 1. items_count — ВСЕГДА заполни! Посчитай позиции в спецификации/ТЗ
-2. items_description — извлеки ВСЕ позиции (макс 10). Для каждой: название, количество, ключевые хар-ки (кратко). Разделяй переносом строки
+2. items_description — извлеки ВСЕ позиции (макс 10). Формат: "1. Монитор 24\" — 15 шт.\n2. Системный блок — 15 шт."
 3. Если указан бренд/марка/модель — включи в описание позиции
 4. licenses_required — ТОЛЬКО конкретные лицензии (ФСБ, ФСТЭК, МЧС, СРО), НЕ общие фразы
-5. experience_required — КРИТИЧЕСКИ ВАЖНО: НЕ ВЫДУМЫВАЙ! Указывай ТОЛЬКО если в документе есть ДОСЛОВНАЯ фраза про требуемый опыт (например "опыт выполнения аналогичных контрактов не менее 3 лет"). Если таких слов в документе нет — пиши 'Не указано'
+5. experience_required — ТОЛЬКО если в документе есть ДОСЛОВНАЯ фраза про опыт. Иначе — 'Не указано'
 6. summary — ОДНО короткое предложение, строго по содержанию спецификации
 
 """
@@ -199,16 +213,22 @@ class TenderDocumentExtractor:
         text: str,
         prompt: str,
         context: str,
-        max_tokens: int = 500
+        max_tokens: int = 500,
+        model: Optional[str] = None,
+        system_message: Optional[str] = None
     ) -> Dict[str, Any]:
         """Один pass извлечения через API с retry на 429."""
+        use_model = model or self.MODEL
         for attempt in range(self.RETRY_ATTEMPTS):
             try:
+                messages = []
+                if system_message:
+                    messages.append({"role": "system", "content": system_message})
+                messages.append({"role": "user", "content": prompt + context + "ДОКУМЕНТАЦИЯ ТЕНДЕРА:\n" + text})
+
                 response = await self.client.chat.completions.create(
-                    model=self.MODEL,
-                    messages=[
-                        {"role": "user", "content": prompt + context + "ДОКУМЕНТАЦИЯ ТЕНДЕРА:\n" + text}
-                    ],
+                    model=use_model,
+                    messages=messages,
                     max_tokens=max_tokens,
                     temperature=0.1,
                     response_format={"type": "json_object"}
@@ -394,16 +414,22 @@ class TenderDocumentExtractor:
 
         try:
             all_results = []
+            # (prompt, max_tokens, model_override, system_message)
             passes = [
-                (self.PROMPT_DATES, 500),
-                (self.PROMPT_FINANCE, 500),
-                (self.PROMPT_ITEMS, 2000),
+                (self.PROMPT_DATES, 500, None, self.PROMPT_SYSTEM_DATES),
+                (self.PROMPT_FINANCE, 500, None, self.PROMPT_SYSTEM_FINANCE),
+                (self.PROMPT_ITEMS, 2000, self.MODEL_ITEMS, self.PROMPT_ITEMS_SYSTEM),
             ]
             for chunk_idx, chunk in enumerate(chunks):
                 merged = {}
                 # Run passes sequentially to avoid rate limit bursts
-                for prompt, max_tok in passes:
-                    result = await self._extract_pass(chunk, prompt, context, max_tokens=max_tok)
+                for prompt, max_tok, model_override, sys_msg in passes:
+                    result = await self._extract_pass(
+                        chunk, prompt, context,
+                        max_tokens=max_tok,
+                        model=model_override,
+                        system_message=sys_msg
+                    )
                     if isinstance(result, dict):
                         merged.update(result)
                 all_results.append(merged)

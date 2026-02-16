@@ -161,7 +161,14 @@ def _flatten_new_format(extraction: Dict[str, Any]) -> Dict[str, Any]:
         for line in items_lines:
             line = line.strip().rstrip(';').strip()
             if line:
-                clean_items.append(line)
+                # Убираем "кол-во не указано" / "(количество не указано)" и подобные фразы
+                line = re.sub(r'\s*\(кол-во не указано\)', '', line)
+                line = re.sub(r'\s*\(количество не указано\)', '', line)
+                line = re.sub(r'\s*— кол-во не указано', '', line)
+                line = re.sub(r'\s*- кол-во не указано', '', line)
+                line = line.strip()
+                if line:
+                    clean_items.append(line)
         if clean_items:
             parts.append('\n'.join(clean_items))
 
