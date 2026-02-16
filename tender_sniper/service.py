@@ -297,8 +297,9 @@ class TenderSniperService:
                     # Сбрасываем счетчик ошибок при успешном поиске
                     await self.db.reset_filter_error_count(filter_id)
 
-                    # Минимальный score для отправки уведомления (ужесточён для фильтрации мусора)
-                    MIN_SCORE_FOR_NOTIFICATION = 20
+                    # Минимальный score для отправки уведомления
+                    # 35 = отсекает шум (слабые single-keyword совпадения вроде "система")
+                    MIN_SCORE_FOR_NOTIFICATION = 35
 
                     # Фильтруем только новые тендеры (которых еще не уведомляли)
                     for match in matches:
