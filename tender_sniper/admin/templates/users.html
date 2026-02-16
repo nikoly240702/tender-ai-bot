@@ -43,6 +43,13 @@
             Premium: {{ tier_counts.get('premium', 0) }}
         </span>
     </div>
+    {% if tier_counts.get('expired', 0) > 0 %}
+    <div class="col-auto">
+        <span class="badge bg-danger p-2">
+            Истекла: {{ tier_counts.get('expired', 0) }}
+        </span>
+    </div>
+    {% endif %}
 </div>
 
 <!-- Users Table -->
@@ -79,12 +86,15 @@
                         </small>
                     </td>
                     <td>
+                        {% set tier_labels = {'trial': 'trial', 'basic': 'basic', 'premium': 'premium', 'expired': 'истекла', 'free': 'free'} %}
                         <span class="badge badge-tier badge-{{ item.user.subscription_tier }}">
-                            {{ item.user.subscription_tier }}
+                            {{ tier_labels.get(item.user.subscription_tier, item.user.subscription_tier) }}
                         </span>
                     </td>
                     <td>
-                        {% if item.get('days_left') is not none %}
+                        {% if item.user.subscription_tier == 'expired' %}
+                            <span class="badge bg-secondary">истекла</span>
+                        {% elif item.get('days_left') is not none %}
                             {% if item.get('days_left') >= 0 %}
                                 {% if item.get('days_left') <= 3 %}
                                 <span class="badge bg-danger">{{ item.get('days_left') }} дн.</span>
