@@ -80,6 +80,28 @@ class SubscriptionChecker:
                 )
                 users = result.scalars().all()
 
+            # Проактивно истекаем trial без даты окончания
+            async with DatabaseSession() as expire_session:
+                no_expiry_result = await expire_session.execute(
+                    select(SniperUser).where(
+                        and_(
+                            SniperUser.subscription_tier == 'trial',
+                            SniperUser.trial_expires_at.is_(None)
+                        )
+                    )
+                )
+                no_expiry_users = no_expiry_result.scalars().all()
+
+                if no_expiry_users:
+                    from sqlalchemy import update as sa_update
+                    no_expiry_ids = [u.id for u in no_expiry_users]
+                    await expire_session.execute(
+                        sa_update(SniperUser)
+                        .where(SniperUser.id.in_(no_expiry_ids))
+                        .values(subscription_tier='expired')
+                    )
+                    logger.info(f"🔄 Проактивно истекли trial без даты: {len(no_expiry_ids)} пользователей")
+
             notified_count = 0
 
             for user in users:

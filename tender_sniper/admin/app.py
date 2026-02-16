@@ -299,6 +299,9 @@ async def users_list(
                     expires_date = user.trial_expires_at.strftime('%d.%m')
                     delta = user.trial_expires_at - now
                     days_left = delta.days if delta.days >= 0 else -1  # -1 = истекла
+                elif user.subscription_tier == 'trial':
+                    # trial без даты окончания — считаем истекшим
+                    days_left = -1
 
                 users_data.append({
                     "user": user,
