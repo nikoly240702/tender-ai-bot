@@ -34,7 +34,7 @@ class InstantSearch:
     _cache_max_size = 500  # Максимум кэшированных тендеров
 
     # Минимальный pre-score для обогащения (без обогащения - пропускаем)
-    MIN_PRESCORE_FOR_ENRICHMENT = 0
+    MIN_PRESCORE_FOR_ENRICHMENT = 1
 
     def __init__(self):
         """Инициализация компонентов поиска."""
@@ -320,6 +320,14 @@ class InstantSearch:
                         # Используем кэшированные данные
                         cached = self._enrichment_cache[tender_number]
                         tender.update(cached)
+
+                        # Проверяем фильтр даже для кэшированных тендеров
+                        pre_match = self.matcher.match_tender(tender, temp_filter)
+                        if pre_match is None:
+                            tenders_skipped += 1
+                            logger.debug(f"      ⏭️ Кэш: отклонён SmartMatcher: {tender.get('name', '')[:50]}")
+                            continue
+
                         tenders_to_enrich.append(tender)
                         logger.debug(f"      💾 Из кэша: {tender_number}")
                         continue
@@ -601,11 +609,14 @@ class InstantSearch:
 
                 match_result = self.matcher.match_tender(tender, temp_filter)
 
-                # Для instant search показываем ВСЕ тендеры от RSS
-                # SmartMatcher только добавляет score для сортировки
+                # match_tender возвращает None = жёсткое отклонение (регион/цена/исключения)
+                if match_result is None:
+                    logger.debug(f"      ⛔ Отклонён SmartMatcher (регион/цена/исключение): {tender.get('name', '')[:60]}")
+                    continue
+
                 tender_with_score = tender.copy()
 
-                if match_result and match_result.get('score', 0) > 0:
+                if match_result.get('score', 0) > 0:
                     # Есть совпадение - используем score от matcher
                     tender_with_score['match_score'] = match_result['score']
                     tender_with_score['match_reasons'] = match_result.get('reasons', [])
