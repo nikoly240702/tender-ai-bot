@@ -162,6 +162,7 @@ class SniperFilter(Base):
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True, default=None)
 
     # Relationships
     user = relationship("SniperUser", back_populates="filters")
@@ -170,6 +171,7 @@ class SniperFilter(Base):
     # Indexes
     __table_args__ = (
         Index('ix_sniper_filters_user_active', 'user_id', 'is_active'),
+        Index('ix_sniper_filters_user_deleted', 'user_id', 'deleted_at'),
     )
 
 

@@ -332,9 +332,14 @@ class TenderSniperDB:
             return filter_obj.id
 
     async def get_user_filters(self, user_id: int, active_only: bool = True) -> List[Dict[str, Any]]:
-        """Получение фильтров пользователя."""
+        """Получение фильтров пользователя (исключая удалённые)."""
         async with DatabaseSession() as session:
-            query = select(SniperFilterModel).where(SniperFilterModel.user_id == user_id)
+            query = select(SniperFilterModel).where(
+                and_(
+                    SniperFilterModel.user_id == user_id,
+                    SniperFilterModel.deleted_at.is_(None)
+                )
+            )
 
             if active_only:
                 query = query.where(SniperFilterModel.is_active == True)
@@ -379,11 +384,59 @@ class TenderSniperDB:
             )
 
     async def delete_filter(self, filter_id: int):
-        """Удаление фильтра."""
+        """Мягкое удаление фильтра (перемещение в корзину)."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(deleted_at=datetime.utcnow(), is_active=False)
+            )
+
+    async def permanently_delete_filter(self, filter_id: int):
+        """Безвозвратное удаление фильтра из БД."""
         async with DatabaseSession() as session:
             await session.execute(
                 delete(SniperFilterModel).where(SniperFilterModel.id == filter_id)
             )
+
+    async def restore_filter(self, filter_id: int):
+        """Восстановление фильтра из корзины."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperFilterModel)
+                .where(SniperFilterModel.id == filter_id)
+                .values(deleted_at=None, is_active=True)
+            )
+
+    async def get_deleted_filters(self, user_id: int) -> List[Dict[str, Any]]:
+        """Получение удалённых фильтров пользователя (корзина)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperFilterModel)
+                .where(
+                    and_(
+                        SniperFilterModel.user_id == user_id,
+                        SniperFilterModel.deleted_at.isnot(None)
+                    )
+                )
+                .order_by(SniperFilterModel.deleted_at.desc())
+            )
+            filters = result.scalars().all()
+            return [self._filter_to_dict(f) for f in filters]
+
+    async def permanently_delete_all_deleted_filters(self, user_id: int) -> int:
+        """Безвозвратное удаление всех фильтров из корзины. Возвращает количество удалённых."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                delete(SniperFilterModel)
+                .where(
+                    and_(
+                        SniperFilterModel.user_id == user_id,
+                        SniperFilterModel.deleted_at.isnot(None)
+                    )
+                )
+            )
+            return result.rowcount
 
     async def duplicate_filter(self, filter_id: int, new_name: Optional[str] = None) -> Optional[int]:
         """
@@ -459,6 +512,7 @@ class TenderSniperDB:
                 .where(
                     and_(
                         SniperFilterModel.is_active == True,
+                        SniperFilterModel.deleted_at.is_(None),
                         SniperUserModel.notifications_enabled == True  # Пауза автомониторинга
                     )
                 )
@@ -525,7 +579,8 @@ class TenderSniperDB:
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),
             'is_active': filter_obj.is_active,
             'created_at': filter_obj.created_at.isoformat() if filter_obj.created_at else None,
-            'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None
+            'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None,
+            'deleted_at': filter_obj.deleted_at.isoformat() if getattr(filter_obj, 'deleted_at', None) else None
         }
 
     # ============================================
@@ -544,6 +599,7 @@ class TenderSniperDB:
                 .where(
                     and_(
                         SniperFilterModel.is_active == True,
+                        SniperFilterModel.deleted_at.is_(None),
                         or_(
                             SniperFilterModel.ai_intent == None,
                             SniperFilterModel.ai_intent == ''

@@ -579,12 +579,19 @@ async def show_my_filters(callback: CallbackQuery):
         # Получаем фильтры
         filters = await db.get_active_filters(user['id'])
 
+        # Проверяем корзину
+        deleted_filters = await db.get_deleted_filters(user['id'])
+        trash_count = len(deleted_filters)
+
         if not filters:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            buttons = [
                 [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_new_search")],
-                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
-                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-            ])
+            ]
+            if trash_count > 0:
+                buttons.append([InlineKeyboardButton(text=f"🗑 Корзина ({trash_count})", callback_data="sniper_trash_bin")])
+            buttons.append([InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")])
+            buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
             await callback.message.edit_text(
                 "📋 <b>У вас пока нет фильтров</b>\n\n"
@@ -629,6 +636,10 @@ async def show_my_filters(callback: CallbackQuery):
         keyboard_buttons.append([
             InlineKeyboardButton(text="🗑️ Удалить все фильтры", callback_data="confirm_delete_all_filters")
         ])
+        if trash_count > 0:
+            keyboard_buttons.append([
+                InlineKeyboardButton(text=f"🗑 Корзина ({trash_count})", callback_data="sniper_trash_bin")
+            ])
         keyboard_buttons.append([
             InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")
         ])
@@ -680,12 +691,19 @@ async def show_my_filters_message(message: Message):
         # Получаем фильтры
         filters = await db.get_active_filters(user['id'])
 
+        # Проверяем корзину
+        deleted_filters = await db.get_deleted_filters(user['id'])
+        trash_count = len(deleted_filters)
+
         if not filters:
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            buttons = [
                 [InlineKeyboardButton(text="➕ Создать первый фильтр", callback_data="sniper_new_search")],
-                [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
-                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-            ])
+            ]
+            if trash_count > 0:
+                buttons.append([InlineKeyboardButton(text=f"🗑 Корзина ({trash_count})", callback_data="sniper_trash_bin")])
+            buttons.append([InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")])
+            buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")])
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
             await message.answer(
                 "📋 <b>У вас пока нет фильтров</b>\n\n"
@@ -730,6 +748,10 @@ async def show_my_filters_message(message: Message):
         keyboard_buttons.append([
             InlineKeyboardButton(text="🗑️ Удалить все фильтры", callback_data="confirm_delete_all_filters")
         ])
+        if trash_count > 0:
+            keyboard_buttons.append([
+                InlineKeyboardButton(text=f"🗑 Корзина ({trash_count})", callback_data="sniper_trash_bin")
+            ])
         keyboard_buttons.append([
             InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")
         ])
@@ -1927,9 +1949,9 @@ async def delete_filter(callback: CallbackQuery):
         ])
 
         await callback.message.edit_text(
-            f"⚠️ <b>Подтверждение удаления</b>\n\n"
-            f"Вы уверены, что хотите удалить фильтр «{filter_data['name']}»?\n\n"
-            f"<i>Это действие необратимо!</i>",
+            f"⚠️ <b>Удалить фильтр?</b>\n\n"
+            f"Фильтр «{filter_data['name']}» будет перемещён в корзину.\n"
+            f"Вы сможете восстановить его позже.",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -1977,12 +1999,14 @@ async def confirm_delete_filter(callback: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="🗑 Корзина", callback_data="sniper_trash_bin")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
 
         await callback.message.edit_text(
-            f"✅ <b>Фильтр удален</b>\n\n"
-            f"Фильтр «{filter_data['name']}» успешно удален.",
+            f"🗑 <b>Фильтр перемещён в корзину</b>\n\n"
+            f"Фильтр «{filter_data['name']}» перемещён в корзину.\n"
+            f"Вы можете восстановить его в любое время.",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -2021,9 +2045,9 @@ async def confirm_delete_all_filters(callback: CallbackQuery):
         ])
 
         await callback.message.edit_text(
-            f"⚠️ <b>Подтверждение удаления</b>\n\n"
-            f"Вы уверены, что хотите удалить все {filters_count} фильтр(ов)?\n\n"
-            f"<i>Это действие необратимо!</i>",
+            f"⚠️ <b>Удалить все фильтры?</b>\n\n"
+            f"Все {filters_count} фильтр(ов) будут перемещены в корзину.\n"
+            f"Вы сможете восстановить их позже.",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
@@ -2066,20 +2090,363 @@ async def delete_all_filters_confirmed(callback: CallbackQuery):
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="➕ Создать новый фильтр", callback_data="sniper_new_search")],
+            [InlineKeyboardButton(text="🗑 Корзина", callback_data="sniper_trash_bin")],
             [InlineKeyboardButton(text="🎯 Меню Sniper", callback_data="sniper_menu")],
             [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
         ])
 
         await callback.message.edit_text(
-            f"✅ <b>Все фильтры удалены</b>\n\n"
-            f"Удалено фильтров: {deleted_count}\n\n"
-            f"Вы можете создать новые фильтры для мониторинга тендеров.",
+            f"🗑 <b>Фильтры перемещены в корзину</b>\n\n"
+            f"Перемещено фильтров: {deleted_count}\n\n"
+            f"Вы можете восстановить их из корзины или создать новые.",
             reply_markup=keyboard,
             parse_mode="HTML"
         )
 
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка при удалении фильтров: {str(e)}")
+
+
+# ============================================
+# КОРЗИНА (TRASH BIN)
+# ============================================
+
+@router.callback_query(F.data == "sniper_trash_bin")
+async def show_trash_bin(callback: CallbackQuery):
+    """Показать список удалённых фильтров (корзина)."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        deleted_filters = await db.get_deleted_filters(user['id'])
+
+        if not deleted_filters:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+                [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+            ])
+
+            await callback.message.edit_text(
+                "🗑 <b>Корзина пуста</b>\n\n"
+                "Удалённых фильтров нет.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        text = "🗑 <b>Корзина</b>\n\n"
+        keyboard_buttons = []
+
+        for i, f in enumerate(deleted_filters, 1):
+            deleted_at = f.get('deleted_at', '')
+            if deleted_at:
+                try:
+                    dt = datetime.fromisoformat(deleted_at)
+                    date_str = dt.strftime("%d.%m.%Y %H:%M")
+                except (ValueError, TypeError):
+                    date_str = "—"
+            else:
+                date_str = "—"
+
+            keywords = f.get('keywords', [])
+            text += (
+                f"{i}. <b>{f['name']}</b>\n"
+                f"   🔑 {', '.join(keywords[:3]) if keywords else '—'}\n"
+                f"   🕐 Удалён: {date_str}\n\n"
+            )
+
+            keyboard_buttons.append([
+                InlineKeyboardButton(
+                    text=f"🗑 {f['name'][:20]}",
+                    callback_data=f"trash_filter_{f['id']}"
+                )
+            ])
+
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🧹 Очистить корзину", callback_data="confirm_empty_trash")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")
+        ])
+        keyboard_buttons.append([
+            InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")
+        ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_trash_bin: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
+
+
+@router.callback_query(F.data.startswith("trash_filter_"))
+async def show_trash_filter_detail(callback: CallbackQuery):
+    """Детали удалённого фильтра с кнопками восстановления/удаления."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("trash_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data or not filter_data.get('deleted_at'):
+            await callback.message.answer("❌ Фильтр не найден в корзине")
+            return
+
+        keywords = filter_data.get('keywords', [])
+        deleted_at = filter_data.get('deleted_at', '')
+        if deleted_at:
+            try:
+                dt = datetime.fromisoformat(deleted_at)
+                date_str = dt.strftime("%d.%m.%Y %H:%M")
+            except (ValueError, TypeError):
+                date_str = "—"
+        else:
+            date_str = "—"
+
+        price_range = ""
+        if filter_data.get('price_min') or filter_data.get('price_max'):
+            price_min = f"{filter_data['price_min']:,}" if filter_data.get('price_min') else "0"
+            price_max = f"{filter_data['price_max']:,}" if filter_data.get('price_max') else "∞"
+            price_range = f"\n💰 Цена: {price_min} - {price_max} ₽"
+
+        regions = filter_data.get('regions', [])
+        regions_str = f"\n📍 Регионы: {', '.join(regions[:3])}" if regions else ""
+
+        text = (
+            f"🗑 <b>Удалённый фильтр</b>\n\n"
+            f"📌 <b>{filter_data['name']}</b>\n"
+            f"🔑 Ключевые слова: {', '.join(keywords[:5]) if keywords else '—'}"
+            f"{price_range}{regions_str}\n"
+            f"🕐 Удалён: {date_str}"
+        )
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="♻️ Восстановить", callback_data=f"restore_filter_{filter_id}")],
+            [InlineKeyboardButton(text="❌ Удалить навсегда", callback_data=f"perm_delete_filter_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад в корзину", callback_data="sniper_trash_bin")]
+        ])
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка в show_trash_filter_detail: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
+
+
+@router.callback_query(F.data.startswith("restore_filter_"))
+async def restore_filter(callback: CallbackQuery):
+    """Восстановить фильтр из корзины."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("restore_filter_", ""))
+
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        # Проверяем лимит фильтров
+        active_filters = await db.get_user_filters(user['id'], active_only=True)
+        tier = user['subscription_tier']
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
+
+        if len(active_filters) >= max_filters:
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+                [InlineKeyboardButton(text="« Назад в корзину", callback_data="sniper_trash_bin")]
+            ])
+
+            await callback.message.edit_text(
+                f"⚠️ <b>Лимит фильтров достигнут</b>\n\n"
+                f"Ваш тариф <b>{tier.title()}</b> позволяет максимум {max_filters} фильтров.\n"
+                f"Удалите один из активных фильтров перед восстановлением.",
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+
+        filter_data = await db.get_filter_by_id(filter_id)
+        if not filter_data:
+            await callback.message.answer("❌ Фильтр не найден")
+            return
+
+        await db.restore_filter(filter_id)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="🗑 Корзина", callback_data="sniper_trash_bin")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            f"♻️ <b>Фильтр восстановлен</b>\n\n"
+            f"Фильтр «{filter_data['name']}» снова активен и будет участвовать в мониторинге.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка восстановления фильтра: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
+
+
+@router.callback_query(F.data.startswith("perm_delete_filter_"))
+async def perm_delete_filter(callback: CallbackQuery):
+    """Подтверждение безвозвратного удаления фильтра."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("perm_delete_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.answer("❌ Фильтр не найден")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Да, удалить навсегда", callback_data=f"confirm_perm_delete_{filter_id}")],
+            [InlineKeyboardButton(text="« Отмена", callback_data=f"trash_filter_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"⚠️ <b>Безвозвратное удаление</b>\n\n"
+            f"Фильтр «{filter_data['name']}» будет удалён навсегда.\n\n"
+            f"<i>Это действие нельзя отменить!</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
+
+
+@router.callback_query(F.data.startswith("confirm_perm_delete_"))
+async def confirm_perm_delete(callback: CallbackQuery):
+    """Безвозвратно удалить фильтр."""
+    await callback.answer()
+
+    try:
+        filter_id = int(callback.data.replace("confirm_perm_delete_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+        filter_name = filter_data['name'] if filter_data else "Неизвестный"
+
+        await db.permanently_delete_filter(filter_id)
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Корзина", callback_data="sniper_trash_bin")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            f"✅ <b>Фильтр удалён навсегда</b>\n\n"
+            f"Фильтр «{filter_name}» безвозвратно удалён.",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при безвозвратном удалении: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
+
+
+@router.callback_query(F.data == "confirm_empty_trash")
+async def confirm_empty_trash(callback: CallbackQuery):
+    """Подтверждение очистки корзины."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        deleted_filters = await db.get_deleted_filters(user['id'])
+        count = len(deleted_filters)
+
+        if count == 0:
+            await callback.message.edit_text(
+                "🗑 <b>Корзина уже пуста</b>",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")]
+                ])
+            )
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Да, очистить", callback_data="empty_trash_confirmed")],
+            [InlineKeyboardButton(text="« Отмена", callback_data="sniper_trash_bin")]
+        ])
+
+        await callback.message.edit_text(
+            f"⚠️ <b>Очистить корзину?</b>\n\n"
+            f"Будет безвозвратно удалено фильтров: {count}\n\n"
+            f"<i>Это действие нельзя отменить!</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
+
+
+@router.callback_query(F.data == "empty_trash_confirmed")
+async def empty_trash_confirmed(callback: CallbackQuery):
+    """Очистить всю корзину."""
+    await callback.answer()
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if not user:
+            await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        deleted_count = await db.permanently_delete_all_deleted_filters(user['id'])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+        ])
+
+        await callback.message.edit_text(
+            f"✅ <b>Корзина очищена</b>\n\n"
+            f"Безвозвратно удалено фильтров: {deleted_count}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка очистки корзины: {e}", exc_info=True)
+        await callback.message.answer(f"❌ Ошибка: {str(e)[:200]}")
 
 
 # ============================================
