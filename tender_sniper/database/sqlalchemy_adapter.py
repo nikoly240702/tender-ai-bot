@@ -221,6 +221,28 @@ class TenderSniperDB:
                 for g in groups
             ]
 
+    async def get_all_active_groups(self) -> List[Dict]:
+        """Все активные группы где бот присутствует."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(
+                    and_(
+                        SniperUserModel.is_group == True,
+                        SniperUserModel.status == 'active'
+                    )
+                )
+            )
+            groups = result.scalars().all()
+            return [
+                {
+                    'id': g.id,
+                    'telegram_id': g.telegram_id,
+                    'name': g.first_name or f'Группа {g.telegram_id}',
+                    'group_admin_id': g.group_admin_id
+                }
+                for g in groups
+            ]
+
     async def reset_daily_notifications(self, user_id: int):
         """Сброс счетчика уведомлений."""
         async with DatabaseSession() as session:

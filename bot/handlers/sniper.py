@@ -1072,8 +1072,8 @@ async def show_filter_details(callback: CallbackQuery):
         # Кнопки управления фильтром
         keyboard_buttons = [
             [InlineKeyboardButton(
-                text="✏️ Редактировать цену",
-                callback_data=f"edit_filter_price_{filter_id}"
+                text="✏️ Редактировать",
+                callback_data=f"edit_filter_menu_{filter_id}"
             )],
             [InlineKeyboardButton(
                 text="📋 Дублировать фильтр",
@@ -1107,6 +1107,11 @@ async def show_filter_details(callback: CallbackQuery):
 class EditFilterStates(StatesGroup):
     """Состояния для редактирования фильтра."""
     waiting_for_new_price_range = State()
+    waiting_for_new_keywords = State()
+    waiting_for_new_exclude_keywords = State()
+    waiting_for_new_customer_keywords = State()
+    selecting_regions = State()
+    selecting_tender_types = State()
 
 
 @router.callback_query(F.data.startswith("edit_filter_price_"))
@@ -1173,8 +1178,8 @@ async def process_edit_filter_price(message: Message, state: FSMContext):
         await state.clear()
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📋 Просмотреть фильтр", callback_data=f"sniper_filter_{filter_id}")],
-            [InlineKeyboardButton(text="« К списку фильтров", callback_data="sniper_my_filters")]
+            [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+            [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
         ])
 
         await message.answer(
@@ -1193,6 +1198,590 @@ async def process_edit_filter_price(message: Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"❌ Ошибка при обновлении фильтра: {str(e)}")
         await state.clear()
+
+
+# ============================================
+# ПОДМЕНЮ РЕДАКТИРОВАНИЯ ФИЛЬТРА
+# ============================================
+
+@router.callback_query(F.data.startswith("edit_filter_menu_"))
+async def show_edit_filter_menu(callback: CallbackQuery, state: FSMContext):
+    """Показать подменю редактирования фильтра со всеми полями."""
+    await callback.answer()
+    await state.clear()
+
+    try:
+        filter_id = int(callback.data.replace("edit_filter_menu_", ""))
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+            return
+
+        keywords = filter_data.get('keywords', []) or []
+        exclude_keywords = filter_data.get('exclude_keywords', []) or []
+        price_min = filter_data.get('price_min')
+        price_max = filter_data.get('price_max')
+        regions = filter_data.get('regions', []) or []
+        tender_types = filter_data.get('tender_types', []) or []
+        law_type = filter_data.get('law_type')
+        customer_keywords = filter_data.get('customer_keywords', []) or []
+
+        text = f"✏️ <b>Редактирование фильтра «{filter_data['name']}»</b>\n\n"
+
+        text += f"🔑 <b>Ключевые слова:</b> {', '.join(keywords) if keywords else '(не заданы)'}\n"
+        text += f"🚫 <b>Исключения:</b> {', '.join(exclude_keywords) if exclude_keywords else '(не заданы)'}\n"
+
+        if price_min or price_max:
+            p_min = f"{price_min:,}" if price_min else "0"
+            p_max = f"{price_max:,}" if price_max else "∞"
+            text += f"💰 <b>Цена:</b> {p_min} — {p_max} ₽\n"
+        else:
+            text += "💰 <b>Цена:</b> (не задана)\n"
+
+        if regions:
+            r_text = ', '.join(regions[:3])
+            if len(regions) > 3:
+                r_text += f" (+{len(regions) - 3})"
+            text += f"📍 <b>Регионы:</b> {r_text}\n"
+        else:
+            text += "📍 <b>Регионы:</b> (все)\n"
+
+        text += f"📦 <b>Тип:</b> {', '.join(tender_types) if tender_types else 'Любые'}\n"
+        text += f"📜 <b>Закон:</b> {law_type if law_type else 'Любой'}\n"
+        text += f"🏢 <b>Заказчик:</b> {', '.join(customer_keywords) if customer_keywords else '(не задано)'}\n"
+
+        buttons = [
+            [InlineKeyboardButton(text="🔑 Ключевые слова", callback_data=f"edit_fkw_{filter_id}")],
+            [InlineKeyboardButton(text="🚫 Исключения", callback_data=f"edit_fex_{filter_id}")],
+            [InlineKeyboardButton(text="💰 Цена", callback_data=f"edit_filter_price_{filter_id}")],
+            [InlineKeyboardButton(text="📍 Регионы", callback_data=f"edit_frg_{filter_id}")],
+            [InlineKeyboardButton(text="📦 Тип закупки", callback_data=f"edit_ftt_{filter_id}")],
+            [InlineKeyboardButton(text="📜 Закон", callback_data=f"edit_flw_{filter_id}")],
+            [InlineKeyboardButton(text="🏢 Заказчик", callback_data=f"edit_fck_{filter_id}")],
+            [InlineKeyboardButton(text="« Назад к фильтру", callback_data=f"sniper_filter_{filter_id}")]
+        ]
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка отображения меню редактирования: {e}", exc_info=True)
+        await callback.message.edit_text("❌ Произошла ошибка", parse_mode="HTML")
+
+
+# --- Редактирование ключевых слов ---
+
+@router.callback_query(F.data.startswith("edit_fkw_"))
+async def start_edit_keywords(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование ключевых слов."""
+    await callback.answer()
+    filter_id = int(callback.data.replace("edit_fkw_", ""))
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+    current = ', '.join(filter_data.get('keywords', []) or []) if filter_data else ''
+
+    await state.update_data(editing_filter_id=filter_id)
+    await state.set_state(EditFilterStates.waiting_for_new_keywords)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Отмена", callback_data=f"edit_filter_menu_{filter_id}")]
+    ])
+
+    await callback.message.edit_text(
+        f"🔑 <b>Редактирование ключевых слов</b>\n\n"
+        f"Текущие: <code>{current or '(не заданы)'}</code>\n\n"
+        f"Введите новые ключевые слова через запятую:\n"
+        f"Пример: <code>бумага, картон, канцелярия</code>",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(EditFilterStates.waiting_for_new_keywords)
+async def process_edit_keywords(message: Message, state: FSMContext):
+    """Обработка новых ключевых слов."""
+    try:
+        keywords = [kw.strip() for kw in message.text.split(',') if kw.strip()]
+
+        if not keywords:
+            await message.answer("⚠️ Введите хотя бы одно ключевое слово")
+            return
+
+        data = await state.get_data()
+        filter_id = data.get('editing_filter_id')
+        if not filter_id:
+            await message.answer("❌ Ошибка: ID фильтра не найден")
+            await state.clear()
+            return
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id=filter_id, keywords=keywords)
+        await state.clear()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+            [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
+        ])
+
+        await message.answer(
+            f"✅ <b>Ключевые слова обновлены!</b>\n\n"
+            f"🔑 {', '.join(keywords)}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {str(e)}")
+        await state.clear()
+
+
+# --- Редактирование исключений ---
+
+@router.callback_query(F.data.startswith("edit_fex_"))
+async def start_edit_exclude_keywords(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование слов-исключений."""
+    await callback.answer()
+    filter_id = int(callback.data.replace("edit_fex_", ""))
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+    current = ', '.join(filter_data.get('exclude_keywords', []) or []) if filter_data else ''
+
+    await state.update_data(editing_filter_id=filter_id)
+    await state.set_state(EditFilterStates.waiting_for_new_exclude_keywords)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Отмена", callback_data=f"edit_filter_menu_{filter_id}")]
+    ])
+
+    await callback.message.edit_text(
+        f"🚫 <b>Редактирование исключений</b>\n\n"
+        f"Текущие: <code>{current or '(не заданы)'}</code>\n\n"
+        f"Введите слова-исключения через запятую:\n"
+        f"Пример: <code>ремонт, монтаж</code>\n\n"
+        f"Отправьте <code>-</code> чтобы очистить.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(EditFilterStates.waiting_for_new_exclude_keywords)
+async def process_edit_exclude_keywords(message: Message, state: FSMContext):
+    """Обработка новых слов-исключений."""
+    try:
+        data = await state.get_data()
+        filter_id = data.get('editing_filter_id')
+        if not filter_id:
+            await message.answer("❌ Ошибка: ID фильтра не найден")
+            await state.clear()
+            return
+
+        text = message.text.strip()
+        if text == '-':
+            exclude_keywords = []
+        else:
+            exclude_keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id=filter_id, exclude_keywords=exclude_keywords)
+        await state.clear()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+            [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
+        ])
+
+        result_text = ', '.join(exclude_keywords) if exclude_keywords else 'очищены'
+        await message.answer(
+            f"✅ <b>Исключения обновлены!</b>\n\n"
+            f"🚫 {result_text}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {str(e)}")
+        await state.clear()
+
+
+# --- Редактирование заказчика ---
+
+@router.callback_query(F.data.startswith("edit_fck_"))
+async def start_edit_customer_keywords(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование ключевых слов заказчика."""
+    await callback.answer()
+    filter_id = int(callback.data.replace("edit_fck_", ""))
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+    current = ', '.join(filter_data.get('customer_keywords', []) or []) if filter_data else ''
+
+    await state.update_data(editing_filter_id=filter_id)
+    await state.set_state(EditFilterStates.waiting_for_new_customer_keywords)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« Отмена", callback_data=f"edit_filter_menu_{filter_id}")]
+    ])
+
+    await callback.message.edit_text(
+        f"🏢 <b>Редактирование заказчика</b>\n\n"
+        f"Текущие: <code>{current or '(не задано)'}</code>\n\n"
+        f"Введите ключевые слова заказчика через запятую:\n"
+        f"Пример: <code>университет, больница</code>\n\n"
+        f"Отправьте <code>-</code> чтобы очистить.",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+@router.message(EditFilterStates.waiting_for_new_customer_keywords)
+async def process_edit_customer_keywords(message: Message, state: FSMContext):
+    """Обработка новых ключевых слов заказчика."""
+    try:
+        data = await state.get_data()
+        filter_id = data.get('editing_filter_id')
+        if not filter_id:
+            await message.answer("❌ Ошибка: ID фильтра не найден")
+            await state.clear()
+            return
+
+        text = message.text.strip()
+        if text == '-':
+            customer_keywords = []
+        else:
+            customer_keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+
+        db = await get_sniper_db()
+        await db.update_filter(filter_id=filter_id, customer_keywords=customer_keywords)
+        await state.clear()
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+            [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
+        ])
+
+        result_text = ', '.join(customer_keywords) if customer_keywords else 'очищено'
+        await message.answer(
+            f"✅ <b>Заказчик обновлен!</b>\n\n"
+            f"🏢 {result_text}",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {str(e)}")
+        await state.clear()
+
+
+# --- Редактирование регионов (инлайн-тоглы по ФО) ---
+
+@router.callback_query(F.data.startswith("edit_frg_"))
+async def start_edit_regions(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование регионов фильтра."""
+    await callback.answer()
+    filter_id = int(callback.data.replace("edit_frg_", ""))
+
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+    if not filter_data:
+        await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+        return
+
+    current_regions = filter_data.get('regions', []) or []
+
+    # Определяем выбранные ФО по текущим регионам
+    from tender_sniper.regions import REGION_TO_DISTRICT, get_all_federal_districts, get_regions_by_district
+    selected_districts = set()
+    for region in current_regions:
+        district = REGION_TO_DISTRICT.get(region.lower())
+        if district:
+            selected_districts.add(district)
+
+    await state.update_data(
+        editing_filter_id=filter_id,
+        edit_selected_districts=list(selected_districts)
+    )
+    await state.set_state(EditFilterStates.selecting_regions)
+
+    await _show_edit_regions_keyboard(callback.message, filter_id, selected_districts, state)
+
+
+async def _show_edit_regions_keyboard(message, filter_id: int, selected_districts: set, state: FSMContext = None):
+    """Показать клавиатуру выбора регионов по ФО."""
+    from tender_sniper.regions import get_all_federal_districts, get_regions_by_district
+
+    districts = get_all_federal_districts()
+    buttons = []
+
+    for d in districts:
+        check = "✅" if d['name'] in selected_districts else "☐"
+        regions_count = d['regions_count']
+        buttons.append([InlineKeyboardButton(
+            text=f"{check} {d['name']} ({regions_count})",
+            callback_data=f"edf_rg_toggle:{d['name'][:20]}"
+        )])
+
+    buttons.append([
+        InlineKeyboardButton(text="🗑 Очистить", callback_data=f"edf_rg_clear"),
+        InlineKeyboardButton(text="✅ Сохранить", callback_data=f"edf_rg_save")
+    ])
+    buttons.append([InlineKeyboardButton(text="« Отмена", callback_data=f"edit_filter_menu_{filter_id}")])
+
+    count = sum(len(get_regions_by_district(d)) for d in selected_districts)
+    text = (
+        f"📍 <b>Редактирование регионов</b>\n\n"
+        f"Выбрано округов: {len(selected_districts)}, регионов: {count}\n\n"
+        f"Нажмите на округ чтобы вкл/выкл:"
+    )
+
+    try:
+        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("edf_rg_toggle:"), EditFilterStates.selecting_regions)
+async def edit_regions_toggle(callback: CallbackQuery, state: FSMContext):
+    """Тогл федерального округа при редактировании."""
+    await callback.answer()
+
+    district_prefix = callback.data.split(":", 1)[1]
+
+    # Находим полное имя округа
+    from tender_sniper.regions import get_all_federal_districts
+    districts = get_all_federal_districts()
+    district_name = None
+    for d in districts:
+        if d['name'].startswith(district_prefix):
+            district_name = d['name']
+            break
+
+    if not district_name:
+        return
+
+    data = await state.get_data()
+    filter_id = data.get('editing_filter_id')
+    selected = set(data.get('edit_selected_districts', []))
+
+    if district_name in selected:
+        selected.discard(district_name)
+    else:
+        selected.add(district_name)
+
+    await state.update_data(edit_selected_districts=list(selected))
+    await _show_edit_regions_keyboard(callback.message, filter_id, selected, state)
+
+
+@router.callback_query(F.data == "edf_rg_clear", EditFilterStates.selecting_regions)
+async def edit_regions_clear(callback: CallbackQuery, state: FSMContext):
+    """Очистить все регионы."""
+    await callback.answer("Регионы очищены")
+    data = await state.get_data()
+    filter_id = data.get('editing_filter_id')
+    await state.update_data(edit_selected_districts=[])
+    await _show_edit_regions_keyboard(callback.message, filter_id, set(), state)
+
+
+@router.callback_query(F.data == "edf_rg_save", EditFilterStates.selecting_regions)
+async def edit_regions_save(callback: CallbackQuery, state: FSMContext):
+    """Сохранить выбранные регионы."""
+    await callback.answer()
+    from tender_sniper.regions import get_regions_by_district
+
+    data = await state.get_data()
+    filter_id = data.get('editing_filter_id')
+    selected_districts = data.get('edit_selected_districts', [])
+
+    # Собираем все регионы из выбранных округов
+    regions = []
+    for district in selected_districts:
+        regions.extend(get_regions_by_district(district))
+
+    db = await get_sniper_db()
+    await db.update_filter(filter_id=filter_id, regions=regions if regions else [])
+    await state.clear()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+        [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
+    ])
+
+    count_text = f"{len(regions)} регионов из {len(selected_districts)} округов" if regions else "все регионы (без ограничений)"
+    await callback.message.edit_text(
+        f"✅ <b>Регионы обновлены!</b>\n\n"
+        f"📍 {count_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+# --- Редактирование типа закупки (инлайн-тоглы) ---
+
+@router.callback_query(F.data.startswith("edit_ftt_"))
+async def start_edit_tender_types(callback: CallbackQuery, state: FSMContext):
+    """Начать редактирование типа закупки."""
+    await callback.answer()
+    filter_id = int(callback.data.replace("edit_ftt_", ""))
+
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+    if not filter_data:
+        await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
+        return
+
+    current_types = filter_data.get('tender_types', []) or []
+
+    # Маппинг значений на коды
+    from bot.handlers.sniper_wizard_new import TENDER_TYPES
+    selected_codes = []
+    for code, info in TENDER_TYPES.items():
+        if code == 'any':
+            continue
+        if info['value'] in current_types:
+            selected_codes.append(code)
+
+    await state.update_data(
+        editing_filter_id=filter_id,
+        edit_selected_types=selected_codes
+    )
+    await state.set_state(EditFilterStates.selecting_tender_types)
+
+    await _show_edit_tender_types_keyboard(callback.message, filter_id, selected_codes)
+
+
+async def _show_edit_tender_types_keyboard(message, filter_id: int, selected_codes: list):
+    """Показать клавиатуру выбора типов закупки."""
+    from bot.handlers.sniper_wizard_new import TENDER_TYPES
+
+    buttons = []
+    for code, info in TENDER_TYPES.items():
+        if code == 'any':
+            continue
+        check = "✅" if code in selected_codes else "☐"
+        buttons.append([InlineKeyboardButton(
+            text=f"{check} {info['icon']} {info['name']}",
+            callback_data=f"edf_tt_toggle:{code}"
+        )])
+
+    buttons.append([InlineKeyboardButton(text="✅ Сохранить", callback_data="edf_tt_save")])
+    buttons.append([InlineKeyboardButton(text="« Отмена", callback_data=f"edit_filter_menu_{filter_id}")])
+
+    text = (
+        f"📦 <b>Редактирование типа закупки</b>\n\n"
+        f"Выберите типы (или оставьте пустым — любые):"
+    )
+
+    try:
+        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons), parse_mode="HTML")
+    except Exception:
+        pass
+
+
+@router.callback_query(F.data.startswith("edf_tt_toggle:"), EditFilterStates.selecting_tender_types)
+async def edit_tender_type_toggle(callback: CallbackQuery, state: FSMContext):
+    """Тогл типа закупки при редактировании."""
+    await callback.answer()
+    type_code = callback.data.split(":", 1)[1]
+
+    data = await state.get_data()
+    filter_id = data.get('editing_filter_id')
+    selected = data.get('edit_selected_types', [])
+
+    if type_code in selected:
+        selected.remove(type_code)
+    else:
+        selected.append(type_code)
+
+    await state.update_data(edit_selected_types=selected)
+    await _show_edit_tender_types_keyboard(callback.message, filter_id, selected)
+
+
+@router.callback_query(F.data == "edf_tt_save", EditFilterStates.selecting_tender_types)
+async def edit_tender_types_save(callback: CallbackQuery, state: FSMContext):
+    """Сохранить выбранные типы закупки."""
+    await callback.answer()
+    from bot.handlers.sniper_wizard_new import TENDER_TYPES
+
+    data = await state.get_data()
+    filter_id = data.get('editing_filter_id')
+    selected_codes = data.get('edit_selected_types', [])
+
+    tender_types_list = [TENDER_TYPES[code]['value'] for code in selected_codes if TENDER_TYPES[code].get('value')]
+
+    db = await get_sniper_db()
+    await db.update_filter(filter_id=filter_id, tender_types=tender_types_list if tender_types_list else [])
+    await state.clear()
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+        [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
+    ])
+
+    type_names = [TENDER_TYPES[code]['name'] for code in selected_codes]
+    result_text = ', '.join(type_names) if type_names else 'Любые'
+    await callback.message.edit_text(
+        f"✅ <b>Тип закупки обновлен!</b>\n\n"
+        f"📦 {result_text}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
+# --- Редактирование закона (одноклик, без FSM) ---
+
+@router.callback_query(F.data.startswith("edit_flw_"))
+async def start_edit_law_type(callback: CallbackQuery):
+    """Показать выбор закона для фильтра."""
+    await callback.answer()
+    filter_id = int(callback.data.replace("edit_flw_", ""))
+
+    from bot.handlers.sniper_wizard_new import LAW_TYPES
+
+    buttons = []
+    for law_code, law_info in LAW_TYPES.items():
+        buttons.append([InlineKeyboardButton(
+            text=f"{law_info['icon']} {law_info['name']}",
+            callback_data=f"edf_lw_{filter_id}:{law_code}"
+        )])
+
+    buttons.append([InlineKeyboardButton(text="« Отмена", callback_data=f"edit_filter_menu_{filter_id}")])
+
+    await callback.message.edit_text(
+        "📜 <b>Выберите закон</b>\n\n"
+        "Нажмите для выбора:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("edf_lw_"))
+async def edit_law_type_select(callback: CallbackQuery):
+    """Сохранить выбранный закон."""
+    await callback.answer()
+    from bot.handlers.sniper_wizard_new import LAW_TYPES
+
+    # edf_lw_{filter_id}:{law_code}
+    parts = callback.data.replace("edf_lw_", "").split(":")
+    filter_id = int(parts[0])
+    law_code = parts[1]
+
+    law_info = LAW_TYPES.get(law_code, LAW_TYPES['any'])
+    law_value = law_info['value']  # None для "Любой"
+
+    db = await get_sniper_db()
+    await db.update_filter(filter_id=filter_id, law_type=law_value)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Продолжить", callback_data=f"edit_filter_menu_{filter_id}")],
+        [InlineKeyboardButton(text="📋 К фильтру", callback_data=f"sniper_filter_{filter_id}")]
+    ])
+
+    await callback.message.edit_text(
+        f"✅ <b>Закон обновлен!</b>\n\n"
+        f"📜 {law_info['name']}",
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("toggle_filter_"))
@@ -2556,7 +3145,7 @@ async def analyze_tender_documentation(callback: CallbackQuery):
 # PER-FILTER NOTIFICATION TARGETS
 # ============================================
 
-async def _render_notify_targets(message, filter_id: int, user_tg_id: int):
+async def _render_notify_targets(message, filter_id: int, user_tg_id: int, bot=None):
     """Отрисовка меню выбора адресатов уведомлений."""
     db = await get_sniper_db()
     filter_data = await db.get_filter_by_id(filter_id)
@@ -2566,7 +3155,21 @@ async def _render_notify_targets(message, filter_id: int, user_tg_id: int):
         return
 
     current_targets = filter_data.get('notify_chat_ids') or []
-    groups = await db.get_user_groups(user_tg_id)
+
+    # Получаем все активные группы и проверяем членство юзера
+    groups = []
+    if bot:
+        all_groups = await db.get_all_active_groups()
+        for g in all_groups:
+            try:
+                member = await bot.get_chat_member(g['telegram_id'], user_tg_id)
+                if member.status not in ('left', 'kicked'):
+                    groups.append(g)
+            except Exception:
+                pass
+    else:
+        # Фоллбек на старый метод если bot не передан
+        groups = await db.get_user_groups(user_tg_id)
 
     buttons = []
 
@@ -2617,7 +3220,7 @@ async def ext_notify_targets_handler(callback: CallbackQuery):
     await callback.answer()
     try:
         filter_id = int(callback.data.replace("ext_notify_", ""))
-        await _render_notify_targets(callback.message, filter_id, callback.from_user.id)
+        await _render_notify_targets(callback.message, filter_id, callback.from_user.id, bot=callback.bot)
     except Exception as e:
         logger.error(f"Ошибка отображения целей уведомлений: {e}", exc_info=True)
         await callback.message.edit_text("❌ Произошла ошибка", parse_mode="HTML")
@@ -2641,6 +3244,12 @@ async def ext_notify_toggle_target_handler(callback: CallbackQuery):
             await callback.message.edit_text("❌ Фильтр не найден", parse_mode="HTML")
             return
 
+        # Проверяем что фильтр принадлежит текущему юзеру
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if sniper_user and filter_data.get('user_id') != sniper_user['id']:
+            await callback.answer("⚠️ Это не ваш фильтр", show_alert=True)
+            return
+
         current_targets = list(filter_data.get('notify_chat_ids') or [])
 
         # Тоглим
@@ -2653,7 +3262,7 @@ async def ext_notify_toggle_target_handler(callback: CallbackQuery):
         await db.update_filter(filter_id, notify_chat_ids=current_targets if current_targets else None)
 
         # Перерисовываем клавиатуру
-        await _render_notify_targets(callback.message, filter_id, callback.from_user.id)
+        await _render_notify_targets(callback.message, filter_id, callback.from_user.id, bot=callback.bot)
 
     except Exception as e:
         logger.error(f"Ошибка переключения цели уведомлений: {e}", exc_info=True)
