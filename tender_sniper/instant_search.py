@@ -297,7 +297,7 @@ class InstantSearch:
             # и обогащаем только те, которые потенциально релевантны
 
             if search_results:
-                # 1. Создаём временный фильтр для pre-scoring
+                # 1. Создаём временные фильтры для pre-scoring и финального скоринга
                 temp_filter = {
                     'id': filter_data['id'],
                     'name': filter_data['name'],
@@ -305,6 +305,17 @@ class InstantSearch:
                     'price_min': price_min,
                     'price_max': price_max,
                     'regions': regions
+                }
+
+                # Pre-scoring фильтр БЕЗ регионов — RSS данные часто не содержат регион,
+                # он появляется только после обогащения. Регион проверяется на финальном этапе.
+                pre_score_filter = {
+                    'id': filter_data['id'],
+                    'name': filter_data['name'],
+                    'keywords': original_keywords,
+                    'price_min': price_min,
+                    'price_max': price_max,
+                    'regions': []  # Не проверяем регион до обогащения
                 }
 
                 # 2. Quick pre-scoring (без обогащения, на основе RSS данных)
@@ -321,7 +332,7 @@ class InstantSearch:
                         cached = self._enrichment_cache[tender_number]
                         tender.update(cached)
 
-                        # Проверяем фильтр даже для кэшированных тендеров
+                        # Кэшированные тендеры уже обогащены → полная проверка с регионом
                         pre_match = self.matcher.match_tender(tender, temp_filter)
                         if pre_match is None:
                             tenders_skipped += 1
@@ -333,7 +344,8 @@ class InstantSearch:
                         continue
 
                     # Pre-scoring на основе RSS данных (без HTTP запросов)
-                    pre_match = self.matcher.match_tender(tender, temp_filter)
+                    # Используем фильтр БЕЗ регионов — регион проверяется после обогащения
+                    pre_match = self.matcher.match_tender(tender, pre_score_filter)
                     pre_score = pre_match.get('score', 0) if pre_match else 0
 
                     # Если pre-score слишком низкий - пропускаем обогащение
@@ -798,7 +810,7 @@ class InstantSearch:
             html_content = generate_filtered_html(
                 tenders=tenders_for_report,
                 username="Пользователь",
-                total_count=search_results['total_found']
+                total_count=len(tenders_for_report)
             )
 
             # Сохраняем
