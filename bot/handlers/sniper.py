@@ -1900,7 +1900,7 @@ async def duplicate_filter_handler(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("delete_filter_"))
 async def delete_filter(callback: CallbackQuery):
-    """Удалить фильтр."""
+    """Подтверждение удаления фильтра."""
     await callback.answer()
 
     # Проверяем admin-гард для групповых чатов
@@ -1913,6 +1913,46 @@ async def delete_filter(callback: CallbackQuery):
 
     try:
         filter_id = int(callback.data.replace("delete_filter_", ""))
+
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await callback.message.answer("❌ Фильтр не найден")
+            return
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Да, удалить", callback_data=f"confirm_delete_filter_{filter_id}")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data=f"filter_detail_{filter_id}")]
+        ])
+
+        await callback.message.edit_text(
+            f"⚠️ <b>Подтверждение удаления</b>\n\n"
+            f"Вы уверены, что хотите удалить фильтр «{filter_data['name']}»?\n\n"
+            f"<i>Это действие необратимо!</i>",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+
+
+@router.callback_query(F.data.startswith("confirm_delete_filter_"))
+async def confirm_delete_filter(callback: CallbackQuery):
+    """Удалить фильтр после подтверждения."""
+    await callback.answer()
+
+    # Проверяем admin-гард для групповых чатов
+    chat = callback.message.chat if callback.message else None
+    if chat and chat.type in ('group', 'supergroup'):
+        from bot.handlers.group_chat import is_group_admin
+        if not await is_group_admin(callback.bot, chat.id, callback.from_user.id):
+            await callback.answer("Только администратор группы", show_alert=True)
+            return
+
+    try:
+        filter_id = int(callback.data.replace("confirm_delete_filter_", ""))
 
         db = await get_sniper_db()
         filter_data = await db.get_filter_by_id(filter_id)
