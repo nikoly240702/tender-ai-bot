@@ -897,12 +897,13 @@ async def test_sheets_command(message: Message):
             }
 
             try:
+                from tender_sniper.google_sheets_sync import get_weekly_sheet_name
                 success = await sheets_sync.append_tender(
                     spreadsheet_id=gs_config.spreadsheet_id,
                     tender_data=tender_data,
                     match_data=match_data,
                     columns=columns,
-                    sheet_name=gs_config.sheet_name or 'Тендеры'
+                    sheet_name=get_weekly_sheet_name()
                 )
                 name_short = (n.tender_name or '')[:35]
                 ai_tag = f" (AI: {len(ai_data)} полей)" if ai_data else ""

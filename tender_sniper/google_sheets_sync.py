@@ -9,6 +9,7 @@ import json
 import asyncio
 import functools
 import logging
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,14 @@ AI_COLUMNS = {'ai_delivery_date', 'ai_quantities', 'ai_contract_security',
 
 # Базовые колонки по умолчанию
 DEFAULT_COLUMNS = ['request_number', 'link', 'name', 'customer', 'region', 'deadline', 'price', 'score', 'status']
+
+
+def get_weekly_sheet_name() -> str:
+    """Имя листа на основе текущей недели (Пн-Вс)."""
+    today = datetime.now()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    return f"{monday.strftime('%d.%m')} — {sunday.strftime('%d.%m')}"
 
 
 def _normalize_date(value: str) -> str:
@@ -449,7 +458,7 @@ class GoogleSheetsSync:
 
     async def append_tender(self, spreadsheet_id: str, tender_data: Dict[str, Any],
                            match_data: Dict[str, Any], columns: List[str],
-                           sheet_name: str = 'Тендеры') -> bool:
+                           sheet_name: str = None) -> bool:
         """
         Добавляет строку с тендером в Google Sheets.
 
@@ -464,6 +473,8 @@ class GoogleSheetsSync:
             True если успешно
         """
         try:
+            if sheet_name is None:
+                sheet_name = get_weekly_sheet_name()
             if not columns:
                 columns = DEFAULT_COLUMNS
             if 'request_number' not in columns:

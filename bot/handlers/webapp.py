@@ -51,7 +51,7 @@ async def _export_notifications(
     Returns:
         (exported, failed, not_found) counts
     """
-    from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai
+    from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai, get_weekly_sheet_name
 
     sheets_sync = get_sheets_sync()
     if not sheets_sync:
@@ -102,7 +102,7 @@ async def _export_notifications(
                 tender_data=tender_data,
                 match_data=match_data,
                 columns=gs_config.get('columns', []),
-                sheet_name=gs_config.get('sheet_name', 'Тендеры')
+                sheet_name=get_weekly_sheet_name()
             )
 
             await db.mark_notification_exported(notif.get('id'))
@@ -143,11 +143,22 @@ async def export_single_tender(callback: CallbackQuery):
         chat = callback.message.chat if callback.message else None
         is_group = chat is not None and chat.type in ('group', 'supergroup')
 
-        # В группе ищем SniperUser по chat.id, в личном — по from_user.id
-        lookup_id = chat.id if is_group else telegram_id
-
         db = await get_sniper_db()
-        user = await db.get_user_by_telegram_id(lookup_id)
+
+        if is_group:
+            # В группе: ищем конфиг через админа группы
+            group_user = await db.get_user_by_telegram_id(chat.id)
+            if not group_user:
+                await callback.answer("Группа не зарегистрирована", show_alert=True)
+                return
+            admin_tg_id = group_user.get('group_admin_id')
+            if not admin_tg_id:
+                await callback.answer("Админ группы не найден", show_alert=True)
+                return
+            user = await db.get_user_by_telegram_id(admin_tg_id)
+        else:
+            user = await db.get_user_by_telegram_id(telegram_id)
+
         if not user:
             await callback.answer("Пользователь не найден", show_alert=True)
             return
@@ -191,7 +202,7 @@ async def export_single_tender(callback: CallbackQuery):
         await callback.answer("Экспортирую в Google Sheets...")
 
         # Экспортируем
-        from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai
+        from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai, get_weekly_sheet_name
         sheets_sync = get_sheets_sync()
         if not sheets_sync:
             await callback.message.answer("❌ Google Sheets сервис недоступен")
@@ -237,7 +248,7 @@ async def export_single_tender(callback: CallbackQuery):
             tender_data=tender_data,
             match_data=match_data,
             columns=gs_config.get('columns', []),
-            sheet_name=gs_config.get('sheet_name', 'Тендеры')
+            sheet_name=get_weekly_sheet_name()
         )
 
         if not success:

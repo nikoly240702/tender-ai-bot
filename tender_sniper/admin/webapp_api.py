@@ -285,12 +285,13 @@ async def api_export_tenders(request: Request):
                         'ai_data': ai_data,
                     }
 
+                    from tender_sniper.google_sheets_sync import get_weekly_sheet_name
                     await sheets_sync.append_tender(
                         spreadsheet_id=gs_config.spreadsheet_id,
                         tender_data=tender_data,
                         match_data=match_data,
                         columns=gs_config.columns or [],
-                        sheet_name=gs_config.sheet_name or 'Тендеры'
+                        sheet_name=get_weekly_sheet_name()
                     )
 
                     # Mark as exported

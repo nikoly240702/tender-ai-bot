@@ -125,7 +125,9 @@ class TenderSniperDB:
                 'notifications_enabled': user.notifications_enabled,
                 'last_notification_reset': user.last_notification_reset.isoformat() if user.last_notification_reset else None,
                 'created_at': user.created_at.isoformat() if user.created_at else None,
-                'data': user.data if hasattr(user, 'data') and user.data else {}  # Данные настроек (quiet hours, etc.)
+                'data': user.data if hasattr(user, 'data') and user.data else {},  # Данные настроек (quiet hours, etc.)
+                'is_group': getattr(user, 'is_group', False),
+                'group_admin_id': getattr(user, 'group_admin_id', None),
             }
 
     async def get_user_subscription_info(self, telegram_id: int) -> Optional[Dict[str, Any]]:
