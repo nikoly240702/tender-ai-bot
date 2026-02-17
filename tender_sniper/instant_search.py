@@ -683,10 +683,19 @@ class InstantSearch:
                         )
 
                         if ai_result.get('is_relevant', True):
-                            # AI подтвердил релевантность — сохраняем SmartMatcher score
+                            # AI подтвердил релевантность
+                            confidence = ai_result.get('confidence', 0)
                             tender['ai_verified'] = True
-                            tender['ai_confidence'] = ai_result.get('confidence', 0)
+                            tender['ai_confidence'] = confidence
                             tender['ai_reason'] = ai_result.get('reason', '')
+
+                            # Composite score: SmartMatcher + AI boost
+                            # AI уверен (>=60) → +15, AI допускает (40-59) → +10
+                            if confidence >= 60:
+                                tender['match_score'] = min(100, tender['match_score'] + 15)
+                            elif confidence >= 40:
+                                tender['match_score'] = min(100, tender['match_score'] + 10)
+
                             ai_filtered_matches.append(tender)
                         else:
                             ai_rejected_count += 1

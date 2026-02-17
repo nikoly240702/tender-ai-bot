@@ -297,35 +297,21 @@ class TenderSniperService:
                     # Сбрасываем счетчик ошибок при успешном поиске
                     await self.db.reset_filter_error_count(filter_id)
 
-                    # Двухуровневая система:
-                    # Score >= 35: отправляем всегда (SmartMatcher уверен)
-                    # Score 20-34: отправляем ТОЛЬКО если AI подтвердил релевантность
-                    # Score < 20: не отправляем (шум)
-                    MIN_SCORE_GUARANTEED = 35
-                    MIN_SCORE_AI_VERIFIED = 20
+                    # Единый порог для composite score (SmartMatcher + AI boost)
+                    # AI boost добавляется в instant_search: +15 (conf>=60), +10 (conf>=40)
+                    MIN_SCORE_FOR_NOTIFICATION = 35
 
                     # Фильтруем только новые тендеры (которых еще не уведомляли)
                     for match in matches:
-                        # match УЖЕ содержит данные тендера + match_score
+                        # match УЖЕ содержит данные тендера + composite match_score
                         tender = match
                         tender_number = tender.get('number')
                         tender_name = tender.get('name', '')[:50]
                         score = tender.get('match_score', 0)
 
-                        # === ДВУХУРОВНЕВЫЙ ФИЛЬТР ПО SCORE ===
-                        if not tender_number:
+                        # === ФИЛЬТР ПО COMPOSITE SCORE ===
+                        if score < MIN_SCORE_FOR_NOTIFICATION or not tender_number:
                             continue
-                        if score >= MIN_SCORE_GUARANTEED:
-                            pass  # Высокий score — отправляем без вопросов
-                        elif score >= MIN_SCORE_AI_VERIFIED:
-                            # Низкий score — только если AI подтвердил или score ≥85 (AI пропустил)
-                            ai_verified = tender.get('ai_verified', False)
-                            ai_skipped = tender.get('ai_skipped', False)
-                            if not (ai_verified or ai_skipped):
-                                logger.debug(f"         ⏭️ Score {score} < {MIN_SCORE_GUARANTEED}, AI не подтвердил: {tender_name}")
-                                continue
-                        else:
-                            continue  # Score слишком низкий
 
                         # === ПРОВЕРКА: дедлайн не просрочен ===
                         deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
