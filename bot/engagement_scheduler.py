@@ -208,6 +208,10 @@ class EngagementScheduler:
 
         for user in users:
             try:
+                # Пропускаем группы — уведомления привязаны к user_id владельца фильтра, не группы
+                if getattr(user, 'is_group', False):
+                    continue
+
                 # Проверяем, включён ли дайджест у пользователя
                 user_data = user.data if isinstance(user.data, dict) else {}
                 if user_data.get('digest_disabled', False):
