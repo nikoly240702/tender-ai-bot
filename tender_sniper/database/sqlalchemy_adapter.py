@@ -130,6 +130,54 @@ class TenderSniperDB:
                 'group_admin_id': getattr(user, 'group_admin_id', None),
             }
 
+    async def mark_user_bot_blocked(self, telegram_id: int) -> bool:
+        """Пометить пользователя как заблокировавшего бота + деактивировать его фильтры."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return False
+
+            # Сохраняем флаг в JSON data
+            user_data = user.data if isinstance(user.data, dict) else {}
+            user_data['bot_blocked'] = True
+            user_data['bot_blocked_at'] = datetime.utcnow().isoformat()
+            user.data = user_data
+
+            # Деактивируем все фильтры пользователя (бессмысленно мониторить)
+            await session.execute(
+                update(SniperFilterModel).where(
+                    and_(
+                        SniperFilterModel.user_id == user.id,
+                        SniperFilterModel.is_active == True,
+                        SniperFilterModel.deleted_at.is_(None)
+                    )
+                ).values(is_active=False)
+            )
+
+            await session.commit()
+            logger.info(f"⛔ Пользователь {telegram_id} помечен как заблокировавший бота, фильтры деактивированы")
+            return True
+
+    async def unmark_user_bot_blocked(self, telegram_id: int) -> bool:
+        """Снять пометку блокировки бота (если пользователь вернулся)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return False
+
+            user_data = user.data if isinstance(user.data, dict) else {}
+            user_data.pop('bot_blocked', None)
+            user_data.pop('bot_blocked_at', None)
+            user.data = user_data
+            await session.commit()
+            return True
+
     async def get_user_subscription_info(self, telegram_id: int) -> Optional[Dict[str, Any]]:
         """
         Получение информации о подписке пользователя из sniper_users.

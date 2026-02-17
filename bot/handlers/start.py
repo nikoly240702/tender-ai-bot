@@ -138,6 +138,17 @@ async def cmd_start(message: Message, state: FSMContext):
     # Track bot start event (fire-and-forget)
     asyncio.create_task(_track_bot_start(message.from_user.id))
 
+    # Снимаем пометку bot_blocked (пользователь вернулся)
+    try:
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        user_data_check = await db.get_user_by_telegram_id(message.from_user.id)
+        if user_data_check and (user_data_check.get('data') or {}).get('bot_blocked'):
+            await db.unmark_user_bot_blocked(message.from_user.id)
+            logger.info(f"✅ Пользователь {message.from_user.id} вернулся, пометка bot_blocked снята")
+    except Exception as e:
+        logger.debug(f"Проверка bot_blocked: {e}")
+
     if is_new:
         # === НОВЫЙ ПОЛЬЗОВАТЕЛЬ: Welcome Screen ===
         logger.info(f"Первый запуск для пользователя {message.from_user.id} - welcome screen")

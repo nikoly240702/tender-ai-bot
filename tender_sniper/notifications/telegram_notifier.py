@@ -59,6 +59,9 @@ class TelegramNotifier:
             'quota_exceeded': 0
         }
 
+        # Chat IDs, заблокировавшие бота (обнаруживается при TelegramForbiddenError)
+        self.blocked_chat_ids: set = set()
+
     async def send_tender_notification(
         self,
         telegram_id: int,
@@ -105,6 +108,7 @@ class TelegramNotifier:
         except TelegramForbiddenError:
             # Пользователь заблокировал бота
             self.stats['users_blocked_bot'] += 1
+            self.blocked_chat_ids.add(telegram_id)
             logger.warning(f"⛔ Пользователь {telegram_id} заблокировал бота")
             return False
 

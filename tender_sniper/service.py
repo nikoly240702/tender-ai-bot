@@ -482,6 +482,11 @@ class TenderSniperService:
                             logger.warning(f"      ❌ Не удалось отправить: {tender_number} → {ntf_telegram_id}")
                             failed_count += 1
 
+                            # Если пользователь заблокировал бота — помечаем и деактивируем фильтры
+                            if ntf_telegram_id in self.notifier.blocked_chat_ids:
+                                await self.db.mark_user_bot_blocked(ntf_telegram_id)
+                                break  # Нет смысла отправлять остальные уведомления этому получателю
+
                       except Exception as e:
                         failed_count += 1
                         t_num = notif.get('tender', {}).get('number', '?')

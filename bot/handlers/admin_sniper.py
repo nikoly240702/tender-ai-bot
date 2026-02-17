@@ -224,6 +224,8 @@ async def show_users_and_tiers(callback: CallbackQuery):
                 select(
                     SniperUser.telegram_id,
                     SniperUser.subscription_tier,
+                    SniperUser.data,
+                    SniperUser.is_group,
                     func.count(distinct(SniperFilter.id)).label('filters_count'),
                     func.count(distinct(
                         SniperFilter.id
@@ -255,8 +257,17 @@ async def show_users_and_tiers(callback: CallbackQuery):
                 'premium': '👑'
             }.get(user.subscription_tier, '❓')
 
+            # Статус: группа, заблокировал бота, или обычный
+            user_data = user.data if isinstance(user.data, dict) else {}
+            status_flags = []
+            if getattr(user, 'is_group', False):
+                status_flags.append("👥 группа")
+            if user_data.get('bot_blocked'):
+                status_flags.append("⛔ бот заблокирован")
+            status_str = f" [{', '.join(status_flags)}]" if status_flags else ""
+
             text += (
-                f"{tier_emoji} <b>User {user.telegram_id}</b> ({user.subscription_tier})\n"
+                f"{tier_emoji} <b>User {user.telegram_id}</b> ({user.subscription_tier}){status_str}\n"
                 f"  Фильтры: {user.active_filters or 0}/{user.filters_count or 0}\n"
                 f"  Уведомления: {user.today_notifications or 0} сегодня / {user.total_notifications or 0} всего\n\n"
             )
