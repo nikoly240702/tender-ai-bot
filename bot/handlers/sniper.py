@@ -1343,6 +1343,23 @@ async def process_edit_keywords(message: Message, state: FSMContext):
 
         db = await get_sniper_db()
         await db.update_filter(filter_id=filter_id, keywords=keywords)
+
+        # Перегенерация ai_intent при изменении ключевых слов
+        try:
+            filter_data = await db.get_filter_by_id(filter_id)
+            if filter_data:
+                from tender_sniper.ai_relevance_checker import generate_intent
+                ai_intent = await generate_intent(
+                    filter_name=filter_data.get('name', ''),
+                    keywords=keywords,
+                    exclude_keywords=filter_data.get('exclude_keywords', [])
+                )
+                if ai_intent:
+                    await db.update_filter(filter_id=filter_id, ai_intent=ai_intent)
+                    logger.info(f"🔄 ai_intent обновлён для фильтра {filter_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось обновить ai_intent: {e}")
+
         await state.clear()
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -1409,6 +1426,23 @@ async def process_edit_exclude_keywords(message: Message, state: FSMContext):
 
         db = await get_sniper_db()
         await db.update_filter(filter_id=filter_id, exclude_keywords=exclude_keywords)
+
+        # Перегенерация ai_intent при изменении исключений
+        try:
+            filter_data = await db.get_filter_by_id(filter_id)
+            if filter_data:
+                from tender_sniper.ai_relevance_checker import generate_intent
+                ai_intent = await generate_intent(
+                    filter_name=filter_data.get('name', ''),
+                    keywords=filter_data.get('keywords', []),
+                    exclude_keywords=exclude_keywords
+                )
+                if ai_intent:
+                    await db.update_filter(filter_id=filter_id, ai_intent=ai_intent)
+                    logger.info(f"🔄 ai_intent обновлён для фильтра {filter_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось обновить ai_intent: {e}")
+
         await state.clear()
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -2459,13 +2493,26 @@ async def mark_tender_interesting(callback: CallbackQuery):
     await callback.answer("👍 Отмечено как интересное")
 
     try:
-        # Извлекаем номер тендера из callback_data
         tender_number = callback.data.replace("interested_", "")
 
-        # Здесь можно сохранить в БД для аналитики/ML
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if user:
+            # Получаем контекст из уведомления
+            notification = await db.get_notification_by_tender(user['id'], tender_number)
+            await db.save_user_feedback(
+                user_id=user['id'],
+                tender_number=tender_number,
+                feedback_type='interesting',
+                filter_id=notification.get('filter_id') if notification else None,
+                tender_name=notification.get('tender_name', '') if notification else '',
+                matched_keywords=notification.get('matched_keywords', []) if notification else [],
+                original_score=notification.get('score') if notification else None,
+            )
+
         logger.info(f"Пользователь {callback.from_user.id} отметил тендер {tender_number} как интересный")
 
-        # Обновляем сообщение
         await callback.message.edit_reply_markup(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✅ Отмечено как интересное", callback_data="noop")]
@@ -2482,34 +2529,37 @@ async def mark_tender_skipped(callback: CallbackQuery):
     await callback.answer("👎 Пропущено")
 
     try:
-        # Извлекаем номер тендера из callback_data
         tender_number = callback.data.replace("skip_", "")
 
-        # Извлекаем название тендера из сообщения для ML
-        tender_name = ""
-        if callback.message.text:
-            # Ищем название между "Название:" и следующей строкой
-            lines = callback.message.text.split('\n')
-            for i, line in enumerate(lines):
-                if 'Название:' in line:
-                    # Берем текст после "Название:" до конца строки
-                    tender_name = line.split('Название:')[-1].strip()
-                    break
-
-        # Сохраняем в БД для анализа и ML (feedback learning)
         db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(callback.from_user.id)
 
         if user:
+            # Получаем контекст из уведомления
+            notification = await db.get_notification_by_tender(user['id'], tender_number)
+            tender_name = notification.get('tender_name', '') if notification else ''
+
+            # Сохраняем в hidden_tenders (как раньше)
             await db.save_hidden_tender(
                 user_id=user['id'],
                 tender_number=tender_number,
                 tender_name=tender_name,
                 reason='skipped'
             )
+
+            # Сохраняем в user_feedback для аналитики
+            await db.save_user_feedback(
+                user_id=user['id'],
+                tender_number=tender_number,
+                feedback_type='hidden',
+                filter_id=notification.get('filter_id') if notification else None,
+                tender_name=tender_name,
+                matched_keywords=notification.get('matched_keywords', []) if notification else [],
+                original_score=notification.get('score') if notification else None,
+            )
+
             logger.info(f"Пользователь {callback.from_user.id} пропустил тендер {tender_number}: {tender_name[:50]}...")
 
-        # Обновляем сообщение
         await callback.message.edit_reply_markup(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="❌ Пропущено", callback_data="noop")]

@@ -26,6 +26,8 @@ from database import (
     SniperUser,
     SniperFilter,
     SniperNotification,
+    ReactivationEvent,
+    UserFeedback,
     DatabaseSession
 )
 
@@ -110,6 +112,35 @@ async def show_statistics(callback: CallbackQuery):
                 )
             )
 
+            # Реактивация за последние 7 дней
+            try:
+                reactivation_sent = await session.scalar(
+                    select(func.count(ReactivationEvent.id)).where(
+                        ReactivationEvent.event_type == 'sent',
+                        ReactivationEvent.created_at >= week_ago
+                    )
+                ) or 0
+            except Exception:
+                reactivation_sent = 0
+
+            # Feedback за последние 7 дней
+            try:
+                feedback_interesting = await session.scalar(
+                    select(func.count(UserFeedback.id)).where(
+                        UserFeedback.feedback_type == 'interesting',
+                        UserFeedback.created_at >= week_ago
+                    )
+                ) or 0
+                feedback_hidden = await session.scalar(
+                    select(func.count(UserFeedback.id)).where(
+                        UserFeedback.feedback_type == 'hidden',
+                        UserFeedback.created_at >= week_ago
+                    )
+                ) or 0
+            except Exception:
+                feedback_interesting = 0
+                feedback_hidden = 0
+
             # Топ-3 пользователя по уведомлениям
             top_users_query = (
                 select(
@@ -133,6 +164,9 @@ async def show_statistics(callback: CallbackQuery):
             f"  • Всего: {total_notifications}\n"
             f"  • Сегодня: {today_notifications}\n"
             f"  • За неделю: {week_notifications}\n\n"
+            f"🔄 <b>Engagement (неделя):</b>\n"
+            f"  • Реактивации: {reactivation_sent}\n"
+            f"  • Feedback +: {feedback_interesting} | -: {feedback_hidden}\n\n"
         )
 
         if top_users:

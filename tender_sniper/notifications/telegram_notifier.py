@@ -224,6 +224,17 @@ class TelegramNotifier:
 🏢 {customer}
 🎯 Фильтр: {filter_name}"""
 
+        # Добавляем AI source если есть
+        ai_verified = match_info.get('ai_verified', False)
+        ai_confidence = match_info.get('ai_confidence')
+        if ai_verified and ai_confidence is not None:
+            ai_reason = match_info.get('ai_reason', '')
+            if ai_reason and len(ai_reason) > 60:
+                ai_reason = ai_reason[:57] + '...'
+            message += f"\n🤖 AI: {ai_confidence}%"
+            if ai_reason:
+                message += f" — {ai_reason}"
+
         # Добавляем красные флаги если есть
         red_flags = match_info.get('red_flags', [])
         if red_flags:

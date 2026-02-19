@@ -666,6 +666,40 @@ class GoogleSheetsConfig(Base):
     )
 
 
+class ReactivationEvent(Base):
+    """Трекинг реактивационных сообщений и откликов."""
+    __tablename__ = 'reactivation_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False)  # 'sent', 'opened', 'clicked', 'reactivated'
+    message_variant = Column(String(50), nullable=True)  # 'has_filters', 'no_filters', 'trial_expired'
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("SniperUser")
+
+    __table_args__ = (
+        Index('ix_reactivation_events_user_type', 'user_id', 'event_type'),
+        Index('ix_reactivation_events_date', 'created_at'),
+    )
+
+
+class CacheEntry(Base):
+    """Персистентный кэш для AI-решений и enrichment данных."""
+    __tablename__ = 'cache_entries'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cache_key = Column(String(255), unique=True, nullable=False, index=True)
+    cache_type = Column(String(50), nullable=False, index=True)  # 'ai_relevance', 'enrichment'
+    value = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+
+    __table_args__ = (
+        Index('ix_cache_entries_type_expires', 'cache_type', 'expires_at'),
+    )
+
+
 # ============================================
 # DATABASE ENGINE & SESSION
 # ============================================
@@ -833,6 +867,10 @@ __all__ = [
     'Referral',
     # Google Sheets Integration
     'GoogleSheetsConfig',
+    # Reactivation Tracking
+    'ReactivationEvent',
+    # Persistent Cache
+    'CacheEntry',
     # Functions
     'init_database',
     'get_session',

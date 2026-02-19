@@ -535,6 +535,20 @@ class EngagementScheduler:
 
                 await self._update_user_data(user.id, user_data)
 
+                # Сохраняем событие в таблицу трекинга
+                try:
+                    variant = 'has_filters' if filters_count > 0 else 'no_filters'
+                    async with DatabaseSession() as session:
+                        from database import ReactivationEvent
+                        event = ReactivationEvent(
+                            user_id=user.id,
+                            event_type='sent',
+                            message_variant=variant,
+                        )
+                        session.add(event)
+                except Exception as e:
+                    logger.debug(f"Ошибка сохранения reactivation event: {e}")
+
                 reactivations_sent += 1
                 await asyncio.sleep(0.1)
 

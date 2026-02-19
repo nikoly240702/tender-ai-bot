@@ -27,6 +27,7 @@ from database import (
     SatisfactionSurvey as SatisfactionSurveyModel,
     ViewedTender as ViewedTenderModel,
     GoogleSheetsConfig as GoogleSheetsConfigModel,
+    CacheEntry as CacheEntryModel,
     get_session,
     DatabaseSession
 )
@@ -2430,6 +2431,7 @@ class TenderSniperDB:
 
             return {
                 'id': notif.id,
+                'filter_id': notif.filter_id,
                 'tender_number': notif.tender_number,
                 'tender_name': notif.tender_name,
                 'tender_price': notif.tender_price,
@@ -2438,11 +2440,16 @@ class TenderSniperDB:
                 'tender_customer': notif.tender_customer,
                 'filter_name': notif.filter_name,
                 'score': notif.score,
+                'matched_keywords': notif.matched_keywords or [],
                 'published_date': notif.published_date.strftime('%d.%m.%Y') if notif.published_date else '',
                 'submission_deadline': notif.submission_deadline.strftime('%d.%m.%Y') if notif.submission_deadline else '',
                 'sheets_exported': notif.sheets_exported if hasattr(notif, 'sheets_exported') else False,
                 'sheets_exported_by': getattr(notif, 'sheets_exported_by', None),
             }
+
+    # Alias for convenience
+    async def get_notification_by_tender(self, user_id: int, tender_number: str) -> Optional[Dict[str, Any]]:
+        return await self.get_notification_by_tender_number(user_id, tender_number)
 
     async def mark_notification_exported(self, notification_id: int, exported_by: int = None) -> bool:
         """Помечает уведомление как экспортированное в Google Sheets."""
@@ -2493,6 +2500,68 @@ class TenderSniperDB:
                 'published_date': n.published_date.strftime('%d.%m.%Y') if n.published_date else '',
                 'submission_deadline': n.submission_deadline.strftime('%d.%m.%Y') if n.submission_deadline else '',
             } for n in notifications]
+
+
+    # ============================================
+    # PERSISTENT CACHE
+    # ============================================
+
+    async def cache_get(self, cache_key: str, cache_type: str) -> Optional[Dict[str, Any]]:
+        """Получить значение из персистентного кэша."""
+        try:
+            async with DatabaseSession() as session:
+                result = await session.execute(
+                    select(CacheEntryModel).where(
+                        CacheEntryModel.cache_key == cache_key,
+                        CacheEntryModel.cache_type == cache_type,
+                        CacheEntryModel.expires_at > datetime.utcnow()
+                    )
+                )
+                entry = result.scalar_one_or_none()
+                if entry:
+                    return entry.value
+                return None
+        except Exception as e:
+            logger.debug(f"Cache get error: {e}")
+            return None
+
+    async def cache_set(self, cache_key: str, cache_type: str, value: Dict[str, Any], ttl_hours: int = 24):
+        """Сохранить значение в персистентный кэш."""
+        try:
+            async with DatabaseSession() as session:
+                # Upsert: удаляем старую запись и вставляем новую
+                await session.execute(
+                    delete(CacheEntryModel).where(
+                        CacheEntryModel.cache_key == cache_key,
+                        CacheEntryModel.cache_type == cache_type,
+                    )
+                )
+                entry = CacheEntryModel(
+                    cache_key=cache_key,
+                    cache_type=cache_type,
+                    value=value,
+                    created_at=datetime.utcnow(),
+                    expires_at=datetime.utcnow() + timedelta(hours=ttl_hours),
+                )
+                session.add(entry)
+        except Exception as e:
+            logger.debug(f"Cache set error: {e}")
+
+    async def cache_cleanup(self, cache_type: Optional[str] = None):
+        """Удалить просроченные записи из кэша."""
+        try:
+            async with DatabaseSession() as session:
+                query = delete(CacheEntryModel).where(
+                    CacheEntryModel.expires_at <= datetime.utcnow()
+                )
+                if cache_type:
+                    query = query.where(CacheEntryModel.cache_type == cache_type)
+                result = await session.execute(query)
+                count = result.rowcount
+                if count > 0:
+                    logger.info(f"🗑️ Очищено {count} записей из кэша")
+        except Exception as e:
+            logger.debug(f"Cache cleanup error: {e}")
 
 
 _sniper_db_instance = None

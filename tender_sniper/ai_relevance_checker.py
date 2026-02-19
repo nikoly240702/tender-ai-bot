@@ -35,9 +35,10 @@ class AIRelevanceChecker:
     CONFIDENCE_THRESHOLD_ACCEPT = 40  # Минимум для одобрения
     CONFIDENCE_THRESHOLD_RECHECK = 25  # Ниже этого — отклоняем
 
-    # Кэш решений (in-memory, для production лучше Redis)
+    # Кэш решений (in-memory + PostgreSQL persistent)
     _cache: Dict[str, Tuple[bool, int, str, datetime]] = {}
     _CACHE_TTL_HOURS = 24
+    _persistent_cache_enabled = True
 
     # Лимиты по тарифам (проверок в день)
     TIER_LIMITS = {
@@ -70,30 +71,59 @@ class AIRelevanceChecker:
         return hashlib.md5(content.encode()).hexdigest()
 
     def _get_from_cache(self, cache_key: str) -> Optional[Tuple[bool, int, str]]:
-        """Получает решение из кэша если не истекло."""
+        """Получает решение из in-memory кэша если не истекло."""
         if cache_key in self._cache:
             is_relevant, confidence, reason, cached_at = self._cache[cache_key]
             if datetime.now() - cached_at < timedelta(hours=self._CACHE_TTL_HOURS):
-                logger.debug(f"   🗄️ Cache hit: {cache_key[:8]}...")
+                logger.debug(f"   🗄️ Cache hit (memory): {cache_key[:8]}...")
                 return (is_relevant, confidence, reason)
             else:
-                # Истёк TTL
                 del self._cache[cache_key]
         return None
 
+    async def _get_from_persistent_cache(self, cache_key: str) -> Optional[Tuple[bool, int, str]]:
+        """Получает решение из PostgreSQL кэша."""
+        if not self._persistent_cache_enabled:
+            return None
+        try:
+            from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
+            db = await get_sniper_db()
+            data = await db.cache_get(cache_key, 'ai_relevance')
+            if data:
+                logger.debug(f"   🗄️ Cache hit (DB): {cache_key[:8]}...")
+                # Также сохраняем в in-memory для ускорения
+                self._cache[cache_key] = (
+                    data['is_relevant'], data['confidence'], data['reason'], datetime.now()
+                )
+                return (data['is_relevant'], data['confidence'], data['reason'])
+        except Exception as e:
+            logger.debug(f"Persistent cache get error: {e}")
+        return None
+
     def _save_to_cache(self, cache_key: str, is_relevant: bool, confidence: int, reason: str):
-        """Сохраняет решение в кэш."""
+        """Сохраняет решение в in-memory кэш."""
         self._cache[cache_key] = (is_relevant, confidence, reason, datetime.now())
 
         # Очистка старых записей (простая стратегия)
         if len(self._cache) > 10000:
-            # Удаляем самые старые 20%
-            sorted_keys = sorted(
-                self._cache.keys(),
-                key=lambda k: self._cache[k][3]
-            )
+            sorted_keys = sorted(self._cache.keys(), key=lambda k: self._cache[k][3])
             for key in sorted_keys[:2000]:
                 del self._cache[key]
+
+    async def _save_to_persistent_cache(self, cache_key: str, is_relevant: bool, confidence: int, reason: str):
+        """Сохраняет решение в PostgreSQL кэш."""
+        if not self._persistent_cache_enabled:
+            return
+        try:
+            from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
+            db = await get_sniper_db()
+            await db.cache_set(
+                cache_key, 'ai_relevance',
+                {'is_relevant': is_relevant, 'confidence': confidence, 'reason': reason},
+                ttl_hours=self._CACHE_TTL_HOURS
+            )
+        except Exception as e:
+            logger.debug(f"Persistent cache set error: {e}")
 
     def check_quota(self, user_id: int, subscription_tier: str) -> bool:
         """
@@ -256,15 +286,19 @@ class AIRelevanceChecker:
             logger.info(f"   ⚠️ Квота AI исчерпана для user {user_id} ({subscription_tier})")
             return {
                 'is_relevant': True,  # При исчерпании квоты — пропускаем (fallback к keyword)
-                'confidence': 50,
+                'confidence': 0,  # Без boost — нет AI-проверки, нет бонуса
                 'reason': 'Квота AI проверок исчерпана, используется keyword matching',
                 'source': 'quota_exceeded',
                 'quota_remaining': 0
             }
 
-        # Проверяем кэш
+        # Проверяем in-memory кэш
         cache_key = self._get_cache_key(tender_name, filter_intent)
         cached = self._get_from_cache(cache_key)
+
+        if not cached:
+            # Fallback на PostgreSQL кэш
+            cached = await self._get_from_persistent_cache(cache_key)
 
         if cached:
             is_relevant, confidence, reason = cached
@@ -281,7 +315,7 @@ class AIRelevanceChecker:
         if not self.client:
             return {
                 'is_relevant': True,
-                'confidence': 50,
+                'confidence': 0,  # Без boost — нет AI-проверки
                 'reason': 'AI недоступен, используется keyword matching',
                 'source': 'fallback',
                 'quota_remaining': -1
@@ -297,8 +331,14 @@ class AIRelevanceChecker:
                 tender_types=tender_types
             )
 
-            # Сохраняем в кэш
+            # Сохраняем в кэш (in-memory + PostgreSQL)
             self._save_to_cache(
+                cache_key,
+                result['is_relevant'],
+                result['confidence'],
+                result['reason']
+            )
+            await self._save_to_persistent_cache(
                 cache_key,
                 result['is_relevant'],
                 result['confidence'],
@@ -319,7 +359,7 @@ class AIRelevanceChecker:
             logger.error(f"❌ Ошибка AI проверки: {e}")
             return {
                 'is_relevant': True,  # При ошибке — пропускаем (лучше показать, чем потерять)
-                'confidence': 50,
+                'confidence': 0,  # Без boost — нет AI-проверки, нет бонуса
                 'reason': f'Ошибка AI: {str(e)[:50]}',
                 'source': 'error',
                 'quota_remaining': -1
@@ -398,42 +438,45 @@ class AIRelevanceChecker:
             functools.partial(
                 self.client.chat.completions.create,
                 model=self.MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=150
+                messages=[
+                    {"role": "system", "content": "Ты эксперт по госзакупкам. Отвечай СТРОГО в формате JSON."},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+                max_tokens=150,
+                response_format={"type": "json_object"},
             )
         )
 
         response_text = response.choices[0].message.content.strip()
 
-        # Парсим JSON ответ
+        # Парсим JSON ответ (response_format гарантирует валидный JSON)
         try:
-            # Ищем JSON в ответе
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            if json_match:
-                data = json.loads(json_match.group(0))
+            data = json.loads(response_text)
 
-                is_relevant = data.get('relevant', False)
-                confidence = int(data.get('confidence', 50))
-                reason = data.get('reason', 'Нет объяснения')
+            is_relevant = bool(data.get('relevant', False))
+            confidence = int(data.get('confidence', 50))
+            reason = str(data.get('reason', 'Нет объяснения'))
 
-                # Применяем строгие пороги
-                if confidence < self.CONFIDENCE_THRESHOLD_ACCEPT:
-                    is_relevant = False
-                    if confidence >= self.CONFIDENCE_THRESHOLD_RECHECK:
-                        reason = f"Недостаточная уверенность ({confidence}%): {reason}"
+            # Валидация диапазона confidence
+            confidence = max(0, min(100, confidence))
 
-                logger.info(f"   🤖 AI: {'✅' if is_relevant else '❌'} ({confidence}%) {reason[:50]}...")
+            # Применяем строгие пороги
+            if confidence < self.CONFIDENCE_THRESHOLD_ACCEPT:
+                is_relevant = False
+                if confidence >= self.CONFIDENCE_THRESHOLD_RECHECK:
+                    reason = f"Недостаточная уверенность ({confidence}%): {reason}"
 
-                return {
-                    'is_relevant': is_relevant,
-                    'confidence': confidence,
-                    'reason': reason
-                }
+            logger.info(f"   🤖 AI: {'✅' if is_relevant else '❌'} ({confidence}%) {reason[:50]}...")
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"   ⚠️ Не удалось распарсить AI ответ: {response_text[:100]}")
+            return {
+                'is_relevant': is_relevant,
+                'confidence': confidence,
+                'reason': reason
+            }
+
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            logger.warning(f"   ⚠️ Не удалось распарсить AI ответ: {response_text[:100]} — {e}")
 
         # Fallback если не удалось распарсить
         return {

@@ -368,7 +368,10 @@ class TenderSniperService:
                                 'match_info': {
                                     'score': score,
                                     'matched_keywords': tender.get('match_reasons', []),
-                                    'red_flags': tender.get('red_flags', [])
+                                    'red_flags': tender.get('red_flags', []),
+                                    'ai_verified': tender.get('ai_verified', False),
+                                    'ai_confidence': tender.get('ai_confidence'),
+                                    'ai_reason': tender.get('ai_reason', ''),
                                 },
                                 'filter_id': filter_id,
                                 'filter_name': filter_name,

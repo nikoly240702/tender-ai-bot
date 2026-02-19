@@ -150,6 +150,13 @@ class SmartMatcher:
     - Географическая фильтрация
     """
 
+    # Короткие ключевые слова (< 3 символов), которые НЕ должны отбрасываться
+    # Матчатся ТОЛЬКО по точному совпадению (word boundary) для избежания ложных срабатываний
+    SHORT_KEYWORDS_WHITELIST = {
+        'по', 'it', 'ит', 'ибп', 'ас', 'бд', 'ос', 'пк', 'схд', 'мфу', 'эвм', 'си',
+        '1с', 'ук', 'тп', 'км', 'уз', 'кт', 'мр', 'мрт', 'ктп', 'рф', 'суг',
+    }
+
     # Стоп-слова - слишком общие термины, которые встречаются почти везде
     # Эти слова игнорируются при матчинге
     STOP_WORDS = {
@@ -560,10 +567,19 @@ class SmartMatcher:
         if not filter_regions:
             return True  # Нет ограничений по региону
 
-        if not tender_region or tender_region.strip() == "":
+        if not tender_region or tender_region.strip() == "" or tender_region.strip() == "Не указан":
             # Регион тендера неизвестен - отклоняем если фильтр требует регион
             logger.info(f"   ⛔ Регион тендера пустой, но фильтр требует: {filter_regions[:3]}...")
             return False
+
+        # Нормализуем регион тендера через единый справочник
+        try:
+            from tender_sniper.regions import normalize_region as _norm_region
+            canonical_tender = _norm_region(tender_region)
+            if canonical_tender:
+                tender_region = canonical_tender
+        except ImportError:
+            pass
 
         tender_region_lower = tender_region.lower().strip()
         tender_region_normalized = self._normalize_region(tender_region_lower)
@@ -623,6 +639,10 @@ class SmartMatcher:
         logger.info(f"   ⛔ Регион не совпадает: tender='{tender_region_lower}', filter={filter_regions[:3]}...")
         return False
 
+    def _is_short_keyword_whitelisted(self, word: str) -> bool:
+        """Проверяет, является ли короткое слово разрешённым ключевым словом."""
+        return word.lower().strip() in self.SHORT_KEYWORDS_WHITELIST
+
     def _is_stop_word(self, word: str) -> bool:
         """Проверяет, является ли слово стоп-словом."""
         return word.lower().strip() in self.STOP_WORDS
@@ -639,7 +659,7 @@ class SmartMatcher:
         for part in parts:
             # Разбиваем каждую часть на слова
             words = part.strip().split()
-            meaningful_words = [w for w in words if not self._is_stop_word(w) and len(w) >= 3]
+            meaningful_words = [w for w in words if not self._is_stop_word(w) and (len(w) >= 3 or self._is_short_keyword_whitelisted(w))]
             if meaningful_words:
                 # Добавляем как отдельные слова
                 keywords.extend(meaningful_words)
@@ -723,7 +743,7 @@ class SmartMatcher:
                         remaining_text = keyword_lower.replace(phrase, '').strip()
                         if remaining_text:
                             for word in remaining_text.split():
-                                if len(word) >= 3 and not self._is_stop_word(word):
+                                if not self._is_stop_word(word) and (len(word) >= 3 or self._is_short_keyword_whitelisted(word)):
                                     remaining.append(word)
                         break
 

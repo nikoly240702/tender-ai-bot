@@ -545,10 +545,13 @@ class ZakupkiRSSParser:
             customer = self._extract_customer_from_summary(summary)
             if customer:
                 tender['customer'] = customer
-                # Извлекаем регион из названия заказчика
-                region = self._extract_region_from_customer(customer)
-                if region:
-                    tender['customer_region'] = region
+                # Извлекаем регион из названия заказчика + нормализуем
+                region_raw = self._extract_region_from_customer(customer)
+                if region_raw:
+                    from tender_sniper.regions import normalize_region
+                    normalized = normalize_region(region_raw)
+                    if normalized:
+                        tender['customer_region'] = normalized
 
             # Извлекаем дату окончания подачи заявок
             deadline = self._extract_deadline_from_summary(summary)
@@ -787,7 +790,7 @@ class ZakupkiRSSParser:
             self._wait_for_rate_limit()
 
             # Используем self.session (уже настроена с прокси)
-            response = self.session.get(url, timeout=30, verify=False)  # Увеличили таймаут до 30с
+            response = self.session.get(url, timeout=15, verify=False)
             response.raise_for_status()
 
             html_content = response.text
@@ -812,10 +815,23 @@ class ZakupkiRSSParser:
                 # Регион из адреса — только если ещё не определён из названия заказчика
                 new_region = address_info.get('region', '')
                 if new_region and not tender.get('customer_region'):
-                    tender['customer_region'] = new_region
+                    from tender_sniper.regions import normalize_region
+                    normalized = normalize_region(new_region)
+                    if normalized:
+                        tender['customer_region'] = normalized
                 new_city = address_info.get('city', '')
                 if new_city:
                     tender['customer_city'] = new_city
+
+            # === Fallback: регион по ИНН заказчика ===
+            if not tender.get('customer_region'):
+                inn_match = re.search(r'ИНН[:\s]*(\d{10,12})', html_content)
+                if inn_match:
+                    from tender_sniper.regions import region_from_inn
+                    inn_region = region_from_inn(inn_match.group(1))
+                    if inn_region:
+                        tender['customer_region'] = inn_region
+                        _log.debug(f"   📍 Регион из ИНН: {inn_region}")
 
             # === Извлекаем название заказчика если нет ===
             if not tender.get('customer'):
@@ -848,7 +864,7 @@ class ZakupkiRSSParser:
                         _log.debug(f"   🔄 Пробуем вкладку purchase-objects...")
                         try:
                             self._wait_for_rate_limit()
-                            po_response = self.session.get(purchase_objects_url, timeout=30, verify=False)
+                            po_response = self.session.get(purchase_objects_url, timeout=15, verify=False)
                             if po_response.status_code == 200:
                                 purchase_object = self._extract_purchase_object_from_page(po_response.text)
                         except Exception as e:
@@ -873,7 +889,7 @@ class ZakupkiRSSParser:
                         _log.debug(f"   🔄 Пробуем вкладку purchase-objects...")
                         try:
                             self._wait_for_rate_limit()
-                            po_response = self.session.get(purchase_objects_url, timeout=30, verify=False)
+                            po_response = self.session.get(purchase_objects_url, timeout=15, verify=False)
                             if po_response.status_code == 200:
                                 purchase_object = self._extract_purchase_object_from_page(po_response.text)
                         except Exception as e:
@@ -891,11 +907,11 @@ class ZakupkiRSSParser:
             _log.debug(f"   ✅ Обогащено: цена={tender.get('price', 'Н/Д')}, дедлайн={tender.get('submission_deadline', 'Н/Д')}, регион={tender.get('customer_region', 'Н/Д')}")
 
         except requests.exceptions.Timeout:
-            print(f"   ⏱️ Таймаут при загрузке страницы тендера")
+            _log.warning(f"   ⏱️ Таймаут при загрузке страницы тендера: {url[:80]}")
         except requests.exceptions.RequestException as e:
-            print(f"   ⚠️ Ошибка загрузки страницы: {e}")
+            _log.warning(f"   ⚠️ Ошибка загрузки страницы: {e}")
         except Exception as e:
-            print(f"   ⚠️ Ошибка обогащения тендера: {e}")
+            _log.warning(f"   ⚠️ Ошибка обогащения тендера: {e}")
 
         return tender
 

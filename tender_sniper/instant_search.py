@@ -197,6 +197,14 @@ class InstantSearch:
                     for tender in results:
                         number = tender.get('number')
                         if number and number not in seen_numbers:
+                            # === ФИЛЬТР: архивные тендеры (pubDate > 90 дней) ===
+                            pub_dt = tender.get('published_datetime')
+                            if pub_dt and isinstance(pub_dt, datetime):
+                                age_days = (datetime.now() - pub_dt).days
+                                if age_days > 90:
+                                    logger.debug(f"      ⛔ Архивный тендер ({age_days} дн.): {tender.get('name', '')[:50]}")
+                                    continue
+
                             tender_text = f"{tender.get('name', '')} {tender.get('summary', '')}".lower()
                             customer_name = tender.get('customer', '') or tender.get('customer_name', '')
 
@@ -252,13 +260,13 @@ class InstantSearch:
                             deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
                             if deadline:
                                 try:
-                                    # Пробуем разные форматы даты
                                     deadline_date = None
-                                    for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M']:
+                                    deadline_str = str(deadline).strip()
+                                    for fmt in ['%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']:
                                         try:
-                                            deadline_date = datetime.strptime(deadline[:10], fmt[:len(deadline[:10])])
+                                            deadline_date = datetime.strptime(deadline_str.split('+')[0].split('Z')[0], fmt)
                                             break
-                                        except:
+                                        except ValueError:
                                             continue
 
                                     if deadline_date:
@@ -685,16 +693,18 @@ class InstantSearch:
                         if ai_result.get('is_relevant', True):
                             # AI подтвердил релевантность
                             confidence = ai_result.get('confidence', 0)
-                            tender['ai_verified'] = True
+                            ai_source = ai_result.get('source', '')
+                            tender['ai_verified'] = ai_source == 'ai'
                             tender['ai_confidence'] = confidence
                             tender['ai_reason'] = ai_result.get('reason', '')
 
                             # Composite score: SmartMatcher + AI boost
-                            # AI уверен (>=60) → +15, AI допускает (40-59) → +10
-                            if confidence >= 60:
-                                tender['match_score'] = min(100, tender['match_score'] + 15)
-                            elif confidence >= 40:
-                                tender['match_score'] = min(100, tender['match_score'] + 10)
+                            # Boost ТОЛЬКО для реальных AI-проверок (не fallback/error/quota)
+                            if ai_source in ('ai', 'cache'):
+                                if confidence >= 60:
+                                    tender['match_score'] = min(100, tender['match_score'] + 15)
+                                elif confidence >= 40:
+                                    tender['match_score'] = min(100, tender['match_score'] + 10)
 
                             ai_filtered_matches.append(tender)
                         else:

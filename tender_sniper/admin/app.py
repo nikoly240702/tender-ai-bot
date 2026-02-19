@@ -1727,26 +1727,20 @@ async def health_dashboard(
     except Exception as e:
         services['disk'] = {'status': 'unknown', 'message': str(e)}
 
-    # 6. Recent errors count
+    # 6. Recent notifications count (delivery_status column doesn't exist)
     try:
         async with DatabaseSession() as session:
             one_hour_ago = datetime.now() - timedelta(hours=1)
-            # Count failed notifications in last hour
-            failed_count = await session.scalar(
+            recent_count = await session.scalar(
                 select(func.count(SniperNotification.id)).where(
-                    and_(
-                        SniperNotification.sent_at >= one_hour_ago,
-                        SniperNotification.delivery_status == 'failed'
-                    )
+                    SniperNotification.sent_at >= one_hour_ago,
                 )
             ) or 0
 
-            if failed_count == 0:
-                services['notifications'] = {'status': 'ok', 'message': 'No failed deliveries'}
-            elif failed_count < 10:
-                services['notifications'] = {'status': 'warning', 'message': f'{failed_count} failed in last hour'}
+            if recent_count > 0:
+                services['notifications'] = {'status': 'ok', 'message': f'{recent_count} sent in last hour'}
             else:
-                services['notifications'] = {'status': 'error', 'message': f'{failed_count} failed in last hour'}
+                services['notifications'] = {'status': 'ok', 'message': 'No notifications in last hour'}
     except Exception as e:
         services['notifications'] = {'status': 'unknown', 'message': str(e)}
 
