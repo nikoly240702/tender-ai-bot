@@ -169,7 +169,7 @@ class TelegramNotifier:
                 else:
                     pub_dt = published
                 pub_str = pub_dt.strftime('%d.%m.%Y %H:%M')
-            except:
+            except (ValueError, TypeError, AttributeError):
                 pub_str = str(published)[:16]
         else:
             pub_str = "Неизвестна"

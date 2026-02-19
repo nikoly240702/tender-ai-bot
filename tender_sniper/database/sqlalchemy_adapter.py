@@ -574,6 +574,12 @@ class TenderSniperDB:
                 # Добавляем telegram_id и subscription_tier из user
                 filter_dict['telegram_id'] = user_obj.telegram_id
                 filter_dict['subscription_tier'] = user_obj.subscription_tier
+                # Добавляем user data для quiet hours/notification mode (избегаем N+1 запросов)
+                filter_dict['user_data'] = {
+                    'id': user_obj.id,
+                    'telegram_id': user_obj.telegram_id,
+                    'data': user_obj.data if hasattr(user_obj, 'data') and user_obj.data else {},
+                }
                 filters.append(filter_dict)
 
             return filters
@@ -589,7 +595,7 @@ class TenderSniperDB:
             if isinstance(value, str):
                 try:
                     return json.loads(value)
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     return []
             return []
 
@@ -845,13 +851,13 @@ class TenderSniperDB:
                         # Пробуем RFC 2822
                         from email.utils import parsedate_to_datetime
                         submission_deadline = parsedate_to_datetime(deadline_str)
-                    except:
+                    except (ValueError, TypeError):
                         # Пробуем распространенные форматы даты
                         for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M', '%Y-%m-%d %H:%M']:
                             try:
                                 submission_deadline = datetime.strptime(deadline_str, fmt)
                                 break
-                            except:
+                            except ValueError:
                                 continue
 
                 # Убираем timezone если есть
@@ -1282,7 +1288,7 @@ class TenderSniperDB:
                 if isinstance(keywords, str):
                     try:
                         keywords = json.loads(keywords)
-                    except:
+                    except (json.JSONDecodeError, ValueError, TypeError):
                         keywords = []
 
                 diagnostics.append({

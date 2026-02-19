@@ -11,6 +11,7 @@ import functools
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from cachetools import TTLCache
 import logging
 
 # Добавляем корень проекта в путь
@@ -29,8 +30,8 @@ class InstantSearch:
     """Мгновенный поиск тендеров по фильтру."""
 
     # Кэш обогащённых тендеров (по номеру тендера)
-    # Сохраняет данные на время сессии, экономит HTTP запросы
-    _enrichment_cache: Dict[str, Dict[str, Any]] = {}
+    # TTLCache: автоочистка через 2 часа, максимум 500 записей
+    _enrichment_cache: TTLCache = TTLCache(maxsize=500, ttl=7200)
     _cache_max_size = 500  # Максимум кэшированных тендеров
 
     # Минимальный pre-score для обогащения (без обогащения - пропускаем)
@@ -94,7 +95,7 @@ class InstantSearch:
             if isinstance(value, str):
                 try:
                     return json.loads(value)
-                except:
+                except (json.JSONDecodeError, ValueError):
                     return default
             # Уже распарсено (PostgreSQL JSON/JSONB)
             return value if isinstance(value, list) else default
@@ -388,8 +389,8 @@ class InstantSearch:
                             )
                             enriched_results.append(enriched)
 
-                            # Сохраняем в кэш (ограничиваем размер)
-                            if tender_number and len(self._enrichment_cache) < self._cache_max_size:
+                            # Сохраняем в кэш (TTLCache автоматически ограничивает размер)
+                            if tender_number:
                                 # Кэшируем только обогащённые поля
                                 self._enrichment_cache[tender_number] = {
                                     'price': enriched.get('price'),
@@ -590,7 +591,7 @@ class InstantSearch:
                             if published_dt < two_years_ago:
                                 logger.debug(f"      ⛔ Исключен (старый, {published_dt.year}): {tender.get('name', '')[:60]}")
                                 continue
-                    except:
+                    except (ValueError, TypeError):
                         pass  # Если не удалось распарсить - пропускаем проверку
 
                 # ФИЛЬТР 2: ДВОЙНАЯ ПРОВЕРКА ТИПА - дополнительная защита от услуг в товарах
@@ -864,8 +865,8 @@ class InstantSearch:
                 try:
                     from email.utils import parsedate_to_datetime
                     dt = parsedate_to_datetime(published)
-                    published = datetime.strftime('%d.%m.%Y %H:%M')
-                except:
+                    published = dt.strftime('%d.%m.%Y %H:%M')
+                except (ValueError, TypeError):
                     pass
 
             # Дата окончания подачи заявок

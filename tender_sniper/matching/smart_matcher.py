@@ -6,11 +6,18 @@ Smart Matching Engine для сопоставления тендеров с по
 
 import re
 import json
+import functools
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1024)
+def _compile_pattern(pattern: str, flags: int = 0) -> re.Pattern:
+    """Кэширует скомпилированные regex паттерны."""
+    return re.compile(pattern, flags)
 
 
 def detect_red_flags(tender: Dict[str, Any]) -> List[str]:
@@ -670,18 +677,19 @@ class SmartMatcher:
         """
         Проверяет совпадение слова с учетом границ слов.
         Избегает ложных срабатываний типа 'служб' в 'службы военной'.
+        Использует кэшированные regex паттерны для производительности.
         """
         keyword_lower = keyword.lower().strip()
 
         # Для коротких слов (< 4 символов) требуем точное совпадение с границами
         if len(keyword_lower) < 4:
             pattern = r'\b' + re.escape(keyword_lower) + r'\b'
-            return bool(re.search(pattern, text, re.IGNORECASE))
+        else:
+            # Для более длинных слов - ищем начало слова
+            # Это позволяет найти "linux" в "linux-система" или "линукс"
+            pattern = r'\b' + re.escape(keyword_lower)
 
-        # Для более длинных слов - ищем начало слова
-        # Это позволяет найти "linux" в "linux-система" или "линукс"
-        pattern = r'\b' + re.escape(keyword_lower)
-        return bool(re.search(pattern, text, re.IGNORECASE))
+        return bool(_compile_pattern(pattern, re.IGNORECASE).search(text))
 
     def _check_negative_patterns(self, text: str) -> Optional[str]:
         """
@@ -1116,7 +1124,7 @@ class SmartMatcher:
                     score += 10  # Опубликован сегодня
                 elif days_old <= 3:
                     score += 5  # Опубликован недавно
-            except:
+            except (ValueError, TypeError, AttributeError):
                 pass
 
         # ============================================
@@ -1246,7 +1254,7 @@ class SmartMatcher:
         if isinstance(field_value, str):
             try:
                 return json.loads(field_value)
-            except:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 return []
         return []
 

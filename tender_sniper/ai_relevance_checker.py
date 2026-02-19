@@ -13,6 +13,7 @@ import asyncio
 import functools
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
+from cachetools import TTLCache
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,8 @@ class AIRelevanceChecker:
     CONFIDENCE_THRESHOLD_ACCEPT = 40  # Минимум для одобрения
     CONFIDENCE_THRESHOLD_RECHECK = 25  # Ниже этого — отклоняем
 
-    # Кэш решений (in-memory + PostgreSQL persistent)
-    _cache: Dict[str, Tuple[bool, int, str, datetime]] = {}
+    # Кэш решений (in-memory TTLCache + PostgreSQL persistent)
+    _cache: TTLCache = TTLCache(maxsize=5000, ttl=86400)  # 24 hours
     _CACHE_TTL_HOURS = 24
     _persistent_cache_enabled = True
 
@@ -71,14 +72,11 @@ class AIRelevanceChecker:
         return hashlib.md5(content.encode()).hexdigest()
 
     def _get_from_cache(self, cache_key: str) -> Optional[Tuple[bool, int, str]]:
-        """Получает решение из in-memory кэша если не истекло."""
-        if cache_key in self._cache:
-            is_relevant, confidence, reason, cached_at = self._cache[cache_key]
-            if datetime.now() - cached_at < timedelta(hours=self._CACHE_TTL_HOURS):
-                logger.debug(f"   🗄️ Cache hit (memory): {cache_key[:8]}...")
-                return (is_relevant, confidence, reason)
-            else:
-                del self._cache[cache_key]
+        """Получает решение из in-memory кэша (TTLCache автоматически удаляет истекшие)."""
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            logger.debug(f"   🗄️ Cache hit (memory): {cache_key[:8]}...")
+            return cached
         return None
 
     async def _get_from_persistent_cache(self, cache_key: str) -> Optional[Tuple[bool, int, str]]:
@@ -92,23 +90,16 @@ class AIRelevanceChecker:
             if data:
                 logger.debug(f"   🗄️ Cache hit (DB): {cache_key[:8]}...")
                 # Также сохраняем в in-memory для ускорения
-                self._cache[cache_key] = (
-                    data['is_relevant'], data['confidence'], data['reason'], datetime.now()
-                )
-                return (data['is_relevant'], data['confidence'], data['reason'])
+                result = (data['is_relevant'], data['confidence'], data['reason'])
+                self._cache[cache_key] = result
+                return result
         except Exception as e:
             logger.debug(f"Persistent cache get error: {e}")
         return None
 
     def _save_to_cache(self, cache_key: str, is_relevant: bool, confidence: int, reason: str):
-        """Сохраняет решение в in-memory кэш."""
-        self._cache[cache_key] = (is_relevant, confidence, reason, datetime.now())
-
-        # Очистка старых записей (простая стратегия)
-        if len(self._cache) > 10000:
-            sorted_keys = sorted(self._cache.keys(), key=lambda k: self._cache[k][3])
-            for key in sorted_keys[:2000]:
-                del self._cache[key]
+        """Сохраняет решение в in-memory кэш (TTLCache автоматически ограничивает размер и TTL)."""
+        self._cache[cache_key] = (is_relevant, confidence, reason)
 
     async def _save_to_persistent_cache(self, cache_key: str, is_relevant: bool, confidence: int, reason: str):
         """Сохраняет решение в PostgreSQL кэш."""

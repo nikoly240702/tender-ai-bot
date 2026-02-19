@@ -20,6 +20,7 @@ python-dotenv==1.0.0
 
 # Additional utilities
 colorama==0.4.6
+cachetools>=5.3.0  # TTL cache для in-memory кэширования
 
 # LLM Providers (установите только нужные)
 # Anthropic Claude (оригинальный вариант)

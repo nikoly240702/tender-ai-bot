@@ -192,6 +192,13 @@ class TenderSniperService:
         if self.notifier:
             await self.notifier.close()
 
+        if self.db and hasattr(self.db, 'close'):
+            try:
+                await self.db.close()
+                logger.info("   ✅ DB соединение закрыто")
+            except Exception as e:
+                logger.warning(f"   ⚠️ Ошибка закрытия DB: {e}")
+
         self._print_stats()
 
     async def run_single_poll(self):
@@ -239,9 +246,15 @@ class TenderSniperService:
             seen_tenders = set()  # (user_id, tender_number)
 
             # Кэш данных пользователей и статистика отправки (persistent across filters)
+            # Pre-populate из данных JOIN (избегаем N+1 запросов get_user_by_telegram_id)
             user_data_cache = {}
+            for f in filters:
+                ud = f.get('user_data')
+                if ud and ud.get('telegram_id'):
+                    user_data_cache[ud['telegram_id']] = ud
             sent_count = 0
             failed_count = 0
+            search_error_count = 0
 
             for filter_data in filters:
                 filter_id = filter_data['id']
@@ -263,7 +276,7 @@ class TenderSniperService:
                 keywords_raw = filter_data.get('keywords', '[]')
                 try:
                     keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else keywords_raw
-                except:
+                except (json.JSONDecodeError, ValueError, TypeError):
                     keywords = []
 
                 if not keywords:
@@ -275,7 +288,7 @@ class TenderSniperService:
                 if isinstance(expanded_keywords_raw, str):
                     try:
                         expanded_keywords = json.loads(expanded_keywords_raw)
-                    except:
+                    except (json.JSONDecodeError, ValueError, TypeError):
                         expanded_keywords = []
                 else:
                     expanded_keywords = expanded_keywords_raw or []
@@ -383,6 +396,7 @@ class TenderSniperService:
 
                 except Exception as e:
                     logger.error(f"      ❌ Ошибка поиска для фильтра {filter_id}: {e}", exc_info=True)
+                    search_error_count += 1
 
                     # Увеличиваем счетчик ошибок
                     error_count = await self.db.increment_filter_error_count(filter_id)
@@ -411,9 +425,9 @@ class TenderSniperService:
                         ntf_telegram_id = notif['telegram_id']
                         tender_number = notif['tender'].get('number', '?')
 
-                        # Проверяем тихие часы (получаем данные пользователя из кэша или БД)
+                        # Проверяем тихие часы (из pre-populated кэша, fallback на БД)
                         if ntf_telegram_id not in user_data_cache:
-                            user_data_cache[ntf_telegram_id] = await self.db.get_user_by_telegram_id(ntf_telegram_id)
+                            user_data_cache[ntf_telegram_id] = await self.db.get_user_by_telegram_id(ntf_telegram_id) or {}
 
                         user_data = user_data_cache.get(ntf_telegram_id, {})
                         is_quiet_hours = not await self._should_send_notification(user_data)
@@ -501,7 +515,7 @@ class TenderSniperService:
                     notifications_to_send = []  # Очищаем после отправки
 
             # 3. Итоги цикла
-            logger.info(f"\n   📊 Итого за цикл: {sent_count} отправлено, {failed_count} ошибок")
+            logger.info(f"\n   📊 Итого за цикл: {sent_count} отправлено, {failed_count} ошибок отправки, {search_error_count} ошибок поиска")
 
             # Очищаем кэш обогащения после каждого цикла (экономия памяти)
             cache_stats = InstantSearch.get_cache_stats()
@@ -602,7 +616,7 @@ async def main():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.StreamHandler(),
+            logging.StreamHandler(sys.stdout),
             logging.FileHandler(Path(__file__).parent / 'tender_sniper.log')
         ]
     )
