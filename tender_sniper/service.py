@@ -10,7 +10,7 @@ import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 # Добавляем корень проекта в путь

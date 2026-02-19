@@ -10,7 +10,7 @@ import asyncio
 import functools
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 # Добавляем корень проекта в путь
@@ -416,7 +416,6 @@ class InstantSearch:
             archive_mode = purchase_stage == "archive"
 
             if (purchase_stage == "submission" or archive_mode) and search_results:
-                from datetime import datetime as dt
                 active_results = []
                 archived_count = 0
 
@@ -431,21 +430,21 @@ class InstantSearch:
                             # Пробуем разные форматы
                             if len(deadline_str_clean) >= 16:  # "DD.MM.YYYY HH:MM"
                                 try:
-                                    deadline_date = dt.strptime(deadline_str_clean[:16], '%d.%m.%Y %H:%M')
+                                    deadline_date = datetime.strptime(deadline_str_clean[:16], '%d.%m.%Y %H:%M')
                                 except ValueError:
                                     pass
 
                             if not deadline_date and len(deadline_str_clean) >= 10:  # "DD.MM.YYYY"
                                 try:
-                                    deadline_date = dt.strptime(deadline_str_clean[:10], '%d.%m.%Y')
+                                    deadline_date = datetime.strptime(deadline_str_clean[:10], '%d.%m.%Y')
                                 except ValueError:
                                     try:
-                                        deadline_date = dt.strptime(deadline_str_clean[:10], '%Y-%m-%d')
+                                        deadline_date = datetime.strptime(deadline_str_clean[:10], '%Y-%m-%d')
                                     except ValueError:
                                         pass
 
                             if deadline_date:
-                                is_archived = deadline_date < dt.now()
+                                is_archived = deadline_date < datetime.now()
 
                                 if archive_mode:
                                     # Режим архива: ОСТАВЛЯЕМ только архивные
@@ -577,10 +576,7 @@ class InstantSearch:
                             from email.utils import parsedate_to_datetime
                             published_dt = parsedate_to_datetime(published_str)
                         else:
-                            from datetime import datetime as dt
-                            published_dt = dt.strptime(published_str[:10], '%Y-%m-%d')
-
-                        from datetime import datetime, timedelta
+                            published_dt = datetime.strptime(published_str[:10], '%Y-%m-%d')
 
                         # 🧪 БЕТА: Фильтр по дате публикации (если указано)
                         if publication_days:
@@ -868,7 +864,7 @@ class InstantSearch:
                 try:
                     from email.utils import parsedate_to_datetime
                     dt = parsedate_to_datetime(published)
-                    published = dt.strftime('%d.%m.%Y %H:%M')
+                    published = datetime.strftime('%d.%m.%Y %H:%M')
                 except:
                     pass
 
