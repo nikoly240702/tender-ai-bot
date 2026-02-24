@@ -8,15 +8,36 @@ Middleware для контроля доступа к боту.
 """
 
 from typing import Callable, Dict, Any, Awaitable, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery, TelegramObject
 from bot.config import BotConfig
 from bot.middlewares.user_cache import get_cached_user, set_cached_user
 from sqlalchemy import select
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Rate-limit обновления last_activity: не чаще раза в 30 минут на пользователя
+# {telegram_id: datetime_of_last_db_update}
+_last_activity_updated: Dict[int, datetime] = {}
+_ACTIVITY_UPDATE_INTERVAL = timedelta(minutes=30)
+
+
+async def _update_last_activity_bg(telegram_id: int):
+    """Fire-and-forget обновление last_activity в БД."""
+    try:
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import update
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperUser)
+                .where(SniperUser.telegram_id == telegram_id)
+                .values(last_activity=datetime.utcnow())
+            )
+    except Exception as e:
+        logger.debug(f"_update_last_activity_bg: {e}")
 
 
 class AccessControlMiddleware(BaseMiddleware):
@@ -72,6 +93,14 @@ class AccessControlMiddleware(BaseMiddleware):
             data['subscription_tier'] = cached.get('subscription_tier', 'trial')
             data['user_id_db'] = cached.get('id')
             data['cached_user'] = cached  # Для SubscriptionMiddleware
+
+            # Обновляем last_activity раз в 30 минут (fire-and-forget)
+            now = datetime.utcnow()
+            last_upd = _last_activity_updated.get(lookup_telegram_id)
+            if not last_upd or now - last_upd > _ACTIVITY_UPDATE_INTERVAL:
+                _last_activity_updated[lookup_telegram_id] = now
+                asyncio.create_task(_update_last_activity_bg(lookup_telegram_id))
+
             return await handler(event, data)
 
         # 3. Нет в кэше - идём в БД
