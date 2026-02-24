@@ -128,6 +128,52 @@ class TenderNameGenerator:
             'timestamp': datetime.now()
         }
 
+    # Типы процедур — мусорные префиксы в порядке убывания длины
+    _PROCEDURE_PREFIXES = [
+        'конкурс с ограниченным участием',
+        'электронный аукцион',
+        'запрос предложений',
+        'открытый конкурс',
+        'запрос котировок',
+        'аукцион',
+        'закупка',
+        'конкурс',
+    ]
+
+    def _strip_procedure_prefix(self, name: str) -> str:
+        """
+        Вырезает мусорный префикс типа 'Электронный аукцион №...' из начала.
+        Возвращает оставшуюся часть, если она осмысленная (≥10 символов),
+        иначе возвращает исходное название.
+        """
+        import re
+        lower = name.lower().strip()
+
+        for prefix in self._PROCEDURE_PREFIXES:
+            if not lower.startswith(prefix):
+                continue
+
+            # Вырезаем: тип процедуры + необязательный №/# + номер + разделитель
+            tail = name[len(prefix):].strip()
+            # Убираем "№XXXXXXXX" или "#XXXXXX" в начале tail
+            tail = re.sub(r'^[№#]?\s*[\w\d/\-]+', '', tail).strip()
+            # Убираем лидирующие разделители (- / : — –)
+            tail = re.sub(r'^[\-–—:/,\.]+', '', tail).strip()
+
+            if len(tail) >= 10:
+                # Первую букву делаем заглавной
+                return tail[0].upper() + tail[1:]
+
+        return name  # Не нашли паттерн — возвращаем оригинал
+
+    def _is_only_procedure_number(self, name: str) -> bool:
+        """True, если название — ТОЛЬКО тип процедуры + номер, без описания."""
+        stripped = self._strip_procedure_prefix(name)
+        # Если после очистки ничего не осталось — это чисто мусорное название
+        return stripped == name and any(
+            name.lower().strip().startswith(p) for p in self._PROCEDURE_PREFIXES
+        ) and len(name) < 60  # Длинные — скорее всего содержат описание
+
     def generate_short_name(
         self,
         original_name: str,
@@ -148,7 +194,19 @@ class TenderNameGenerator:
         if not original_name or not original_name.strip():
             return "Без названия"
 
-        # Если оригинальное название уже короткое, возвращаем его
+        # Сначала пытаемся вырезать мусорный префикс ("Электронный аукцион №...")
+        cleaned = self._strip_procedure_prefix(original_name)
+
+        # Если это чисто мусорное название (только тип процедуры + номер, без сути)
+        if self._is_only_procedure_number(original_name):
+            logger.debug("⚠️ Мусорное название (только номер процедуры), используем fallback")
+            return self._fallback_short_name(original_name, max_length)
+
+        # Если после очистки префикса стало короче — используем очищенное
+        if cleaned != original_name:
+            original_name = cleaned
+
+        # Если название уже короткое и нормальное — возвращаем как есть
         if len(original_name) <= max_length:
             return original_name
 
@@ -218,10 +276,17 @@ class TenderNameGenerator:
         """
         import re
 
-        if len(original_name) <= max_length:
-            return original_name
+        # Сначала вырезаем мусорный префикс (аукцион/конкурс + номер)
+        name = self._strip_procedure_prefix(original_name)
 
-        name = original_name
+        # Если strip ничего не дал и это чисто мусорное название — возвращаем тип процедуры
+        if name == original_name and self._is_only_procedure_number(original_name):
+            for prefix in self._PROCEDURE_PREFIXES:
+                if original_name.lower().startswith(prefix):
+                    return prefix[0].upper() + prefix[1:]
+
+        if len(name) <= max_length:
+            return name
 
         # === ОБРАБОТКА ТИПОВЫХ ПАТТЕРНОВ ===
 

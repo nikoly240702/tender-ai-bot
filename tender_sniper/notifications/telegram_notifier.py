@@ -156,94 +156,104 @@ class TelegramNotifier:
         # Форматируем цену
         price = tender.get('price')
         if price:
-            price_str = f"{price:,.0f} ₽".replace(',', ' ')
+            try:
+                price_str = f"{float(price):,.0f} ₽".replace(',', ' ')
+            except (ValueError, TypeError):
+                price_str = str(price)
         else:
             price_str = "Не указана"
-
-        # Форматируем дату публикации
-        published = tender.get('published_datetime')
-        if published:
-            try:
-                if isinstance(published, str):
-                    pub_dt = datetime.fromisoformat(published.replace('Z', '+00:00'))
-                else:
-                    pub_dt = published
-                pub_str = pub_dt.strftime('%d.%m.%Y %H:%M')
-            except (ValueError, TypeError, AttributeError):
-                pub_str = str(published)[:16]
-        else:
-            pub_str = "Неизвестна"
 
         # Генерируем короткое AI-название (или используем оригинальное)
         original_name = tender.get('name', 'Без названия')
         name = generate_tender_name(
             original_name,
             tender_data=tender,
-            max_length=80  # Короткие названия для уведомлений
+            max_length=90
         )
 
-        # Форматируем deadline
+        # Форматируем deadline + дни до дедлайна
         deadline = tender.get('submission_deadline')
         deadline_str = None
+        days_left = None
         if deadline:
             try:
+                deadline_dt = None
                 if isinstance(deadline, str):
-                    # Пробуем разные форматы
                     for fmt in ['%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%d', '%Y-%m-%dT%H:%M:%S']:
                         try:
                             deadline_dt = datetime.strptime(deadline.split('+')[0].split('Z')[0], fmt)
-                            deadline_str = deadline_dt.strftime('%d.%m.%Y')
                             break
                         except ValueError:
                             continue
-                    if not deadline_str:
-                        deadline_str = str(deadline)[:10]
                 elif isinstance(deadline, datetime):
-                    deadline_str = deadline.strftime('%d.%m.%Y')
+                    deadline_dt = deadline
+
+                if deadline_dt:
+                    deadline_str = deadline_dt.strftime('%d.%m.%Y')
+                    days_left = (deadline_dt - datetime.now()).days
+                else:
+                    deadline_str = str(deadline)[:10]
             except Exception:
                 pass
 
         # Регион и заказчик
-        region = tender.get('customer_region', tender.get('region', 'Не указан'))
-        customer = tender.get('customer', tender.get('customer_name', 'Не указан'))
-        if len(customer) > 40:
-            customer = customer[:37] + '...'
+        region = tender.get('customer_region', tender.get('region', ''))
+        customer = tender.get('customer', tender.get('customer_name', ''))
+        if len(customer) > 45:
+            customer = customer[:42] + '...'
 
-        # Формируем сообщение (новый визуал)
-        message = f"""{score_emoji} <b>Новый тендер!</b>  📊 {score}/100
+        # Ключевые слова (только реально совпавшие)
+        kw_list = [kw for kw in matched_keywords if isinstance(kw, str) and len(kw) > 1][:5]
 
-<b>📋 {name}</b>
-━━━━━━━━━━━━━━━━━━━━━━
-💰 {price_str}"""
+        # ─── Строим сообщение ───
 
+        # Заголовок: эмодзи + название
+        message = f"{score_emoji} <b>{name}</b>\n"
+
+        # Вторая строка: цена + дедлайн в одну строку
+        line2_parts = [f"💰 {price_str}"]
         if deadline_str:
-            message += f"\n⏰ Подача до: {deadline_str}"
+            if days_left is not None and days_left >= 0:
+                urgency = "‼️" if days_left <= 3 else ("⚡" if days_left <= 7 else "⏰")
+                line2_parts.append(f"{urgency} до {deadline_str} ({days_left} дн.)")
+            else:
+                line2_parts.append(f"⏰ до {deadline_str}")
+        message += "  ·  ".join(line2_parts) + "\n"
 
-        message += f"""
-📍 {region}
-🏢 {customer}
-🎯 Фильтр: {filter_name}"""
+        # Место и заказчик
+        if region and customer:
+            message += f"📍 {region}  ·  🏢 {customer}\n"
+        elif region:
+            message += f"📍 {region}\n"
+        elif customer:
+            message += f"🏢 {customer}\n"
 
-        # Добавляем AI source если есть
-        ai_verified = match_info.get('ai_verified', False)
+        # Фильтр и ключевые слова
+        message += f"🎯 {filter_name}"
+        if kw_list:
+            message += f"  ·  <i>{', '.join(kw_list)}</i>"
+        message += "\n"
+
+        # AI строка
         ai_confidence = match_info.get('ai_confidence')
-        if ai_verified and ai_confidence is not None:
-            ai_reason = match_info.get('ai_reason', '')
-            if ai_reason and len(ai_reason) > 60:
-                ai_reason = ai_reason[:57] + '...'
-            message += f"\n🤖 AI: {ai_confidence}%"
+        ai_reason = match_info.get('ai_reason', '')
+        if ai_confidence is not None and ai_confidence >= 40:
+            if ai_reason and len(ai_reason) > 55:
+                ai_reason = ai_reason[:52] + '...'
+            message += f"🤖 {ai_confidence}%"
             if ai_reason:
                 message += f" — {ai_reason}"
+            message += "\n"
 
-        # Добавляем красные флаги если есть
+        # Красные флаги
         red_flags = match_info.get('red_flags', [])
         if red_flags:
-            message += "\n\n🚩 " + " | ".join(red_flags[:3])
+            message += "🚩 " + " · ".join(red_flags[:2]) + "\n"
 
-        # Добавляем номер тендера
+        # Номер тендера
         tender_number = tender.get('number')
         if tender_number:
-            message += f"\n\n🔗 № {tender_number}"
+            message += f"\n<code>№ {tender_number}</code>"
 
         return message.strip()
 
