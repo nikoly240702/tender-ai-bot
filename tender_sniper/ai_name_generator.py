@@ -197,17 +197,14 @@ class TenderNameGenerator:
         # Сначала пытаемся вырезать мусорный префикс ("Электронный аукцион №...")
         cleaned = self._strip_procedure_prefix(original_name)
 
-        # Если это чисто мусорное название (только тип процедуры + номер, без сути)
-        if self._is_only_procedure_number(original_name):
-            logger.debug("⚠️ Мусорное название (только номер процедуры), используем fallback")
-            return self._fallback_short_name(original_name, max_length)
+        is_garbage = self._is_only_procedure_number(original_name)
 
         # Если после очистки префикса стало короче — используем очищенное
         if cleaned != original_name:
             original_name = cleaned
 
-        # Если название уже короткое и нормальное — возвращаем как есть
-        if len(original_name) <= max_length:
+        # Если название уже короткое и нормальное (и не мусорное) — возвращаем как есть
+        if not is_garbage and len(original_name) <= max_length:
             return original_name
 
         # Проверяем кэш
@@ -217,9 +214,9 @@ class TenderNameGenerator:
             logger.debug(f"💾 Название найдено в кэше")
             return cached_name
 
-        # Если LLM недоступен, возвращаем обрезанное оригинальное название
+        # Если LLM недоступен, возвращаем fallback
         if not self.llm:
-            logger.debug("⚠️ LLM недоступен, используем обрезанное название")
+            logger.debug("⚠️ LLM недоступен, используем fallback")
             return self._fallback_short_name(original_name, max_length)
 
         # Генерируем через LLM
@@ -244,8 +241,15 @@ class TenderNameGenerator:
 
             # Добавляем контекст из tender_data если есть
             if tender_data:
-                customer = tender_data.get('customer_name')
-                region = tender_data.get('region')
+                import re as _re
+                # summary содержит "Наименование объекта закупки" — ключевой источник для мусорных имён
+                summary = tender_data.get('summary', '')
+                if summary:
+                    clean_summary = _re.sub(r'<[^>]+>', ' ', summary)
+                    clean_summary = _re.sub(r'\s+', ' ', clean_summary).strip()[:600]
+                    user_prompt += f"\n\nОписание тендера:\n{clean_summary}"
+                customer = tender_data.get('customer_name') or tender_data.get('customer', '')
+                region = tender_data.get('region') or tender_data.get('customer_region', '')
                 if customer:
                     user_prompt += f"\n\nЗаказчик: {customer[:100]}"
                 if region:
