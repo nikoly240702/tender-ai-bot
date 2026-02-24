@@ -239,24 +239,36 @@ class TenderSniperService:
                 logger.info("   ℹ️  Нет активных фильтров для проверки")
                 return
 
-            # 2. Для КАЖДОГО фильтра делаем целевой поиск
-            searcher = InstantSearch()
-            notifications_to_send = []
-            # Дедупликация: один тендер → одно уведомление для пользователя
-            seen_tenders = set()  # (user_id, tender_number)
-
-            # Кэш данных пользователей и статистика отправки (persistent across filters)
-            # Pre-populate из данных JOIN (избегаем N+1 запросов get_user_by_telegram_id)
+            # 2. Для КАЖДОГО фильтра делаем целевой поиск (ПАРАЛЛЕЛЬНО)
+            # Pre-populate кэш пользователей из JOIN данных (избегаем N+1)
             user_data_cache = {}
             for f in filters:
                 ud = f.get('user_data')
                 if ud and ud.get('telegram_id'):
                     user_data_cache[ud['telegram_id']] = ud
+
+            # Фаза 1: Параллельный RSS-поиск по всем фильтрам
+            # Семафор ограничивает одновременные запросы к RSS (не перегружаем zakupki.gov.ru)
+            semaphore = asyncio.Semaphore(8)
+
+            async def _search_one(fdata):
+                async with semaphore:
+                    return await self._search_filter_matches(fdata)
+
+            logger.info(f"   ⚡ Параллельный поиск по {len(filters)} фильтрам (max 8 одновременно)...")
+            raw_results = await asyncio.gather(
+                *[_search_one(f) for f in filters],
+                return_exceptions=True
+            )
+
+            # Фаза 2: Последовательная обработка результатов + отправка
+            # (деdup, quota check, send — всё в одном потоке, без race conditions)
+            seen_tenders = set()  # (chat_id, tender_number) — глобальная дедупликация
             sent_count = 0
             failed_count = 0
             search_error_count = 0
 
-            for filter_data in filters:
+            for filter_data, result in zip(filters, raw_results):
                 filter_id = filter_data['id']
                 filter_name = filter_data['name']
                 user_id = filter_data['user_id']
@@ -265,154 +277,99 @@ class TenderSniperService:
 
                 # Per-filter routing: определяем куда отправлять
                 notify_chat_ids = filter_data.get('notify_chat_ids') or []
-                if not notify_chat_ids:
-                    target_chat_ids = [telegram_id]
-                else:
-                    target_chat_ids = notify_chat_ids
+                target_chat_ids = notify_chat_ids if notify_chat_ids else [telegram_id]
 
-                logger.info(f"\n   🔍 Проверка фильтра: {filter_name} (ID: {filter_id})")
-
-                # Парсим keywords из JSON
-                keywords_raw = filter_data.get('keywords', '[]')
-                try:
-                    keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else keywords_raw
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    keywords = []
-
-                if not keywords:
-                    logger.warning(f"      ⚠️  Нет ключевых слов, пропускаем")
-                    continue
-
-                # Читаем AI-расширенные ключевые слова (сохранены при создании фильтра)
-                expanded_keywords_raw = filter_data.get('expanded_keywords', [])
-                if isinstance(expanded_keywords_raw, str):
-                    try:
-                        expanded_keywords = json.loads(expanded_keywords_raw)
-                    except (json.JSONDecodeError, ValueError, TypeError):
-                        expanded_keywords = []
-                else:
-                    expanded_keywords = expanded_keywords_raw or []
-
-                # Делаем поиск по фильтру (С AI проверкой релевантности и расширенными словами)
-                try:
-                    search_results = await searcher.search_by_filter(
-                        filter_data=filter_data,
-                        max_tenders=25,  # Больше тендеров для лучшего покрытия
-                        expanded_keywords=expanded_keywords,  # AI-расширенные ключевые слова
-                        use_ai_check=True,  # AI проверка релевантности
-                        user_id=user_id,
-                        subscription_tier=subscription_tier
-                    )
-
-                    matches = search_results.get('matches', [])
-                    logger.info(f"      ✅ Найдено совпадений: {len(matches)}")
-
-                    # Сбрасываем счетчик ошибок при успешном поиске
-                    await self.db.reset_filter_error_count(filter_id)
-
-                    # Единый порог для composite score (SmartMatcher + AI boost)
-                    # AI boost добавляется в instant_search: +15 (conf>=60), +10 (conf>=40)
-                    MIN_SCORE_FOR_NOTIFICATION = 35
-
-                    # Фильтруем только новые тендеры (которых еще не уведомляли)
-                    for match in matches:
-                        # match УЖЕ содержит данные тендера + composite match_score
-                        tender = match
-                        tender_number = tender.get('number')
-                        tender_name = tender.get('name', '')[:50]
-                        score = tender.get('match_score', 0)
-
-                        # === ФИЛЬТР ПО COMPOSITE SCORE ===
-                        if score < MIN_SCORE_FOR_NOTIFICATION or not tender_number:
-                            continue
-
-                        # === ПРОВЕРКА: дедлайн не просрочен ===
-                        deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
-                        if deadline:
-                            try:
-                                deadline_date = None
-                                deadline_str = str(deadline).strip()
-                                for fmt in ['%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']:
-                                    try:
-                                        deadline_date = datetime.strptime(deadline_str, fmt)
-                                        break
-                                    except ValueError:
-                                        continue
-                                if deadline_date and deadline_date < datetime.now():
-                                    continue
-                            except Exception:
-                                pass
-
-                        # Проверяем, не отправляли ли уже (БД)
-                        already_notified = await self.db.is_tender_notified(tender_number, user_id)
-                        if already_notified:
-                            continue
-
-                        # Проверяем квоту (админы имеют неограниченный доступ)
-                        is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
-
-                        if not is_admin:
-                            # Лимиты хардкод (пока не мигрирован на PostgreSQL)
-                            daily_limit = 20 if subscription_tier == 'trial' else (50 if subscription_tier == 'basic' else 100)
-                            has_quota = await self.db.check_notification_quota(user_id, daily_limit)
-
-                            if not has_quota:
-                                logger.warning(f"         ⚠️  Квота исчерпана для user {user_id}")
-                                if self.notifier:
-                                    await self.notifier.send_quota_exceeded_notification(
-                                        telegram_id=telegram_id,
-                                        current_limit=daily_limit
-                                    )
-                                break  # Выходим из цикла для этого фильтра
-                        else:
-                            logger.info(f"         👑 Админ {telegram_id}: неограниченный доступ")
-
-                        # Добавляем в очередь на отправку для каждого target_chat_id
-                        for target_chat_id in target_chat_ids:
-                            dedup_key = (target_chat_id, tender_number)
-                            if dedup_key in seen_tenders:
-                                continue
-                            seen_tenders.add(dedup_key)
-
-                            notifications_to_send.append({
-                                'user_id': user_id,
-                                'telegram_id': target_chat_id,
-                                'tender': tender,
-                                'match_info': {
-                                    'score': score,
-                                    'matched_keywords': tender.get('match_reasons', []),
-                                    'red_flags': tender.get('red_flags', []),
-                                    'ai_verified': tender.get('ai_verified', False),
-                                    'ai_confidence': tender.get('ai_confidence'),
-                                    'ai_reason': tender.get('ai_reason', ''),
-                                },
-                                'filter_id': filter_id,
-                                'filter_name': filter_name,
-                                'score': score,
-                                'subscription_tier': subscription_tier
-                            })
-
-                        logger.info(f"         📤 Готово к отправке: {tender_number} (score: {score}, targets: {len(target_chat_ids)})")
-
-                except Exception as e:
-                    logger.error(f"      ❌ Ошибка поиска для фильтра {filter_id}: {e}", exc_info=True)
+                # Обрабатываем ошибки поиска (result = Exception если asyncio.gather поймал)
+                if isinstance(result, Exception):
+                    logger.error(f"   ❌ Ошибка поиска для фильтра {filter_id} «{filter_name}»: {result}", exc_info=result)
                     search_error_count += 1
-
-                    # Увеличиваем счетчик ошибок
                     error_count = await self.db.increment_filter_error_count(filter_id)
-
-                    # Если 3 последовательные ошибки - уведомляем пользователя
                     if error_count >= 3 and self.notifier and telegram_id:
-                        error_type = "Прокси" if "proxy" in str(e).lower() or "timeout" in str(e).lower() else "RSS"
+                        error_type = "Прокси" if "proxy" in str(result).lower() or "timeout" in str(result).lower() else "RSS"
                         await self.notifier.send_monitoring_error_notification(
                             telegram_id=telegram_id,
                             filter_name=filter_name,
                             error_type=error_type,
                             error_count=error_count
                         )
-                        logger.info(f"      📧 Отправлено уведомление об ошибке пользователю {telegram_id}")
-
                     continue
+
+                matches = result.get('matches', [])
+                logger.info(f"\n   🔍 Фильтр «{filter_name}» (ID: {filter_id}): {len(matches)} совпадений")
+
+                # Единый порог для composite score
+                MIN_SCORE_FOR_NOTIFICATION = 35
+                notifications_to_send = []
+
+                for match in matches:
+                    tender = match
+                    tender_number = tender.get('number')
+                    score = tender.get('match_score', 0)
+
+                    if score < MIN_SCORE_FOR_NOTIFICATION or not tender_number:
+                        continue
+
+                    # Проверка: дедлайн не просрочен
+                    deadline = tender.get('submission_deadline') or tender.get('deadline') or tender.get('end_date')
+                    if deadline:
+                        try:
+                            deadline_date = None
+                            deadline_str = str(deadline).strip()
+                            for fmt in ['%d.%m.%Y %H:%M', '%d.%m.%Y', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%d']:
+                                try:
+                                    deadline_date = datetime.strptime(deadline_str, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                            if deadline_date and deadline_date < datetime.now():
+                                continue
+                        except Exception:
+                            pass
+
+                    # Проверяем, не отправляли ли уже (БД)
+                    already_notified = await self.db.is_tender_notified(tender_number, user_id)
+                    if already_notified:
+                        continue
+
+                    # Проверяем квоту
+                    is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
+                    if not is_admin:
+                        daily_limit = 20 if subscription_tier == 'trial' else (50 if subscription_tier == 'basic' else 100)
+                        has_quota = await self.db.check_notification_quota(user_id, daily_limit)
+                        if not has_quota:
+                            logger.warning(f"      ⚠️  Квота исчерпана для user {user_id}")
+                            if self.notifier:
+                                await self.notifier.send_quota_exceeded_notification(
+                                    telegram_id=telegram_id,
+                                    current_limit=daily_limit
+                                )
+                            break
+                    else:
+                        logger.info(f"      👑 Админ {telegram_id}: неограниченный доступ")
+
+                    for target_chat_id in target_chat_ids:
+                        dedup_key = (target_chat_id, tender_number)
+                        if dedup_key in seen_tenders:
+                            continue
+                        seen_tenders.add(dedup_key)
+                        notifications_to_send.append({
+                            'user_id': user_id,
+                            'telegram_id': target_chat_id,
+                            'tender': tender,
+                            'match_info': {
+                                'score': score,
+                                'matched_keywords': tender.get('match_reasons', []),
+                                'red_flags': tender.get('red_flags', []),
+                                'ai_verified': tender.get('ai_verified', False),
+                                'ai_confidence': tender.get('ai_confidence'),
+                                'ai_reason': tender.get('ai_reason', ''),
+                            },
+                            'filter_id': filter_id,
+                            'filter_name': filter_name,
+                            'score': score,
+                            'subscription_tier': subscription_tier
+                        })
+                    logger.info(f"      📤 К отправке: {tender_number} (score: {score})")
 
                 # === НЕМЕДЛЕННАЯ ОТПРАВКА уведомлений этого фильтра ===
                 # Отправляем сразу после каждого фильтра, а не копим до конца цикла.
@@ -568,6 +525,46 @@ class TenderSniperService:
             return False
 
         return True
+
+    async def _search_filter_matches(self, filter_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Выполняет RSS-поиск для одного фильтра. Предназначен для параллельного запуска.
+        Возвращает {'matches': [...]} или поднимает исключение (поймает asyncio.gather).
+        """
+        filter_id = filter_data['id']
+        user_id = filter_data['user_id']
+        subscription_tier = filter_data.get('subscription_tier', 'trial')
+
+        keywords_raw = filter_data.get('keywords', '[]')
+        try:
+            keywords = json.loads(keywords_raw) if isinstance(keywords_raw, str) else keywords_raw
+        except (json.JSONDecodeError, ValueError, TypeError):
+            keywords = []
+
+        if not keywords:
+            logger.debug(f"   ⏭ Фильтр {filter_id}: нет ключевых слов, пропускаем")
+            return {'matches': []}
+
+        expanded_keywords_raw = filter_data.get('expanded_keywords', [])
+        if isinstance(expanded_keywords_raw, str):
+            try:
+                expanded_keywords = json.loads(expanded_keywords_raw)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                expanded_keywords = []
+        else:
+            expanded_keywords = expanded_keywords_raw or []
+
+        searcher = InstantSearch()
+        search_results = await searcher.search_by_filter(
+            filter_data=filter_data,
+            max_tenders=25,
+            expanded_keywords=expanded_keywords,
+            use_ai_check=True,
+            user_id=user_id,
+            subscription_tier=subscription_tier
+        )
+        await self.db.reset_filter_error_count(filter_id)
+        return {'matches': search_results.get('matches', [])}
 
     def _print_stats(self):
         """Вывод статистики работы сервиса."""

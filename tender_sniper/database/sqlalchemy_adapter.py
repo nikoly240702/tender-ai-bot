@@ -131,6 +131,32 @@ class TenderSniperDB:
                 'group_admin_id': getattr(user, 'group_admin_id', None),
             }
 
+    async def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Получение пользователя по первичному ключу (id)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.id == user_id)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return None
+            return {
+                'id': user.id,
+                'telegram_id': user.telegram_id,
+                'subscription_tier': user.subscription_tier,
+                'ai_analyses_used_month': user.ai_analyses_used_month,
+                'ai_analyses_month_reset': user.ai_analyses_month_reset,
+            }
+
+    async def increment_ai_analyses_count(self, user_id: int) -> None:
+        """Атомарно увеличивает счётчик AI-проверок (по первичному ключу)."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(SniperUserModel)
+                .where(SniperUserModel.id == user_id)
+                .values(ai_analyses_used_month=SniperUserModel.ai_analyses_used_month + 1)
+            )
+
     async def mark_user_bot_blocked(self, telegram_id: int) -> bool:
         """Пометить пользователя как заблокировавшего бота + деактивировать его фильтры."""
         async with DatabaseSession() as session:

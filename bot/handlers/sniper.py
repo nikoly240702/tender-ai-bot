@@ -23,6 +23,13 @@ from datetime import datetime, timedelta
 _monitoring_status_cache: dict = {}  # {user_id: (status, timestamp)}
 _CACHE_TTL = 60  # секунд
 
+# Лимиты фильтров (защита от злоупотреблений)
+MAX_KEYWORDS = 15           # ключевых слов на фильтр (основные)
+MAX_EXCLUDE_KEYWORDS = 20   # слов-исключений на фильтр
+MAX_CUSTOMER_KEYWORDS = 10  # ключевых слов по заказчику
+MAX_PRIMARY_KEYWORDS = 5    # приоритетных слов
+MAX_SECONDARY_KEYWORDS = 10 # дополнительных слов
+
 
 def _get_cached_monitoring_status(user_id: int) -> bool | None:
     """Получить статус из кэша если не устарел."""
@@ -1334,6 +1341,15 @@ async def process_edit_keywords(message: Message, state: FSMContext):
             await message.answer("⚠️ Введите хотя бы одно ключевое слово")
             return
 
+        if len(keywords) > MAX_KEYWORDS:
+            await message.answer(
+                f"⚠️ Слишком много ключевых слов: <b>{len(keywords)}</b>.\n"
+                f"Максимум — <b>{MAX_KEYWORDS}</b>.\n\n"
+                f"Оставьте самые важные — качество важнее количества.",
+                parse_mode="HTML"
+            )
+            return
+
         data = await state.get_data()
         filter_id = data.get('editing_filter_id')
         if not filter_id:
@@ -1423,6 +1439,13 @@ async def process_edit_exclude_keywords(message: Message, state: FSMContext):
             exclude_keywords = []
         else:
             exclude_keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+            if len(exclude_keywords) > MAX_EXCLUDE_KEYWORDS:
+                await message.answer(
+                    f"⚠️ Слишком много слов-исключений: <b>{len(exclude_keywords)}</b>.\n"
+                    f"Максимум — <b>{MAX_EXCLUDE_KEYWORDS}</b>.",
+                    parse_mode="HTML"
+                )
+                return
 
         db = await get_sniper_db()
         await db.update_filter(filter_id=filter_id, exclude_keywords=exclude_keywords)
@@ -1507,6 +1530,13 @@ async def process_edit_customer_keywords(message: Message, state: FSMContext):
             customer_keywords = []
         else:
             customer_keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+            if len(customer_keywords) > MAX_CUSTOMER_KEYWORDS:
+                await message.answer(
+                    f"⚠️ Слишком много ключевых слов заказчика: <b>{len(customer_keywords)}</b>.\n"
+                    f"Максимум — <b>{MAX_CUSTOMER_KEYWORDS}</b>.",
+                    parse_mode="HTML"
+                )
+                return
 
         db = await get_sniper_db()
         await db.update_filter(filter_id=filter_id, customer_keywords=customer_keywords)
@@ -3379,22 +3409,41 @@ async def process_extended_settings_input(message: Message, state: FSMContext):
         elif setting == 'excluded_customer_keywords':
             # Ключевые слова черного списка
             keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
-
-            # Добавляем к существующим
             existing = filter_data.get('excluded_customer_keywords', []) or []
             combined = list(set(existing + keywords))
+            if len(combined) > MAX_EXCLUDE_KEYWORDS:
+                await message.answer(
+                    f"⚠️ Черный список слишком большой: {len(combined)} слов (максимум {MAX_EXCLUDE_KEYWORDS}).",
+                    parse_mode="HTML"
+                )
+                await state.clear()
+                return
             update_data['excluded_customer_keywords'] = combined
             success_message = f"✅ В черный список добавлено слов: {len(keywords)}"
 
         elif setting == 'primary_keywords':
             # Главные ключевые слова
             keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+            if len(keywords) > MAX_PRIMARY_KEYWORDS:
+                await message.answer(
+                    f"⚠️ Максимум {MAX_PRIMARY_KEYWORDS} главных слов (сейчас: {len(keywords)}).",
+                    parse_mode="HTML"
+                )
+                await state.clear()
+                return
             update_data['primary_keywords'] = keywords
             success_message = f"✅ Главные слова установлены: {len(keywords)}"
 
         elif setting == 'secondary_keywords':
             # Дополнительные ключевые слова
             keywords = [kw.strip() for kw in text.split(',') if kw.strip()]
+            if len(keywords) > MAX_SECONDARY_KEYWORDS:
+                await message.answer(
+                    f"⚠️ Максимум {MAX_SECONDARY_KEYWORDS} дополнительных слов (сейчас: {len(keywords)}).",
+                    parse_mode="HTML"
+                )
+                await state.clear()
+                return
             update_data['secondary_keywords'] = keywords
             success_message = f"✅ Дополнительные слова установлены: {len(keywords)}"
 

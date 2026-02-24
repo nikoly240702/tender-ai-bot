@@ -6,6 +6,7 @@ Telegram Notification Service для Tender Sniper.
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -29,6 +30,56 @@ except ImportError:
         return name[:80] + '...' if len(name) > 80 else name
 
 logger = logging.getLogger(__name__)
+
+
+class _TelegramRateLimiter:
+    """
+    Token-bucket rate limiter для Telegram Bot API.
+
+    Telegram лимиты:
+    - Глобальный: 30 сообщений/секунду
+    - На чат:     1 сообщение/секунду (рекомендуется)
+
+    Мы используем 25/с глобально и 1.1 с между сообщениями в один чат
+    для надёжного запаса.
+    """
+    GLOBAL_RATE = 25        # токенов/сек (Telegram лимит 30, берём с запасом)
+    PER_CHAT_INTERVAL = 1.1  # минимум секунд между сообщениями в один чат
+
+    def __init__(self):
+        self._tokens = float(self.GLOBAL_RATE)
+        self._last_refill = time.monotonic()
+        self._per_chat_last: Dict[int, float] = {}
+        self._lock = asyncio.Lock()
+
+    async def acquire(self, chat_id: int):
+        """Ожидает разрешения перед отправкой сообщения в chat_id."""
+        async with self._lock:
+            now = time.monotonic()
+
+            # Пополняем глобальный bucket
+            elapsed = now - self._last_refill
+            self._tokens = min(float(self.GLOBAL_RATE), self._tokens + elapsed * self.GLOBAL_RATE)
+            self._last_refill = now
+
+            # Ждём глобальный токен
+            if self._tokens < 1.0:
+                wait = (1.0 - self._tokens) / self.GLOBAL_RATE
+                await asyncio.sleep(wait)
+                self._tokens = 0.0
+            else:
+                self._tokens -= 1.0
+
+            # Ждём per-chat лимит
+            last_send = self._per_chat_last.get(chat_id, 0.0)
+            chat_wait = self.PER_CHAT_INTERVAL - (time.monotonic() - last_send)
+            if chat_wait > 0:
+                await asyncio.sleep(chat_wait)
+            self._per_chat_last[chat_id] = time.monotonic()
+
+
+# Singleton rate limiter — единый для всего процесса
+_rate_limiter = _TelegramRateLimiter()
 
 
 class TelegramNotifier:
@@ -92,7 +143,8 @@ class TelegramNotifier:
             # Создаем кнопки
             keyboard = self._create_tender_keyboard(tender, is_auto_notification, subscription_tier)
 
-            # Отправляем уведомление
+            # Rate limiting перед отправкой (25 msg/s глобально, 1 msg/s на чат)
+            await _rate_limiter.acquire(telegram_id)
             await self.bot.send_message(
                 chat_id=telegram_id,
                 text=message,
@@ -401,6 +453,7 @@ class TelegramNotifier:
                 [InlineKeyboardButton(text="📊 Моя статистика", callback_data="my_stats")]
             ])
 
+            await _rate_limiter.acquire(telegram_id)
             await self.bot.send_message(
                 chat_id=telegram_id,
                 text=message,
@@ -452,6 +505,7 @@ class TelegramNotifier:
                 [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
             ])
 
+            await _rate_limiter.acquire(telegram_id)
             await self.bot.send_message(
                 chat_id=telegram_id,
                 text=message,
@@ -479,6 +533,7 @@ class TelegramNotifier:
             keyboard: Опциональная клавиатура
         """
         try:
+            await _rate_limiter.acquire(telegram_id)
             await self.bot.send_message(
                 chat_id=telegram_id,
                 text=message,

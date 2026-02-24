@@ -117,24 +117,13 @@ class AIRelevanceChecker:
             logger.debug(f"Persistent cache set error: {e}")
 
     def check_quota(self, user_id: int, subscription_tier: str) -> bool:
-        """
-        Проверяет, есть ли у пользователя квота на AI проверки.
-
-        Args:
-            user_id: ID пользователя
-            subscription_tier: Тариф подписки
-
-        Returns:
-            True если квота есть, False если исчерпана
-        """
+        """Синхронная проверка квоты из in-memory счётчика."""
         today = datetime.now().date().isoformat()
 
         if user_id not in self._usage_counters:
             self._usage_counters[user_id] = {'date': today, 'count': 0}
 
         counter = self._usage_counters[user_id]
-
-        # Сброс счётчика в новый день
         if counter['date'] != today:
             counter['date'] = today
             counter['count'] = 0
@@ -143,7 +132,7 @@ class AIRelevanceChecker:
         return counter['count'] < limit
 
     def increment_usage(self, user_id: int):
-        """Увеличивает счётчик использования."""
+        """Увеличивает in-memory счётчик. Персистентное сохранение — через increment_usage_persistent."""
         today = datetime.now().date().isoformat()
 
         if user_id not in self._usage_counters:
@@ -155,6 +144,45 @@ class AIRelevanceChecker:
             counter['count'] = 0
 
         counter['count'] += 1
+
+    async def load_quota_from_db(self, user_id: int):
+        """
+        Загружает счётчик AI-использования из БД в memory.
+        Вызывать при первом обращении пользователя или после рестарта.
+        """
+        try:
+            from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
+            db = await get_sniper_db()
+            user = await db.get_user_by_id(user_id)
+            if not user:
+                return
+
+            used = user.get('ai_analyses_used_month', 0) or 0
+            reset_at = user.get('ai_analyses_month_reset')
+
+            today = datetime.now().date().isoformat()
+            # Если сброс был в другом месяце — обнуляем
+            if reset_at:
+                reset_date = reset_at[:7] if isinstance(reset_at, str) else reset_at.strftime('%Y-%m')
+                current_month = datetime.now().strftime('%Y-%m')
+                if reset_date != current_month:
+                    used = 0
+
+            if user_id not in self._usage_counters or self._usage_counters[user_id]['count'] < used:
+                self._usage_counters[user_id] = {'date': today, 'count': used}
+                logger.debug(f"📊 AI quota loaded from DB for user {user_id}: {used} used")
+        except Exception as e:
+            logger.debug(f"load_quota_from_db: {e}")
+
+    async def increment_usage_persistent(self, user_id: int):
+        """Увеличивает счётчик в памяти и сохраняет в БД."""
+        self.increment_usage(user_id)
+        try:
+            from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
+            db = await get_sniper_db()
+            await db.increment_ai_analyses_count(user_id)
+        except Exception as e:
+            logger.debug(f"increment_usage_persistent DB error: {e}")
 
     def get_usage_stats(self, user_id: int, subscription_tier: str) -> Dict[str, Any]:
         """Возвращает статистику использования."""
@@ -272,6 +300,10 @@ class AIRelevanceChecker:
                 'quota_remaining': int
             }
         """
+        # Загружаем квоту из БД при первом обращении пользователя (после рестарта)
+        if user_id and user_id not in self._usage_counters:
+            await self.load_quota_from_db(user_id)
+
         # Проверяем квоту
         if user_id and not self.check_quota(user_id, subscription_tier):
             logger.info(f"   ⚠️ Квота AI исчерпана для user {user_id} ({subscription_tier})")
@@ -336,9 +368,9 @@ class AIRelevanceChecker:
                 result['reason']
             )
 
-            # Увеличиваем счётчик использования
+            # Увеличиваем счётчик использования (в памяти + персистентно в БД)
             if user_id:
-                self.increment_usage(user_id)
+                await self.increment_usage_persistent(user_id)
 
             remaining = self.get_usage_stats(user_id, subscription_tier)['remaining'] if user_id else -1
             result['source'] = 'ai'
