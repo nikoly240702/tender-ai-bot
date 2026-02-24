@@ -601,6 +601,7 @@ class TenderSniperDB:
                 filter_dict['telegram_id'] = user_obj.telegram_id
                 filter_dict['subscription_tier'] = user_obj.subscription_tier
                 filter_dict['notifications_limit'] = user_obj.notifications_limit
+                filter_dict['trial_expires_at'] = user_obj.trial_expires_at
                 # Добавляем user data для quiet hours/notification mode (избегаем N+1 запросов)
                 filter_dict['user_data'] = {
                     'id': user_obj.id,

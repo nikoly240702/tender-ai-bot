@@ -275,6 +275,19 @@ class TenderSniperService:
                 telegram_id = filter_data.get('telegram_id')
                 subscription_tier = filter_data.get('subscription_tier', 'trial')
 
+                # Проверяем истёкший триал — не отправляем уведомления
+                if subscription_tier == 'trial':
+                    trial_expires_at = filter_data.get('trial_expires_at')
+                    if trial_expires_at:
+                        if isinstance(trial_expires_at, str):
+                            try:
+                                trial_expires_at = datetime.fromisoformat(trial_expires_at)
+                            except (ValueError, TypeError):
+                                trial_expires_at = None
+                        if trial_expires_at and datetime.utcnow() > trial_expires_at:
+                            logger.info(f"   ⏰ Триал истёк для user {user_id}, пропускаем фильтр «{filter_name}»")
+                            continue
+
                 # Per-filter routing: определяем куда отправлять
                 notify_chat_ids = filter_data.get('notify_chat_ids') or []
                 target_chat_ids = notify_chat_ids if notify_chat_ids else [telegram_id]

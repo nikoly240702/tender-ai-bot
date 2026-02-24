@@ -49,8 +49,8 @@ class AIRelevanceChecker:
         'admin': 100000,
     }
 
-    # Счётчики использования (in-memory, для production — в БД)
-    _usage_counters: Dict[int, Dict[str, Any]] = {}
+    # Счётчики использования (TTLCache: авто-очистка через 24ч, ограничен 2000 пользователями)
+    _usage_counters: TTLCache = TTLCache(maxsize=2000, ttl=86400)
 
     def __init__(self, api_key: str = None):
         """

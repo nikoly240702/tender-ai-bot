@@ -765,8 +765,8 @@ async def init_database(echo: bool = False):
             database_url,
             echo=echo,
             pool_pre_ping=True,
-            pool_size=20,
-            max_overflow=40,
+            pool_size=25,
+            max_overflow=35,
             pool_recycle=1800,      # Переподключение каждые 30 минут
         )
     logger.info("   ✅ Engine создан")
