@@ -93,7 +93,7 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
 
 # Базовые тарифы (месячная цена)
 BASE_PRICES = {
-    'basic': 990,
+    'basic': 1490,
     'premium': 2990,
     'ai_unlimited': 1490,
 }
@@ -101,9 +101,9 @@ BASE_PRICES = {
 # Фиксированные цены для разных периодов
 FIXED_PRICES = {
     'basic': {
-        1: 990,    # 1 месяц
-        3: 2670,   # 3 месяца (скидка 300₽)
-        6: 4750,   # 6 месяцев (скидка 1190₽)
+        1: 1490,   # 1 месяц
+        3: 4020,   # 3 месяца (скидка 450₽ = ~10%)
+        6: 7150,   # 6 месяцев (скидка 1790₽ = ~20%)
     },
     'premium': {
         1: 2990,   # 1 месяц
@@ -142,7 +142,7 @@ SUBSCRIPTION_TIERS = {
     'basic': {
         'name': 'Basic',
         'emoji': '⭐',
-        'price': 990,
+        'price': 1490,
         'days': 30,
         'max_filters': 5,
         'max_notifications_per_day': 100,
@@ -175,7 +175,7 @@ SUBSCRIPTION_TIERS = {
 
 def calculate_price(tier: str, months: int) -> dict:
     """Рассчитать цену с учётом скидки."""
-    base_price = BASE_PRICES.get(tier, 490)
+    base_price = BASE_PRICES.get(tier, 1490)
     duration = DURATION_OPTIONS.get(months, DURATION_OPTIONS[1])
 
     # Получаем фиксированную цену
