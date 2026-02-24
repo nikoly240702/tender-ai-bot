@@ -162,17 +162,23 @@ class ZakupkiRSSParser:
         """
         Ожидание перед запросом для соблюдения rate limit.
         Гарантирует минимальную задержку между запросами к zakupki.gov.ru.
+
+        Лок держится только на время чтения/записи переменной (мкс), не во время sleep.
+        Это позволяет параллельным потокам не блокировать друг друга во время ожидания.
         """
         with self.rate_limit_lock:
             current_time = time.time()
-            time_since_last_request = current_time - self.last_request_time
+            elapsed = current_time - self.last_request_time
+            if elapsed < self.min_request_interval:
+                sleep_time = self.min_request_interval - elapsed
+            else:
+                sleep_time = 0.0
+            # Резервируем слот заранее — следующий поток будет ждать после нас
+            self.last_request_time = current_time + sleep_time
 
-            if time_since_last_request < self.min_request_interval:
-                sleep_time = self.min_request_interval - time_since_last_request
-                _log.debug(f"   ⏱️  Rate limit: ожидание {sleep_time:.1f}с...")
-                time.sleep(sleep_time)
-
-            self.last_request_time = time.time()
+        if sleep_time > 0.0:
+            _log.debug(f"   ⏱️  Rate limit: ожидание {sleep_time:.1f}с...")
+            time.sleep(sleep_time)
 
     def search_tenders_rss(
         self,
