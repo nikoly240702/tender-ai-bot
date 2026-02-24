@@ -8,6 +8,7 @@ Health Check endpoint для мониторинга и Railway/Docker.
 import logging
 import asyncio
 import os
+from pathlib import Path
 from aiohttp import web
 from datetime import datetime, timedelta
 
@@ -250,6 +251,19 @@ async def yookassa_webhook_handler(request):
         return web.json_response({"status": "error", "message": str(e)}, status=500)
 
 
+async def landing_handler(request):
+    """
+    Landing page: GET /
+
+    Отдаёт HTML-лендинг из landing/index.html.
+    """
+    landing_path = Path(__file__).parent.parent / 'landing' / 'index.html'
+    if landing_path.exists():
+        return web.FileResponse(landing_path)
+    # Fallback если файл не найден
+    return web.Response(text="Tender Sniper — coming soon", content_type="text/html")
+
+
 async def start_health_check_server(port: int = 8080):
     """
     Запуск health check HTTP сервера.
@@ -267,8 +281,8 @@ async def start_health_check_server(port: int = 8080):
     # YooKassa webhook
     app.router.add_post('/payment/webhook', yookassa_webhook_handler)
 
-    # Корневой endpoint
-    app.router.add_get('/', health_check_handler)
+    # Корневой endpoint — лендинг
+    app.router.add_get('/', landing_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -279,6 +293,7 @@ async def start_health_check_server(port: int = 8080):
     _health_status["status"] = "healthy"
 
     logger.info(f"✅ Health check server started on port {port}")
+    logger.info(f"   GET http://0.0.0.0:{port}/ - Landing page")
     logger.info(f"   GET http://0.0.0.0:{port}/health - Full health check")
     logger.info(f"   GET http://0.0.0.0:{port}/ready - Readiness probe")
     logger.info(f"   GET http://0.0.0.0:{port}/live - Liveness probe")
