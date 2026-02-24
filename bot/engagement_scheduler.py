@@ -386,201 +386,246 @@ class EngagementScheduler:
 
     async def _send_reactivation_messages(self, bot: Bot):
         """
-        Отправить реактивационные сообщения неактивным пользователям.
+        Сегментированная серия реактивационных сообщений (3 / 7 / 14 дней).
 
-        Критерии:
-        - Триал истёк или пользователь неактивен 3+ дней
-        - Не отправляли реактивацию последние 3 дня
-        - Не превысили лимит в 10 сообщений
+        Три сегмента:
+          no_filters  — зарегистрирован, но нет активных фильтров
+          no_notifs   — есть фильтры, но 30+ дней без уведомлений
+          inactive    — есть фильтры + уведомления, просто не открывает бот
+
+        Для каждого сегмента серия из 3 сообщений: день 3 → 7 → 14.
+        Деdупликация через таблицу reactivation_events (event_type уникален на пользователя).
         """
-        from database import DatabaseSession, SniperUser, SniperFilter, SniperNotification
-        from sqlalchemy import select, func, and_, or_
+        from database import DatabaseSession, SniperUser, SniperFilter, SniperNotification, ReactivationEvent
+        from sqlalchemy import select, func, and_
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
         now = datetime.utcnow()
-        inactivity_threshold = now - timedelta(days=self.REACTIVATION_INACTIVITY_DAYS)
-        reactivation_cooldown = now - timedelta(days=self.REACTIVATION_FREQUENCY_DAYS)
+        threshold_3d = now - timedelta(days=3)
 
+        # Все активные личные пользователи, неактивные 3+ дней
         async with DatabaseSession() as session:
-            # Получаем пользователей для реактивации:
-            # 1. Триал истёк ИЛИ неактивны 3+ дней
-            # 2. Не заблокированы
             result = await session.execute(
                 select(SniperUser).where(
                     and_(
                         SniperUser.status == 'active',
-                        or_(
-                            # Триал истёк
-                            and_(
-                                SniperUser.subscription_tier == 'trial',
-                                SniperUser.trial_expires_at < now
-                            ),
-                            # Неактивны 3+ дней
-                            SniperUser.last_activity < inactivity_threshold
-                        )
+                        SniperUser.is_group == False,
+                        SniperUser.last_activity < threshold_3d,
                     )
                 )
             )
             users = result.scalars().all()
 
-        reactivations_sent = 0
+        sent_count = 0
 
         for user in users:
             try:
-                # Пропускаем группы — реактивация только для личных пользователей
-                if getattr(user, 'is_group', False):
-                    continue
+                days_inactive = max(3, (now - user.last_activity).days) if user.last_activity else 3
 
-                # Проверяем данные пользователя
-                user_data = user.data if isinstance(user.data, dict) else {}
+                # Определяем целевой day-bucket (ближайший достигнутый)
+                if days_inactive >= 14:
+                    target_bucket = 14
+                elif days_inactive >= 7:
+                    target_bucket = 7
+                else:
+                    target_bucket = 3
 
-                # Проверяем лимит сообщений
-                reactivation_count = user_data.get('reactivation_count', 0)
-                if reactivation_count >= self.REACTIVATION_MAX_MESSAGES:
-                    continue
-
-                # Проверяем cooldown
-                last_reactivation = user_data.get('last_reactivation_sent')
-                if last_reactivation:
-                    if isinstance(last_reactivation, str):
-                        last_reactivation_dt = datetime.fromisoformat(last_reactivation.replace('Z', ''))
-                    else:
-                        last_reactivation_dt = last_reactivation
-
-                    if last_reactivation_dt > reactivation_cooldown:
-                        continue
-
-                # Получаем статистику по фильтрам пользователя
+                # Собираем статистику пользователя
                 async with DatabaseSession() as session:
-                    # Количество активных фильтров
-                    filters_count = await session.scalar(
+                    filter_count = await session.scalar(
                         select(func.count(SniperFilter.id)).where(
                             and_(
                                 SniperFilter.user_id == user.id,
-                                SniperFilter.is_active == True
+                                SniperFilter.is_active == True,
+                                SniperFilter.deleted_at.is_(None),
                             )
                         )
                     ) or 0
 
-                    # Количество тендеров за последние 3 дня (всего в системе)
-                    three_days_ago = now - timedelta(days=3)
-                    recent_tenders = await session.scalar(
+                    notif_count = await session.scalar(
                         select(func.count(SniperNotification.id)).where(
-                            SniperNotification.sent_at >= three_days_ago
+                            and_(
+                                SniperNotification.user_id == user.id,
+                                SniperNotification.sent_at >= now - timedelta(days=30),
+                            )
                         )
                     ) or 0
 
-                # Формируем сообщение в зависимости от наличия фильтров
-                if filters_count > 0:
-                    # Пользователь с фильтрами - показываем сколько тендеров он мог бы увидеть
-                    matched_tenders = await self._count_matching_tenders_for_user(user.id)
+                    # Какие event_type уже отправлены этому пользователю
+                    sent_rows = await session.execute(
+                        select(ReactivationEvent.event_type).where(
+                            ReactivationEvent.user_id == user.id
+                        )
+                    )
+                    sent_types = {row[0] for row in sent_rows}
 
-                    if matched_tenders > 0:
-                        text = f"""
-🎯 <b>Пока вас не было...</b>
-
-По вашим фильтрам найдено <b>{matched_tenders} новых тендеров</b>!
-
-💡 Некоторые из них могут идеально подойти для вашего бизнеса.
-
-Не упустите возможность — проверьте новые тендеры прямо сейчас!
-"""
-                    else:
-                        text = f"""
-👋 <b>Мы скучаем по вам!</b>
-
-Ваши фильтры всё ещё работают, но мы давно не видели вас.
-
-📊 За последние дни в системе появилось <b>{recent_tenders}+ новых тендеров</b>.
-
-Загляните и проверьте, возможно что-то интересное уже ждёт вас!
-"""
+                # Определяем сегмент
+                if filter_count == 0:
+                    segment = 'no_filters'
+                elif notif_count == 0:
+                    segment = 'no_notifs'
                 else:
-                    # Пользователь без фильтров - показываем общую статистику
-                    text = f"""
-👋 <b>Привет! Как дела?</b>
+                    segment = 'inactive'
 
-За последние 3 дня в системе появилось <b>{recent_tenders}+ новых тендеров</b>.
+                # Находим следующее неотправленное сообщение в серии
+                event_type = None
+                for bucket in [3, 7, 14]:
+                    et = f'seg_{segment}_{bucket}d'
+                    if et not in sent_types and bucket <= target_bucket:
+                        event_type = et
+                        break
 
-💡 <b>Совет:</b> Создайте фильтр по своим ключевым словам, и мы будем автоматически присылать подходящие тендеры.
+                if not event_type:
+                    continue  # Серия закончена для этого пользователя
 
-Это займёт всего пару минут, но сэкономит часы на ручной поиск!
-"""
+                # Формируем текст и кнопки
+                text, keyboard = self._build_reactivation_message(
+                    segment=segment,
+                    bucket=int(event_type.split('_')[-1].rstrip('d')),
+                    filter_count=filter_count,
+                    notif_count=notif_count,
+                )
 
-                # Кнопки действий
-                if filters_count > 0:
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📊 Посмотреть тендеры", callback_data="sniper_all_tenders")],
-                        [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
-                        [InlineKeyboardButton(text="💎 Оформить подписку", callback_data="show_subscription")],
-                    ])
-                else:
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="🎯 Создать фильтр", callback_data="sniper_create_filter")],
-                        [InlineKeyboardButton(text="📋 Шаблоны фильтров", callback_data="filter_templates")],
-                        [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
-                    ])
-
-                # Отправляем сообщение
                 await bot.send_message(
                     user.telegram_id,
                     text,
                     reply_markup=keyboard,
-                    parse_mode="HTML"
+                    parse_mode="HTML",
                 )
 
-                # Обновляем статистику реактивации
-                user_data['reactivation_count'] = reactivation_count + 1
-                user_data['last_reactivation_sent'] = now.isoformat()
+                # Логируем событие
+                async with DatabaseSession() as session:
+                    session.add(ReactivationEvent(
+                        user_id=user.id,
+                        event_type=event_type,
+                        message_variant=segment,
+                    ))
 
-                await self._update_user_data(user.id, user_data)
-
-                # Сохраняем событие в таблицу трекинга
-                try:
-                    variant = 'has_filters' if filters_count > 0 else 'no_filters'
-                    async with DatabaseSession() as session:
-                        from database import ReactivationEvent
-                        event = ReactivationEvent(
-                            user_id=user.id,
-                            event_type='sent',
-                            message_variant=variant,
-                        )
-                        session.add(event)
-                except Exception as e:
-                    logger.debug(f"Ошибка сохранения reactivation event: {e}")
-
-                reactivations_sent += 1
-                await asyncio.sleep(0.1)
+                sent_count += 1
+                await asyncio.sleep(0.15)
 
             except Exception as e:
-                logger.warning(f"Не удалось отправить реактивацию пользователю {user.telegram_id}: {e}")
+                logger.warning(f"Реактивация для {user.telegram_id}: {e}")
 
-        if reactivations_sent > 0:
-            logger.info(f"🔄 Отправлено {reactivations_sent} реактивационных сообщений")
+        if sent_count > 0:
+            logger.info(f"🔄 Реактивация: отправлено {sent_count} сообщений")
 
-    async def _count_matching_tenders_for_user(self, user_id: int) -> int:
-        """
-        Подсчитать количество тендеров, которые соответствуют фильтрам пользователя
-        за последние 3 дня.
-        """
-        from database import DatabaseSession, SniperFilter, SniperNotification
-        from sqlalchemy import select, func, and_
+    def _build_reactivation_message(
+        self,
+        segment: str,
+        bucket: int,
+        filter_count: int,
+        notif_count: int,
+    ):
+        """Формирует текст и клавиатуру реактивационного сообщения."""
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-        now = datetime.utcnow()
-        three_days_ago = now - timedelta(days=3)
-
-        async with DatabaseSession() as session:
-            # Получаем количество уведомлений для пользователя за последние 3 дня
-            count = await session.scalar(
-                select(func.count(SniperNotification.id)).where(
-                    and_(
-                        SniperNotification.user_id == user_id,
-                        SniperNotification.sent_at >= three_days_ago
-                    )
+        # ── Сегмент A: нет фильтров ──────────────────────────────────────
+        if segment == 'no_filters':
+            if bucket == 3:
+                text = (
+                    "👋 <b>Мониторинг ещё не настроен</b>\n\n"
+                    "Вы зарегистрировались, но фильтров пока нет — тендеры проходят мимо.\n\n"
+                    "Это займёт 2 минуты: укажите ключевые слова (например, <i>«ноутбуки»</i>, "
+                    "<i>«ремонт кровли»</i>, <i>«охрана»</i>) и бот начнёт присылать подходящие тендеры."
                 )
-            ) or 0
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎯 Создать первый фильтр", callback_data="sniper_create_filter")],
+                    [InlineKeyboardButton(text="📋 Готовые шаблоны", callback_data="filter_templates")],
+                ])
+            elif bucket == 7:
+                text = (
+                    "📈 <b>За эту неделю наши пользователи нашли десятки тендеров</b>\n\n"
+                    "А ваш мониторинг ещё не запущен.\n\n"
+                    "Настройте первый фильтр — первый результат вы увидите уже через несколько часов."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎯 Создать фильтр", callback_data="sniper_create_filter")],
+                    [InlineKeyboardButton(text="🔍 Попробовать разовый поиск", callback_data="sniper_new_search")],
+                ])
+            else:  # 14
+                text = (
+                    "⏰ <b>Пробный период заканчивается</b>\n\n"
+                    "У вас ещё есть время попробовать бота бесплатно.\n\n"
+                    "Создайте первый фильтр прямо сейчас — без настроек мы не можем показать,"
+                    " насколько это полезно для вашего бизнеса."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎯 Создать фильтр", callback_data="sniper_create_filter")],
+                    [InlineKeyboardButton(text="💬 Нужна помощь", callback_data="contact_support")],
+                ])
 
-            return count
+        # ── Сегмент B: есть фильтры, нет уведомлений ────────────────────
+        elif segment == 'no_notifs':
+            if bucket == 3:
+                text = (
+                    "📭 <b>Фильтры работают, но тендеров нет</b>\n\n"
+                    "Возможно, критерии слишком жёсткие. Попробуйте:\n"
+                    "• Добавить больше ключевых слов-синонимов\n"
+                    "• Расширить диапазон цен\n"
+                    "• Убрать ограничения по регионам\n\n"
+                    "Или запустите разовый поиск прямо сейчас."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎯 Редактировать фильтры", callback_data="sniper_my_filters")],
+                    [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+                ])
+            elif bucket == 7:
+                text = (
+                    "💡 <b>7 дней без тендеров — давайте разберёмся</b>\n\n"
+                    "По похожим запросам другие пользователи получают уведомления.\n\n"
+                    "Скорее всего, проблема в ключевых словах или ценовом диапазоне. "
+                    "Откорректировать фильтр можно в один клик."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+                    [InlineKeyboardButton(text="📋 Новый фильтр по шаблону", callback_data="filter_templates")],
+                ])
+            else:  # 14
+                text = (
+                    "🔔 <b>Уже 2 недели без уведомлений</b>\n\n"
+                    "Разовый поиск поможет сразу понять, есть ли тендеры по вашей теме.\n\n"
+                    "Если результаты есть — настроим автоматический мониторинг вместе."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔍 Разовый поиск сейчас", callback_data="sniper_new_search")],
+                    [InlineKeyboardButton(text="🎯 Настроить фильтр", callback_data="sniper_my_filters")],
+                ])
+
+        # ── Сегмент C: всё настроено, просто не заходит ─────────────────
+        else:  # inactive
+            if bucket == 3:
+                text = (
+                    "👋 <b>Вы давно не заходили — мониторинг работает!</b>\n\n"
+                    "Ваши фильтры продолжают искать тендеры в фоне.\n\n"
+                    "Загляните — там могут быть интересные предложения с близкими дедлайнами."
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📋 Мои тендеры", callback_data="sniper_all_tenders")],
+                    [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+                ])
+            elif bucket == 7:
+                text = (
+                    "📊 <b>Тендеры ждут вашего внимания</b>\n\n"
+                    "За эту неделю по вашим фильтрам прошло несколько подходящих тендеров.\n\n"
+                    "Некоторые из них скоро закроют приём заявок — успейте проверить!"
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Смотреть тендеры", callback_data="sniper_all_tenders")],
+                    [InlineKeyboardButton(text="⏰ Тендеры с дедлайном", callback_data="alltenders_deadline_soon")],
+                ])
+            else:  # 14
+                text = (
+                    "🏆 <b>Не упустите выгодные контракты</b>\n\n"
+                    "Tender Sniper работает 24/7 и продолжает мониторить рынок.\n\n"
+                    "Вернитесь и посмотрите, что нашлось за это время!"
+                )
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📊 Смотреть тендеры", callback_data="sniper_all_tenders")],
+                    [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+                ])
+
+        return text, keyboard
 
 
 # ============================================

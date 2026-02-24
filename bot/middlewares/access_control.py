@@ -118,6 +118,9 @@ class AccessControlMiddleware(BaseMiddleware):
                     db_user.first_name = user.first_name
                     db_user.last_name = user.last_name
 
+                # Обновляем last_activity — важно для реактивационных напоминаний
+                db_user.last_activity = datetime.utcnow()
+
                 # Кэшируем пользователя
                 cached_data = {
                     'id': db_user.id,
