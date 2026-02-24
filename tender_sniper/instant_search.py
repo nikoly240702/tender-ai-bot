@@ -301,6 +301,26 @@ class InstantSearch:
             search_results = all_results[:max_tenders]
             logger.info(f"   ✅ Итого найдено тендеров: {len(search_results)}")
 
+            # === ПЕРСОНАЛИЗАЦИЯ: Фильтрация скрытых тендеров + негативные паттерны ===
+            user_negative_keywords: list = []
+            if user_id and search_results:
+                try:
+                    from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
+                    _fdb = await get_sniper_db()
+                    hidden_numbers = await _fdb.get_hidden_tender_numbers(user_id)
+                    if hidden_numbers:
+                        before = len(search_results)
+                        search_results = [t for t in search_results if t.get('number', '') not in hidden_numbers]
+                        removed = before - len(search_results)
+                        if removed:
+                            logger.debug(f"   🙈 Скрыто пользователем: {removed} тендеров")
+                    neg = await _fdb.get_user_hidden_patterns(user_id)
+                    user_negative_keywords = neg.get('negative_keywords', [])
+                    if user_negative_keywords:
+                        logger.debug(f"   📉 Негативные паттерны ({len(user_negative_keywords)}): {user_negative_keywords[:5]}")
+                except Exception as _e:
+                    logger.debug(f"   ⚠️ Ошибка загрузки feedback: {_e}")
+
             # === ОПТИМИЗАЦИЯ: Pre-scoring + обогащение только нужных тендеров ===
             # Вместо обогащения ВСЕХ тендеров (медленно), сначала делаем быстрый pre-scoring
             # и обогащаем только те, которые потенциально релевантны
@@ -342,7 +362,7 @@ class InstantSearch:
                         tender.update(cached)
 
                         # Кэшированные тендеры уже обогащены → полная проверка с регионом
-                        pre_match = self.matcher.match_tender(tender, temp_filter)
+                        pre_match = self.matcher.match_tender(tender, temp_filter, user_negative_keywords or None)
                         if pre_match is None:
                             tenders_skipped += 1
                             logger.debug(f"      ⏭️ Кэш: отклонён SmartMatcher: {tender.get('name', '')[:50]}")
@@ -354,7 +374,7 @@ class InstantSearch:
 
                     # Pre-scoring на основе RSS данных (без HTTP запросов)
                     # Используем фильтр БЕЗ регионов — регион проверяется после обогащения
-                    pre_match = self.matcher.match_tender(tender, pre_score_filter)
+                    pre_match = self.matcher.match_tender(tender, pre_score_filter, user_negative_keywords or None)
                     pre_score = pre_match.get('score', 0) if pre_match else 0
 
                     # Если pre-score слишком низкий - пропускаем обогащение
@@ -624,7 +644,7 @@ class InstantSearch:
                             logger.debug(f"      ⛔ Исключен (индикатор услуги): {tender.get('name', '')[:60]}")
                             continue
 
-                match_result = self.matcher.match_tender(tender, temp_filter)
+                match_result = self.matcher.match_tender(tender, temp_filter, user_negative_keywords or None)
 
                 # match_tender возвращает None = жёсткое отклонение (регион/цена/исключения)
                 if match_result is None:

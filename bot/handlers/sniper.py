@@ -18,6 +18,7 @@ import logging
 import re
 from pathlib import Path
 from datetime import datetime, timedelta
+from bot.utils import safe_callback_data
 
 # Простой кэш для статуса мониторинга (избегаем запросов к БД на каждое открытие меню)
 _monitoring_status_cache: dict = {}  # {user_id: (status, timestamp)}
@@ -2543,10 +2544,22 @@ async def mark_tender_interesting(callback: CallbackQuery):
 
         logger.info(f"Пользователь {callback.from_user.id} отметил тендер {tender_number} как интересный")
 
+        # Строим кнопки после отметки: подтверждение + доступные действия
+        post_buttons = [[InlineKeyboardButton(text="✅ Отмечено как интересное", callback_data="noop")]]
+        if notification:
+            tender_url = notification.get('tender_url', '')
+            row = []
+            if tender_url:
+                row.append(InlineKeyboardButton(text="🔗 Открыть на сайте", url=tender_url))
+            row.append(InlineKeyboardButton(
+                text="📊 В таблицу",
+                callback_data=safe_callback_data("sheets", tender_number)
+            ))
+            if row:
+                post_buttons.append(row)
+
         await callback.message.edit_reply_markup(
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Отмечено как интересное", callback_data="noop")]
-            ])
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=post_buttons)
         )
 
     except Exception as e:
@@ -2592,12 +2605,51 @@ async def mark_tender_skipped(callback: CallbackQuery):
 
         await callback.message.edit_reply_markup(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="❌ Пропущено", callback_data="noop")]
+                [
+                    InlineKeyboardButton(text="❌ Пропущено", callback_data="noop"),
+                    InlineKeyboardButton(
+                        text="↩️ Отменить",
+                        callback_data=safe_callback_data("undo_skip", tender_number)
+                    )
+                ]
             ])
         )
 
     except Exception as e:
         logger.error(f"Ошибка при пропуске тендера: {e}", exc_info=True)
+
+
+@router.callback_query(F.data.startswith("undo_skip_"))
+async def undo_skip_tender(callback: CallbackQuery):
+    """Пользователь отменяет пропуск — убираем из скрытых и восстанавливаем кнопки."""
+    await callback.answer("↩️ Пропуск отменён")
+    try:
+        tender_number = callback.data.replace("undo_skip_", "")
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+        if user:
+            await db.unhide_tender(user['id'], tender_number)
+            logger.info(f"Пользователь {callback.from_user.id} отменил пропуск тендера {tender_number}")
+
+        # Восстанавливаем кнопки — берём URL из уведомления
+        notification = await db.get_notification_by_tender(user['id'], tender_number) if user else None
+        tender_url = notification.get('tender_url', '') if notification else ''
+
+        restored_buttons = []
+        if tender_url:
+            restored_buttons.append([InlineKeyboardButton(text="📄 Открыть на zakupki.gov.ru", url=tender_url)])
+        restored_buttons.append([
+            InlineKeyboardButton(text="✅ Интересно", callback_data=safe_callback_data("interested", tender_number)),
+            InlineKeyboardButton(text="📊 В таблицу", callback_data=safe_callback_data("sheets", tender_number)),
+            InlineKeyboardButton(text="❌ Пропустить", callback_data=safe_callback_data("skip", tender_number)),
+        ])
+
+        await callback.message.edit_reply_markup(
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=restored_buttons)
+        )
+    except Exception as e:
+        logger.error(f"Ошибка undo_skip: {e}", exc_info=True)
 
 
 @router.callback_query(F.data == "noop")

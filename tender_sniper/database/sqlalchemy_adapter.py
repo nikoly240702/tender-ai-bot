@@ -2218,69 +2218,95 @@ class TenderSniperDB:
             logger.error(f"Ошибка сохранения скрытого тендера: {e}")
             return False
 
+    async def get_hidden_tender_numbers(self, user_id: int, limit: int = 500) -> set:
+        """Возвращает множество номеров тендеров, скрытых пользователем."""
+        try:
+            async with DatabaseSession() as session:
+                result = await session.execute(
+                    select(HiddenTenderModel.tender_number)
+                    .where(HiddenTenderModel.user_id == user_id)
+                    .order_by(HiddenTenderModel.hidden_at.desc())
+                    .limit(limit)
+                )
+                return set(row[0] for row in result.all())
+        except Exception as e:
+            logger.error(f"Ошибка получения скрытых тендеров: {e}")
+            return set()
+
+    async def unhide_tender(self, user_id: int, tender_number: str) -> bool:
+        """Убирает тендер из скрытых (undo skip)."""
+        try:
+            async with DatabaseSession() as session:
+                await session.execute(
+                    delete(HiddenTenderModel).where(
+                        and_(
+                            HiddenTenderModel.user_id == user_id,
+                            HiddenTenderModel.tender_number == tender_number
+                        )
+                    )
+                )
+                await session.execute(
+                    delete(UserFeedbackModel).where(
+                        and_(
+                            UserFeedbackModel.user_id == user_id,
+                            UserFeedbackModel.tender_number == tender_number,
+                            UserFeedbackModel.feedback_type == 'hidden'
+                        )
+                    )
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка unhide тендера: {e}")
+            return False
+
     async def get_user_hidden_patterns(self, user_id: int, min_occurrences: int = 2) -> Dict[str, Any]:
         """
-        Анализирует паттерны скрытых тендеров пользователя.
-
-        Находит часто встречающиеся слова в названиях скрытых тендеров
-        для автоматического снижения score похожих тендеров.
-
-        Args:
-            user_id: ID пользователя
-            min_occurrences: Минимальное количество появлений слова
-
-        Returns:
-            Dict с negative_keywords и negative_customers
+        Анализирует паттерны скрытых тендеров пользователя через user_feedback.tender_name.
+        Находит часто встречающиеся слова для снижения score похожих тендеров.
         """
         try:
             async with DatabaseSession() as session:
-                # Получаем последние 100 скрытых тендеров
+                # Берём названия из user_feedback (там хранится tender_name)
                 result = await session.execute(
-                    select(HiddenTenderModel)
-                    .where(HiddenTenderModel.user_id == user_id)
-                    .order_by(HiddenTenderModel.hidden_at.desc())
+                    select(UserFeedbackModel.tender_name)
+                    .where(
+                        and_(
+                            UserFeedbackModel.user_id == user_id,
+                            UserFeedbackModel.feedback_type == 'hidden',
+                            UserFeedbackModel.tender_name.isnot(None)
+                        )
+                    )
+                    .order_by(UserFeedbackModel.created_at.desc())
                     .limit(100)
                 )
-                hidden_tenders = result.scalars().all()
+                names = [row[0] for row in result.all() if row[0]]
 
-                if len(hidden_tenders) < 5:
-                    # Недостаточно данных для анализа
-                    return {'negative_keywords': [], 'negative_customers': [], 'sample_size': len(hidden_tenders)}
+                if len(names) < 5:
+                    return {'negative_keywords': [], 'negative_customers': [], 'sample_size': len(names)}
 
-                # Анализируем причины скрытия
-                word_counts = {}
-                customer_counts = {}
-
-                # Стоп-слова для исключения
                 stop_words = {
                     'для', 'нужд', 'услуги', 'услуг', 'выполнение', 'работ',
                     'поставка', 'закупка', 'оказание', 'обеспечение', 'приобретение',
-                    'товар', 'товаров', 'работы', 'работ', 'услуга'
+                    'товар', 'товаров', 'работы', 'услуга', 'на', 'в', 'по', 'и', 'с'
                 }
 
-                for ht in hidden_tenders:
-                    # Анализируем reason (может содержать название тендера)
-                    if ht.reason and ht.reason != 'skipped':
-                        words = ht.reason.lower().split()
-                        for word in words:
-                            # Очищаем от знаков препинания
-                            clean_word = ''.join(c for c in word if c.isalnum())
-                            if len(clean_word) >= 4 and clean_word not in stop_words:
-                                word_counts[clean_word] = word_counts.get(clean_word, 0) + 1
+                word_counts: Dict[str, int] = {}
+                for name in names:
+                    for word in name.lower().split():
+                        clean = ''.join(c for c in word if c.isalnum())
+                        if len(clean) >= 4 and clean not in stop_words:
+                            word_counts[clean] = word_counts.get(clean, 0) + 1
 
-                # Фильтруем по минимальному количеству появлений
-                negative_keywords = [
-                    word for word, count in word_counts.items()
-                    if count >= min_occurrences
-                ]
-
-                # Сортируем по частоте
-                negative_keywords.sort(key=lambda w: word_counts[w], reverse=True)
+                negative_keywords = sorted(
+                    [w for w, cnt in word_counts.items() if cnt >= min_occurrences],
+                    key=lambda w: word_counts[w],
+                    reverse=True
+                )
 
                 return {
-                    'negative_keywords': negative_keywords[:20],  # Топ-20
-                    'negative_customers': [],  # TODO: реализовать анализ заказчиков
-                    'sample_size': len(hidden_tenders),
+                    'negative_keywords': negative_keywords[:20],
+                    'negative_customers': [],
+                    'sample_size': len(names),
                     'total_unique_words': len(word_counts)
                 }
 
