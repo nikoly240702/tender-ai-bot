@@ -1,535 +1,663 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tender Sniper — автоматический поиск тендеров в Telegram</title>
-  <meta name="description" content="Перестаньте тратить часы на zakupki.gov.ru. Tender Sniper мониторит госзакупки 24/7 и присылает в Telegram только те тендеры, которые подходят вашему бизнесу." />
-  <meta name="keywords" content="тендеры, госзакупки, мониторинг тендеров, 44-ФЗ, 223-ФЗ, поиск тендеров, zakupki.gov.ru, тендерный бот, telegram бот тендеры" />
-  <meta property="og:title" content="Tender Sniper — автоматический поиск тендеров" />
-  <meta property="og:description" content="Бот в Telegram, который мониторит госзакупки 24/7 и присылает только релевантные тендеры с анализом документации." />
-  <meta property="og:type" content="website" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <meta name="description" content="Перестаньте тратить часы на zakupki.gov.ru. Tender Sniper мониторит госзакупки 24/7 и присылает в Telegram только те тендеры, которые подходят вашему бизнесу.">
+  <meta name="keywords" content="тендеры, госзакупки, мониторинг тендеров, 44-ФЗ, 223-ФЗ, поиск тендеров, zakupki.gov.ru, тендерный бот, telegram бот тендеры">
+  <meta property="og:title" content="Tender Sniper — автоматический поиск тендеров">
+  <meta property="og:description" content="Бот в Telegram, который мониторит госзакупки 24/7 и присылает только релевантные тендеры.">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
-    :root {
-      --blue: #1a56db;
-      --blue-dark: #1341b5;
-      --blue-light: #dbeafe;
-      --blue-bg: #eff6ff;
-      --dark: #111827;
-      --gray-700: #374151;
-      --gray-500: #6b7280;
-      --gray-300: #d1d5db;
-      --gray-100: #f3f4f6;
-      --white: #ffffff;
-      --radius: 12px;
-      --shadow: 0 4px 24px rgba(26,86,219,0.10);
-    }
-
-    html { scroll-behavior: smooth; }
-
-    body {
-      font-family: 'Inter', sans-serif;
-      color: var(--dark);
-      background: var(--white);
-      line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
+    :root{
+      --bg:#0a0e17;
+      --bg2:#111623;
+      --bg3:#181e2e;
+      --surface:rgba(255,255,255,0.04);
+      --line:rgba(255,255,255,0.07);
+      --gold:#d4a853;
+      --gold-dim:rgba(212,168,83,0.12);
+      --gold-line:rgba(212,168,83,0.25);
+      --white:#f0f0f0;
+      --gray:#6b7a90;
+      --gray2:#99a8b8;
+      --green:#3dd68c;
     }
 
-    /* ─── NAV ─────────────────────────────── */
-    nav {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(255,255,255,0.95);
-      backdrop-filter: blur(8px);
-      border-bottom: 1px solid var(--gray-300);
-      padding: 0 24px;
-    }
-    .nav-inner {
-      max-width: 1100px; margin: 0 auto;
-      display: flex; align-items: center; justify-content: space-between;
-      height: 64px;
-    }
-    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-    .nav-logo img { width: 36px; height: 36px; border-radius: 8px; }
-    .nav-logo span { font-weight: 700; font-size: 17px; color: var(--dark); }
-    .nav-links { display: flex; gap: 32px; }
-    .nav-links a { text-decoration: none; color: var(--gray-700); font-size: 15px; font-weight: 500; transition: color .2s; }
-    .nav-links a:hover { color: var(--blue); }
-    .nav-cta {
-      background: var(--blue); color: var(--white);
-      padding: 9px 20px; border-radius: 8px;
-      text-decoration: none; font-weight: 600; font-size: 14px;
-      transition: background .2s;
-    }
-    .nav-cta:hover { background: var(--blue-dark); }
-    @media (max-width: 720px) { .nav-links { display: none; } }
+    html{scroll-behavior:smooth}
 
-    /* ─── HERO ────────────────────────────── */
-    .hero {
-      background: linear-gradient(160deg, #f0f6ff 0%, #fff 60%);
-      padding: 80px 24px 72px;
-      text-align: center;
+    body{
+      background:var(--bg);
+      color:var(--white);
+      font-family:'Manrope',system-ui,sans-serif;
+      font-size:16px;line-height:1.55;
+      overflow-x:hidden;
+      -webkit-font-smoothing:antialiased;
     }
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: var(--blue-bg); color: var(--blue);
-      border: 1px solid #bfdbfe;
-      border-radius: 99px; padding: 5px 14px;
-      font-size: 13px; font-weight: 600;
-      margin-bottom: 24px;
-    }
-    .hero h1 {
-      font-size: clamp(32px, 5vw, 56px);
-      font-weight: 800;
-      line-height: 1.15;
-      letter-spacing: -0.02em;
-      max-width: 780px; margin: 0 auto 20px;
-    }
-    .hero h1 span { color: var(--blue); }
-    .hero p {
-      font-size: 18px; color: var(--gray-700);
-      max-width: 580px; margin: 0 auto 36px;
-    }
-    .hero-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    .btn-primary {
-      background: var(--blue); color: var(--white);
-      padding: 14px 28px; border-radius: 10px;
-      font-weight: 700; font-size: 16px; text-decoration: none;
-      transition: background .2s, transform .15s;
-      display: inline-flex; align-items: center; gap: 8px;
-    }
-    .btn-primary:hover { background: var(--blue-dark); transform: translateY(-1px); }
-    .btn-secondary {
-      background: var(--white); color: var(--blue);
-      padding: 14px 28px; border-radius: 10px;
-      font-weight: 600; font-size: 16px; text-decoration: none;
-      border: 2px solid var(--blue);
-      transition: background .2s;
-    }
-    .btn-secondary:hover { background: var(--blue-bg); }
-    .hero-note { margin-top: 16px; font-size: 13px; color: var(--gray-500); }
-    .hero-stats {
-      display: flex; justify-content: center; gap: 40px;
-      margin-top: 56px; flex-wrap: wrap;
-    }
-    .hero-stat { text-align: center; }
-    .hero-stat strong { display: block; font-size: 28px; font-weight: 800; color: var(--blue); }
-    .hero-stat span { font-size: 13px; color: var(--gray-500); }
 
-    /* ─── SECTION BASE ────────────────────── */
-    section { padding: 80px 24px; }
-    .container { max-width: 1100px; margin: 0 auto; }
-    .section-label {
-      font-size: 13px; font-weight: 600; color: var(--blue);
-      text-transform: uppercase; letter-spacing: 0.08em;
-      margin-bottom: 12px;
+    /* grain overlay */
+    body::after{
+      content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;
+      opacity:0.028;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size:128px 128px;
     }
-    h2 {
-      font-size: clamp(26px, 4vw, 40px);
-      font-weight: 800; line-height: 1.2;
-      letter-spacing: -0.02em; margin-bottom: 16px;
-    }
-    .section-sub { font-size: 17px; color: var(--gray-700); max-width: 560px; }
 
-    /* ─── PAIN ────────────────────────────── */
-    .pain { background: var(--gray-100); }
-    .pain-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
-      margin-top: 48px;
-    }
-    @media (max-width: 640px) { .pain-grid { grid-template-columns: 1fr; } }
-    .pain-card {
-      background: var(--white); border-radius: var(--radius);
-      padding: 24px; border-left: 4px solid #ef4444;
-    }
-    .pain-card.good { border-left-color: #22c55e; }
-    .pain-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.06em; }
-    .pain-item {
-      display: flex; gap: 10px; align-items: flex-start;
-      margin-bottom: 10px; font-size: 15px; line-height: 1.5;
-    }
-    .pain-item .icon { flex-shrink: 0; margin-top: 2px; }
+    /* scroll reveal */
+    .sr{opacity:0;transform:translateY(32px);transition:opacity 0.7s cubic-bezier(.16,1,.3,1),transform 0.7s cubic-bezier(.16,1,.3,1)}
+    .sr.vis{opacity:1;transform:translateY(0)}
+    .sr-d1{transition-delay:.08s}.sr-d2{transition-delay:.16s}.sr-d3{transition-delay:.24s}.sr-d4{transition-delay:.32s}.sr-d5{transition-delay:.4s}
 
-    /* ─── HOW IT WORKS ────────────────────── */
-    .steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 32px; margin-top: 56px; }
-    @media (max-width: 720px) { .steps { grid-template-columns: 1fr; } }
-    .step { text-align: center; padding: 32px 20px; }
-    .step-num {
-      width: 52px; height: 52px; border-radius: 50%;
-      background: var(--blue); color: var(--white);
-      font-size: 22px; font-weight: 800;
-      display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 20px;
-    }
-    .step h3 { font-size: 18px; font-weight: 700; margin-bottom: 10px; }
-    .step p { font-size: 15px; color: var(--gray-700); }
+    /* container */
+    .ctn{max-width:1280px;margin:0 auto;padding:0 48px}
 
-    /* ─── FEATURES ────────────────────────── */
-    .features-bg { background: var(--white); }
-    .features-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 56px; }
-    @media (max-width: 720px) { .features-grid { grid-template-columns: 1fr; } }
-    .feature-card {
-      background: var(--white); border: 1px solid var(--gray-300);
-      border-radius: var(--radius); padding: 28px;
-      transition: box-shadow .2s, transform .2s;
-    }
-    .feature-card:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
-    .feature-icon {
-      width: 48px; height: 48px; border-radius: 10px;
-      background: var(--blue-bg); display: flex; align-items: center;
-      justify-content: center; font-size: 22px; margin-bottom: 16px;
-    }
-    .feature-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
-    .feature-card p { font-size: 14px; color: var(--gray-700); line-height: 1.6; }
+    /* display font */
+    .disp{font-family:'Unbounded','Manrope',sans-serif}
 
-    /* ─── PRICING ─────────────────────────── */
-    .pricing-bg { background: linear-gradient(180deg, var(--blue-bg) 0%, var(--white) 100%); }
-    .pricing-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 24px; margin-top: 56px; align-items: start; }
-    @media (max-width: 860px) { .pricing-grid { grid-template-columns: 1fr; max-width: 400px; margin-left: auto; margin-right: auto; } }
-    .pricing-card {
-      background: var(--white); border: 1px solid var(--gray-300);
-      border-radius: 16px; padding: 32px; position: relative;
+    /* ─── NAV ─── */
+    .nav{
+      position:fixed;top:0;left:0;right:0;z-index:100;
+      height:56px;
+      background:rgba(10,14,23,0.92);
+      backdrop-filter:blur(16px);
+      border-bottom:1px solid var(--line);
     }
-    .pricing-card.featured {
-      border-color: var(--blue); border-width: 2px;
-      box-shadow: 0 8px 32px rgba(26,86,219,.15);
+    .nav .ctn{display:flex;align-items:center;height:100%;gap:40px}
+    .nav-logo{font-family:'Unbounded',sans-serif;font-size:14px;font-weight:900;color:var(--white);text-decoration:none;letter-spacing:-0.5px}
+    .nav-logo i{font-style:normal;color:var(--gold)}
+    .nav-links{display:flex;gap:28px;list-style:none;margin-left:auto}
+    .nav-links a{font-size:13px;font-weight:600;color:var(--gray);text-decoration:none;letter-spacing:0.2px;transition:color .2s}
+    .nav-links a:hover{color:var(--white)}
+    .nav-cta{
+      margin-left:20px;
+      padding:8px 20px;
+      background:var(--gold);color:var(--bg);
+      font-size:12px;font-weight:800;letter-spacing:0.3px;text-transform:uppercase;
+      text-decoration:none;transition:opacity .2s;
     }
-    .pricing-badge {
-      position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
-      background: var(--blue); color: var(--white);
-      font-size: 12px; font-weight: 700; padding: 4px 14px; border-radius: 99px;
-      white-space: nowrap;
-    }
-    .pricing-emoji { font-size: 28px; margin-bottom: 12px; display: block; }
-    .pricing-name { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-    .pricing-price { font-size: 36px; font-weight: 800; color: var(--blue); margin: 12px 0 4px; }
-    .pricing-price span { font-size: 16px; font-weight: 500; color: var(--gray-500); }
-    .pricing-sub { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; }
-    .pricing-features { list-style: none; margin-bottom: 28px; }
-    .pricing-features li {
-      display: flex; gap: 10px; align-items: flex-start;
-      font-size: 14px; margin-bottom: 10px; line-height: 1.5;
-    }
-    .pricing-features li::before { content: "✓"; color: #22c55e; font-weight: 700; flex-shrink: 0; }
-    .pricing-cta {
-      display: block; text-align: center; text-decoration: none;
-      padding: 12px; border-radius: 9px; font-weight: 600; font-size: 15px;
-      transition: background .2s;
-    }
-    .pricing-cta.outline {
-      border: 2px solid var(--blue); color: var(--blue);
-    }
-    .pricing-cta.outline:hover { background: var(--blue-bg); }
-    .pricing-cta.filled {
-      background: var(--blue); color: var(--white);
-    }
-    .pricing-cta.filled:hover { background: var(--blue-dark); }
-    .pricing-note { text-align: center; margin-top: 20px; font-size: 13px; color: var(--gray-500); }
+    .nav-cta:hover{opacity:.85}
 
-    /* ─── FAQ ─────────────────────────────── */
-    .faq-bg { background: var(--gray-100); }
-    .faq-list { max-width: 720px; margin: 48px auto 0; }
-    details {
-      background: var(--white); border-radius: var(--radius);
-      padding: 0; margin-bottom: 12px;
-      border: 1px solid var(--gray-300);
-      overflow: hidden;
+    /* ─── HERO ─── */
+    .hero{padding:140px 0 100px;position:relative;overflow:hidden}
+    .hero::before{
+      content:'';position:absolute;
+      top:-300px;right:-200px;
+      width:900px;height:900px;border-radius:50%;
+      background:radial-gradient(circle,rgba(212,168,83,0.06) 0%,transparent 60%);
+      pointer-events:none;
     }
-    summary {
-      padding: 20px 24px; font-weight: 600; font-size: 16px;
-      cursor: pointer; list-style: none;
-      display: flex; justify-content: space-between; align-items: center;
+    .hero-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:48px;align-items:start}
+    .hero-left{}
+    /* stats full-width below hero grid */
+    .hero-stats-full{margin-top:64px;padding-top:36px;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr)}
+    .hero-tag{
+      display:inline-flex;align-items:center;gap:10px;
+      font-size:10px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;
+      color:var(--gold);margin-bottom:24px;
     }
-    summary::after { content: "+"; font-size: 22px; color: var(--blue); font-weight: 300; }
-    details[open] summary::after { content: "−"; }
-    details p { padding: 0 24px 20px; color: var(--gray-700); font-size: 15px; line-height: 1.7; }
+    .hero-tag::before{content:'';width:16px;height:1px;background:var(--gold)}
+    .hero h1{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(44px,6.5vw,90px);
+      font-weight:900;line-height:.92;letter-spacing:-3px;
+      margin-bottom:28px;
+    }
+    .hero h1 em{font-style:normal;color:var(--gold)}
+    .hero-sub{
+      font-size:16px;font-weight:400;color:var(--gray2);
+      line-height:1.7;letter-spacing:-.1px;
+      margin-bottom:40px;max-width:520px;
+    }
+    .hero-actions{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+    .btn-gold{
+      display:inline-flex;align-items:center;gap:10px;
+      padding:14px 28px;
+      background:var(--gold);color:var(--bg);
+      font-size:14px;font-weight:700;letter-spacing:-.2px;
+      text-decoration:none;transition:opacity .2s,transform .15s;
+    }
+    .btn-gold:hover{opacity:.87;transform:translateY(-1px)}
+    .btn-link{font-size:14px;font-weight:600;color:var(--gray2);text-decoration:none;transition:color .2s}
+    .btn-link:hover{color:var(--white)}
 
-    /* ─── FINAL CTA ───────────────────────── */
-    .final-cta {
-      background: var(--blue);
-      padding: 80px 24px; text-align: center;
-      color: var(--white);
-    }
-    .final-cta h2 { color: var(--white); margin-bottom: 16px; }
-    .final-cta p { color: rgba(255,255,255,.8); font-size: 18px; margin-bottom: 36px; }
-    .btn-white {
-      background: var(--white); color: var(--blue);
-      padding: 14px 32px; border-radius: 10px;
-      font-weight: 700; font-size: 16px; text-decoration: none;
-      transition: opacity .2s;
-      display: inline-block;
-    }
-    .btn-white:hover { opacity: .92; }
+    /* stats strip — now uses .hero-stats-full outside the grid */
+    .st-val{font-family:'Unbounded',sans-serif;font-size:36px;font-weight:900;letter-spacing:-2px;line-height:1}
+    .st-val i{font-style:normal;color:var(--gold)}
+    .st-lbl{font-size:12px;color:var(--gray);margin-top:6px;font-weight:500}
 
-    /* ─── FOOTER ──────────────────────────── */
-    footer {
-      background: var(--dark); color: rgba(255,255,255,.5);
-      padding: 40px 24px; text-align: center; font-size: 14px;
+    /* ─── HERO RIGHT: telegram mock ─── */
+    .hero-right{padding-top:12px}
+    .hero-stack{display:flex;flex-direction:column;gap:8px}
+
+    .tg-bar{
+      display:flex;align-items:center;gap:8px;
+      padding:9px 14px;background:var(--bg2);
+      border:1px solid var(--line);
+      font-size:12px;color:var(--gray);
     }
-    footer a { color: rgba(255,255,255,.6); text-decoration: none; }
-    footer a:hover { color: var(--white); }
-    .footer-inner { max-width: 1100px; margin: 0 auto; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; }
+    .tg-bar-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+    .tg-bar strong{font-weight:700;color:var(--white)}
+
+    .tg-card{
+      background:var(--bg2);border:1px solid rgba(255,255,255,0.09);
+      box-shadow:0 24px 72px rgba(0,0,0,.5),0 0 0 1px rgba(255,255,255,0.04);
+      overflow:hidden;position:relative;
+    }
+    .tg-card::before{
+      content:'';position:absolute;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(90deg,var(--gold),transparent);
+    }
+    .tg-head{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+    .tg-ava{
+      width:32px;height:32px;border-radius:50%;background:var(--gold);
+      display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;
+    }
+    .tg-nm{font-size:13px;font-weight:700;color:var(--white);letter-spacing:-.2px}
+    .tg-tm{font-size:11px;color:var(--gray);margin-top:1px}
+    .tg-body{padding:16px}
+    .tg-pill{
+      display:inline-block;font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+      color:var(--gold);background:var(--gold-dim);padding:3px 9px;margin-bottom:11px;
+    }
+    .tg-ttl{font-size:13px;font-weight:700;color:var(--white);line-height:1.45;letter-spacing:-.2px;margin-bottom:12px}
+    .tg-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+    .tg-row{font-size:12px;color:var(--gray2);display:flex;align-items:center;gap:6px}
+    .tg-row b{font-weight:700;color:var(--white)}
+    .tg-ai{
+      padding:8px 11px;margin-bottom:12px;
+      background:rgba(61,214,140,0.06);border:1px solid rgba(61,214,140,0.14);
+      font-size:11px;font-weight:700;color:var(--green);letter-spacing:-.1px;
+    }
+    .tg-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .tg-b{
+      padding:8px 0;text-align:center;font-size:11px;font-weight:700;letter-spacing:-.1px;
+    }
+    .tg-b.y{background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold-line)}
+    .tg-b.n{background:var(--surface);color:var(--gray2);border:1px solid var(--line)}
+    .tg-b.l{grid-column:1/-1;background:var(--surface);color:var(--gray);border:1px solid var(--line);font-size:10px}
+
+    .tg-mini{
+      display:flex;align-items:center;gap:12px;padding:12px 16px;
+      background:var(--bg3);border:1px solid var(--line);
+    }
+    .tg-mi{width:30px;height:30px;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
+    .tg-mc{flex:1;min-width:0}
+    .tg-mc-t{font-size:12px;font-weight:700;color:var(--white);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tg-mc-m{font-size:10px;color:var(--gray);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tg-ms{font-size:11px;font-weight:800;color:var(--gold);background:var(--gold-dim);border:1px solid var(--gold-line);padding:3px 8px;flex-shrink:0}
+
+    /* ─── SECTION ─── */
+    .sect{padding:120px 0;border-top:1px solid var(--line)}
+    .sect-label{
+      font-size:10px;font-weight:800;letter-spacing:2.5px;text-transform:uppercase;
+      color:var(--gray);margin-bottom:48px;
+      display:flex;align-items:center;gap:12px;
+    }
+    .sect-label::after{content:'';width:32px;height:1px;background:var(--line)}
+
+    /* ─── PAIN ─── */
+    .pain-title{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(28px,4.2vw,60px);
+      font-weight:900;letter-spacing:-3px;line-height:.96;
+      margin-bottom:56px;
+    }
+    .pain-title em{font-style:normal;color:var(--gray)}
+
+    .pain-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px}
+    .pain-col{padding:40px;background:var(--bg2);border:1px solid var(--line)}
+    .pain-col.w{background:var(--gold);border-color:var(--gold)}
+    .pain-hd{font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:28px;opacity:.4}
+    .pain-col.w .pain-hd{color:var(--bg);opacity:.6}
+    .pain-ls{list-style:none;display:flex;flex-direction:column;gap:16px}
+
+    /* "Без" — light, gray */
+    .pain-col:not(.w) .pain-ls li{
+      font-size:14px;font-weight:400;line-height:1.55;padding-left:22px;position:relative;color:var(--gray);letter-spacing:-.15px;
+    }
+    .pain-col:not(.w) .pain-ls li::before{content:'✗';position:absolute;left:0;color:rgba(255,255,255,.15);font-size:12px}
+
+    /* "С" — bold, dark on gold */
+    .pain-col.w .pain-ls li{
+      font-size:14px;font-weight:700;line-height:1.55;padding-left:22px;position:relative;
+      color:rgba(10,14,23,.88);letter-spacing:-.2px;
+    }
+    .pain-col.w .pain-ls li::before{content:'✓';position:absolute;left:0;color:rgba(10,14,23,.4);font-weight:900;font-size:12px}
+
+    /* ─── HOW ─── */
+    .how-grid{display:grid;grid-template-columns:1fr 1.6fr;gap:72px;align-items:start}
+    .how-title{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(28px,3.5vw,48px);
+      font-weight:900;letter-spacing:-2px;line-height:1;
+      position:sticky;top:80px;
+    }
+    .how-steps{display:flex;flex-direction:column}
+    .how-step{padding:28px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:64px 1fr;gap:20px;align-items:start}
+    .how-step:first-child{padding-top:0}
+    .sn{font-family:'Unbounded',sans-serif;font-size:40px;font-weight:900;line-height:1;letter-spacing:-2px;color:rgba(212,168,83,.25)}
+    .st{font-size:20px;font-weight:800;letter-spacing:-.7px;margin-bottom:8px}
+    .sd{font-size:14px;font-weight:400;color:var(--gray);line-height:1.65}
+    .stag{
+      display:inline-block;margin-top:12px;padding:3px 10px;
+      font-size:10px;font-weight:700;letter-spacing:.3px;
+      background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold-line);
+    }
+
+    /* ─── FEATURES ─── */
+    .feat-title{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(32px,4.5vw,64px);
+      font-weight:900;letter-spacing:-3px;line-height:.96;
+      text-align:center;margin-bottom:64px;
+    }
+    .feat-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:2px}
+    .ft{background:var(--bg2);border:1px solid var(--line);padding:32px}
+    .ft:nth-child(1){grid-column:1/8}
+    .ft:nth-child(2){grid-column:8/13}
+    .ft:nth-child(3){grid-column:1/5}
+    .ft:nth-child(4){grid-column:5/9}
+    .ft:nth-child(5){grid-column:9/13}
+    .ft:nth-child(6){grid-column:1/13;background:var(--gold);border-color:var(--gold)}
+    .ft-i{font-size:24px;margin-bottom:18px}
+    .ft h3{font-size:18px;font-weight:800;letter-spacing:-.5px;margin-bottom:7px}
+    .ft p{font-size:13px;font-weight:500;line-height:1.6;color:var(--gray);letter-spacing:-.1px}
+    .ft:nth-child(6) h3,.ft:nth-child(6) p{color:var(--bg)}
+    .ft:nth-child(6) p{color:rgba(10,14,23,.65)}
+    .ft-wide{display:flex;align-items:center;justify-content:space-between;gap:32px}
+    .ft-wide-txt{max-width:540px}
+    .ft-wide-cta{
+      padding:12px 24px;background:var(--bg);color:var(--gold);
+      font-size:13px;font-weight:700;text-decoration:none;white-space:nowrap;transition:opacity .2s;
+    }
+    .ft-wide-cta:hover{opacity:.8}
+
+    /* ─── PRICING ─── */
+    .price-title{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(32px,4.5vw,64px);
+      font-weight:900;letter-spacing:-3px;line-height:.96;
+      text-align:center;margin-bottom:12px;
+    }
+    .price-sub{font-size:15px;color:var(--gray);text-align:center;margin-bottom:56px}
+    .price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px}
+    .pl{background:var(--bg2);border:1px solid var(--line);padding:40px 32px;display:flex;flex-direction:column}
+    .pl.pop{background:var(--gold);border-color:var(--gold)}
+    .pl-badge{
+      display:inline-block;font-size:9px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;
+      padding:3px 9px;margin-bottom:24px;align-self:flex-start;
+      background:var(--gold-dim);color:var(--gold);border:1px solid var(--gold-line);
+    }
+    .pl.pop .pl-badge{background:rgba(10,14,23,.15);color:var(--bg);border-color:rgba(10,14,23,.2)}
+    .pl-nm{font-size:12px;font-weight:700;color:var(--gray2);margin-bottom:6px;letter-spacing:.2px}
+    .pl.pop .pl-nm{color:rgba(10,14,23,.55)}
+    .pl-pr{font-family:'Unbounded',sans-serif;font-size:52px;font-weight:900;letter-spacing:-3px;line-height:1;margin-bottom:4px}
+    .pl.pop .pl-pr{color:var(--bg)}
+    .pl-per{font-size:13px;color:var(--gray);margin-bottom:32px}
+    .pl.pop .pl-per{color:rgba(10,14,23,.5)}
+    .pl-feat{list-style:none;flex:1;margin-bottom:32px}
+    .pl-feat li{
+      font-size:13px;font-weight:600;padding:10px 0;
+      border-bottom:1px solid var(--line);
+      display:flex;align-items:center;gap:9px;
+      color:var(--gray2);letter-spacing:-.15px;
+    }
+    .pl.pop .pl-feat li{color:rgba(10,14,23,.85);border-color:rgba(10,14,23,.1)}
+    .pl-feat li::before{content:'✓';color:var(--gold);font-weight:900;font-size:11px;flex-shrink:0}
+    .pl.pop .pl-feat li::before{color:var(--bg)}
+    .pl-btn{
+      display:flex;align-items:center;justify-content:center;
+      padding:12px 20px;font-size:12px;font-weight:700;letter-spacing:.1px;
+      text-decoration:none;transition:opacity .2s;
+      background:transparent;border:1px solid var(--line);color:var(--gray2);
+    }
+    .pl.pop .pl-btn{background:var(--bg);border-color:var(--bg);color:var(--gold)}
+    .pl-btn:hover{opacity:.7}
+
+    /* ─── FAQ ─── */
+    .faq-wrap{max-width:840px;margin:0 auto}
+    .faq-title{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(28px,3.5vw,48px);
+      font-weight:900;letter-spacing:-2px;
+      text-align:center;margin-bottom:52px;
+    }
+    .fq{border-top:1px solid var(--line)}
+    .fq:last-child{border-bottom:1px solid var(--line)}
+    .fq-q{
+      width:100%;background:none;border:none;color:var(--white);font-family:inherit;
+      font-size:15px;font-weight:700;letter-spacing:-.3px;text-align:left;
+      padding:20px 0;cursor:pointer;
+      display:flex;align-items:center;justify-content:space-between;gap:20px;
+      transition:color .2s;
+    }
+    .fq-q:hover{color:var(--gray2)}
+    .fq-icon{
+      flex-shrink:0;width:20px;height:20px;
+      border:1px solid var(--line);display:flex;align-items:center;justify-content:center;
+      font-size:14px;color:var(--gray);transition:transform .3s,border-color .2s,color .2s;
+    }
+    .fq.open .fq-icon{transform:rotate(45deg);border-color:var(--gold);color:var(--gold)}
+    .fq-a{max-height:0;overflow:hidden;transition:max-height .4s cubic-bezier(.16,1,.3,1)}
+    .fq-a-in{padding:0 0 24px;font-size:14px;color:var(--gray);line-height:1.7;letter-spacing:-.1px}
+    .fq.open .fq-a{max-height:260px}
+
+    /* ─── CTA FINAL ─── */
+    .cta-f{background:var(--gold);padding:120px 0;position:relative;overflow:hidden;border-top:none}
+    .cta-f::before{
+      content:'SNIPER';position:absolute;right:-10px;bottom:-80px;
+      font-family:'Unbounded',sans-serif;font-size:260px;font-weight:900;letter-spacing:-12px;
+      color:rgba(10,14,23,.05);line-height:1;pointer-events:none;user-select:none;
+    }
+    .cta-f .ctn{position:relative;z-index:1;text-align:center}
+    .cta-f h2{
+      font-family:'Unbounded',sans-serif;
+      font-size:clamp(36px,5.5vw,76px);font-weight:900;letter-spacing:-3px;line-height:.95;
+      color:var(--bg);margin-bottom:24px;
+    }
+    .cta-f p{font-size:16px;color:rgba(10,14,23,.65);line-height:1.65;margin-bottom:40px;max-width:460px;margin-left:auto;margin-right:auto}
+    .btn-dark{
+      display:inline-flex;align-items:center;gap:10px;
+      padding:16px 32px;background:var(--bg);color:var(--gold);
+      font-size:14px;font-weight:700;letter-spacing:-.2px;text-decoration:none;transition:opacity .2s;
+    }
+    .btn-dark:hover{opacity:.85}
+    .cta-note{margin-top:16px;font-size:12px;color:rgba(10,14,23,.45)}
+
+    /* ─── FOOTER ─── */
+    .foot{padding:32px 0;border-top:1px solid var(--line)}
+    .foot .ctn{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    .foot-logo{font-family:'Unbounded',sans-serif;font-size:13px;font-weight:900;color:var(--white);text-decoration:none}
+    .foot-logo i{font-style:normal;color:var(--gold)}
+    .foot-copy{font-size:12px;color:var(--gray)}
+    .foot-link{font-size:12px;color:var(--gray);text-decoration:none;transition:color .2s}
+    .foot-link:hover{color:var(--white)}
+
+    /* ─── MOBILE ─── */
+    @media(max-width:960px){
+      .ctn{padding:0 20px}
+      .nav .ctn{padding:0 20px}
+      .nav-links{display:none}
+      .hero{padding:100px 0 64px}
+      .hero-grid{grid-template-columns:1fr;gap:48px}
+      .hero-right{display:none}
+      .hero-stats-full{grid-template-columns:repeat(2,1fr);gap:24px 0}
+      .sect{padding:72px 0}
+      .pain-grid{grid-template-columns:1fr}
+      .pain-col{padding:28px 20px}
+      .how-grid{grid-template-columns:1fr;gap:36px}
+      .how-title{position:static}
+      .feat-grid{grid-template-columns:1fr}
+      .ft:nth-child(1),.ft:nth-child(2),.ft:nth-child(3),
+      .ft:nth-child(4),.ft:nth-child(5),.ft:nth-child(6){grid-column:1/-1}
+      .ft-wide{flex-direction:column;align-items:flex-start}
+      .price-grid{grid-template-columns:1fr}
+      .cta-f{padding:72px 0}
+      .cta-f::before{display:none}
+      .foot .ctn{flex-direction:column;align-items:flex-start;gap:10px}
+    }
   </style>
 </head>
 <body>
 
-<!-- ─── NAV ──────────────────────────────── -->
-<nav>
-  <div class="nav-inner">
-    <a class="nav-logo" href="/">
-      <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
-        <rect width="36" height="36" rx="8" fill="#1a56db"/>
-        <circle cx="18" cy="17" r="9" stroke="white" stroke-width="2" fill="none"/>
-        <line x1="18" y1="5" x2="18" y2="29" stroke="white" stroke-width="2"/>
-        <line x1="5" y1="17" x2="31" y2="17" stroke="white" stroke-width="2"/>
-        <circle cx="18" cy="17" r="3" fill="white"/>
-      </svg>
-      <span>Tender Sniper</span>
-    </a>
-    <div class="nav-links">
-      <a href="#how">Как работает</a>
-      <a href="#features">Возможности</a>
-      <a href="#pricing">Тарифы</a>
-      <a href="#faq">FAQ</a>
-    </div>
-    <a class="nav-cta" href="https://t.me/tender_sniper_bot" target="_blank">Попробовать бесплатно</a>
+<!-- NAV -->
+<nav class="nav">
+  <div class="ctn">
+    <a href="#" class="nav-logo">Tender<i>Sniper</i></a>
+    <ul class="nav-links">
+      <li><a href="#how">Как работает</a></li>
+      <li><a href="#features">Возможности</a></li>
+      <li><a href="#pricing">Тарифы</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+    <a href="https://t.me/TenderAI111_bot" class="nav-cta" target="_blank" rel="noopener">Попробовать →</a>
   </div>
 </nav>
 
-<!-- ─── HERO ──────────────────────────────── -->
+<!-- HERO -->
 <section class="hero">
-  <div class="hero-badge">🤖 Работает на базе GPT-4o mini</div>
-  <h1>Перестаньте тратить утро<br/>на <span>zakupki.gov.ru</span></h1>
-  <p>Tender Sniper мониторит тысячи госзакупок каждые 15 минут и присылает в Telegram только те тендеры, которые подходят вашему бизнесу — уже с кратким анализом документации.</p>
-  <div class="hero-buttons">
-    <a class="btn-primary" href="https://t.me/tender_sniper_bot" target="_blank">
-      ✈️ Открыть в Telegram
-    </a>
-    <a class="btn-secondary" href="#how">Как это работает</a>
-  </div>
-  <p class="hero-note">Без регистрации на сайте. Пробный период — 14 дней бесплатно.</p>
-  <div class="hero-stats">
-    <div class="hero-stat"><strong>30+</strong><span>предпринимателей<br/>уже используют</span></div>
-    <div class="hero-stat"><strong>2</strong><span>тендера выиграно<br/>с Tender Sniper</span></div>
-    <div class="hero-stat"><strong>24/7</strong><span>мониторинг без<br/>выходных</span></div>
-    <div class="hero-stat"><strong>44-ФЗ<br/>223-ФЗ</strong><span>оба реестра<br/>закупок</span></div>
+  <div class="ctn">
+    <div class="hero-grid">
+    <div class="hero-left">
+      <div class="hero-tag sr">Мониторинг госзакупок 24/7</div>
+      <h1 class="disp sr sr-d1">Находим тендеры.<br><em>Вы</em> — побеждаете.</h1>
+      <p class="hero-sub sr sr-d2">Telegram-бот, который мониторит zakupki.gov.ru по&nbsp;44&#8209;ФЗ и&nbsp;223&#8209;ФЗ и&nbsp;присылает только те тендеры, которые подходят вашему бизнесу.</p>
+      <div class="hero-actions sr sr-d3">
+        <a href="https://t.me/TenderAI111_bot" class="btn-gold" target="_blank" rel="noopener">Начать — 14 дней бесплатно →</a>
+        <a href="#how" class="btn-link">Как это работает ↓</a>
+      </div>
+    </div>
+
+    <div class="hero-right sr sr-d2">
+      <div class="hero-stack">
+        <div class="tg-bar">
+          <div class="tg-bar-dot"></div>
+          TenderSniper · <strong>3 новых тендера</strong> сегодня
+        </div>
+        <div class="tg-card">
+          <div class="tg-head">
+            <div class="tg-ava">🎯</div>
+            <div><div class="tg-nm">TenderSniper</div><div class="tg-tm">только что</div></div>
+          </div>
+          <div class="tg-body">
+            <div class="tg-pill">🔔 Новый тендер</div>
+            <div class="tg-ttl">Поставка медицинского оборудования для&nbsp;нужд ГБУЗ «Городская клиническая больница №5»</div>
+            <div class="tg-rows">
+              <div class="tg-row">💰 <b>3 450 000 ₽</b></div>
+              <div class="tg-row">📍 Москва · 44-ФЗ</div>
+              <div class="tg-row">⏰ Подача до: <b>5 марта 2025</b></div>
+              <div class="tg-row">🏢 Департамент здравоохранения г. Москвы</div>
+            </div>
+            <div class="tg-ai">✅ Релевантность 94% — подходит под ваш профиль</div>
+            <div class="tg-btns">
+              <div class="tg-b y">✅ Интересно</div>
+              <div class="tg-b n">⏭ Пропустить</div>
+              <div class="tg-b l">🔗 Открыть на zakupki.gov.ru</div>
+            </div>
+          </div>
+        </div>
+        <div class="tg-mini">
+          <div class="tg-mi">🏗</div>
+          <div class="tg-mc">
+            <div class="tg-mc-t">Реконструкция дорожного покрытия ул. Садовая</div>
+            <div class="tg-mc-m">2 100 000 ₽ · СПб · 223-ФЗ · 2 ч назад</div>
+          </div>
+          <div class="tg-ms">87%</div>
+        </div>
+      </div>
+    </div>
+    </div><!-- /hero-grid -->
+    <div class="hero-stats-full sr sr-d4">
+      <div><div class="st-val">30<i>+</i></div><div class="st-lbl">компаний используют</div></div>
+      <div><div class="st-val">24<i>/7</i></div><div class="st-lbl">мониторинг без остановки</div></div>
+      <div><div class="st-val">44<i>–</i>223</div><div class="st-lbl">ФЗ — оба реестра</div></div>
+      <div><div class="st-val"><i>от</i> 0₽</div><div class="st-lbl">первые 14 дней</div></div>
+    </div>
   </div>
 </section>
 
-<!-- ─── PAIN ───────────────────────────────── -->
-<section class="pain" id="pain">
-  <div class="container">
-    <div class="section-label">Узнаёте себя?</div>
-    <h2>Ручной поиск тендеров — это потерянное время</h2>
+<!-- PAIN -->
+<section class="sect" id="pain">
+  <div class="ctn">
+    <div class="sect-label sr">Проблема</div>
+    <div class="pain-title sr sr-d1">Ручной поиск тендеров —<br><em>это полный рабочий день,</em><br>который ничего не гарантирует.</div>
     <div class="pain-grid">
-      <div class="pain-card">
-        <h3>😩 Без Tender Sniper</h3>
-        <div class="pain-item"><span class="icon">✗</span><span>Час утром на сайте — из 50 результатов подходят 2, и то не факт</span></div>
-        <div class="pain-item"><span class="icon">✗</span><span>Скачал 340-страничное ТЗ, потратил вечер — не проходим по требованиям</span></div>
-        <div class="pain-item"><span class="icon">✗</span><span>Узнал о нужном тендере за сутки до дедлайна — подавать уже поздно</span></div>
-        <div class="pain-item"><span class="icon">✗</span><span>Конкуренты подали заявку, пока ты искал вручную</span></div>
-      </div>
-      <div class="pain-card good">
-        <h3>✅ С Tender Sniper</h3>
-        <div class="pain-item"><span class="icon">✓</span><span>Бот сам мониторит закупки каждые 15 минут, пока вы занимаетесь делами</span></div>
-        <div class="pain-item"><span class="icon">✓</span><span>В Telegram приходят только релевантные тендеры — уже отфильтрованные AI</span></div>
-        <div class="pain-item"><span class="icon">✓</span><span>Узнаёте о новом тендере в течение часа после публикации</span></div>
-        <div class="pain-item"><span class="icon">✓</span><span>Краткий анализ документации — сразу понятно, стоит ли подавать заявку</span></div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ─── HOW IT WORKS ───────────────────────── -->
-<section id="how">
-  <div class="container">
-    <div class="section-label">Просто и быстро</div>
-    <h2>Три шага — и мониторинг работает</h2>
-    <p class="section-sub">Настройка занимает 5 минут. Дальше бот работает сам.</p>
-    <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <h3>Описываете нишу</h3>
-        <p>Вводите ключевые слова, регион, диапазон цены. Или просто пишете что поставляете — AI сам разберётся и настроит фильтр.</p>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <h3>Бот мониторит 24/7</h3>
-        <p>Tender Sniper каждые 15 минут проверяет все новые тендеры на zakupki.gov.ru. AI отсеивает нерелевантные — до вас доходит только подходящее.</p>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <h3>Получаете нужное</h3>
-        <p>В Telegram приходит карточка: название, сумма, регион, дедлайн. Нажимаете «Анализ» — получаете краткое резюме документации за 30 секунд.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ─── FEATURES ───────────────────────────── -->
-<section class="features-bg" id="features">
-  <div class="container">
-    <div class="section-label">Возможности</div>
-    <h2>Что умеет Tender Sniper</h2>
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">🧠</div>
-        <h3>AI понимает смысл, не ищет по словам</h3>
-        <p>Обычные сервисы ищут точное совпадение. Tender Sniper понимает контекст: если вы ищете «серверное оборудование», найдёт и «поставку серверов Dell», и «IT-инфраструктуру для ЦОД».</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📄</div>
-        <h3>Анализ тендерной документации за 30 секунд</h3>
-        <p>Бот скачивает и читает техническое задание вместо вас. Выдаёт главное: что нужно поставить, требования к поставщику, на что обратить внимание.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎯</div>
-        <h3>Учится на ваших предпочтениях</h3>
-        <p>Нажали «Пропустить» на нерелевантный тендер — система запоминает и реже присылает похожие. Чем дольше пользуетесь, тем точнее результаты.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">💬</div>
-        <h3>Всё прямо в Telegram</h3>
-        <p>Не нужно заходить на сайт, учить новый интерфейс, ставить приложение. Настройка, мониторинг, аналитика — всё в одном боте прямо в вашем мессенджере.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔕</div>
-        <h3>Тихие часы и гибкое расписание</h3>
-        <p>Настраиваете время уведомлений — бот молчит ночью и в выходные, если нужно. Можно временно поставить мониторинг на паузу и возобновить одной кнопкой.</p>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📊</div>
-        <h3>Экспорт в Google Таблицы</h3>
-        <p>Найденные тендеры автоматически попадают в вашу Google-таблицу. Удобно для командной работы и ведения истории заявок.</p>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ─── PRICING ─────────────────────────────── -->
-<section class="pricing-bg" id="pricing">
-  <div class="container">
-    <div class="section-label" style="text-align:center">Тарифы</div>
-    <h2 style="text-align:center">Начните бесплатно</h2>
-    <p class="section-sub" style="text-align:center;margin:0 auto">Без привязки карты. Попробуйте 14 дней бесплатно и убедитесь, что это работает для вашего бизнеса.</p>
-    <div class="pricing-grid">
-
-      <!-- Trial -->
-      <div class="pricing-card">
-        <span class="pricing-emoji">🎁</span>
-        <div class="pricing-name">Пробный период</div>
-        <div class="pricing-price">0 ₽<span> / 14 дней</span></div>
-        <div class="pricing-sub">Без карты и регистрации</div>
-        <ul class="pricing-features">
-          <li>3 фильтра мониторинга</li>
-          <li>20 уведомлений в день</li>
-          <li>Мгновенный поиск</li>
-          <li>Базовый AI-анализ</li>
+      <div class="pain-col sr sr-d2">
+        <div class="pain-hd">Без Tender Sniper</div>
+        <ul class="pain-ls">
+          <li>Часами вручную листаете zakupki.gov.ru</li>
+          <li>Пропускаете тендеры, пока не откроете сайт</li>
+          <li>Участвуете в нерелевантных закупках из-за плохого поиска</li>
+          <li>Узнаёте о хорошем тендере когда срок уже истёк</li>
+          <li>Конкуренты находят нужные закупки быстрее вас</li>
         </ul>
-        <a class="pricing-cta outline" href="https://t.me/tender_sniper_bot" target="_blank">Начать бесплатно</a>
       </div>
-
-      <!-- Basic -->
-      <div class="pricing-card featured">
-        <div class="pricing-badge">Популярный выбор</div>
-        <span class="pricing-emoji">⭐</span>
-        <div class="pricing-name">Basic</div>
-        <div class="pricing-price">1 490 ₽<span> / мес</span></div>
-        <div class="pricing-sub">При оплате за 6 мес — скидка 20%</div>
-        <ul class="pricing-features">
-          <li>5 фильтров мониторинга</li>
-          <li>100 уведомлений в день</li>
-          <li>AI-анализ документации (10/мес)</li>
-          <li>Экспорт в Google Таблицы</li>
-          <li>Telegram-поддержка</li>
+      <div class="pain-col w sr sr-d3">
+        <div class="pain-hd">С Tender Sniper</div>
+        <ul class="pain-ls">
+          <li>Бот мониторит 24/7, пока вы занимаетесь делом</li>
+          <li>Уведомление в Telegram — в течение часов после публикации</li>
+          <li>AI-фильтр отсеивает нерелевантные закупки до&nbsp;вас</li>
+          <li>Документация и ключевые условия — сразу в сообщении</li>
+          <li>Настройка под ваш ОКВЭД за 2 минуты</li>
         </ul>
-        <a class="pricing-cta filled" href="https://t.me/tender_sniper_bot" target="_blank">Выбрать Basic</a>
       </div>
-
-      <!-- Premium -->
-      <div class="pricing-card">
-        <span class="pricing-emoji">💎</span>
-        <div class="pricing-name">Premium</div>
-        <div class="pricing-price">2 990 ₽<span> / мес</span></div>
-        <div class="pricing-sub">При оплате за 6 мес — скидка 20%</div>
-        <ul class="pricing-features">
-          <li>20 фильтров мониторинга</li>
-          <li>Безлимит уведомлений</li>
-          <li>AI-анализ (50/мес)</li>
-          <li>Архивный поиск тендеров</li>
-          <li>Расширенные фильтры (ИНН, чёрный список)</li>
-          <li>Приоритетная поддержка</li>
-        </ul>
-        <a class="pricing-cta outline" href="https://t.me/tender_sniper_bot" target="_blank">Выбрать Premium</a>
-      </div>
-
-    </div>
-    <p class="pricing-note">Все тарифы включают поддержку 44-ФЗ и 223-ФЗ по всей России. Оплата через YooKassa.</p>
-  </div>
-</section>
-
-<!-- ─── FAQ ────────────────────────────────── -->
-<section class="faq-bg" id="faq">
-  <div class="container">
-    <div class="section-label" style="text-align:center">Вопросы и ответы</div>
-    <h2 style="text-align:center">Часто спрашивают</h2>
-    <div class="faq-list">
-
-      <details>
-        <summary>Это законно — использовать бот для мониторинга закупок?</summary>
-        <p>Да. Tender Sniper работает исключительно с открытыми данными с zakupki.gov.ru — публичного реестра государственных закупок. Никакого парсинга закрытых данных, никаких автоматических подач заявок. Бот только находит и анализирует тендеры — решение о подаче заявки всегда за вами.</p>
-      </details>
-
-      <details>
-        <summary>Какие тендеры находит бот?</summary>
-        <p>Закупки по 44-ФЗ и 223-ФЗ со всей России. Товары, услуги, работы. Бот мониторит RSS-фид zakupki.gov.ru — это официальная Единая информационная система в сфере закупок. Архивный поиск (тендеры за последние месяцы) доступен на тарифе Premium.</p>
-      </details>
-
-      <details>
-        <summary>Нужна ли ЭЦП или регистрация на zakupki.gov.ru?</summary>
-        <p>Нет. Для работы с Tender Sniper нужен только Telegram. Бот не подаёт заявки — только находит тендеры и анализирует документацию. Для участия в закупках вам понадобится ЭЦП и регистрация на торговых площадках, но это отдельный процесс, который вы контролируете сами.</p>
-      </details>
-
-      <details>
-        <summary>Что если бот присылает нерелевантные тендеры?</summary>
-        <p>Нажмите «Пропустить» на неподходящем тендере — система запомнит и будет присылать похожие реже. Также можно уточнить фильтр: добавить слова-исключения, уточнить регион или диапазон цены. Большинство пользователей настраивают фильтр за 2–3 итерации.</p>
-      </details>
-
-      <details>
-        <summary>Как быстро приходят уведомления о новых тендерах?</summary>
-        <p>Бот проверяет новые публикации каждые 15 минут. Как правило, уведомление о новом тендере приходит в течение 15–30 минут после его публикации на zakupki.gov.ru.</p>
-      </details>
-
-      <details>
-        <summary>Можно ли использовать бот командой?</summary>
-        <p>Да. На тарифе Premium можно подключить мониторинг к корпоративному Telegram-чату — уведомления о тендерах будут приходить прямо в рабочую группу. Несколько сотрудников смогут совместно отслеживать и обсуждать закупки.</p>
-      </details>
-
     </div>
   </div>
 </section>
 
-<!-- ─── FINAL CTA ───────────────────────────── -->
-<section class="final-cta">
-  <div class="container">
-    <h2>Попробуйте бесплатно — 14 дней</h2>
-    <p>Настройка займёт 5 минут. Первые тендеры придут в течение часа.</p>
-    <a class="btn-white" href="https://t.me/tender_sniper_bot" target="_blank">✈️ Открыть Tender Sniper в Telegram</a>
-    <p style="margin-top:16px;font-size:13px;color:rgba(255,255,255,.6)">Без карты, без регистрации на сайте</p>
+<!-- HOW -->
+<section class="sect" id="how">
+  <div class="ctn">
+    <div class="sect-label sr">Как работает</div>
+    <div class="how-grid">
+      <div class="how-title sr">Три шага до первого тендера</div>
+      <div class="how-steps">
+        <div class="how-step sr sr-d1">
+          <div class="sn">01</div>
+          <div><div class="st">Настройте фильтры</div><p class="sd">Укажите ключевые слова, типы закупок и регион. Бот запомнит профиль вашего бизнеса и будет искать только то, что вам нужно.</p><span class="stag">2 минуты на настройку</span></div>
+        </div>
+        <div class="how-step sr sr-d2">
+          <div class="sn">02</div>
+          <div><div class="st">Бот мониторит за вас</div><p class="sd">Tender Sniper непрерывно сканирует zakupki.gov.ru по вашим критериям. AI-модель оценивает каждый тендер на соответствие.</p><span class="stag">44-ФЗ и 223-ФЗ</span></div>
+        </div>
+        <div class="how-step sr sr-d3">
+          <div class="sn">03</div>
+          <div><div class="st">Получайте уведомления</div><p class="sd">В Telegram приходит карточка с названием, суммой, заказчиком и ссылкой. Решение — одно нажатие.</p><span class="stag">Прямо в Telegram</span></div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
-<!-- ─── FOOTER ─────────────────────────────── -->
-<footer>
-  <div class="footer-inner">
-    <span>© 2025 Tender Sniper</span>
-    <span>Вопросы: <a href="https://t.me/tender_sniper_bot" target="_blank">@tender_sniper_bot</a></span>
-    <span>Работает на базе zakupki.gov.ru + OpenAI</span>
+<!-- FEATURES -->
+<section class="sect" id="features">
+  <div class="ctn">
+    <div class="sect-label sr">Возможности</div>
+    <div class="feat-title sr sr-d1">Всё что нужно,<br>ничего лишнего.</div>
+    <div class="feat-grid">
+      <div class="ft sr sr-d1">
+        <div class="ft-i">🎯</div>
+        <h3>Умные фильтры</h3>
+        <p>Ключевые слова, исключения, типы закупок, НМЦК, регион. Бот понимает контекст, а не просто ищет по строке.</p>
+      </div>
+      <div class="ft sr sr-d2">
+        <div class="ft-i">🤖</div>
+        <h3>AI-анализ релевантности</h3>
+        <p>GPT-4o mini читает каждый тендер и оценивает, насколько он подходит вашему профилю.</p>
+      </div>
+      <div class="ft sr sr-d1">
+        <div class="ft-i">⚡</div>
+        <h3>Мониторинг 24/7</h3>
+        <p>Новые тендеры появляются в вашем Telegram раньше, чем вы откроете сайт.</p>
+      </div>
+      <div class="ft sr sr-d2">
+        <div class="ft-i">📋</div>
+        <h3>Карточка тендера</h3>
+        <p>Название, сумма, заказчик, регион и ссылка на ЕИС — вся информация в одном сообщении.</p>
+      </div>
+      <div class="ft sr sr-d3">
+        <div class="ft-i">🔔</div>
+        <h3>Тихие часы</h3>
+        <p>Настройте время работы — бот не будет беспокоить ночью или в выходные.</p>
+      </div>
+      <div class="ft sr sr-d4">
+        <div class="ft-i">📈</div>
+        <div class="ft-wide">
+          <div class="ft-wide-txt">
+            <h3>Обучается на обратной связи</h3>
+            <p>Отметьте тендер как интересный или пропустите — бот подберёт более точные закупки в следующий раз.</p>
+          </div>
+          <a href="https://t.me/TenderAI111_bot" class="ft-wide-cta" target="_blank" rel="noopener">Попробовать →</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="sect" id="pricing">
+  <div class="ctn">
+    <div class="sect-label sr">Тарифы</div>
+    <div class="price-title sr sr-d1">Прозрачные цены.<br>Никаких сюрпризов.</div>
+    <p class="price-sub sr sr-d2">Начните бесплатно — без карты и без обязательств.</p>
+    <div class="price-grid">
+      <div class="pl sr sr-d1">
+        <span class="pl-badge">Пробный</span>
+        <div class="pl-nm">TRIAL</div>
+        <div class="pl-pr">0₽</div>
+        <div class="pl-per">14 дней бесплатно</div>
+        <ul class="pl-feat"><li>До 3 поисковых фильтров</li><li>До 30 уведомлений в день</li><li>AI-анализ релевантности</li><li>44-ФЗ и 223-ФЗ</li><li>Мониторинг 24/7</li></ul>
+        <a href="https://t.me/TenderAI111_bot" class="pl-btn" target="_blank" rel="noopener">Начать бесплатно →</a>
+      </div>
+      <div class="pl pop sr sr-d2">
+        <span class="pl-badge">Популярный</span>
+        <div class="pl-nm">BASIC</div>
+        <div class="pl-pr">1 490₽</div>
+        <div class="pl-per">в месяц</div>
+        <ul class="pl-feat"><li>До 5 поисковых фильтров</li><li>До 100 уведомлений в день</li><li>AI-анализ релевантности</li><li>44-ФЗ и 223-ФЗ</li><li>Приоритетная поддержка</li><li>Тихие часы</li></ul>
+        <a href="https://t.me/TenderAI111_bot" class="pl-btn" target="_blank" rel="noopener">Подключить →</a>
+      </div>
+      <div class="pl sr sr-d3">
+        <span class="pl-badge">Максимум</span>
+        <div class="pl-nm">PREMIUM</div>
+        <div class="pl-pr">2 990₽</div>
+        <div class="pl-per">в месяц</div>
+        <ul class="pl-feat"><li>До 20 поисковых фильтров</li><li>Без лимита уведомлений</li><li>AI-анализ релевантности</li><li>44-ФЗ и 223-ФЗ</li><li>Приоритетная поддержка</li><li>Тихие часы</li><li>Ранний доступ к функциям</li></ul>
+        <a href="https://t.me/TenderAI111_bot" class="pl-btn" target="_blank" rel="noopener">Подключить →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="sect" id="faq">
+  <div class="ctn">
+    <div class="sect-label sr">FAQ</div>
+    <div class="faq-wrap">
+      <div class="faq-title sr sr-d1">Вопросы и ответы</div>
+      <div class="fq sr sr-d1"><button class="fq-q" onclick="tFaq(this)">Нужно ли что-то устанавливать?<span class="fq-icon">+</span></button><div class="fq-a"><div class="fq-a-in">Нет. Достаточно открыть Telegram и перейти в @TenderAI111_bot. Всё работает прямо внутри мессенджера — никаких приложений и регистраций.</div></div></div>
+      <div class="fq sr sr-d2"><button class="fq-q" onclick="tFaq(this)">Какие источники данных?<span class="fq-icon">+</span></button><div class="fq-a"><div class="fq-a-in">Бот парсит официальный портал zakupki.gov.ru — оба реестра: 44-ФЗ и 223-ФЗ. Данные обновляются в режиме реального времени.</div></div></div>
+      <div class="fq sr sr-d3"><button class="fq-q" onclick="tFaq(this)">Как быстро приходят уведомления?<span class="fq-icon">+</span></button><div class="fq-a"><div class="fq-a-in">Обычно в течение нескольких часов после публикации тендера. Мониторинг работает круглосуточно без выходных.</div></div></div>
+      <div class="fq sr sr-d4"><button class="fq-q" onclick="tFaq(this)">Можно настроить несколько профилей?<span class="fq-icon">+</span></button><div class="fq-a"><div class="fq-a-in">Да. На Basic — до 5 фильтров с разными ключевыми словами для разных направлений. На Premium — до 20 фильтров.</div></div></div>
+      <div class="fq sr sr-d5"><button class="fq-q" onclick="tFaq(this)">Что значит «AI-анализ»?<span class="fq-icon">+</span></button><div class="fq-a"><div class="fq-a-in">GPT-4o mini читает описание каждого тендера и оценивает, насколько он реально подходит вашему бизнесу — учитывая контекст, а не только совпадение слов.</div></div></div>
+      <div class="fq sr sr-d5"><button class="fq-q" onclick="tFaq(this)">Что будет после окончания триала?<span class="fq-icon">+</span></button><div class="fq-a"><div class="fq-a-in">Бот уведомит вас. Если не оформить подписку — мониторинг остановится, фильтры сохранятся. Можно продолжить в любой момент.</div></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA FINAL -->
+<section class="cta-f">
+  <div class="ctn">
+    <h2 class="disp sr">Хватит искать тендеры вручную.</h2>
+    <p class="sr sr-d1">Настройте бота за 2 минуты и получите первые релевантные тендеры сегодня — бесплатно, без карты.</p>
+    <a href="https://t.me/TenderAI111_bot" class="btn-dark sr sr-d2" target="_blank" rel="noopener">Открыть в Telegram →</a>
+    <div class="cta-note sr sr-d3">14 дней бесплатно · Отмена в любой момент</div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="foot">
+  <div class="ctn">
+    <a href="#" class="foot-logo">Tender<i>Sniper</i></a>
+    <span class="foot-copy">© 2025 TenderSniper</span>
+    <a href="https://t.me/TenderAI111_bot" class="foot-link" target="_blank" rel="noopener">@TenderAI111_bot</a>
   </div>
 </footer>
 
+<script>
+// scroll reveal
+const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('vis');io.unobserve(e.target)}})},{threshold:0.12,rootMargin:'0px 0px -40px 0px'});
+document.querySelectorAll('.sr').forEach(el=>io.observe(el));
+
+// faq
+function tFaq(b){const i=b.closest('.fq'),o=i.classList.contains('open');document.querySelectorAll('.fq.open').forEach(e=>e.classList.remove('open'));if(!o)i.classList.add('open')}
+</script>
 </body>
 </html>
