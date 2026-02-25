@@ -9,6 +9,18 @@
   <meta property="og:title" content="Tender Sniper — автоматический поиск тендеров">
   <meta property="og:description" content="Бот в Telegram, который мониторит госзакупки 24/7 и присылает только релевантные тендеры.">
   <meta property="og:type" content="website">
+  <!-- Yandex.Metrika counter -->
+  <script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=107009876', 'ym');
+    ym(107009876, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+  </script>
+  <noscript><div><img src="https://mc.yandex.ru/watch/107009876" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+  <!-- /Yandex.Metrika counter -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -658,6 +670,13 @@ document.querySelectorAll('.sr').forEach(el=>io.observe(el));
 
 // faq
 function tFaq(b){const i=b.closest('.fq'),o=i.classList.contains('open');document.querySelectorAll('.fq.open').forEach(e=>e.classList.remove('open'));if(!o)i.classList.add('open')}
+
+// track CTA clicks as Metrika goals
+document.querySelectorAll('a[href*="t.me/TenderAI111_bot"]').forEach(a=>{
+  a.addEventListener('click',()=>{
+    if(typeof ym!=='undefined') ym(107009876,'reachGoal','cta_click');
+  });
+});
 </script>
 </body>
 </html>
