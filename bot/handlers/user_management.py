@@ -1799,8 +1799,8 @@ async def gsheets_ai_backfill_handler(callback: CallbackQuery):
             await callback.answer("❌ AI-обогащение не включено", show_alert=True)
             return
 
-        # Получаем последние 50 уведомлений без AI данных
-        notifications = await db.get_user_notifications(user_id, limit=50)
+        # Получаем последние 50 тендеров пользователя
+        notifications = await db.get_user_tenders(user_id, limit=50)
         if not notifications:
             await callback.answer("Нет тендеров для обогащения", show_alert=True)
             return
@@ -1809,6 +1809,10 @@ async def gsheets_ai_backfill_handler(callback: CallbackQuery):
         if not sheets_sync:
             await callback.answer("❌ Google Sheets недоступен", show_alert=True)
             return
+
+        columns = gs_config.get('columns', [])
+        spreadsheet_id = gs_config['spreadsheet_id']
+        sheet_name = get_weekly_sheet_name()
 
         status_msg = await callback.message.answer(
             "🤖 <b>AI-анализ старых тендеров</b>\n\n"
@@ -1820,28 +1824,36 @@ async def gsheets_ai_backfill_handler(callback: CallbackQuery):
         enriched = 0
         errors = 0
         for i, notif in enumerate(notifications[:50]):
-            tender_number = notif.get('tender_number', '')
+            tender_number = notif.get('number', '')
             if not tender_number:
                 continue
             try:
                 ai_data = await enrich_tender_with_ai(
                     tender_number=tender_number,
-                    tender_price=notif.get('tender_price'),
-                    customer_name=notif.get('tender_customer', ''),
+                    tender_price=notif.get('price'),
+                    customer_name=notif.get('customer_name', ''),
                     subscription_tier='premium'
                 )
                 if ai_data:
-                    # Обновляем строку в таблице через append (новая строка с AI)
-                    # Или обновляем существующую — пока добавляем комментарием в колонку
-                    enriched += 1
-            except Exception:
+                    updated = await sheets_sync.update_tender_ai_data(
+                        spreadsheet_id=spreadsheet_id,
+                        sheet_name=sheet_name,
+                        tender_url=notif.get('url', ''),
+                        tender_number=tender_number,
+                        columns=columns,
+                        ai_data=ai_data,
+                    )
+                    if updated:
+                        enriched += 1
+            except Exception as e:
+                logger.warning(f"AI backfill error for {tender_number}: {e}")
                 errors += 1
 
-            if (i + 1) % 10 == 0:
+            if (i + 1) % 5 == 0:
                 try:
                     await status_msg.edit_text(
                         f"🤖 <b>AI-анализ:</b> {i + 1}/{min(len(notifications), 50)}\n"
-                        f"✅ Обогащено: {enriched}, ❌ Ошибок: {errors}",
+                        f"✅ Обновлено в таблице: {enriched}, ❌ Ошибок: {errors}",
                         parse_mode="HTML"
                     )
                 except Exception:

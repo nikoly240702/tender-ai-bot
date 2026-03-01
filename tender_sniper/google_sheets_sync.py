@@ -463,6 +463,87 @@ class GoogleSheetsSync:
             None, functools.partial(self._setup_headers_sync, spreadsheet_id, columns, sheet_name)
         )
 
+    def _update_ai_cells_sync(self, spreadsheet_id: str, sheet_name: str,
+                              tender_url: str, tender_number: str,
+                              columns: List[str], ai_data: Dict[str, Any]) -> bool:
+        """Находит строку по URL/номеру тендера и обновляет AI-ячейки (синхронно)."""
+        spreadsheet = self._open_spreadsheet(spreadsheet_id)
+        worksheet = self._get_or_create_sheet(spreadsheet, sheet_name)
+
+        # Ищем строку по URL тендера или номеру
+        all_values = worksheet.get_all_values()
+        if not all_values:
+            return False
+
+        # Определяем индексы заголовков
+        headers = all_values[0]
+        header_map = {h: i for i, h in enumerate(headers)}
+
+        # Находим строку с данным тендером (ищем URL или номер в любой ячейке строки)
+        target_row_idx = None
+        search_terms = []
+        if tender_url:
+            search_terms.append(tender_url)
+        if tender_number:
+            search_terms.append(tender_number)
+
+        for row_idx, row in enumerate(all_values[1:], start=2):  # 1-indexed, skip header
+            row_text = ' '.join(row)
+            if any(term in row_text for term in search_terms if term):
+                target_row_idx = row_idx
+                break
+
+        if not target_row_idx:
+            return False
+
+        # Обновляем AI-колонки
+        updates = []
+        for col_key in columns:
+            if col_key not in AI_COLUMNS:
+                continue
+            col_def = COLUMN_DEFINITIONS.get(col_key)
+            if not col_def:
+                continue
+            header_name = col_def[0]
+            col_idx = header_map.get(header_name)
+            if col_idx is None:
+                continue
+            # Извлекаем значение через lambda из COLUMN_DEFINITIONS
+            try:
+                value = col_def[1]({}, {'ai_data': ai_data})
+            except Exception:
+                value = ''
+            if value:
+                # gspread использует A1 notation: col_idx+1 → буква
+                import gspread.utils
+                col_letter = gspread.utils.rowcol_to_a1(target_row_idx, col_idx + 1)[:-len(str(target_row_idx))]
+                updates.append({'range': f'{col_letter}{target_row_idx}', 'values': [[value]]})
+
+        if updates:
+            worksheet.spreadsheet.values_batch_update({
+                'valueInputOption': 'USER_ENTERED',
+                'data': updates
+            })
+            return True
+        return False
+
+    async def update_tender_ai_data(self, spreadsheet_id: str, sheet_name: str,
+                                    tender_url: str, tender_number: str,
+                                    columns: List[str], ai_data: Dict[str, Any]) -> bool:
+        """Обновляет AI-данные существующей строки в Google Sheets."""
+        try:
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                functools.partial(
+                    self._update_ai_cells_sync,
+                    spreadsheet_id, sheet_name, tender_url, tender_number, columns, ai_data
+                )
+            )
+        except Exception as e:
+            logger.error(f"❌ update_tender_ai_data error: {e}")
+            return False
+
     async def append_tender(self, spreadsheet_id: str, tender_data: Dict[str, Any],
                            match_data: Dict[str, Any], columns: List[str],
                            sheet_name: str = None) -> bool:
