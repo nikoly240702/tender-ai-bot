@@ -153,53 +153,67 @@ async def yookassa_webhook_handler(request):
                 # Обновляем подписку пользователя
                 user = await db.get_user_by_telegram_id(telegram_id)
                 if user:
-                    # Получаем текущую дату окончания подписки
-                    user_sub = await db.get_user_subscription_info(telegram_id)
-                    current_expires = user_sub.get('trial_expires_at') if user_sub else None
-
-                    # Вычисляем дату окончания подписки
                     now = datetime.utcnow()
+                    expires_at = now + timedelta(days=subscription_days)
 
-                    # Если есть активная подписка - добавляем дни к ней
-                    if current_expires:
-                        # Приводим к datetime если строка
-                        if isinstance(current_expires, str):
-                            try:
-                                current_expires = datetime.fromisoformat(current_expires.replace('Z', '+00:00'))
-                                if current_expires.tzinfo:
-                                    current_expires = current_expires.replace(tzinfo=None)
-                            except:
-                                current_expires = now
-
-                        # Если подписка ещё активна - добавляем к ней
-                        if current_expires > now:
-                            expires_at = current_expires + timedelta(days=limits['days'])
-                            logger.info(f"📅 Extending subscription: {current_expires} + {limits['days']} days = {expires_at}")
-                        else:
-                            # Подписка истекла - отсчитываем от сегодня
-                            expires_at = now + timedelta(days=limits['days'])
+                    if tier == 'ai_unlimited':
+                        # AI Unlimited — аддон: не меняем основной тариф,
+                        # только устанавливаем has_ai_unlimited + дату истечения
+                        await db.activate_ai_unlimited(
+                            user_id=user['id'],
+                            days=subscription_days
+                        )
+                        # Записываем платёж в БД
+                        await db.record_payment(
+                            user_id=user['id'],
+                            payment_id=payment_id,
+                            amount=amount,
+                            tier=tier,
+                            status='succeeded'
+                        )
+                        logger.info(f"✅ AI Unlimited activated: user={telegram_id}, days={subscription_days}, expires={expires_at}")
                     else:
-                        # Нет подписки - отсчитываем от сегодня
-                        expires_at = now + timedelta(days=limits['days'])
+                        # Обычная подписка
+                        # Получаем текущую дату окончания подписки
+                        user_sub = await db.get_user_subscription_info(telegram_id)
+                        current_expires = user_sub.get('trial_expires_at') if user_sub else None
 
-                    await db.update_user_subscription(
-                        user_id=user['id'],
-                        tier=tier,
-                        filters_limit=limits['filters'],
-                        notifications_limit=limits['notifications'],
-                        expires_at=expires_at
-                    )
+                        # Если есть активная подписка - добавляем дни к ней
+                        if current_expires:
+                            if isinstance(current_expires, str):
+                                try:
+                                    current_expires = datetime.fromisoformat(current_expires.replace('Z', '+00:00'))
+                                    if current_expires.tzinfo:
+                                        current_expires = current_expires.replace(tzinfo=None)
+                                except:
+                                    current_expires = now
 
-                    # Записываем платёж в БД
-                    await db.record_payment(
-                        user_id=user['id'],
-                        payment_id=payment_id,
-                        amount=amount,
-                        tier=tier,
-                        status='succeeded'
-                    )
+                            if current_expires > now:
+                                expires_at = current_expires + timedelta(days=limits['days'])
+                                logger.info(f"📅 Extending subscription: {current_expires} + {limits['days']} days = {expires_at}")
+                            else:
+                                expires_at = now + timedelta(days=limits['days'])
+                        else:
+                            expires_at = now + timedelta(days=limits['days'])
 
-                    logger.info(f"✅ Subscription activated: user={telegram_id}, tier={tier}, expires={expires_at}")
+                        await db.update_user_subscription(
+                            user_id=user['id'],
+                            tier=tier,
+                            filters_limit=limits['filters'],
+                            notifications_limit=limits['notifications'],
+                            expires_at=expires_at
+                        )
+
+                        # Записываем платёж в БД
+                        await db.record_payment(
+                            user_id=user['id'],
+                            payment_id=payment_id,
+                            amount=amount,
+                            tier=tier,
+                            status='succeeded'
+                        )
+
+                        logger.info(f"✅ Subscription activated: user={telegram_id}, tier={tier}, expires={expires_at}")
 
                     # Отправляем уведомление пользователю
                     try:
@@ -283,6 +297,14 @@ async def start_health_check_server(port: int = 8080):
 
     # Корневой endpoint — лендинг
     app.router.add_get('/', landing_handler)
+
+    # Web Cabinet (профиль, документы, тендеры)
+    try:
+        from cabinet import setup_cabinet_routes
+        setup_cabinet_routes(app)
+        logger.info("Cabinet routes mounted at /cabinet/*")
+    except Exception as e:
+        logger.warning(f"Failed to mount cabinet routes: {e}")
 
     runner = web.AppRunner(app)
     await runner.setup()

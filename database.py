@@ -666,6 +666,96 @@ class GoogleSheetsConfig(Base):
     )
 
 
+class CompanyProfile(Base):
+    """Профиль компании для автогенерации тендерных документов."""
+    __tablename__ = 'company_profiles'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), unique=True, nullable=False, index=True)
+
+    # Реквизиты
+    company_name = Column(String(500), nullable=True)  # Полное наименование
+    company_name_short = Column(String(255), nullable=True)  # Краткое наименование
+    legal_form = Column(String(50), nullable=True)  # ООО, ИП, АО, etc.
+    inn = Column(String(12), nullable=True)
+    kpp = Column(String(9), nullable=True)
+    ogrn = Column(String(15), nullable=True)
+
+    # Адреса
+    legal_address = Column(Text, nullable=True)
+    actual_address = Column(Text, nullable=True)
+    postal_address = Column(Text, nullable=True)
+
+    # Руководитель
+    director_name = Column(String(255), nullable=True)
+    director_position = Column(String(255), nullable=True)  # Генеральный директор / Директор / ИП
+    director_basis = Column(String(255), nullable=True)  # Устав / Свидетельство о регистрации
+
+    # Контакты
+    phone = Column(String(50), nullable=True)
+    email = Column(String(255), nullable=True)
+    website = Column(String(255), nullable=True)
+
+    # Банковские реквизиты
+    bank_name = Column(String(500), nullable=True)
+    bank_bik = Column(String(9), nullable=True)
+    bank_account = Column(String(20), nullable=True)  # Расчётный счёт
+    bank_corr_account = Column(String(20), nullable=True)  # Кор. счёт
+
+    # Дополнительно
+    smp_status = Column(Boolean, default=False, nullable=False)  # Субъект МСП
+    licenses_text = Column(Text, nullable=True)  # Описание лицензий
+    experience_description = Column(Text, nullable=True)  # Описание опыта
+
+    is_complete = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+
+class GeneratedDocument(Base):
+    """Сгенерированные тендерные документы."""
+    __tablename__ = 'generated_documents'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tender_number = Column(String(100), nullable=False, index=True)
+
+    doc_type = Column(String(50), nullable=False)  # application, declaration, agreement, proposal
+    doc_name = Column(String(500), nullable=True)
+    file_format = Column(String(10), default='docx', nullable=False)
+    generation_status = Column(String(20), default='pending', nullable=False)  # pending, generating, ready, error
+    ai_generated_content = Column(Text, nullable=True)  # Кэш AI-текста для техпредложения
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    downloaded_count = Column(Integer, default=0, nullable=False)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+    __table_args__ = (
+        Index('ix_generated_docs_user_tender', 'user_id', 'tender_number'),
+    )
+
+
+class WebSession(Base):
+    """Сессии веб-кабинета."""
+    __tablename__ = 'web_sessions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    session_token = Column(String(64), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    last_used = Column(DateTime, default=datetime.utcnow)
+    ip_address = Column(String(45), nullable=True)
+
+    # Relationships
+    user = relationship("SniperUser")
+
+
 class ReactivationEvent(Base):
     """Трекинг реактивационных сообщений и откликов."""
     __tablename__ = 'reactivation_events'
@@ -871,6 +961,10 @@ __all__ = [
     'ReactivationEvent',
     # Persistent Cache
     'CacheEntry',
+    # Document Generation & Web Cabinet
+    'CompanyProfile',
+    'GeneratedDocument',
+    'WebSession',
     # Functions
     'init_database',
     'get_session',

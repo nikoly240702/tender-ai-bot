@@ -24,6 +24,8 @@ from bot.handlers import start, admin, sniper, sniper_search, admin_sniper, onbo
 from bot.handlers import sniper_wizard_new
 # Групповые чаты
 from bot.handlers import group_chat
+# Профиль компании для автогенерации документов
+from bot.handlers import company_profile
 # Подписки (Phase 2.1)
 from bot.handlers import subscriptions
 # Реферальная программа
@@ -278,6 +280,7 @@ async def main():
     dp.include_router(admin_sniper.router)  # Расширенная админ-панель Tender Sniper
     dp.include_router(onboarding.router)  # Онбординг для новых пользователей
     dp.include_router(tender_actions.router)  # Inline кнопки для тендеров (детали, избранное, скрыть)
+    dp.include_router(company_profile.router)  # Профиль компании для автогенерации документов
     dp.include_router(user_management.router)  # Команды /favorites, /hidden, /stats, /settings
     dp.include_router(inline_search.router)  # Inline поиск и quick actions
     dp.include_router(all_tenders.router)  # Все мои тендеры - единая история

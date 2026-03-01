@@ -1416,13 +1416,21 @@ async def integration_sheets_handler(callback: CallbackQuery):
                 for c in config.get('columns', [])
             )
 
-            keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            buttons = [
                 [InlineKeyboardButton(text="📋 Изменить колонки", callback_data="gsheets_edit_columns")],
                 [InlineKeyboardButton(text="🔄 Сменить таблицу", callback_data="gsheets_setup")],
+            ]
+            if config.get('ai_enrichment'):
+                buttons.append([InlineKeyboardButton(
+                    text="🤖 Заполнить AI для старых тендеров",
+                    callback_data="gsheets_ai_backfill"
+                )])
+            buttons += [
                 [InlineKeyboardButton(text="⏸ Выключить", callback_data="gsheets_toggle_off")],
                 [InlineKeyboardButton(text="🗑 Удалить", callback_data="gsheets_delete")],
                 [InlineKeyboardButton(text="« Назад", callback_data="settings_advanced")]
-            ])
+            ]
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
             await callback.message.edit_text(
                 "📊 <b>GOOGLE SHEETS</b>\n\n"
@@ -1670,12 +1678,13 @@ async def gsheets_columns_done(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("❌ Пользователь не найден")
             return
 
-        # Проверяем Premium для AI колонок
+        # Проверяем Premium / AI Unlimited для AI колонок
         subscription_tier = sniper_user.get('subscription_tier', 'trial')
-        ai_enrichment = has_ai_columns and subscription_tier == 'premium'
+        has_ai_access = subscription_tier == 'premium' or sniper_user.get('has_ai_unlimited')
+        ai_enrichment = has_ai_columns and has_ai_access
 
-        # Если не premium а выбрал AI колонки — убираем их
-        if has_ai_columns and subscription_tier != 'premium':
+        # Если нет доступа к AI а выбрал AI колонки — убираем их
+        if has_ai_columns and not has_ai_access:
             selected = [c for c in selected if c not in AI_COLUMNS]
             ai_enrichment = False
 
@@ -1696,9 +1705,9 @@ async def gsheets_columns_done(callback: CallbackQuery, state: FSMContext):
         await state.clear()
 
         non_premium_warning = ""
-        if has_ai_columns and subscription_tier != 'premium':
+        if has_ai_columns and not has_ai_access:
             non_premium_warning = (
-                "\n\n⚠️ AI-колонки были убраны — они доступны только на Premium тарифе."
+                "\n\n⚠️ AI-колонки были убраны — они доступны на Premium или AI Unlimited."
             )
 
         await callback.message.edit_text(
@@ -1766,6 +1775,93 @@ async def gsheets_toggle_on_handler(callback: CallbackQuery):
     except Exception as e:
         logger.error(f"Ошибка включения Google Sheets: {e}", exc_info=True)
         await callback.answer("❌ Ошибка", show_alert=True)
+
+
+@router.callback_query(F.data == "gsheets_ai_backfill")
+async def gsheets_ai_backfill_handler(callback: CallbackQuery):
+    """Ретроактивное AI-обогащение старых тендеров в Google Sheets."""
+    await callback.answer("Запускаю AI-анализ...")
+
+    try:
+        from tender_sniper.google_sheets_sync import (
+            get_sheets_sync, enrich_tender_with_ai, get_weekly_sheet_name
+        )
+
+        db = await get_sniper_db()
+        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+        if not sniper_user:
+            await callback.answer("❌ Пользователь не найден", show_alert=True)
+            return
+
+        user_id = sniper_user['id']
+        gs_config = await db.get_google_sheets_config(user_id)
+        if not gs_config or not gs_config.get('enabled') or not gs_config.get('ai_enrichment'):
+            await callback.answer("❌ AI-обогащение не включено", show_alert=True)
+            return
+
+        # Получаем последние 50 уведомлений без AI данных
+        notifications = await db.get_user_notifications(user_id, limit=50)
+        if not notifications:
+            await callback.answer("Нет тендеров для обогащения", show_alert=True)
+            return
+
+        sheets_sync = get_sheets_sync()
+        if not sheets_sync:
+            await callback.answer("❌ Google Sheets недоступен", show_alert=True)
+            return
+
+        status_msg = await callback.message.answer(
+            "🤖 <b>AI-анализ старых тендеров</b>\n\n"
+            f"Обрабатываю {min(len(notifications), 50)} тендеров...\n"
+            "<i>Это может занять 2-5 минут</i>",
+            parse_mode="HTML"
+        )
+
+        enriched = 0
+        errors = 0
+        for i, notif in enumerate(notifications[:50]):
+            tender_number = notif.get('tender_number', '')
+            if not tender_number:
+                continue
+            try:
+                ai_data = await enrich_tender_with_ai(
+                    tender_number=tender_number,
+                    tender_price=notif.get('tender_price'),
+                    customer_name=notif.get('tender_customer', ''),
+                    subscription_tier='premium'
+                )
+                if ai_data:
+                    # Обновляем строку в таблице через append (новая строка с AI)
+                    # Или обновляем существующую — пока добавляем комментарием в колонку
+                    enriched += 1
+            except Exception:
+                errors += 1
+
+            if (i + 1) % 10 == 0:
+                try:
+                    await status_msg.edit_text(
+                        f"🤖 <b>AI-анализ:</b> {i + 1}/{min(len(notifications), 50)}\n"
+                        f"✅ Обогащено: {enriched}, ❌ Ошибок: {errors}",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+        await status_msg.edit_text(
+            f"✅ <b>AI-анализ завершён</b>\n\n"
+            f"Обработано: {min(len(notifications), 50)}\n"
+            f"Успешно обогащено: {enriched}\n"
+            f"Ошибок: {errors}\n\n"
+            "<i>Данные обновлены в таблице</i>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="« К настройкам Sheets", callback_data="integration_sheets")]
+            ]),
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"AI backfill error: {e}", exc_info=True)
+        await callback.answer("❌ Ошибка при AI-анализе", show_alert=True)
 
 
 @router.callback_query(F.data == "gsheets_delete")

@@ -63,7 +63,7 @@ async def _export_notifications(
 
     user_columns = set(gs_config.get('columns', []))
     has_ai_columns = bool(user_columns & AI_COLUMNS)
-    is_premium = subscription_tier == 'premium'
+    is_ai_eligible = subscription_tier == 'premium' or gs_config.get('has_ai_unlimited')
 
     for i, notif in enumerate(notifications):
         try:
@@ -79,7 +79,7 @@ async def _export_notifications(
             }
 
             ai_data = {}
-            if has_ai_columns and is_premium and gs_config.get('ai_enrichment'):
+            if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment'):
                 try:
                     ai_data = await enrich_tender_with_ai(
                         tender_number=tender_data['number'],
@@ -219,13 +219,14 @@ async def export_single_tender(callback: CallbackQuery):
             'submission_deadline': notification.get('submission_deadline', ''),
         }
 
-        # AI enrichment для Premium
+        # AI enrichment для Premium / AI Unlimited
         ai_data = {}
         user_columns = set(gs_config.get('columns', []))
         has_ai_columns = bool(user_columns & AI_COLUMNS)
         subscription_tier = user.get('subscription_tier', 'trial')
+        is_ai_eligible = subscription_tier == 'premium' or user.get('has_ai_unlimited')
 
-        if has_ai_columns and subscription_tier == 'premium' and gs_config.get('ai_enrichment'):
+        if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment'):
             try:
                 ai_data = await enrich_tender_with_ai(
                     tender_number=tender_data['number'],

@@ -458,11 +458,21 @@ async def callback_pay_tier(callback: CallbackQuery):
     await callback.answer()
 
     # Парсим callback: subscription_pay_{tier}_{months}
-    parts = callback.data.replace("subscription_pay_", "").split("_")
-    tier_name = parts[0]
-    months = int(parts[1]) if len(parts) > 1 else 1
+    # ai_unlimited содержит underscore, обрабатываем отдельно
+    raw = callback.data.replace("subscription_pay_", "")
+    if raw.startswith("ai_unlimited_"):
+        tier_name = "ai_unlimited"
+        months = int(raw.split("_")[-1])
+    else:
+        parts = raw.split("_")
+        tier_name = parts[0]
+        months = int(parts[1]) if len(parts) > 1 else 1
 
-    tier_info = SUBSCRIPTION_TIERS.get(tier_name)
+    # ai_unlimited — аддон, нет в SUBSCRIPTION_TIERS
+    if tier_name == "ai_unlimited":
+        tier_info = {"name": "AI Unlimited", "emoji": "🤖"}
+    else:
+        tier_info = SUBSCRIPTION_TIERS.get(tier_name)
     if not tier_info:
         await callback.message.answer("❌ Тариф не найден")
         return

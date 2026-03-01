@@ -32,3 +32,21 @@ class HistoryStates(StatesGroup):
 
     viewing_history = State()             # Просмотр истории поисков
     confirming_repeat = State()           # Подтверждение повтора поиска
+
+
+class CompanyProfileStates(StatesGroup):
+    """Состояния для wizard заполнения профиля компании."""
+
+    waiting_for_company_name = State()
+    waiting_for_inn = State()
+    waiting_for_ogrn = State()
+    waiting_for_legal_address = State()
+    waiting_for_director_name = State()
+    waiting_for_director_position = State()
+    waiting_for_phone = State()
+    waiting_for_email = State()
+    waiting_for_bank_name = State()
+    waiting_for_bank_bik = State()
+    waiting_for_bank_account = State()
+    confirming_profile = State()
+    editing_field = State()

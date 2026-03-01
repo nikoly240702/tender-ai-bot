@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Фильтры — Tender Sniper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
+    body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
+    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh}
+    .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
+    .sidebar nav{flex:1}
+    .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
+    .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
+    .sidebar .icon{width:20px;text-align:center}
+    .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:auto}.sidebar .bottom a{color:var(--gray);font-size:13px}
+    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px}
+    .page-header{margin-bottom:28px}.page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}.page-header p{color:var(--gray2);font-size:14px}
+    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
+    .btn-outline{background:transparent;border:1px solid var(--line);color:var(--white)}.btn-outline:hover{border-color:var(--gold-line);color:var(--gold)}
+    .btn-sm{padding:6px 12px;font-size:12px}
+    .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
+    .badge-green{background:rgba(61,214,140,0.15);color:var(--green)}.badge-gray{background:var(--surface);color:var(--gray2)}
+    .loading{text-align:center;padding:40px;color:var(--gray)}
+    .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
+    .filter-card{border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:12px;background:var(--bg3);transition:border-color 0.15s}
+    .filter-card:hover{border-color:var(--gold-line)}
+    .filter-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+    .filter-name{font-weight:700;font-size:15px}
+    .filter-keywords{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .keyword-tag{background:var(--surface);padding:3px 10px;border-radius:12px;font-size:12px;color:var(--gray2)}
+    .filter-meta{display:flex;gap:16px;margin-top:12px;font-size:13px;color:var(--gray)}
+    .empty{text-align:center;padding:48px;color:var(--gray)}
+    .empty-icon{font-size:48px;margin-bottom:12px}
+    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}}
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">TENDER<span>SNIPER</span></div>
+    <nav>
+      <a href="/cabinet/"><span class="icon">📊</span> Тендеры</a>
+      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
+      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
+      <a href="/cabinet/filters" class="active"><span class="icon">🎯</span> Фильтры</a>
+    </nav>
+    <div class="bottom">
+      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
+      <a href="/cabinet/logout">Выйти</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <h1>Мои фильтры</h1>
+      <p>Фильтры мониторинга тендеров. Создание и удаление — через бот.</p>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      Загрузка фильтров...
+    </div>
+
+    <div id="filters-list" style="display:none"></div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    function showToast(msg,dur=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur)}
+    function fmtPrice(p){if(!p)return'';const n=parseFloat(p);if(n>=1e6)return(n/1e6).toFixed(1)+' млн';if(n>=1e3)return(n/1e3).toFixed(0)+' тыс.';return n.toFixed(0)}
+
+    async function loadFilters() {
+      const resp = await fetch('/cabinet/api/filters');
+      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
+      const data = await resp.json();
+
+      document.getElementById('loading').style.display = 'none';
+      const list = document.getElementById('filters-list');
+      list.style.display = 'block';
+
+      if (!data.filters || data.filters.length === 0) {
+        list.innerHTML = '<div class="empty"><div class="empty-icon">🎯</div><p>Фильтров пока нет</p><p style="font-size:13px;margin-top:8px">Создайте фильтр в <a href="https://t.me/TenderSniperBot" style="color:var(--gold)">боте Telegram</a></p></div>';
+        return;
+      }
+
+      let html = '';
+      data.filters.forEach(f => {
+        const keywords = (f.keywords || []).map(k => `<span class="keyword-tag">${k}</span>`).join('');
+        const excludeKw = (f.exclude_keywords || []).map(k => `<span class="keyword-tag" style="color:var(--red)">-${k}</span>`).join('');
+        const status = f.is_active
+          ? '<span class="badge badge-green">Активен</span>'
+          : '<span class="badge badge-gray">Выкл</span>';
+
+        let meta = '';
+        if (f.price_min || f.price_max) {
+          meta += `Цена: ${fmtPrice(f.price_min) || '0'} — ${fmtPrice(f.price_max) || '∞'} руб. `;
+        }
+        if (f.regions && f.regions.length) {
+          meta += `| Регионы: ${f.regions.join(', ')} `;
+        }
+        if (f.law_type) {
+          meta += `| ${f.law_type} `;
+        }
+
+        html += `<div class="filter-card">
+          <div class="filter-header">
+            <span class="filter-name">${f.name || 'Фильтр #' + f.id}</span>
+            ${status}
+          </div>
+          <div class="filter-keywords">${keywords}${excludeKw}</div>
+          ${meta ? `<div class="filter-meta">${meta}</div>` : ''}
+        </div>`;
+      });
+
+      list.innerHTML = html;
+    }
+
+    loadFilters();
+  </script>
+</body>
+</html>

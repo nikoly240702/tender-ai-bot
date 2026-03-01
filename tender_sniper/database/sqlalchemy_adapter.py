@@ -28,6 +28,9 @@ from database import (
     ViewedTender as ViewedTenderModel,
     GoogleSheetsConfig as GoogleSheetsConfigModel,
     CacheEntry as CacheEntryModel,
+    CompanyProfile as CompanyProfileModel,
+    GeneratedDocument as GeneratedDocumentModel,
+    WebSession as WebSessionModel,
     get_session,
     DatabaseSession
 )
@@ -2071,6 +2074,29 @@ class TenderSniperDB:
                 'expires_at': new_expires
             }
 
+    async def activate_ai_unlimited(self, user_id: int, days: int) -> None:
+        """Активирует AI Unlimited аддон: устанавливает has_ai_unlimited=True без смены тарифа."""
+        from database import DatabaseSession, SniperUser
+        from sqlalchemy import update
+        from datetime import datetime, timedelta
+
+        expires_at = datetime.utcnow() + timedelta(days=days)
+        async with DatabaseSession() as session:
+            # Проверяем текущую дату истечения, если есть — берём максимум
+            result = await session.execute(
+                select(SniperUser.ai_unlimited_expires_at).where(SniperUser.id == user_id)
+            )
+            current_expires = result.scalar_one_or_none()
+            now = datetime.utcnow()
+            if current_expires and isinstance(current_expires, datetime) and current_expires > now:
+                expires_at = max(expires_at, current_expires + timedelta(days=days))
+
+            await session.execute(
+                update(SniperUser)
+                .where(SniperUser.id == user_id)
+                .values(has_ai_unlimited=True, ai_unlimited_expires_at=expires_at)
+            )
+
     async def record_payment(
         self,
         user_id: int,
@@ -2622,6 +2648,232 @@ class TenderSniperDB:
                     logger.info(f"🗑️ Очищено {count} записей из кэша")
         except Exception as e:
             logger.debug(f"Cache cleanup error: {e}")
+
+    # ============================================
+    # COMPANY PROFILE
+    # ============================================
+
+    async def get_company_profile(self, user_id: int) -> Optional[Dict[str, Any]]:
+        """Получение профиля компании по user_id (sniper_users.id)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(CompanyProfileModel).where(CompanyProfileModel.user_id == user_id)
+            )
+            profile = result.scalar_one_or_none()
+            if not profile:
+                return None
+            return {
+                'id': profile.id,
+                'user_id': profile.user_id,
+                'company_name': profile.company_name,
+                'company_name_short': profile.company_name_short,
+                'legal_form': profile.legal_form,
+                'inn': profile.inn,
+                'kpp': profile.kpp,
+                'ogrn': profile.ogrn,
+                'legal_address': profile.legal_address,
+                'actual_address': profile.actual_address,
+                'postal_address': profile.postal_address,
+                'director_name': profile.director_name,
+                'director_position': profile.director_position,
+                'director_basis': profile.director_basis,
+                'phone': profile.phone,
+                'email': profile.email,
+                'website': profile.website,
+                'bank_name': profile.bank_name,
+                'bank_bik': profile.bank_bik,
+                'bank_account': profile.bank_account,
+                'bank_corr_account': profile.bank_corr_account,
+                'smp_status': profile.smp_status,
+                'licenses_text': profile.licenses_text,
+                'experience_description': profile.experience_description,
+                'is_complete': profile.is_complete,
+                'created_at': profile.created_at.isoformat() if profile.created_at else None,
+                'updated_at': profile.updated_at.isoformat() if profile.updated_at else None,
+            }
+
+    async def upsert_company_profile(self, user_id: int, data: Dict[str, Any]) -> int:
+        """Создание или обновление профиля компании."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(CompanyProfileModel).where(CompanyProfileModel.user_id == user_id)
+            )
+            profile = result.scalar_one_or_none()
+
+            if profile:
+                for key, value in data.items():
+                    if hasattr(profile, key) and key not in ('id', 'user_id', 'created_at'):
+                        setattr(profile, key, value)
+                profile.updated_at = datetime.utcnow()
+            else:
+                profile = CompanyProfileModel(user_id=user_id, **data)
+                session.add(profile)
+                await session.flush()
+
+            return profile.id
+
+    async def check_profile_completeness(self, user_id: int) -> bool:
+        """Проверка заполненности профиля (минимальные обязательные поля)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(CompanyProfileModel).where(CompanyProfileModel.user_id == user_id)
+            )
+            profile = result.scalar_one_or_none()
+            if not profile:
+                return False
+
+            required_fields = ['company_name', 'inn', 'legal_address', 'director_name', 'phone', 'email']
+            is_complete = all(getattr(profile, f) for f in required_fields)
+
+            if profile.is_complete != is_complete:
+                profile.is_complete = is_complete
+                await session.commit()
+
+            return is_complete
+
+    async def get_company_profile_by_telegram_id(self, telegram_id: int) -> Optional[Dict[str, Any]]:
+        """Получение профиля компании по telegram_id."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.telegram_id == telegram_id)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return None
+            return await self.get_company_profile(user.id)
+
+    # ============================================
+    # GENERATED DOCUMENTS
+    # ============================================
+
+    async def save_generated_document(
+        self, user_id: int, tender_number: str, doc_type: str,
+        doc_name: str, status: str = 'pending', ai_content: Optional[str] = None
+    ) -> int:
+        """Сохранение записи о сгенерированном документе."""
+        async with DatabaseSession() as session:
+            doc = GeneratedDocumentModel(
+                user_id=user_id,
+                tender_number=tender_number,
+                doc_type=doc_type,
+                doc_name=doc_name,
+                generation_status=status,
+                ai_generated_content=ai_content,
+            )
+            session.add(doc)
+            await session.flush()
+            return doc.id
+
+    async def update_document_status(self, doc_id: int, status: str, error_message: Optional[str] = None):
+        """Обновление статуса генерации документа."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(GeneratedDocumentModel)
+                .where(GeneratedDocumentModel.id == doc_id)
+                .values(generation_status=status, error_message=error_message)
+            )
+
+    async def get_user_documents(self, user_id: int, tender_number: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Получение документов пользователя."""
+        async with DatabaseSession() as session:
+            query = select(GeneratedDocumentModel).where(
+                GeneratedDocumentModel.user_id == user_id
+            )
+            if tender_number:
+                query = query.where(GeneratedDocumentModel.tender_number == tender_number)
+            query = query.order_by(GeneratedDocumentModel.created_at.desc())
+
+            result = await session.execute(query)
+            docs = result.scalars().all()
+            return [{
+                'id': d.id,
+                'tender_number': d.tender_number,
+                'doc_type': d.doc_type,
+                'doc_name': d.doc_name,
+                'generation_status': d.generation_status,
+                'ai_generated_content': d.ai_generated_content,
+                'error_message': d.error_message,
+                'created_at': d.created_at.isoformat() if d.created_at else None,
+                'downloaded_count': d.downloaded_count,
+            } for d in docs]
+
+    async def get_document_by_id(self, doc_id: int) -> Optional[Dict[str, Any]]:
+        """Получение документа по ID."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(GeneratedDocumentModel).where(GeneratedDocumentModel.id == doc_id)
+            )
+            d = result.scalar_one_or_none()
+            if not d:
+                return None
+            return {
+                'id': d.id,
+                'user_id': d.user_id,
+                'tender_number': d.tender_number,
+                'doc_type': d.doc_type,
+                'doc_name': d.doc_name,
+                'generation_status': d.generation_status,
+                'ai_generated_content': d.ai_generated_content,
+                'error_message': d.error_message,
+                'created_at': d.created_at.isoformat() if d.created_at else None,
+                'downloaded_count': d.downloaded_count,
+            }
+
+    async def increment_download_count(self, doc_id: int):
+        """Увеличить счётчик скачиваний документа."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(GeneratedDocumentModel)
+                .where(GeneratedDocumentModel.id == doc_id)
+                .values(downloaded_count=GeneratedDocumentModel.downloaded_count + 1)
+            )
+
+    # ============================================
+    # WEB SESSIONS
+    # ============================================
+
+    async def create_web_session(self, user_id: int, session_token: str, ip_address: Optional[str] = None, ttl_days: int = 30) -> int:
+        """Создание веб-сессии."""
+        async with DatabaseSession() as session:
+            web_session = WebSessionModel(
+                user_id=user_id,
+                session_token=session_token,
+                expires_at=datetime.utcnow() + timedelta(days=ttl_days),
+                ip_address=ip_address,
+            )
+            session.add(web_session)
+            await session.flush()
+            return web_session.id
+
+    async def get_web_session(self, session_token: str) -> Optional[Dict[str, Any]]:
+        """Получение веб-сессии по токену."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(WebSessionModel).where(
+                    and_(
+                        WebSessionModel.session_token == session_token,
+                        WebSessionModel.expires_at > datetime.utcnow()
+                    )
+                )
+            )
+            ws = result.scalar_one_or_none()
+            if not ws:
+                return None
+            ws.last_used = datetime.utcnow()
+            return {
+                'id': ws.id,
+                'user_id': ws.user_id,
+                'session_token': ws.session_token,
+                'expires_at': ws.expires_at.isoformat() if ws.expires_at else None,
+                'ip_address': ws.ip_address,
+            }
+
+    async def delete_web_session(self, session_token: str):
+        """Удаление веб-сессии (logout)."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                delete(WebSessionModel).where(WebSessionModel.session_token == session_token)
+            )
 
 
 _sniper_db_instance = None

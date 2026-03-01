@@ -16,6 +16,7 @@ from aiogram.fsm.state import State, StatesGroup
 import sys
 import logging
 import re
+import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
 from bot.utils import safe_callback_data
@@ -2558,12 +2559,117 @@ async def mark_tender_interesting(callback: CallbackQuery):
             if row:
                 post_buttons.append(row)
 
+        # Автогенерация документов если профиль заполнен
+        if user:
+            profile = await db.get_company_profile(user['id'])
+            if profile and profile.get('is_complete'):
+                post_buttons.append([InlineKeyboardButton(
+                    text="📄 Генерируем документы...",
+                    callback_data="noop"
+                )])
+                # Запуск генерации в фоне
+                asyncio.create_task(
+                    _generate_and_send_docs(callback, tender_number, user, profile, notification)
+                )
+            else:
+                post_buttons.append([InlineKeyboardButton(
+                    text="📄 Заполните профиль для автогенерации",
+                    callback_data="company_profile"
+                )])
+
         await callback.message.edit_reply_markup(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=post_buttons)
         )
 
     except Exception as e:
         logger.error(f"Ошибка при отметке тендера: {e}", exc_info=True)
+
+
+async def _generate_and_send_docs(
+    callback: CallbackQuery,
+    tender_number: str,
+    user: dict,
+    profile: dict,
+    notification: dict | None,
+):
+    """Фоновая генерация и отправка документов в Telegram."""
+    try:
+        from tender_sniper.document_generator import DocumentGenerator
+        from tender_sniper.document_generator.ai_proposal import AIProposalGenerator
+        from aiogram.types import BufferedInputFile
+
+        # Собираем данные тендера
+        tender_data = {
+            'number': tender_number,
+            'name': notification.get('tender_name', '') if notification else '',
+            'price': notification.get('tender_price') if notification else None,
+            'url': notification.get('tender_url', '') if notification else '',
+            'customer_name': notification.get('tender_customer', '') if notification else '',
+            'region': notification.get('tender_region', '') if notification else '',
+            'submission_deadline': notification.get('submission_deadline', '') if notification else '',
+        }
+
+        # Генерируем AI-текст техпредложения
+        ai_gen = AIProposalGenerator()
+        ai_text = await ai_gen.generate_proposal_text(
+            tender_name=tender_data['name'],
+            company_profile=profile,
+        )
+
+        # Генерируем пакет документов
+        generator = DocumentGenerator()
+        documents = await generator.generate_package(
+            tender_data=tender_data,
+            company_profile=profile,
+            user_id=user['id'],
+            ai_proposal_text=ai_text,
+        )
+
+        if not documents:
+            await callback.message.answer("⚠️ Не удалось сгенерировать документы.")
+            return
+
+        # Сохраняем записи в БД и отправляем
+        db = await get_sniper_db()
+        await callback.message.answer(
+            f"📄 <b>Документы для тендера {tender_number}:</b>",
+            parse_mode="HTML"
+        )
+
+        for doc_type, filename, doc_bytes in documents:
+            try:
+                # Сохраняем в БД
+                await db.save_generated_document(
+                    user_id=user['id'],
+                    tender_number=tender_number,
+                    doc_type=doc_type,
+                    doc_name=filename,
+                    status='ready',
+                    ai_content=ai_text if doc_type == 'proposal' else None,
+                )
+
+                # Отправляем файл
+                input_file = BufferedInputFile(doc_bytes.read(), filename=filename)
+                await callback.message.answer_document(
+                    document=input_file,
+                    caption=f"📄 {filename}",
+                )
+            except Exception as e:
+                logger.error(f"Error sending document {doc_type}: {e}", exc_info=True)
+
+        await callback.message.answer(
+            "✅ Все документы сгенерированы и отправлены!\n\n"
+            "⚠️ Проверьте документы перед подачей на площадке.",
+        )
+
+    except Exception as e:
+        logger.error(f"Error in document generation for {tender_number}: {e}", exc_info=True)
+        try:
+            await callback.message.answer(
+                f"⚠️ Ошибка при генерации документов: {str(e)[:200]}"
+            )
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("skip_"))

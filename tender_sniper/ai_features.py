@@ -12,8 +12,8 @@ from functools import wraps
 
 logger = logging.getLogger(__name__)
 
-# Тарифы с AI функциями
-AI_ENABLED_TIERS = {'basic', 'premium'}
+# Тарифы с AI функциями (ai_unlimited — аддон, проверяется отдельно через has_ai_unlimited)
+AI_ENABLED_TIERS = {'basic', 'premium', 'ai_unlimited'}
 
 # Месячные лимиты AI-анализов
 AI_MONTHLY_LIMITS = {

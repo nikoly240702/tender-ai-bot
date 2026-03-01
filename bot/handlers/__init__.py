@@ -19,7 +19,8 @@ from . import (
     referral,
     subscriptions,
     sniper_wizard_new,
-    group_chat
+    group_chat,
+    company_profile
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     'referral',
     'subscriptions',
     'sniper_wizard_new',
-    'group_chat'
+    'group_chat',
+    'company_profile'
 ]
