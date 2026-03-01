@@ -839,11 +839,7 @@ class TenderSniperDB:
         source: str = 'automonitoring'
     ) -> int:
         """Сохранение уведомления."""
-        # Проверка дубликата перед INSERT
         tender_number = tender_data.get('number', '')
-        if tender_number and await self.is_tender_notified(tender_number, user_id):
-            logger.info(f"Tender {tender_number} already notified for user {user_id}, skipping save")
-            return None
 
         async with DatabaseSession() as session:
             # DEBUG: Логируем что именно сохраняем
@@ -2536,6 +2532,36 @@ class TenderSniperDB:
     # Alias for convenience
     async def get_notification_by_tender(self, user_id: int, tender_number: str) -> Optional[Dict[str, Any]]:
         return await self.get_notification_by_tender_number(user_id, tender_number)
+
+    async def find_notification_by_tender_number(self, tender_number: str) -> Optional[Dict[str, Any]]:
+        """Ищет уведомление по номеру тендера без привязки к user_id (fallback для экспорта)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperNotificationModel).where(
+                    SniperNotificationModel.tender_number == tender_number
+                ).order_by(SniperNotificationModel.sent_at.desc())
+            )
+            notif = result.scalars().first()
+            if not notif:
+                return None
+
+            return {
+                'id': notif.id,
+                'filter_id': notif.filter_id,
+                'tender_number': notif.tender_number,
+                'tender_name': notif.tender_name,
+                'tender_price': notif.tender_price,
+                'tender_url': notif.tender_url,
+                'tender_region': notif.tender_region,
+                'tender_customer': notif.tender_customer,
+                'filter_name': notif.filter_name,
+                'score': notif.score,
+                'matched_keywords': notif.matched_keywords or [],
+                'published_date': notif.published_date.strftime('%d.%m.%Y') if notif.published_date else '',
+                'submission_deadline': notif.submission_deadline.strftime('%d.%m.%Y') if notif.submission_deadline else '',
+                'sheets_exported': notif.sheets_exported if hasattr(notif, 'sheets_exported') else False,
+                'sheets_exported_by': getattr(notif, 'sheets_exported_by', None),
+            }
 
     async def mark_notification_exported(self, notification_id: int, exported_by: int = None) -> bool:
         """Помечает уведомление как экспортированное в Google Sheets."""

@@ -177,6 +177,9 @@ async def export_single_tender(callback: CallbackQuery):
         # Получаем данные тендера из уведомлений
         notification = await db.get_notification_by_tender_number(user_id, tender_number)
         if not notification:
+            # Fallback: ищем без привязки к user_id (на случай если уведомление сохранилось под другим user_id)
+            notification = await db.find_notification_by_tender_number(tender_number)
+        if not notification:
             await callback.answer("Тендер не найден в истории", show_alert=True)
             return
 
