@@ -121,6 +121,8 @@ class AccessControlMiddleware(BaseMiddleware):
                     # Новый пользователь - автоматическая регистрация
                     logger.info(f"📝 Новый пользователь {user_id} (@{user.username})")
 
+                    now = datetime.utcnow()
+                    trial_expires = now + timedelta(days=14)
                     db_user = SniperUser(
                         telegram_id=user_id,
                         username=user.username,
@@ -129,10 +131,13 @@ class AccessControlMiddleware(BaseMiddleware):
                         status='active',
                         subscription_tier='trial',
                         filters_limit=3,
-                        notifications_limit=20
+                        notifications_limit=20,
+                        trial_started_at=now,
+                        trial_expires_at=trial_expires,
                     )
                     session.add(db_user)
                     await session.flush()
+                    logger.info(f"New user {user_id} trial expires {trial_expires}")
 
                     # Уведомляем админа (асинхронно, не блокируя)
                     await self._notify_admin_new_user(user, data)
