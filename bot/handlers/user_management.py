@@ -1799,10 +1799,22 @@ async def gsheets_ai_backfill_handler(callback: CallbackQuery):
             await callback.answer("❌ AI-обогащение не включено", show_alert=True)
             return
 
-        # Получаем последние 50 тендеров пользователя
-        notifications = await db.get_user_tenders(user_id, limit=50)
+        # Берём только тендеры ТЕКУЩЕЙ недели (те же, что на активном листе)
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        week_start = today - timedelta(days=today.weekday())  # Понедельник
+        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        all_notifications = await db.get_user_tenders(user_id, limit=200)
+        notifications = [
+            n for n in all_notifications
+            if n.get('sent_at') and datetime.fromisoformat(n['sent_at']) >= week_start
+        ]
         if not notifications:
-            await callback.answer("Нет тендеров для обогащения", show_alert=True)
+            await callback.answer(
+                f"На этой неделе (с {week_start.strftime('%d.%m')}) тендеров нет",
+                show_alert=True
+            )
             return
 
         sheets_sync = get_sheets_sync()
