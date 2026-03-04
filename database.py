@@ -200,6 +200,9 @@ class SniperNotification(Base):
     sheets_exported_at = Column(DateTime, nullable=True)
     sheets_exported_by = Column(BigInteger, nullable=True)  # telegram_id того, кто экспортировал (для групп)
     match_info = Column(JSON, nullable=True)  # match_info со всеми AI-полями для экспорта в Sheets
+    bitrix24_exported = Column(Boolean, default=False, nullable=False)
+    bitrix24_exported_at = Column(DateTime, nullable=True)
+    bitrix24_deal_id = Column(String(100), nullable=True)
 
     # Relationships
     user = relationship("SniperUser", back_populates="notifications")

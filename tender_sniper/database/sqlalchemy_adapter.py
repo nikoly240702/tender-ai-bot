@@ -2542,6 +2542,9 @@ class TenderSniperDB:
                 'submission_deadline': notif.submission_deadline.strftime('%d.%m.%Y') if notif.submission_deadline else '',
                 'sheets_exported': notif.sheets_exported if hasattr(notif, 'sheets_exported') else False,
                 'sheets_exported_by': getattr(notif, 'sheets_exported_by', None),
+                'match_info': getattr(notif, 'match_info', None) or {},
+                'bitrix24_exported': getattr(notif, 'bitrix24_exported', False),
+                'bitrix24_deal_id': getattr(notif, 'bitrix24_deal_id', None),
             }
 
     # Alias for convenience
@@ -2576,6 +2579,9 @@ class TenderSniperDB:
                 'submission_deadline': notif.submission_deadline.strftime('%d.%m.%Y') if notif.submission_deadline else '',
                 'sheets_exported': notif.sheets_exported if hasattr(notif, 'sheets_exported') else False,
                 'sheets_exported_by': getattr(notif, 'sheets_exported_by', None),
+                'match_info': getattr(notif, 'match_info', None) or {},
+                'bitrix24_exported': getattr(notif, 'bitrix24_exported', False),
+                'bitrix24_deal_id': getattr(notif, 'bitrix24_deal_id', None),
             }
 
     async def mark_notification_exported(self, notification_id: int, exported_by: int = None) -> bool:
@@ -2597,6 +2603,24 @@ class TenderSniperDB:
                 return True
         except Exception as e:
             logger.error(f"Ошибка mark_notification_exported: {e}")
+            return False
+
+    async def mark_notification_bitrix_exported(self, notification_id: int, deal_id: int) -> bool:
+        """Помечает уведомление как экспортированное в Битрикс24."""
+        try:
+            async with DatabaseSession() as session:
+                await session.execute(
+                    update(SniperNotificationModel).where(
+                        SniperNotificationModel.id == notification_id
+                    ).values(
+                        bitrix24_exported=True,
+                        bitrix24_exported_at=datetime.utcnow(),
+                        bitrix24_deal_id=str(deal_id),
+                    )
+                )
+                return True
+        except Exception as e:
+            logger.error(f"Ошибка mark_notification_bitrix_exported: {e}")
             return False
 
     async def get_unexported_notifications(self, user_id: int, days: int = 7) -> List[Dict[str, Any]]:
