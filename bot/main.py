@@ -149,6 +149,24 @@ def run_migrations():
     logger.info("=" * 70)
 
 
+async def run_bitrix24_migration():
+    """Запускаем одноразовую миграцию в Битрикс24, если выставлена переменная."""
+    if os.environ.get('RUN_MIGRATION_BITRIX24') != '1':
+        return
+
+    logger.info("=" * 70)
+    logger.info("🚀 ЗАПУСК МИГРАЦИИ В БИТРИКС24")
+    logger.info("=" * 70)
+
+    try:
+        import scripts.migrate_to_bitrix24 as m
+        await m.main()
+    except Exception as e:
+        logger.error(f"❌ Ошибка миграции в Битрикс24: {e}")
+
+    logger.info("=" * 70)
+
+
 async def main():
     """Главная функция запуска бота."""
 
@@ -156,6 +174,11 @@ async def main():
     # PRODUCTION: Миграции базы данных
     # ============================================
     run_migrations()
+
+    # ============================================
+    # PRODUCTION: Одноразовая миграция в Битрикс24
+    # ============================================
+    await run_bitrix24_migration()
 
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler
