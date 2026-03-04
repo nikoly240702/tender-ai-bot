@@ -10,7 +10,7 @@
 
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, Tuple
 
 import aiohttp
@@ -68,6 +68,50 @@ async def validate_bitrix24_webhook(webhook_url: str) -> Tuple[bool, str]:
         return False, str(e)[:200]
 
 
+# Этапы воронки в Битрикс24
+STAGE_NEW = 'NEW'           # Новые процедуры (без AI-анализа)
+STAGE_AI = 'UC_OZCYR2'     # Новые процедуры с AI
+STAGE_LOSE = 'LOSE'        # Не берем в работу (истёкший дедлайн)
+
+
+def _is_deadline_expired(submission_deadline_str: str) -> bool:
+    """Возвращает True если срок подачи заявки уже прошёл."""
+    if not submission_deadline_str:
+        return False
+    for fmt in ('%d.%m.%Y', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(submission_deadline_str[:10], fmt).date() < date.today()
+        except ValueError:
+            continue
+    return False
+
+
+async def update_bitrix24_deal_stage(webhook_url: str, deal_id: str, stage_id: str) -> bool:
+    """
+    Перемещает сделку на указанный этап через crm.deal.update.
+
+    Returns:
+        True если успешно.
+    """
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+    endpoint = webhook_url + 'crm.deal.update.json'
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.post(endpoint, json={
+                'id': deal_id,
+                'fields': {'STAGE_ID': stage_id},
+            }) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return bool(data.get('result'))
+                logger.warning(f"update_stage HTTP {resp.status}")
+                return False
+    except Exception as e:
+        logger.error(f"update_bitrix24_deal_stage error: {e}")
+        return False
+
+
 async def create_bitrix24_deal(
     webhook_url: str,
     tender_number: str,
@@ -80,6 +124,7 @@ async def create_bitrix24_deal(
     submission_deadline: str = '',
     ai_summary: str = '',
     ai_recommendation: str = '',
+    stage_id: str = STAGE_NEW,
 ) -> Optional[int]:
     """
     Создаёт сделку в Битрикс24 через crm.deal.add.
@@ -119,6 +164,7 @@ async def create_bitrix24_deal(
         'SOURCE_ID': 'WEB',
         'SOURCE_DESCRIPTION': 'TenderSniper Bot',
         'COMMENTS': '\n'.join(comment_lines),
+        'STAGE_ID': stage_id,
     }
     if closedate:
         fields['CLOSEDATE'] = closedate
@@ -206,9 +252,103 @@ async def handle_bitrix_disconnect(callback: CallbackQuery):
         await callback.answer("Ошибка при отключении", show_alert=True)
 
 
+@router.callback_query(F.data.startswith("bitrix_ai_"))
+async def handle_bitrix_ai_export(callback: CallbackQuery):
+    """
+    Экспорт тендера в Битрикс24 на этап «Новые процедуры с AI».
+
+    Если сделка уже существует — перемещает её на AI-этап.
+    Если нет — создаёт новую сделку сразу на AI-этапе.
+    """
+    tender_number = callback.data[len("bitrix_ai_"):]
+    telegram_id = callback.from_user.id
+
+    await callback.answer("Отправляю в Битрикс24 (AI-этап)...")
+
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(telegram_id)
+        if not user:
+            await callback.answer("Пользователь не найден", show_alert=True)
+            return
+
+        webhook_url = (user.get('data') or {}).get('bitrix24_webhook_url', '')
+        if not webhook_url:
+            await callback.answer(
+                "Битрикс24 не настроен. Используйте /bitrix24 для настройки.",
+                show_alert=True
+            )
+            return
+
+        user_id = user['id']
+        notification = await db.get_notification_by_tender_number(user_id, tender_number)
+        if not notification:
+            notification = await db.find_notification_by_tender_number(tender_number)
+        if not notification:
+            await callback.answer("Тендер не найден в истории", show_alert=True)
+            return
+
+        submission_deadline = notification.get('submission_deadline', '')
+        if _is_deadline_expired(submission_deadline):
+            stage_id = STAGE_LOSE
+        else:
+            stage_id = STAGE_AI
+
+        # Если уже в Битрикс24 — перемещаем на AI-этап
+        if notification.get('bitrix24_exported') and notification.get('bitrix24_deal_id'):
+            deal_id = notification['bitrix24_deal_id']
+            ok = await update_bitrix24_deal_stage(webhook_url, deal_id, stage_id)
+            if ok:
+                label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
+                await callback.answer(
+                    f"✅ Сделка #{deal_id} перемещена: «{label}»",
+                    show_alert=True
+                )
+            else:
+                await callback.answer("❌ Не удалось переместить сделку", show_alert=True)
+            return
+
+        # Создаём новую сделку на AI-этапе
+        mi = notification.get('match_info') or {}
+        tender_url = notification.get('tender_url') or (
+            f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html"
+            f"?regNumber={tender_number}"
+        )
+
+        deal_id = await create_bitrix24_deal(
+            webhook_url=webhook_url,
+            tender_number=tender_number,
+            tender_name=notification.get('tender_name', ''),
+            tender_price=notification.get('tender_price'),
+            tender_url=tender_url,
+            tender_region=notification.get('tender_region', ''),
+            tender_customer=notification.get('tender_customer', ''),
+            filter_name=notification.get('filter_name', ''),
+            submission_deadline=submission_deadline,
+            ai_summary=mi.get('ai_summary', ''),
+            ai_recommendation=mi.get('ai_recommendation', ''),
+            stage_id=stage_id,
+        )
+
+        if deal_id:
+            await db.mark_notification_bitrix_exported(notification['id'], deal_id)
+            await _replace_bitrix_button(callback, tender_number, deal_id, prefix="bitrix_ai")
+            label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
+            await callback.answer(f"✅ Сделка #{deal_id} → «{label}»!", show_alert=True)
+        else:
+            await callback.answer(
+                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
+                show_alert=True
+            )
+
+    except Exception as e:
+        logger.error(f"handle_bitrix_ai_export error: {e}", exc_info=True)
+        await callback.answer("Ошибка отправки в Битрикс24", show_alert=True)
+
+
 @router.callback_query(F.data.startswith("bitrix_"))
 async def handle_bitrix_export(callback: CallbackQuery):
-    """Экспорт тендера в Битрикс24."""
+    """Экспорт тендера в Битрикс24 на этап «Новые процедуры»."""
     data = callback.data
 
     # Уже экспортировано — показываем deal ID
@@ -266,8 +406,13 @@ async def handle_bitrix_export(callback: CallbackQuery):
             return
 
         mi = notification.get('match_info') or {}
-        ai_summary = mi.get('ai_summary', '')
-        ai_recommendation = mi.get('ai_recommendation', '')
+        submission_deadline = notification.get('submission_deadline', '')
+
+        # Если дедлайн истёк — сразу в «Не берем в работу»
+        if _is_deadline_expired(submission_deadline):
+            stage_id = STAGE_LOSE
+        else:
+            stage_id = STAGE_NEW
 
         tender_url = notification.get('tender_url') or (
             f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html"
@@ -283,15 +428,22 @@ async def handle_bitrix_export(callback: CallbackQuery):
             tender_region=notification.get('tender_region', ''),
             tender_customer=notification.get('tender_customer', ''),
             filter_name=notification.get('filter_name', ''),
-            submission_deadline=notification.get('submission_deadline', ''),
-            ai_summary=ai_summary,
-            ai_recommendation=ai_recommendation,
+            submission_deadline=submission_deadline,
+            ai_summary=mi.get('ai_summary', ''),
+            ai_recommendation=mi.get('ai_recommendation', ''),
+            stage_id=stage_id,
         )
 
         if deal_id:
             await db.mark_notification_bitrix_exported(notification['id'], deal_id)
             await _replace_bitrix_button(callback, tender_number, deal_id)
-            await callback.answer(f"✅ Сделка #{deal_id} создана в Битрикс24!", show_alert=True)
+            if stage_id == STAGE_LOSE:
+                await callback.answer(
+                    f"⚠️ Сделка #{deal_id} → «Не берем в работу» (дедлайн истёк)",
+                    show_alert=True
+                )
+            else:
+                await callback.answer(f"✅ Сделка #{deal_id} создана в Битрикс24!", show_alert=True)
         else:
             await callback.answer(
                 "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
@@ -303,9 +455,15 @@ async def handle_bitrix_export(callback: CallbackQuery):
         await callback.answer("Ошибка отправки в Битрикс24", show_alert=True)
 
 
-async def _replace_bitrix_button(callback: CallbackQuery, tender_number: str, deal_id: int):
+async def _replace_bitrix_button(
+    callback: CallbackQuery,
+    tender_number: str,
+    deal_id: int,
+    prefix: str = "bitrix",
+):
     """
-    Заменяет кнопку «🔗 В Битрикс24» на «✅ В Б24 (#deal_id)» прямо в сообщении.
+    Заменяет кнопки «🔗 В Битрикс24» и «🤖 В Б24 + AI» на «✅ В Б24 (#deal_id)».
+    Заменяет обе кнопки, если они есть, чтобы не было дублирования.
     """
     try:
         from bot.utils import safe_callback_data
@@ -313,21 +471,30 @@ async def _replace_bitrix_button(callback: CallbackQuery, tender_number: str, de
         if not markup:
             return
 
-        old_cd = safe_callback_data("bitrix", tender_number)
+        # Все callback_data которые должны быть заменены
+        old_cds = {
+            safe_callback_data("bitrix", tender_number),
+            safe_callback_data("bitrix_ai", tender_number),
+        }
         new_cd = safe_callback_data("bitrix_done", tender_number)
 
         new_rows = []
+        done_added = False
         for row in markup.inline_keyboard:
             new_row = []
             for btn in row:
-                if btn.callback_data and btn.callback_data == old_cd:
-                    new_row.append(InlineKeyboardButton(
-                        text=f"✅ В Б24 (#{deal_id})",
-                        callback_data=new_cd,
-                    ))
+                if btn.callback_data and btn.callback_data in old_cds:
+                    if not done_added:
+                        new_row.append(InlineKeyboardButton(
+                            text=f"✅ В Б24 (#{deal_id})",
+                            callback_data=new_cd,
+                        ))
+                        done_added = True
+                    # Вторую кнопку Б24 пропускаем (схлопываем в одну)
                 else:
                     new_row.append(btn)
-            new_rows.append(new_row)
+            if new_row:
+                new_rows.append(new_row)
 
         await callback.message.edit_reply_markup(
             reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows)

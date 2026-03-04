@@ -2605,6 +2605,33 @@ class TenderSniperDB:
             logger.error(f"Ошибка mark_notification_exported: {e}")
             return False
 
+    async def get_expired_bitrix24_notifications(self) -> List[Dict[str, Any]]:
+        """
+        Возвращает уведомления, у которых:
+        - сделка создана в Битрикс24 (bitrix24_exported=True, deal_id не пустой)
+        - срок подачи заявки уже прошёл
+        """
+        now = datetime.utcnow()
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperNotificationModel).where(
+                    and_(
+                        SniperNotificationModel.bitrix24_exported == True,
+                        SniperNotificationModel.bitrix24_deal_id.isnot(None),
+                        SniperNotificationModel.submission_deadline.isnot(None),
+                        SniperNotificationModel.submission_deadline < now,
+                    )
+                )
+            )
+            notifications = result.scalars().all()
+            return [{
+                'id': n.id,
+                'user_id': n.user_id,
+                'tender_number': n.tender_number,
+                'bitrix24_deal_id': n.bitrix24_deal_id,
+                'submission_deadline': n.submission_deadline.strftime('%d.%m.%Y') if n.submission_deadline else '',
+            } for n in notifications]
+
     async def mark_notification_bitrix_exported(self, notification_id: int, deal_id: int) -> bool:
         """Помечает уведомление как экспортированное в Битрикс24."""
         try:

@@ -734,6 +734,23 @@ async def _do_analyze(message: Message, tender_number: str, subscription_tier: s
             ])
         )
 
+        # Если сделка уже в Битрикс24 — перемещаем на AI-этап
+        try:
+            from bot.handlers.bitrix24 import update_bitrix24_deal_stage, STAGE_AI
+            from tender_sniper.database import get_sniper_db as _get_db
+            _db = await _get_db()
+            _user = await _db.get_user_by_telegram_id(message.from_user.id)
+            if _user:
+                _webhook = (_user.get('data') or {}).get('bitrix24_webhook_url', '')
+                if _webhook:
+                    _notif = await _db.get_notification_by_tender_number(_user['id'], tender_number)
+                    _deal_id = _notif.get('bitrix24_deal_id') if _notif else None
+                    if _deal_id:
+                        await update_bitrix24_deal_stage(_webhook, _deal_id, STAGE_AI)
+                        logger.info(f"Bitrix24 deal {_deal_id} moved to AI stage after _do_analyze")
+        except Exception as _bx_err:
+            logger.debug(f"Bitrix24 stage update after _do_analyze: {_bx_err}")
+
     except ImportError as ie:
         logger.error(f"Модуль не найден: {ie}")
         await status_msg.edit_text(

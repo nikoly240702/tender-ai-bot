@@ -211,8 +211,12 @@ def _build_keyboard(
                 callback_data=safe_callback_data("sheets", tender_number)
             ),
             InlineKeyboardButton(
-                text="🔗 В Битрикс24",
+                text="🔗 В Б24",
                 callback_data=safe_callback_data("bitrix", tender_number)
+            ),
+            InlineKeyboardButton(
+                text="🤖 В Б24 + AI",
+                callback_data=safe_callback_data("bitrix_ai", tender_number)
             ),
         ])
 
