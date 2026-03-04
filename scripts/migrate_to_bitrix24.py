@@ -41,6 +41,12 @@ async def fetch_notifications(database_url: str):
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import select, and_, text
 
+    # Нормализуем URL для asyncpg
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql+asyncpg://', 1)
+    elif database_url.startswith('postgresql://') and '+asyncpg' not in database_url:
+        database_url = database_url.replace('postgresql://', 'postgresql+asyncpg://', 1)
+
     engine = create_async_engine(database_url, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
@@ -75,6 +81,11 @@ async def mark_exported(database_url: str, notification_id: int, deal_id: int):
     from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
     from sqlalchemy.orm import sessionmaker
     from sqlalchemy import text
+
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql+asyncpg://', 1)
+    elif database_url.startswith('postgresql://') and '+asyncpg' not in database_url:
+        database_url = database_url.replace('postgresql://', 'postgresql+asyncpg://', 1)
 
     engine = create_async_engine(database_url, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
