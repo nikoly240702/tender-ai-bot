@@ -46,6 +46,55 @@ AI_COLUMNS = {'ai_delivery_date', 'ai_quantities', 'ai_contract_security',
 DEFAULT_COLUMNS = ['request_number', 'link', 'name', 'customer', 'region', 'deadline', 'price', 'score', 'status']
 
 
+def format_ai_for_sheets(match_info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Форматирует AI-поля из match_info (вычисленные при мониторинге) в ai_data для Google Sheets.
+
+    Использует поля из TASK-01: ai_summary, ai_key_requirements, ai_risks,
+    ai_estimated_competition, ai_recommendation.
+
+    Returns:
+        dict с ключами, совместимыми с полем 'ai_data' в match_data для append_tender.
+    """
+    if not match_info:
+        return {}
+
+    ai_summary = match_info.get('ai_summary', '')
+    ai_requirements = match_info.get('ai_key_requirements', [])
+    ai_risks = match_info.get('ai_risks', [])
+    ai_competition = match_info.get('ai_estimated_competition', '')
+    ai_recommendation = match_info.get('ai_recommendation', '')
+    ai_confidence = match_info.get('ai_confidence', 0)
+
+    # Если нет расширенных AI-данных — возвращаем пустой dict
+    if not (ai_summary or ai_requirements or ai_recommendation):
+        return {}
+
+    parts = []
+
+    if ai_recommendation:
+        confidence_str = f" ({ai_confidence}%)" if ai_confidence else ""
+        parts.append(f"[{ai_recommendation}{confidence_str}]")
+
+    if ai_summary:
+        parts.append(ai_summary)
+
+    if ai_requirements:
+        reqs = '; '.join(ai_requirements[:5])
+        parts.append(f"Требования: {reqs}")
+
+    if ai_risks:
+        risks = '; '.join(ai_risks[:3])
+        parts.append(f"Риски: {risks}")
+
+    if ai_competition:
+        parts.append(f"Конкуренция: {ai_competition}")
+
+    summary_text = '\n'.join(parts) if parts else ''
+
+    return {'summary': summary_text} if summary_text else {}
+
+
 def get_weekly_sheet_name() -> str:
     """Имя листа на основе текущей недели (Пн-Вс)."""
     today = datetime.now()

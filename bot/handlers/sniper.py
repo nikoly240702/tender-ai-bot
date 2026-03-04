@@ -539,6 +539,10 @@ async def show_subscription_plans(callback: CallbackQuery):
         "• Доступ к бета-функциям\n"
         "• Приоритетная поддержка\n\n"
 
+        "🤖 <b>AI Unlimited — аддон +1 490 ₽/мес</b>\n"
+        "• Безлимитный AI-анализ тендеров\n"
+        "• Работает с любым тарифом (Basic / Premium)\n\n"
+
         "💰 <b>Скидки:</b> 10% за 3 мес, 20% за 6 мес\n\n"
 
         "<i>Выберите тариф для просмотра цен:</i>"
@@ -547,6 +551,7 @@ async def show_subscription_plans(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⭐ Выбрать Basic", callback_data="subscription_select_basic")],
         [InlineKeyboardButton(text="💎 Выбрать Premium", callback_data="subscription_select_premium")],
+        [InlineKeyboardButton(text="🤖 AI Unlimited (аддон)", callback_data="subscription_select_ai_unlimited")],
         [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
     ])

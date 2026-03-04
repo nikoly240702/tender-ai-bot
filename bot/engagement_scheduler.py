@@ -255,40 +255,58 @@ class EngagementScheduler:
                         )
                     ) or 0
 
-                # Формируем дайджест
-                if notifications_count > 0:
-                    text = f"""
-☀️ <b>Доброе утро!</b>
+                    # ТОП-3 тендера за вчера (по score)
+                    top_tenders_result = await session.execute(
+                        select(SniperNotification).where(
+                            and_(
+                                SniperNotification.user_id == user.id,
+                                SniperNotification.sent_at >= yesterday
+                            )
+                        ).order_by(SniperNotification.score.desc()).limit(3)
+                    )
+                    top_tenders = top_tenders_result.scalars().all()
 
-📊 <b>Ваш дневной дайджест:</b>
+                # Не отправляем дайджест если тендеров нет
+                if notifications_count == 0:
+                    logger.debug(f"Дайджест для {user.telegram_id}: 0 тендеров — пропускаем")
+                    continue
 
-• 📬 Новых тендеров найдено: <b>{notifications_count}</b>
-• 🎯 Активных фильтров: <b>{active_filters}</b>
-• ⏱ Сэкономлено времени: <b>~{notifications_count * 0.5:.0f} ч</b>
+                # Формируем список ТОП-3 тендеров
+                top_lines = []
+                for t in top_tenders:
+                    name = (t.tender_name or '')[:60]
+                    if len(t.tender_name or '') > 60:
+                        name += '…'
+                    price_str = ''
+                    if t.tender_price:
+                        try:
+                            price_str = f" · {float(t.tender_price):,.0f} ₽".replace(',', ' ')
+                        except Exception:
+                            pass
+                    link = t.tender_url or f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={t.tender_number}"
+                    top_lines.append(f'• <a href="{link}">{name}</a>{price_str}')
 
-<i>Нажмите кнопку ниже, чтобы посмотреть все тендеры.</i>
-"""
-                else:
-                    text = f"""
-☀️ <b>Доброе утро!</b>
+                top_block = '\n'.join(top_lines)
 
-📊 <b>Ваш дневной дайджест:</b>
-
-Вчера не было новых тендеров по вашим фильтрам.
-
-💡 <b>Совет:</b> Попробуйте расширить критерии поиска или добавить новые ключевые слова.
-
-• 🎯 Активных фильтров: <b>{active_filters}</b>
-"""
+                text = (
+                    f"☀️ <b>Доброе утро!</b>\n\n"
+                    f"📊 <b>Дайджест за вчера:</b>\n"
+                    f"📬 Найдено тендеров: <b>{notifications_count}</b> · "
+                    f"🎯 Фильтров: <b>{active_filters}</b>\n\n"
+                    f"<b>ТОП-{len(top_tenders)}:</b>\n{top_block}"
+                )
 
                 keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=f"📋 Посмотреть эти {notifications_count} тендеров", callback_data="alltenders_last_24h")],
-                    [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
-                    [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+                    [InlineKeyboardButton(text=f"📋 Все {notifications_count} тендеров", callback_data="alltenders_last_24h")],
                     [InlineKeyboardButton(text="🔕 Отключить дайджест", callback_data="disable_digest")],
                 ])
 
-                await bot.send_message(user.telegram_id, text, reply_markup=keyboard, parse_mode="HTML")
+                await bot.send_message(
+                    user.telegram_id, text,
+                    reply_markup=keyboard,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                )
                 digests_sent += 1
 
                 # Небольшая задержка между сообщениями

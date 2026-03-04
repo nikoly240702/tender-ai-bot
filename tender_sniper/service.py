@@ -378,6 +378,12 @@ class TenderSniperService:
                                 'ai_verified': tender.get('ai_verified', False),
                                 'ai_confidence': tender.get('ai_confidence'),
                                 'ai_reason': tender.get('ai_reason', ''),
+                                'ai_simple_name': tender.get('ai_simple_name', ''),
+                                'ai_summary': tender.get('ai_summary', ''),
+                                'ai_key_requirements': tender.get('ai_key_requirements', []),
+                                'ai_risks': tender.get('ai_risks', []),
+                                'ai_estimated_competition': tender.get('ai_estimated_competition', ''),
+                                'ai_recommendation': tender.get('ai_recommendation', ''),
                             },
                             'filter_id': filter_id,
                             'filter_name': filter_name,
@@ -407,12 +413,17 @@ class TenderSniperService:
                         tender = notif['tender']
 
                         # Генерируем AI-название ОДИН РАЗ (для уведомления и БД)
+                        # Если AI-чекер уже вернул short name — используем его, иначе генерируем
                         original_name = tender.get('name', '')
-                        short_name = generate_tender_name(
-                            original_name,
-                            tender_data=tender,
-                            max_length=80
-                        )
+                        ai_simple_name = notif['match_info'].get('ai_simple_name', '')
+                        if ai_simple_name:
+                            short_name = ai_simple_name
+                        else:
+                            short_name = generate_tender_name(
+                                original_name,
+                                tender_data=tender,
+                                max_length=80
+                            )
                         # Заменяем название в тендере на короткое
                         tender['name'] = short_name
 
@@ -436,7 +447,8 @@ class TenderSniperService:
                                 filter_name=notif['filter_name'],
                                 tender_data=tender_data,
                                 score=notif['score'],
-                                matched_keywords=notif['match_info'].get('matched_keywords', [])
+                                matched_keywords=notif['match_info'].get('matched_keywords', []),
+                                match_info=notif.get('match_info'),
                             )
                             continue
 
@@ -458,7 +470,8 @@ class TenderSniperService:
                                 filter_name=notif['filter_name'],
                                 tender_data=tender_data,
                                 score=notif['score'],
-                                matched_keywords=notif['match_info'].get('matched_keywords', [])
+                                matched_keywords=notif['match_info'].get('matched_keywords', []),
+                                match_info=notif.get('match_info'),
                             )
 
                             is_admin = BotConfig.ADMIN_USER_ID and ntf_telegram_id == BotConfig.ADMIN_USER_ID
@@ -497,6 +510,7 @@ class TenderSniperService:
         except Exception as e:
             logger.error(f"❌ Ошибка обработки тендеров: {e}", exc_info=True)
             self.stats['errors'] += 1
+            await send_error_to_telegram(e, context="_process_new_tenders")
 
     async def _should_send_notification(self, user_data: dict) -> bool:
         """

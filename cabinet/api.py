@@ -1,11 +1,13 @@
 """
 JSON API для веб-кабинета.
 
-Эндпоинты: профиль, тендеры, документы, фильтры.
+Эндпоинты: профиль, тендеры, документы, фильтры, поиск, статистика, настройки.
 """
 
 import io
+import os
 import logging
+from datetime import datetime, timedelta
 from aiohttp import web
 from typing import Dict, Any
 
@@ -241,15 +243,17 @@ async def generate_documents(request: web.Request) -> web.Response:
 async def get_filters(request: web.Request) -> web.Response:
     """GET /cabinet/api/filters — фильтры пользователя."""
     user = request['user']
+    active_only_param = request.query.get('active_only', 'true').lower()
+    active_only = active_only_param not in ('false', '0', 'no')
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
-    filters = await db.get_user_filters(user['user_id'], active_only=True)
+    filters = await db.get_user_filters(user['user_id'], active_only=active_only)
     return web.json_response({'filters': filters})
 
 
 @require_auth
 async def update_filter(request: web.Request) -> web.Response:
-    """POST /cabinet/api/filters/:id — обновление фильтра."""
+    """PUT/POST /cabinet/api/filters/:id — обновление фильтра."""
     user = request['user']
     filter_id = int(request.match_info['id'])
 
@@ -268,8 +272,372 @@ async def update_filter(request: web.Request) -> web.Response:
 
     # Допустимые поля для обновления
     allowed = {'name', 'keywords', 'exclude_keywords', 'price_min', 'price_max',
-               'regions', 'law_type', 'is_active'}
+               'regions', 'law_type', 'is_active', 'tender_types', 'ai_intent'}
     filtered = {k: v for k, v in data.items() if k in allowed}
 
     await db.update_filter(filter_id, **filtered)
+    return web.json_response({'ok': True})
+
+
+# ============================================
+# FILTERS CRUD (новые эндпоинты)
+# ============================================
+
+@require_auth
+async def create_filter(request: web.Request) -> web.Response:
+    """POST /cabinet/api/filters/create — создание нового фильтра."""
+    user = request['user']
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    name = (data.get('name') or '').strip()
+    if not name:
+        return web.json_response({'error': 'Name is required'}, status=400)
+
+    keywords = data.get('keywords', [])
+    if isinstance(keywords, str):
+        keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    # Проверяем лимит фильтров
+    user_info = await db.get_user_by_telegram_id(user['telegram_id'])
+    filters_limit = user_info.get('filters_limit', 3) if user_info else 3
+    existing = await db.get_user_filters(user['user_id'], active_only=False)
+    active_count = sum(1 for f in existing if f.get('is_active') and not f.get('deleted_at'))
+    if active_count >= filters_limit:
+        return web.json_response({'error': f'Достигнут лимит фильтров ({filters_limit})'}, status=400)
+
+    exclude_kw = data.get('exclude_keywords', [])
+    if isinstance(exclude_kw, str):
+        exclude_kw = [k.strip() for k in exclude_kw.split(',') if k.strip()]
+
+    filter_id = await db.create_filter(
+        user_id=user['user_id'],
+        name=name,
+        keywords=keywords,
+        exclude_keywords=exclude_kw,
+        price_min=data.get('price_min'),
+        price_max=data.get('price_max'),
+        regions=data.get('regions', []),
+        law_type=data.get('law_type'),
+        tender_types=data.get('tender_types', []),
+        is_active=True,
+    )
+
+    # Сохраняем ai_intent если передан
+    if data.get('ai_intent') and filter_id:
+        await db.update_filter(filter_id, ai_intent=data['ai_intent'])
+
+    return web.json_response({'ok': True, 'filter_id': filter_id})
+
+
+@require_auth
+async def delete_filter(request: web.Request) -> web.Response:
+    """DELETE /cabinet/api/filters/:id — мягкое удаление фильтра."""
+    user = request['user']
+    filter_id = int(request.match_info['id'])
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    filter_data = await db.get_filter_by_id(filter_id)
+    if not filter_data or filter_data.get('user_id') != user['user_id']:
+        return web.json_response({'error': 'Filter not found'}, status=404)
+
+    await db.delete_filter(filter_id)
+    return web.json_response({'ok': True})
+
+
+@require_auth
+async def toggle_filter(request: web.Request) -> web.Response:
+    """POST /cabinet/api/filters/:id/toggle — переключить is_active."""
+    user = request['user']
+    filter_id = int(request.match_info['id'])
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    filter_data = await db.get_filter_by_id(filter_id)
+    if not filter_data or filter_data.get('user_id') != user['user_id']:
+        return web.json_response({'error': 'Filter not found'}, status=404)
+
+    new_state = not filter_data.get('is_active', True)
+    await db.update_filter(filter_id, is_active=new_state)
+    return web.json_response({'ok': True, 'is_active': new_state})
+
+
+# ============================================
+# REGIONS API
+# ============================================
+
+@require_auth
+async def get_regions(request: web.Request) -> web.Response:
+    """GET /cabinet/api/regions — список регионов по округам."""
+    from tender_sniper.regions import FEDERAL_DISTRICTS
+    result = []
+    for district_name, district_data in FEDERAL_DISTRICTS.items():
+        result.append({
+            'district': district_name,
+            'code': district_data.get('code', ''),
+            'regions': district_data.get('regions', []),
+        })
+    return web.json_response({'districts': result})
+
+
+# ============================================
+# INSTANT SEARCH API
+# ============================================
+
+@require_auth
+async def search_tenders(request: web.Request) -> web.Response:
+    """GET /cabinet/api/search?q=...&region=...&price_min=N&price_max=N&law=44&limit=25"""
+    user = request['user']
+    q = request.query.get('q', '').strip()
+    if not q:
+        return web.json_response({'error': 'Query is required'}, status=400)
+
+    region = request.query.get('region', '').strip()
+    price_min = request.query.get('price_min')
+    price_max = request.query.get('price_max')
+    law = request.query.get('law', '')
+    limit = min(int(request.query.get('limit', '25')), 50)
+
+    try:
+        from tender_sniper.instant_search import InstantSearch
+        bot_token = os.getenv('BOT_TOKEN', '')
+        searcher = InstantSearch(bot_token)
+
+        # Формируем фильтр для поиска
+        import json as _json
+        filter_data = {
+            'id': 0,
+            'user_id': user['user_id'],
+            'name': 'web_search',
+            'keywords': _json.dumps(q.split()),
+            'exclude_keywords': _json.dumps([]),
+            'regions': _json.dumps([region] if region else []),
+            'law_type': law if law in ('44', '223') else None,
+            'price_min': float(price_min) if price_min else None,
+            'price_max': float(price_max) if price_max else None,
+            'tender_types': _json.dumps([]),
+            'is_active': True,
+            'ai_intent': None,
+            'subscription_tier': 'basic',
+        }
+
+        results = await searcher.search_by_filter(filter_data, limit=limit)
+
+        tenders = []
+        for r in results[:limit]:
+            tenders.append({
+                'number': r.get('number', ''),
+                'name': r.get('name', ''),
+                'price': r.get('price'),
+                'customer_name': r.get('customer_name', ''),
+                'region': r.get('region', ''),
+                'deadline': r.get('deadline', ''),
+                'url': r.get('url', ''),
+                'score': r.get('match_score', 0),
+                'law_type': r.get('law_type', ''),
+            })
+
+        return web.json_response({'tenders': tenders, 'total': len(tenders)})
+
+    except Exception as e:
+        logger.error(f"Search error: {e}", exc_info=True)
+        return web.json_response({'error': str(e)}, status=500)
+
+
+# ============================================
+# STATS API
+# ============================================
+
+@require_auth
+async def get_stats(request: web.Request) -> web.Response:
+    """GET /cabinet/api/stats — статистика пользователя."""
+    user = request['user']
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    stats = await db.get_user_stats(user['user_id'])
+
+    # Последние 10 тендеров
+    recent = await db.get_user_tenders(user['user_id'], limit=10)
+
+    # Топ фильтры: фильтры с количеством уведомлений
+    all_tenders = await db.get_user_tenders(user['user_id'], limit=500)
+    filter_counts: Dict[str, int] = {}
+    for t in all_tenders:
+        fn = t.get('filter_name') or 'Без фильтра'
+        filter_counts[fn] = filter_counts.get(fn, 0) + 1
+    top_filters = sorted(filter_counts.items(), key=lambda x: -x[1])[:5]
+
+    return web.json_response({
+        **stats,
+        'recent_tenders': recent[:10],
+        'top_filters': [{'name': k, 'count': v} for k, v in top_filters],
+    })
+
+
+# ============================================
+# TENDER ACTIONS
+# ============================================
+
+@require_auth
+async def tender_feedback(request: web.Request) -> web.Response:
+    """POST /cabinet/api/tenders/:number/feedback — интересно/пропустить."""
+    user = request['user']
+    tender_number = request.match_info['tender_number']
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    feedback_type = data.get('type', '')
+    if feedback_type not in ('interesting', 'skip'):
+        return web.json_response({'error': 'type must be interesting or skip'}, status=400)
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+    await db.save_user_feedback(
+        user_id=user['user_id'],
+        tender_number=tender_number,
+        feedback_type=feedback_type,
+    )
+    return web.json_response({'ok': True})
+
+
+@require_auth
+async def export_to_sheets(request: web.Request) -> web.Response:
+    """POST /cabinet/api/tenders/:number/export-sheets — экспорт в Google Sheets."""
+    user = request['user']
+    tender_number = request.match_info['tender_number']
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    # Проверяем что GSheets настроен
+    sheets_config = await db.get_google_sheets_config(user['user_id'])
+    if not sheets_config:
+        return web.json_response({'error': 'Google Sheets не настроен. Настройте в боте: /settings → Google Sheets'}, status=400)
+
+    # Находим тендер в уведомлениях пользователя
+    tenders = await db.get_user_tenders(user['user_id'], limit=500)
+    tender_data = next((t for t in tenders if t.get('number') == tender_number), None)
+
+    if not tender_data:
+        return web.json_response({'error': 'Тендер не найден'}, status=404)
+
+    try:
+        from tender_sniper.google_sheets_sync import GoogleSheetsSync
+        sync = GoogleSheetsSync()
+        spreadsheet_id = sheets_config.get('spreadsheet_id', '')
+        sheet_name = sheets_config.get('sheet_name')
+        columns = sheets_config.get('columns') or []
+        match_data = {'filter_name': tender_data.get('filter_name', '')}
+        ok = await sync.append_tender(
+            spreadsheet_id=spreadsheet_id,
+            tender_data=tender_data,
+            match_data=match_data,
+            columns=columns,
+            sheet_name=sheet_name,
+        )
+        if ok:
+            return web.json_response({'ok': True})
+        else:
+            return web.json_response({'error': 'Ошибка экспорта в таблицу'}, status=500)
+    except Exception as e:
+        logger.error(f"Sheets export error: {e}", exc_info=True)
+        return web.json_response({'error': 'Ошибка экспорта: ' + str(e)}, status=500)
+
+
+# ============================================
+# SETTINGS API
+# ============================================
+
+@require_auth
+async def get_settings(request: web.Request) -> web.Response:
+    """GET /cabinet/api/settings — настройки пользователя."""
+    user = request['user']
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    user_info = await db.get_user_by_telegram_id(user['telegram_id'])
+    if not user_info:
+        return web.json_response({'error': 'User not found'}, status=404)
+
+    sub_info = await db.get_user_subscription_info(user['telegram_id']) or {}
+    data = user_info.get('data') or {}
+
+    sheets_config = await db.get_google_sheets_config(user['user_id'])
+
+    trial_expires = sub_info.get('trial_expires_at')
+    if hasattr(trial_expires, 'isoformat'):
+        trial_expires = trial_expires.isoformat()
+
+    return web.json_response({
+        'monitoring_paused_until': data.get('monitoring_paused_until'),
+        'notifications_enabled': user_info.get('notifications_enabled', True),
+        'quiet_hours_enabled': data.get('quiet_hours_enabled', False),
+        'quiet_hours_start': data.get('quiet_hours_start', 22),
+        'quiet_hours_end': data.get('quiet_hours_end', 8),
+        'subscription_tier': user_info.get('subscription_tier', 'trial'),
+        'trial_expires_at': trial_expires,
+        'filters_limit': user_info.get('filters_limit', 3),
+        'notifications_limit': user_info.get('notifications_limit', 15),
+        'sheets_configured': bool(sheets_config),
+    })
+
+
+@require_auth
+async def save_settings(request: web.Request) -> web.Response:
+    """POST /cabinet/api/settings — обновление настроек."""
+    user = request['user']
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    user_info = await db.get_user_by_telegram_id(user['telegram_id'])
+    if not user_info:
+        return web.json_response({'error': 'User not found'}, status=404)
+
+    current_data = user_info.get('data') or {}
+
+    # Обновляем notifications_enabled напрямую в БД
+    if 'notifications_enabled' in data:
+        enabled = bool(data['notifications_enabled'])
+        await db.set_monitoring_status(user['telegram_id'], enabled)
+
+    # Обновляем данные в JSON поле data
+    updates = {}
+    if 'quiet_hours_enabled' in data:
+        updates['quiet_hours_enabled'] = bool(data['quiet_hours_enabled'])
+    if 'quiet_hours_start' in data:
+        updates['quiet_hours_start'] = int(data['quiet_hours_start'])
+    if 'quiet_hours_end' in data:
+        updates['quiet_hours_end'] = int(data['quiet_hours_end'])
+
+    # Пауза мониторинга
+    if 'monitoring_pause' in data:
+        pause = data['monitoring_pause']
+        if pause == '24h':
+            updates['monitoring_paused_until'] = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        elif pause == 'forever':
+            updates['monitoring_paused_until'] = '9999-12-31T00:00:00'
+        elif pause == 'resume':
+            updates['monitoring_paused_until'] = None
+
+    if updates:
+        new_data = {**current_data, **updates}
+        await db.update_user_json_data(user['user_id'], new_data)
+
     return web.json_response({'ok': True})

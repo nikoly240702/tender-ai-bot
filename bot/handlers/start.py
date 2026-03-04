@@ -101,11 +101,14 @@ async def cmd_start(message: Message, state: FSMContext):
     # Очищаем любое предыдущее состояние
     await state.clear()
 
-    # Проверяем реферальную ссылку (/start ref_XXXXXXXX)
+    # Проверяем реферальную ссылку (/start ref_XXXXXXXX) и source (/start landing)
     referral_code = None
-    if message.text and "ref_" in message.text:
+    start_payload = None
+    if message.text:
+        parts = message.text.split()
+        if len(parts) > 1:
+            start_payload = parts[1]
         try:
-            parts = message.text.split()
             for part in parts:
                 if part.startswith("ref_"):
                     referral_code = part[4:].upper()
@@ -114,6 +117,39 @@ async def cmd_start(message: Message, state: FSMContext):
                     break
         except Exception as e:
             logger.error(f"Error parsing referral code: {e}")
+
+    # Сохраняем source в БД для аналитики (landing, direct, ref, etc.)
+    if start_payload and not start_payload.startswith("ref_"):
+        source = start_payload[:64]  # Обрезаем до разумной длины
+        logger.info(f"Start source: {source!r} for user {message.from_user.id}")
+        try:
+            from tender_sniper.database import get_sniper_db
+            _db = await get_sniper_db()
+            _user = await _db.get_user_by_telegram_id(message.from_user.id)
+            if _user:
+                user_data = _user.get('data') or {}
+                if 'start_source' not in user_data:  # Записываем только первый раз
+                    user_data['start_source'] = source
+                    await _db.update_user_json_data(_user['id'], user_data)
+        except Exception as src_err:
+            logger.warning(f"Failed to save start source: {src_err}")
+
+    # Deep link: /start analyze_НОМЕР → запустить AI-анализ тендера (из Битрикс24 и др.)
+    if start_payload and start_payload.startswith("analyze_"):
+        tender_number = start_payload[len("analyze_"):]
+        if tender_number.isdigit() and len(tender_number) >= 10:
+            logger.info(f"Deep link AI-анализ тендера {tender_number} для {message.from_user.id}")
+            try:
+                from bot.handlers.webapp import _do_analyze
+                from tender_sniper.database import get_sniper_db
+                _db = await get_sniper_db()
+                _user = await _db.get_user_by_telegram_id(message.from_user.id)
+                subscription_tier = _user.get('subscription_tier', 'trial') if _user else 'trial'
+                await _do_analyze(message, tender_number, subscription_tier)
+            except Exception as dl_err:
+                logger.error(f"Deep link analyze error: {dl_err}")
+                await message.answer(f"❌ Не удалось запустить анализ тендера {tender_number}")
+            return
 
     # Проверяем, новый ли пользователь
     # Если команда /start onboarding - принудительно показываем онбординг

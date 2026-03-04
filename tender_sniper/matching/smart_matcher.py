@@ -414,6 +414,10 @@ class SmartMatcher:
         'bim': ['бим', 'информационная модель здания'],
         'gis': ['гис', 'геоинформационная система'],
         'гис': ['gis', 'геоинформационная'],
+
+        # Аббревиатура "ПО" — программное обеспечение
+        # (используется в пользовательских фразах типа "разработка ПО")
+        'по': ['программное обеспечение', 'программного обеспечения', 'программный продукт'],
     }
 
     # Федеральные округа для раскрытия
@@ -626,11 +630,12 @@ class SmartMatcher:
                 logger.debug(f"   ✅ Нормализованный регион в фильтре: '{tender_region_normalized}' in '{filter_region_lower}'")
                 return True
 
-            # 5. Проверка алиасов
+            # 5. Проверка алиасов (точное совпадение — без substring, чтобы не было
+            #    ложных срабатываний типа "ленинград" matching "ленинградская область")
             aliases = self.REGION_ALIASES.get(filter_region_normalized, [])
             for alias in aliases:
                 alias_lower = alias.lower()
-                if alias_lower in tender_region_lower or tender_region_lower in alias_lower:
+                if alias_lower == tender_region_lower or tender_region_lower == alias_lower:
                     logger.debug(f"   ✅ Совпадение по алиасу: {filter_region_normalized} -> {alias_lower}")
                     return True
 
@@ -638,7 +643,7 @@ class SmartMatcher:
             tender_aliases = self.REGION_ALIASES.get(tender_region_normalized, [])
             for alias in tender_aliases:
                 alias_lower = alias.lower()
-                if alias_lower in filter_region_lower or filter_region_lower in alias_lower:
+                if alias_lower == filter_region_lower or filter_region_lower == alias_lower:
                     logger.debug(f"   ✅ Совпадение по алиасу тендера: {tender_region_normalized} -> {alias_lower}")
                     return True
 
@@ -704,10 +709,35 @@ class SmartMatcher:
                 return pattern
         return None
 
+    def _check_phrase_word(self, word: str, text: str) -> bool:
+        """
+        Проверяет совпадение одного слова фразы в тексте.
+        Учитывает синонимы, аббревиатуры и расшифровки.
+        """
+        # Прямое слово
+        if self._word_boundary_match(word, text):
+            return True
+
+        # Проверяем расшифровки аббревиатур (каждое слово расшифровки ищем через prefix)
+        for expansion in self.ABBREVIATIONS.get(word, []):
+            exp_words = expansion.split()
+            if all(self._word_boundary_match(ew, text) for ew in exp_words):
+                return True
+
+        # Проверяем синонимы
+        for synonym in self.SYNONYMS.get(word, []):
+            syn_words = synonym.split()
+            if all(self._word_boundary_match(sw, text) for sw in syn_words):
+                return True
+
+        return False
+
     def _match_compound_phrase(self, phrase: str, text: str) -> bool:
         """
         Проверяет совпадение составной фразы в тексте.
         Фраза должна встречаться целиком или через синонимы.
+        Для пользовательских фраз (не в COMPOUND_PHRASES) — требует,
+        чтобы все слова фразы встречались в тексте (AND-логика с аббревиатурами).
         """
         phrase_lower = phrase.lower().strip()
         text_lower = text.lower()
@@ -716,10 +746,21 @@ class SmartMatcher:
         if phrase_lower in text_lower:
             return True
 
-        # Проверяем синонимы составной фразы
+        # Проверяем синонимы из COMPOUND_PHRASES (только для словарных фраз)
         synonyms = self.COMPOUND_PHRASES.get(phrase_lower, [])
         for synonym in synonyms:
             if synonym.lower() in text_lower:
+                return True
+
+        # Для пользовательских многословных ключевых слов (не в COMPOUND_PHRASES):
+        # требуем, чтобы ВСЕ значимые слова фразы встречались в тексте
+        # (с учётом синонимов и расшифровок аббревиатур)
+        if ' ' in phrase_lower and phrase_lower not in self.COMPOUND_PHRASES:
+            phrase_words = [
+                w for w in phrase_lower.split()
+                if not self._is_stop_word(w) and (len(w) >= 2 or self._is_short_keyword_whitelisted(w))
+            ]
+            if phrase_words and all(self._check_phrase_word(w, text_lower) for w in phrase_words):
                 return True
 
         return False
@@ -737,26 +778,30 @@ class SmartMatcher:
         for keyword in keywords:
             keyword_lower = keyword.lower().strip()
 
-            # Проверяем, является ли это составной фразой
+            # Проверяем, является ли это словарной составной фразой
             if keyword_lower in self.COMPOUND_PHRASES:
                 compound_found.append(keyword)
-            else:
-                # Проверяем, содержит ли keyword составную фразу
+            elif ' ' in keyword_lower:
+                # Многословный keyword от пользователя (не в словаре):
+                # проверяем, содержит ли он известную составную фразу
                 found_compound = False
                 for phrase in self.COMPOUND_PHRASES:
                     if phrase in keyword_lower:
                         compound_found.append(phrase)
                         found_compound = True
-                        # Извлекаем оставшиеся значимые слова
+                        # Оставшиеся значимые слова — в individual
                         remaining_text = keyword_lower.replace(phrase, '').strip()
                         if remaining_text:
                             for word in remaining_text.split():
                                 if not self._is_stop_word(word) and (len(word) >= 3 or self._is_short_keyword_whitelisted(word)):
                                     remaining.append(word)
                         break
-
                 if not found_compound:
-                    remaining.append(keyword)
+                    # Пользовательская фраза: матчить как фразу (AND по всем словам)
+                    # Не разбиваем на отдельные слова, чтобы избежать false positives
+                    compound_found.append(keyword)
+            else:
+                remaining.append(keyword)
 
         return compound_found, remaining
 

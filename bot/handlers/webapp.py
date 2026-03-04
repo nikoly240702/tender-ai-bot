@@ -51,7 +51,10 @@ async def _export_notifications(
     Returns:
         (exported, failed, not_found) counts
     """
-    from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai, get_weekly_sheet_name
+    from tender_sniper.google_sheets_sync import (
+        get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai, get_weekly_sheet_name,
+        format_ai_for_sheets,
+    )
 
     sheets_sync = get_sheets_sync()
     if not sheets_sync:
@@ -78,8 +81,12 @@ async def _export_notifications(
                 'submission_deadline': notif.get('submission_deadline', ''),
             }
 
-            ai_data = {}
-            if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment'):
+            # Сначала используем сохранённые AI-данные мониторинга (бесплатно, без запроса)
+            stored_match_info = notif.get('match_info') or {}
+            ai_data = format_ai_for_sheets(stored_match_info)
+
+            # Если колонки AI включены и пользователь Premium — дополняем глубоким анализом документов
+            if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment') and not ai_data:
                 try:
                     ai_data = await enrich_tender_with_ai(
                         tender_number=tender_data['number'],
@@ -205,7 +212,10 @@ async def export_single_tender(callback: CallbackQuery):
         await callback.answer("Экспортирую в Google Sheets...")
 
         # Экспортируем
-        from tender_sniper.google_sheets_sync import get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai, get_weekly_sheet_name
+        from tender_sniper.google_sheets_sync import (
+            get_sheets_sync, AI_COLUMNS, enrich_tender_with_ai, get_weekly_sheet_name,
+            format_ai_for_sheets,
+        )
         sheets_sync = get_sheets_sync()
         if not sheets_sync:
             await callback.message.answer("❌ Google Sheets сервис недоступен")
@@ -222,14 +232,17 @@ async def export_single_tender(callback: CallbackQuery):
             'submission_deadline': notification.get('submission_deadline', ''),
         }
 
-        # AI enrichment для Premium / AI Unlimited
-        ai_data = {}
+        # Сначала используем сохранённые AI-данные мониторинга
+        stored_match_info = notification.get('match_info') or {}
+        ai_data = format_ai_for_sheets(stored_match_info)
+
+        # Дополняем глубоким анализом для Premium, только если нет данных мониторинга
         user_columns = set(gs_config.get('columns', []))
         has_ai_columns = bool(user_columns & AI_COLUMNS)
         subscription_tier = user.get('subscription_tier', 'trial')
         is_ai_eligible = subscription_tier == 'premium' or user.get('has_ai_unlimited')
 
-        if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment'):
+        if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment') and not ai_data:
             try:
                 ai_data = await enrich_tender_with_ai(
                     tender_number=tender_data['number'],

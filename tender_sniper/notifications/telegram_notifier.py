@@ -21,11 +21,17 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 
 from bot.utils import safe_callback_data
 
-# Импортируем AI генератор названий
+# Импортируем форматтер карточки
+try:
+    from bot.formatters.tender_card import format_tender_card
+    _USE_CARD_FORMATTER = True
+except ImportError:
+    _USE_CARD_FORMATTER = False
+
+# Fallback: AI генератор названий (используется если форматтер недоступен)
 try:
     from tender_sniper.ai_name_generator import generate_tender_name
 except ImportError:
-    # Fallback если модуль недоступен
     def generate_tender_name(name, *args, **kwargs):
         return name[:80] + '...' if len(name) > 80 else name
 
@@ -137,11 +143,18 @@ class TelegramNotifier:
             True если успешно отправлено, False иначе
         """
         try:
-            # Форматируем сообщение
-            message = self._format_tender_message(tender, match_info, filter_name, subscription_tier)
-
-            # Создаем кнопки
-            keyboard = self._create_tender_keyboard(tender, is_auto_notification, subscription_tier)
+            # Форматируем сообщение и клавиатуру
+            if _USE_CARD_FORMATTER:
+                message, keyboard = format_tender_card(
+                    tender=tender,
+                    match_info=match_info,
+                    filter_name=filter_name,
+                    subscription_tier=subscription_tier,
+                    is_auto_notification=is_auto_notification,
+                )
+            else:
+                message = self._format_tender_message(tender, match_info, filter_name, subscription_tier)
+                keyboard = self._create_tender_keyboard(tender, is_auto_notification, subscription_tier)
 
             # Rate limiting перед отправкой (25 msg/s глобально, 1 msg/s на чат)
             await _rate_limiter.acquire(telegram_id)

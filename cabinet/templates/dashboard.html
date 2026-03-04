@@ -37,8 +37,9 @@
     .pagination button.active{background:var(--gold-dim);border-color:var(--gold-line);color:var(--gold)}
     .pagination button:disabled{opacity:0.3;cursor:not-allowed}
     .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
-    .tender-name{max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tender-name{max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .tender-name a{color:var(--white);text-decoration:none}.tender-name a:hover{color:var(--gold)}
+    .active-btn{border-color:var(--gold-line)!important;color:var(--gold)!important}
     @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}}
   </style>
 </head>
@@ -47,9 +48,12 @@
     <div class="logo">TENDER<span>SNIPER</span></div>
     <nav>
       <a href="/cabinet/" class="active"><span class="icon">📊</span> Тендеры</a>
-      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
-      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
+      <a href="/cabinet/search"><span class="icon">🔍</span> Поиск</a>
       <a href="/cabinet/filters"><span class="icon">🎯</span> Фильтры</a>
+      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
+      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
+      <a href="/cabinet/stats"><span class="icon">📈</span> Статистика</a>
+      <a href="/cabinet/settings"><span class="icon">⚙️</span> Настройки</a>
     </nav>
     <div class="bottom">
       <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
@@ -76,7 +80,7 @@
             <th>Заказчик</th>
             <th>Фильтр</th>
             <th>Дата</th>
-            <th>Документы</th>
+            <th>Действия</th>
           </tr>
         </thead>
         <tbody id="tenders-body"></tbody>
@@ -91,6 +95,31 @@
     function showToast(msg, dur=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur)}
     function fmtPrice(p){if(!p)return'—';const n=parseFloat(p);if(n>=1e6)return(n/1e6).toFixed(2)+' млн';if(n>=1e3)return(n/1e3).toFixed(1)+' тыс.';return n.toFixed(0)+' руб.'}
     function fmtDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('ru-RU')}
+
+    const feedbackState = {};
+
+    async function markFeedback(number, type) {
+      const resp = await fetch(`/cabinet/api/tenders/${encodeURIComponent(number)}/feedback`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type}),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        feedbackState[number] = feedbackState[number] || {};
+        feedbackState[number][type] = true;
+        showToast(type === 'interesting' ? '⭐ Отмечено как интересное' : '✓ Пропущено');
+      } else {
+        showToast(data.error || 'Ошибка');
+      }
+    }
+
+    async function exportSheets(number) {
+      const resp = await fetch(`/cabinet/api/tenders/${encodeURIComponent(number)}/export-sheets`, {method: 'POST'});
+      const data = await resp.json();
+      if (data.ok) showToast('📊 Экспортировано в Google Sheets');
+      else showToast(data.error || 'Ошибка экспорта');
+    }
 
     let currentPage = 1;
     const LIMIT = 30;
@@ -114,14 +143,23 @@
 
       data.tenders.forEach(t => {
         const url = t.url ? `<a href="${t.url}" target="_blank">${(t.name||'').substring(0,60)}${(t.name||'').length>60?'...':''}</a>` : (t.name||'').substring(0,60);
+        const num = (t.number||'').replace(/'/g, "\\'");
+        const fb = feedbackState[t.number] || {};
         const tr = document.createElement('tr');
         tr.innerHTML = `
           <td class="tender-name">${url}</td>
           <td>${fmtPrice(t.price)}</td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.customer_name||'—'}</td>
+          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.customer_name||'—'}</td>
           <td><span class="badge badge-gold">${t.filter_name||'—'}</span></td>
           <td style="white-space:nowrap">${fmtDate(t.sent_at)}</td>
-          <td><button class="btn btn-sm btn-outline" onclick="generateDocs('${t.number}')">📄 Создать</button></td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-sm btn-outline" onclick="generateDocs('${num}')" title="Создать документы">📄</button>
+              <button class="btn btn-sm btn-outline ${fb.interesting ? 'active-btn' : ''}" onclick="markFeedback('${num}','interesting')" title="Интересно">⭐</button>
+              <button class="btn btn-sm btn-outline ${fb.skip ? 'active-btn' : ''}" onclick="markFeedback('${num}','skip')" title="Пропустить">✕</button>
+              <button class="btn btn-sm btn-outline" onclick="exportSheets('${num}')" title="В таблицу">📊</button>
+            </div>
+          </td>
         `;
         tbody.appendChild(tr);
       });

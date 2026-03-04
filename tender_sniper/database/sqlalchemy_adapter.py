@@ -277,6 +277,19 @@ class TenderSniperDB:
             await session.commit()
             return True
 
+    async def update_user_json_data(self, user_id: int, data: dict) -> bool:
+        """Обновление JSON-поля data у пользователя (по внутреннему id)."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.id == user_id)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return False
+            user.data = data
+            await session.commit()
+            return True
+
     async def get_user_groups(self, admin_telegram_id: int) -> List[Dict]:
         """Получение групп, где пользователь является админом."""
         async with DatabaseSession() as session:
@@ -836,7 +849,8 @@ class TenderSniperDB:
         score: int,
         matched_keywords: List[str],
         telegram_message_id: Optional[int] = None,
-        source: str = 'automonitoring'
+        source: str = 'automonitoring',
+        match_info: Optional[Dict[str, Any]] = None,
     ) -> int:
         """Сохранение уведомления."""
         tender_number = tender_data.get('number', '')
@@ -907,7 +921,8 @@ class TenderSniperDB:
                 published_date=published_date,
                 submission_deadline=submission_deadline,
                 tender_source=source,
-                telegram_message_id=telegram_message_id
+                telegram_message_id=telegram_message_id,
+                match_info=match_info,
             )
               session.add(notification)
               await session.flush()

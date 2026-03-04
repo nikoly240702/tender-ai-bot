@@ -32,10 +32,12 @@ from bot.handlers import subscriptions
 from bot.handlers import referral
 # Google Sheets экспорт (кнопка "В таблицу" + /export)
 from bot.handlers import webapp as sheets_export
+# Битрикс24 интеграция
+from bot.handlers import bitrix24 as bitrix24_handler
 # Engagement Scheduler (follow-ups, digest, deadline reminders)
 from bot.engagement_scheduler import engagement_router, EngagementScheduler
 from bot.db import get_database
-from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware, SubscriptionMiddleware
+from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware, SubscriptionMiddleware, ErrorAlertMiddleware
 
 # Импортируем Tender Sniper Service
 from tender_sniper.service import TenderSniperService
@@ -264,6 +266,12 @@ async def main():
     dp.callback_query.middleware(subscription_middleware)
     logger.info("✅ Subscription Middleware активирован")
 
+    # Подключаем middleware для алертов об ошибках
+    if BotConfig.ADMIN_USER_ID:
+        error_alert_mw = ErrorAlertMiddleware(bot, int(BotConfig.ADMIN_USER_ID))
+        dp.update.middleware(error_alert_mw)
+        logger.info("✅ ErrorAlert Middleware активирован")
+
     # Логируем информацию о контроле доступа
     logger.info("🔓 Режим доступа: ОТКРЫТЫЙ (все пользователи регистрируются автоматически)")
     if BotConfig.ADMIN_USER_ID:
@@ -288,6 +296,7 @@ async def main():
     dp.include_router(subscriptions.router)  # Подписки (Phase 2.1)
     dp.include_router(referral.router)  # Реферальная программа
     dp.include_router(sheets_export.router)  # Google Sheets экспорт (/export + кнопка "В таблицу")
+    dp.include_router(bitrix24_handler.router)  # Битрикс24 интеграция
     dp.include_router(engagement_router)  # Engagement (digest, deadlines)
     dp.include_router(sniper_search.router)  # Tender Sniper Search (старый workflow)
     dp.include_router(sniper.router)  # Tender Sniper меню
@@ -454,6 +463,7 @@ async def main():
         commands = [
             BotCommand(command="start", description="🏠 Главное меню"),
             BotCommand(command="sniper", description="🎯 Tender Sniper - поиск и мониторинг"),
+            BotCommand(command="bitrix24", description="🔗 Настроить интеграцию с Битрикс24"),
             BotCommand(command="help", description="❓ Справка"),
         ]
         await bot.set_my_commands(commands)

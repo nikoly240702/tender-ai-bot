@@ -71,15 +71,19 @@ class AIRelevanceChecker:
         content = f"{tender_name.lower().strip()}|{filter_intent.lower().strip()}"
         return hashlib.md5(content.encode()).hexdigest()
 
-    def _get_from_cache(self, cache_key: str) -> Optional[Tuple[bool, int, str]]:
+    def _get_from_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Получает решение из in-memory кэша (TTLCache автоматически удаляет истекшие)."""
         cached = self._cache.get(cache_key)
-        if cached is not None:
-            logger.debug(f"   🗄️ Cache hit (memory): {cache_key[:8]}...")
-            return cached
-        return None
+        if cached is None:
+            return None
+        logger.debug(f"   🗄️ Cache hit (memory): {cache_key[:8]}...")
+        # Backward compatibility: old entries were stored as (is_relevant, confidence, reason) tuples
+        if isinstance(cached, tuple):
+            is_relevant, confidence, reason = cached
+            return {'is_relevant': is_relevant, 'confidence': confidence, 'reason': reason}
+        return cached
 
-    async def _get_from_persistent_cache(self, cache_key: str) -> Optional[Tuple[bool, int, str]]:
+    async def _get_from_persistent_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
         """Получает решение из PostgreSQL кэша."""
         if not self._persistent_cache_enabled:
             return None
@@ -89,19 +93,28 @@ class AIRelevanceChecker:
             data = await db.cache_get(cache_key, 'ai_relevance')
             if data:
                 logger.debug(f"   🗄️ Cache hit (DB): {cache_key[:8]}...")
-                # Также сохраняем в in-memory для ускорения
-                result = (data['is_relevant'], data['confidence'], data['reason'])
+                result = {
+                    'is_relevant': data.get('is_relevant', False),
+                    'confidence': data.get('confidence', 0),
+                    'reason': data.get('reason', ''),
+                    'simple_name': data.get('simple_name', ''),
+                    'summary': data.get('summary', ''),
+                    'key_requirements': data.get('key_requirements', []),
+                    'risks': data.get('risks', []),
+                    'estimated_competition': data.get('estimated_competition', ''),
+                    'recommendation': data.get('recommendation', ''),
+                }
                 self._cache[cache_key] = result
                 return result
         except Exception as e:
             logger.debug(f"Persistent cache get error: {e}")
         return None
 
-    def _save_to_cache(self, cache_key: str, is_relevant: bool, confidence: int, reason: str):
+    def _save_to_cache(self, cache_key: str, result: Dict[str, Any]):
         """Сохраняет решение в in-memory кэш (TTLCache автоматически ограничивает размер и TTL)."""
-        self._cache[cache_key] = (is_relevant, confidence, reason)
+        self._cache[cache_key] = result
 
-    async def _save_to_persistent_cache(self, cache_key: str, is_relevant: bool, confidence: int, reason: str):
+    async def _save_to_persistent_cache(self, cache_key: str, result: Dict[str, Any]):
         """Сохраняет решение в PostgreSQL кэш."""
         if not self._persistent_cache_enabled:
             return
@@ -110,7 +123,7 @@ class AIRelevanceChecker:
             db = await get_sniper_db()
             await db.cache_set(
                 cache_key, 'ai_relevance',
-                {'is_relevant': is_relevant, 'confidence': confidence, 'reason': reason},
+                result,
                 ttl_hours=self._CACHE_TTL_HOURS
             )
         except Exception as e:
@@ -324,14 +337,11 @@ class AIRelevanceChecker:
             cached = await self._get_from_persistent_cache(cache_key)
 
         if cached:
-            is_relevant, confidence, reason = cached
             remaining = self.get_usage_stats(user_id, subscription_tier)['remaining'] if user_id else -1
             return {
-                'is_relevant': is_relevant,
-                'confidence': confidence,
-                'reason': reason,
+                **cached,
                 'source': 'cache',
-                'quota_remaining': remaining
+                'quota_remaining': remaining,
             }
 
         # Если нет API клиента — fallback
@@ -355,18 +365,8 @@ class AIRelevanceChecker:
             )
 
             # Сохраняем в кэш (in-memory + PostgreSQL)
-            self._save_to_cache(
-                cache_key,
-                result['is_relevant'],
-                result['confidence'],
-                result['reason']
-            )
-            await self._save_to_persistent_cache(
-                cache_key,
-                result['is_relevant'],
-                result['confidence'],
-                result['reason']
-            )
+            self._save_to_cache(cache_key, result)
+            await self._save_to_persistent_cache(cache_key, result)
 
             # Увеличиваем счётчик использования (в памяти + персистентно в БД)
             if user_id:
@@ -451,8 +451,22 @@ class AIRelevanceChecker:
 - "Поставка бумаги для принтера" при запросе "оргтехника" → relevant=false, confidence=5
 - "Мед. изделия" при запросе "разработка ПО" → relevant=false, confidence=3
 
-Ответь СТРОГО в формате JSON:
-{{"relevant": true/false, "confidence": 0-100, "reason": "краткое объяснение на русском"}}"""
+Ответь СТРОГО в формате JSON. Обязательные поля — всегда:
+  "relevant" (bool), "confidence" (0-100), "reason" (строка на русском).
+
+Если relevant=true — добавь дополнительные поля:
+  "simple_name": краткое название тендера 3-5 слов (без юридических формулировок, без номеров, без годов),
+  "summary": 1-2 предложения о сути закупки,
+  "key_requirements": массив из 1-3 ключевых требований (пусто если неизвестно),
+  "risks": массив из 0-2 рисков (срочные сроки, узкие требования, и т.п.),
+  "estimated_competition": "низкая" | "средняя" | "высокая",
+  "recommendation": "Рекомендуется" | "Под вопросом" | "Не рекомендуется"
+
+Пример для relevant=true:
+{{"relevant": true, "confidence": 82, "reason": "поставка компьютерного оборудования", "simple_name": "Компьютеры для школы", "summary": "Поставка ПК и мониторов для нужд образования.", "key_requirements": ["Windows 11", "SSD 256 ГБ"], "risks": [], "estimated_competition": "средняя", "recommendation": "Рекомендуется"}}
+
+Пример для relevant=false:
+{{"relevant": false, "confidence": 5, "reason": "услуга, не товар"}}"""
 
         # Синхронный OpenAI клиент — оборачиваем в executor чтобы не блокировать event loop
         loop = asyncio.get_event_loop()
@@ -466,7 +480,7 @@ class AIRelevanceChecker:
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0,
-                max_tokens=150,
+                max_tokens=400,
                 response_format={"type": "json_object"},
             )
         )
@@ -492,11 +506,28 @@ class AIRelevanceChecker:
 
             logger.info(f"   🤖 AI: {'✅' if is_relevant else '❌'} ({confidence}%) {reason[:50]}...")
 
-            return {
+            result: Dict[str, Any] = {
                 'is_relevant': is_relevant,
                 'confidence': confidence,
-                'reason': reason
+                'reason': reason,
+                'simple_name': '',
+                'summary': '',
+                'key_requirements': [],
+                'risks': [],
+                'estimated_competition': '',
+                'recommendation': '',
             }
+
+            # Расширенные поля — только если тендер релевантен
+            if is_relevant:
+                result['simple_name'] = str(data.get('simple_name', ''))
+                result['summary'] = str(data.get('summary', ''))
+                result['key_requirements'] = [str(r) for r in data.get('key_requirements', []) if r][:3]
+                result['risks'] = [str(r) for r in data.get('risks', []) if r][:2]
+                result['estimated_competition'] = str(data.get('estimated_competition', ''))
+                result['recommendation'] = str(data.get('recommendation', ''))
+
+            return result
 
         except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.warning(f"   ⚠️ Не удалось распарсить AI ответ: {response_text[:100]} — {e}")
@@ -505,7 +536,13 @@ class AIRelevanceChecker:
         return {
             'is_relevant': False,
             'confidence': 0,
-            'reason': 'Не удалось определить релевантность'
+            'reason': 'Не удалось определить релевантность',
+            'simple_name': '',
+            'summary': '',
+            'key_requirements': [],
+            'risks': [],
+            'estimated_competition': '',
+            'recommendation': '',
         }
 
     async def check_relevance_batch(

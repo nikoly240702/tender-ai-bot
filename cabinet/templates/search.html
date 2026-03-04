@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Поиск — Tender Sniper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
+    body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
+    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto}
+    .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
+    .sidebar nav{flex:1}
+    .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
+    .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
+    .sidebar .icon{width:20px;text-align:center}
+    .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}.sidebar .bottom a{color:var(--gray);font-size:13px}
+    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px}
+    .page-header{margin-bottom:28px}.page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}.page-header p{color:var(--gray2);font-size:14px}
+    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
+    .btn-gold{background:var(--gold);color:#0a0e17}.btn-gold:hover{opacity:0.9}
+    .btn-outline{background:transparent;border:1px solid var(--line);color:var(--white)}.btn-outline:hover{border-color:var(--gold-line);color:var(--gold)}
+    .btn-sm{padding:5px 10px;font-size:12px}
+    .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
+    .badge-gold{background:var(--gold-dim);color:var(--gold)}.badge-gray{background:var(--surface);color:var(--gray2)}
+    .loading{text-align:center;padding:40px;color:var(--gray)}
+    .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
+
+    /* Search form */
+    .search-form{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:20px}
+    .search-form .query-wrap{flex:2;min-width:220px}
+    .search-form .filter-wrap{flex:1;min-width:140px}
+    .search-form label{display:block;font-size:12px;font-weight:600;color:var(--gray2);margin-bottom:5px}
+    .search-form input,.search-form select{width:100%;padding:9px 13px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--white);font-family:'Manrope',sans-serif;font-size:14px}
+    .search-form input:focus,.search-form select:focus{outline:none;border-color:var(--gold-line)}
+    .search-form select option{background:var(--bg3)}
+
+    /* Result cards */
+    .tender-card{border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:10px;background:var(--bg3);transition:border-color 0.15s}
+    .tender-card:hover{border-color:var(--gold-line)}
+    .tender-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}
+    .tender-title{font-size:14px;font-weight:600;flex:1}
+    .tender-title a{color:var(--white);text-decoration:none}.tender-title a:hover{color:var(--gold)}
+    .tender-price{font-size:15px;font-weight:700;color:var(--gold);white-space:nowrap}
+    .tender-meta{font-size:12px;color:var(--gray);display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px}
+    .tender-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .btn-action{padding:5px 12px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:transparent;color:var(--gray2);cursor:pointer;font-family:'Manrope',sans-serif;transition:all 0.15s}
+    .btn-action:hover{border-color:var(--gold-line);color:var(--gold)}
+    .btn-action.done{border-color:var(--green);color:var(--green)}
+    .empty-results{text-align:center;padding:48px;color:var(--gray)}
+    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}.search-form{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">TENDER<span>SNIPER</span></div>
+    <nav>
+      <a href="/cabinet/"><span class="icon">📊</span> Тендеры</a>
+      <a href="/cabinet/search" class="active"><span class="icon">🔍</span> Поиск</a>
+      <a href="/cabinet/filters"><span class="icon">🎯</span> Фильтры</a>
+      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
+      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
+      <a href="/cabinet/stats"><span class="icon">📈</span> Статистика</a>
+      <a href="/cabinet/settings"><span class="icon">⚙️</span> Настройки</a>
+    </nav>
+    <div class="bottom">
+      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
+      <a href="/cabinet/logout">Выйти</a>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-header">
+      <h1>Поиск тендеров</h1>
+      <p>Мгновенный поиск по всем закупкам</p>
+    </div>
+
+    <div class="card">
+      <div class="search-form">
+        <div class="query-wrap">
+          <label>Ключевые слова *</label>
+          <input type="text" id="q" placeholder="ИТ услуги, разработка, техподдержка..." onkeydown="if(event.key==='Enter') doSearch()">
+        </div>
+        <div class="filter-wrap">
+          <label>Регион</label>
+          <select id="region-sel">
+            <option value="">Все регионы</option>
+          </select>
+        </div>
+        <div class="filter-wrap">
+          <label>Закон</label>
+          <select id="law-sel">
+            <option value="">Любой</option>
+            <option value="44">44-ФЗ</option>
+            <option value="223">223-ФЗ</option>
+          </select>
+        </div>
+        <div class="filter-wrap">
+          <label>Цена до (₽)</label>
+          <input type="number" id="price-max" placeholder="∞">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn btn-gold" onclick="doSearch()">🔍 Найти</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="results-header" style="display:none;color:var(--gray2);font-size:14px;margin-bottom:12px"></div>
+    <div class="loading" id="loading" style="display:none">
+      <div class="spinner"></div>
+      Поиск тендеров...
+    </div>
+    <div id="results"></div>
+  </main>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    function showToast(msg, dur=3000) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), dur);
+    }
+
+    function fmtPrice(p) {
+      if (!p) return '—';
+      const n = parseFloat(p);
+      if (n >= 1e6) return (n/1e6).toFixed(2) + ' млн ₽';
+      if (n >= 1e3) return (n/1e3).toFixed(1) + ' тыс. ₽';
+      return n.toFixed(0) + ' ₽';
+    }
+
+    function fmtDate(d) {
+      if (!d) return '—';
+      return new Date(d).toLocaleDateString('ru-RU');
+    }
+
+    function escHtml(s) {
+      return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Load regions into select
+    async function loadRegions() {
+      const resp = await fetch('/cabinet/api/regions');
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const sel = document.getElementById('region-sel');
+      (data.districts || []).forEach(d => {
+        const grp = document.createElement('optgroup');
+        grp.label = d.district;
+        d.regions.forEach(r => {
+          const opt = document.createElement('option');
+          opt.value = r;
+          opt.textContent = r;
+          grp.appendChild(opt);
+        });
+        sel.appendChild(grp);
+      });
+    }
+
+    const feedbackState = {};
+
+    async function doSearch() {
+      const q = document.getElementById('q').value.trim();
+      if (!q) { showToast('Введите ключевые слова'); return; }
+
+      const region = document.getElementById('region-sel').value;
+      const law = document.getElementById('law-sel').value;
+      const priceMax = document.getElementById('price-max').value;
+
+      let url = `/cabinet/api/search?q=${encodeURIComponent(q)}&limit=25`;
+      if (region) url += `&region=${encodeURIComponent(region)}`;
+      if (law) url += `&law=${law}`;
+      if (priceMax) url += `&price_max=${priceMax}`;
+
+      document.getElementById('loading').style.display = 'block';
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('results-header').style.display = 'none';
+
+      const resp = await fetch(url);
+      document.getElementById('loading').style.display = 'none';
+
+      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
+      const data = await resp.json();
+
+      if (data.error) {
+        showToast('Ошибка: ' + data.error);
+        return;
+      }
+
+      const tenders = data.tenders || [];
+      document.getElementById('results-header').textContent = `Найдено: ${tenders.length} тендеров`;
+      document.getElementById('results-header').style.display = 'block';
+
+      if (!tenders.length) {
+        document.getElementById('results').innerHTML = '<div class="empty-results">Тендеры не найдены. Попробуйте другие ключевые слова.</div>';
+        return;
+      }
+
+      let html = '';
+      tenders.forEach(t => {
+        const num = t.number || '';
+        const name = escHtml(t.name || '');
+        const link = t.url ? `<a href="${escHtml(t.url)}" target="_blank">${name}</a>` : name;
+        const fb = feedbackState[num] || {};
+
+        html += `<div class="tender-card" id="tc-${escHtml(num)}">
+          <div class="tender-top">
+            <div class="tender-title">${link}</div>
+            <div class="tender-price">${fmtPrice(t.price)}</div>
+          </div>
+          <div class="tender-meta">
+            ${t.customer_name ? `<span>🏛 ${escHtml(t.customer_name)}</span>` : ''}
+            ${t.region ? `<span>📍 ${escHtml(t.region)}</span>` : ''}
+            ${t.deadline ? `<span>📅 до ${fmtDate(t.deadline)}</span>` : ''}
+            ${t.law_type ? `<span class="badge badge-gray">${t.law_type}-ФЗ</span>` : ''}
+          </div>
+          <div class="tender-actions">
+            ${t.url ? `<a href="${escHtml(t.url)}" target="_blank" class="btn-action">Открыть ↗</a>` : ''}
+            <button class="btn-action ${fb.interesting ? 'done' : ''}" id="btn-int-${escHtml(num)}" onclick="markFeedback('${escHtml(num)}', 'interesting')">⭐ Интересно</button>
+            <button class="btn-action ${fb.skip ? 'done' : ''}" id="btn-skip-${escHtml(num)}" onclick="markFeedback('${escHtml(num)}', 'skip')">✕ Пропустить</button>
+            <button class="btn-action" onclick="exportSheets('${escHtml(num)}')">📊 В таблицу</button>
+          </div>
+        </div>`;
+      });
+      document.getElementById('results').innerHTML = html;
+    }
+
+    async function markFeedback(number, type) {
+      const resp = await fetch(`/cabinet/api/tenders/${encodeURIComponent(number)}/feedback`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type}),
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        feedbackState[number] = feedbackState[number] || {};
+        feedbackState[number][type === 'interesting' ? 'interesting' : 'skip'] = true;
+        const btn = document.getElementById(type === 'interesting' ? `btn-int-${number}` : `btn-skip-${number}`);
+        if (btn) btn.classList.add('done');
+        showToast(type === 'interesting' ? 'Отмечено как интересное' : 'Пропущено');
+      }
+    }
+
+    async function exportSheets(number) {
+      const resp = await fetch(`/cabinet/api/tenders/${encodeURIComponent(number)}/export-sheets`, {method: 'POST'});
+      const data = await resp.json();
+      if (data.ok) showToast('Экспортировано в Google Sheets');
+      else showToast(data.error || 'Ошибка экспорта');
+    }
+
+    loadRegions();
+  </script>
+</body>
+</html>

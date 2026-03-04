@@ -199,6 +199,7 @@ class SniperNotification(Base):
     sheets_exported = Column(Boolean, default=False, nullable=False)  # Экспортирован ли в Google Sheets
     sheets_exported_at = Column(DateTime, nullable=True)
     sheets_exported_by = Column(BigInteger, nullable=True)  # telegram_id того, кто экспортировал (для групп)
+    match_info = Column(JSON, nullable=True)  # match_info со всеми AI-полями для экспорта в Sheets
 
     # Relationships
     user = relationship("SniperUser", back_populates="notifications")

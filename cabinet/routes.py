@@ -24,20 +24,41 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/profile', profile_page)
     app.router.add_get('/cabinet/documents', documents_page)
     app.router.add_get('/cabinet/filters', filters_page)
+    app.router.add_get('/cabinet/search', search_page)
+    app.router.add_get('/cabinet/stats', stats_page)
+    app.router.add_get('/cabinet/settings', settings_page)
 
     # Auth
     app.router.add_get('/cabinet/auth/telegram', telegram_auth_callback)
     app.router.add_get('/cabinet/logout', logout)
 
-    # JSON API
+    # JSON API — Profile
     app.router.add_get('/cabinet/api/profile', api.get_profile)
     app.router.add_post('/cabinet/api/profile', api.save_profile)
+    # JSON API — Tenders
     app.router.add_get('/cabinet/api/tenders', api.get_tenders)
+    # JSON API — Documents
     app.router.add_get('/cabinet/api/documents', api.get_documents)
     app.router.add_get('/cabinet/api/documents/{id}/download', api.download_document)
     app.router.add_post('/cabinet/api/documents/generate/{tender}', api.generate_documents)
+    # JSON API — Filters CRUD
     app.router.add_get('/cabinet/api/filters', api.get_filters)
-    app.router.add_post('/cabinet/api/filters/{id}', api.update_filter)
+    app.router.add_post('/cabinet/api/filters/create', api.create_filter)
+    app.router.add_put('/cabinet/api/filters/{id}', api.update_filter)
+    app.router.add_post('/cabinet/api/filters/{id}', api.update_filter)  # fallback for browsers
+    app.router.add_delete('/cabinet/api/filters/{id}', api.delete_filter)
+    app.router.add_post('/cabinet/api/filters/{id}/toggle', api.toggle_filter)
+    # JSON API — Search
+    app.router.add_get('/cabinet/api/search', api.search_tenders)
+    app.router.add_get('/cabinet/api/regions', api.get_regions)
+    # JSON API — Stats
+    app.router.add_get('/cabinet/api/stats', api.get_stats)
+    # JSON API — Tender actions
+    app.router.add_post('/cabinet/api/tenders/{tender_number}/feedback', api.tender_feedback)
+    app.router.add_post('/cabinet/api/tenders/{tender_number}/export-sheets', api.export_to_sheets)
+    # JSON API — Settings
+    app.router.add_get('/cabinet/api/settings', api.get_settings)
+    app.router.add_post('/cabinet/api/settings', api.save_settings)
 
     logger.info("Cabinet routes registered at /cabinet/*")
 
@@ -77,6 +98,24 @@ async def documents_page(request: web.Request) -> web.Response:
 async def filters_page(request: web.Request) -> web.Response:
     """Страница фильтров."""
     return _render_template('filters.html')
+
+
+@require_auth
+async def search_page(request: web.Request) -> web.Response:
+    """Страница поиска тендеров."""
+    return _render_template('search.html')
+
+
+@require_auth
+async def stats_page(request: web.Request) -> web.Response:
+    """Страница статистики."""
+    return _render_template('stats.html')
+
+
+@require_auth
+async def settings_page(request: web.Request) -> web.Response:
+    """Страница настроек."""
+    return _render_template('settings.html')
 
 
 # ============================================

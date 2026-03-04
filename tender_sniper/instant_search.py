@@ -714,6 +714,13 @@ class InstantSearch:
                             tender['ai_verified'] = ai_source == 'ai'
                             tender['ai_confidence'] = confidence
                             tender['ai_reason'] = ai_result.get('reason', '')
+                            # Расширенный анализ
+                            tender['ai_simple_name'] = ai_result.get('simple_name', '')
+                            tender['ai_summary'] = ai_result.get('summary', '')
+                            tender['ai_key_requirements'] = ai_result.get('key_requirements', [])
+                            tender['ai_risks'] = ai_result.get('risks', [])
+                            tender['ai_estimated_competition'] = ai_result.get('estimated_competition', '')
+                            tender['ai_recommendation'] = ai_result.get('recommendation', '')
 
                             # Composite score: SmartMatcher + AI boost
                             # Boost ТОЛЬКО для реальных AI-проверок (не fallback/error/quota)

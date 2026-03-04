@@ -2219,6 +2219,56 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
             ])
         )
 
+
+        # 🎯 Онбординг-демонстрация: топ-3 тендера как настоящие уведомления
+        demo_matches = [m for m in matches if m.get('match_score', 0) >= 30][:3]
+        if demo_matches:
+            subscription_tier_demo = user.get('subscription_tier', 'trial')
+            try:
+                from bot.formatters.tender_card import format_tender_card
+                await callback.message.answer(
+                    "👇 <b>Вот как выглядят уведомления о тендерах:</b>",
+                    parse_mode="HTML"
+                )
+                for match in demo_matches:
+                    tender_for_card = {
+                        'number': match.get('number', ''),
+                        'name': match.get('name', ''),
+                        'price': match.get('price'),
+                        'url': match.get('url') or f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={match.get('number', '')}",
+                        'region': match.get('customer_region') or match.get('region', ''),
+                        'customer': match.get('customer') or match.get('customer_name', ''),
+                        'submission_deadline': match.get('deadline') or match.get('end_date', ''),
+                        'published_date': match.get('published', ''),
+                    }
+                    match_info_for_card = {
+                        'score': match.get('match_score', 0),
+                        'matched_keywords': match.get('match_reasons', []),
+                        'ai_verified': match.get('ai_verified', False),
+                        'ai_confidence': match.get('ai_confidence', 0),
+                        'ai_reason': match.get('ai_reason', ''),
+                        'ai_summary': match.get('ai_summary', ''),
+                        'ai_key_requirements': match.get('ai_key_requirements', []),
+                        'ai_risks': match.get('ai_risks', []),
+                        'ai_recommendation': match.get('ai_recommendation', ''),
+                        'red_flags': match.get('red_flags', []),
+                    }
+                    text, keyboard = format_tender_card(
+                        tender=tender_for_card,
+                        match_info=match_info_for_card,
+                        filter_name=filter_name,
+                        subscription_tier=subscription_tier_demo,
+                        is_auto_notification=False,
+                    )
+                    await callback.message.answer(
+                        text,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        disable_web_page_preview=True,
+                    )
+            except Exception as demo_err:
+                logger.warning(f"Онбординг-демонстрация не удалась: {demo_err}")
+
         await state.clear()
 
     except Exception as e:
