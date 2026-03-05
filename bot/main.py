@@ -194,10 +194,10 @@ async def main():
     run_migrations()
 
     # ============================================
-    # PRODUCTION: Одноразовые задачи Битрикс24
+    # PRODUCTION: Одноразовые задачи Битрикс24 (в фоне — не блокируют старт бота)
     # ============================================
-    await run_bitrix24_migration()
-    await run_bitrix24_update()
+    asyncio.create_task(run_bitrix24_migration())
+    asyncio.create_task(run_bitrix24_update())
 
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler
