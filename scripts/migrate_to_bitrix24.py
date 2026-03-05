@@ -111,6 +111,23 @@ def _is_expired(deadline) -> bool:
     return False
 
 
+_AI_REC_ENUM: dict = {
+    'не брать': 57, 'отказ': 57,
+    'взять': 53, 'рекоменд': 53, 'да': 53, 'высок': 53,
+}
+
+
+def _map_ai_rec_enum(ai_recommendation: str) -> int:
+    """Возвращает ID перечисления Б24: 53=Взять, 55=Требует анализа, 57=Не брать."""
+    if not ai_recommendation:
+        return 55
+    text = ai_recommendation.lower()
+    for pattern, enum_id in _AI_REC_ENUM.items():
+        if pattern in text:
+            return enum_id
+    return 55
+
+
 async def create_deal(webhook_url: str, row: dict) -> int | None:
     """Создаёт сделку в Битрикс24, возвращает deal_id или None."""
     deadline_dt = row.get('submission_deadline')
@@ -130,21 +147,6 @@ async def create_deal(webhook_url: str, row: dict) -> int | None:
         f"?regNumber={row['tender_number']}"
     )
 
-    comment_lines = [
-        'Тендер из TenderSniper (перенос из таблицы)',
-        f"№ {row['tender_number']}",
-    ]
-    if row.get('tender_customer'):
-        comment_lines.append(f"Заказчик: {row['tender_customer']}")
-    if row.get('tender_region'):
-        comment_lines.append(f"Регион: {row['tender_region']}")
-    if row.get('filter_name'):
-        comment_lines.append(f"Фильтр: {row['filter_name']}")
-    if ai_recommendation or ai_summary:
-        ai_text = f"[{ai_recommendation}] {ai_summary}".strip(' []') if ai_recommendation else ai_summary
-        comment_lines.extend(['', f"AI: {ai_text}"])
-    comment_lines.extend(['', f"Ссылка: {tender_url}"])
-
     name = row.get('tender_name') or f"Тендер № {row['tender_number']}"
 
     fields = {
@@ -153,8 +155,15 @@ async def create_deal(webhook_url: str, row: dict) -> int | None:
         'CURRENCY_ID': 'RUB',
         'SOURCE_ID': 'WEB',
         'SOURCE_DESCRIPTION': 'TenderSniper Bot',
-        'COMMENTS': '\n'.join(comment_lines),
         'STAGE_ID': stage_id,
+        # Кастомные поля карточки
+        'UF_CRM_TENDER_NUMBER': row['tender_number'],
+        'UF_CRM_TENDER_CUSTOMER': row.get('tender_customer') or '',
+        'UF_CRM_TENDER_REGION': row.get('tender_region') or '',
+        'UF_CRM_TENDER_FILTER': row.get('filter_name') or '',
+        'UF_CRM_AI_SUMMARY': ai_summary or '',
+        'UF_CRM_AI_RECOMMENDATION': _map_ai_rec_enum(ai_recommendation),
+        'UF_CRM_TENDER_URL': tender_url,
     }
     if closedate:
         fields['CLOSEDATE'] = closedate

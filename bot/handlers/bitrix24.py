@@ -112,6 +112,46 @@ async def update_bitrix24_deal_stage(webhook_url: str, deal_id: str, stage_id: s
         return False
 
 
+
+# Маппинг закона → ID перечисления в Битрикс24
+_LAW_ENUM: dict = {
+    '44-фз': 45, '44фз': 45,
+    '223-фз': 47, '223фз': 47,
+    '615-пп': 49, '615пп': 49,
+    '44-фз еп': 51, 'еп': 51,
+}
+
+# Маппинг AI-рекомендации → ID перечисления в Битрикс24
+_AI_REC_ENUM: dict = {
+    'взять': 53, 'рекоменд': 53, 'да': 53, 'yes': 53, 'высок': 53,
+    'не брать': 57, 'отказ': 57, 'нет': 57, 'no': 57, 'низк': 57,
+}
+
+
+def _map_law_enum(law_type: str) -> Optional[int]:
+    if not law_type:
+        return None
+    key = law_type.lower().strip()
+    for pattern, enum_id in _LAW_ENUM.items():
+        if pattern in key:
+            return enum_id
+    return None
+
+
+def _map_ai_rec_enum(ai_recommendation: str) -> int:
+    """Возвращает ID перечисления Б24: 53=Взять, 55=Требует анализа, 57=Не брать."""
+    if not ai_recommendation:
+        return 55  # Требует анализа по умолчанию
+    text = ai_recommendation.lower()
+    # Сначала проверяем "не брать" до "брать"
+    if 'не брать' in text or 'отказ' in text or text in ('нет', 'no', 'низк'):
+        return 57
+    for pattern, enum_id in _AI_REC_ENUM.items():
+        if pattern in text:
+            return enum_id
+    return 55
+
+
 async def create_bitrix24_deal(
     webhook_url: str,
     tender_number: str,
@@ -124,6 +164,7 @@ async def create_bitrix24_deal(
     submission_deadline: str = '',
     ai_summary: str = '',
     ai_recommendation: str = '',
+    law_type: str = '',
     stage_id: str = STAGE_NEW,
 ) -> Optional[int]:
     """
@@ -142,32 +183,28 @@ async def create_bitrix24_deal(
             except ValueError:
                 continue
 
-    # Строим COMMENTS
-    comment_lines = [
-        'Тендер из TenderSniper',
-        f'№ {tender_number}',
-    ]
-    if tender_customer:
-        comment_lines.append(f'Заказчик: {tender_customer}')
-    if tender_region:
-        comment_lines.append(f'Регион: {tender_region}')
-    comment_lines.append(f'Фильтр: {filter_name}')
-    if ai_recommendation or ai_summary:
-        ai_text = f'[{ai_recommendation}] {ai_summary}'.strip(' []') if ai_recommendation else ai_summary
-        comment_lines.extend(['', f'AI: {ai_text}'])
-    comment_lines.extend(['', f'Ссылка: {tender_url}'])
-
     fields: dict = {
         'TITLE': (tender_name[:255] if tender_name else f'Тендер № {tender_number}'),
         'OPPORTUNITY': tender_price or 0,
         'CURRENCY_ID': 'RUB',
         'SOURCE_ID': 'WEB',
         'SOURCE_DESCRIPTION': 'TenderSniper Bot',
-        'COMMENTS': '\n'.join(comment_lines),
         'STAGE_ID': stage_id,
+        # Кастомные поля карточки
+        'UF_CRM_TENDER_NUMBER': tender_number,
+        'UF_CRM_TENDER_CUSTOMER': tender_customer or '',
+        'UF_CRM_TENDER_REGION': tender_region or '',
+        'UF_CRM_TENDER_FILTER': filter_name or '',
+        'UF_CRM_AI_SUMMARY': ai_summary or '',
+        'UF_CRM_AI_RECOMMENDATION': _map_ai_rec_enum(ai_recommendation),
     }
+    if tender_url:
+        fields['UF_CRM_TENDER_URL'] = tender_url
     if closedate:
         fields['CLOSEDATE'] = closedate
+    law_enum = _map_law_enum(law_type)
+    if law_enum:
+        fields['UF_CRM_TENDER_LAW'] = law_enum
 
     if not webhook_url.endswith('/'):
         webhook_url += '/'
