@@ -149,7 +149,27 @@ class TenderSniperDB:
                 'subscription_tier': user.subscription_tier,
                 'ai_analyses_used_month': user.ai_analyses_used_month,
                 'ai_analyses_month_reset': user.ai_analyses_month_reset,
+                'data': user.data if hasattr(user, 'data') and user.data else {},
             }
+
+    async def get_users_with_bitrix24(self) -> List[Dict[str, Any]]:
+        """Возвращает всех пользователей с настроенным Битрикс24 вебхуком."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperUserModel).where(SniperUserModel.data.isnot(None))
+            )
+            users = result.scalars().all()
+            out = []
+            for u in users:
+                d = u.data if isinstance(u.data, dict) else {}
+                if d.get('bitrix24_webhook_url'):
+                    out.append({
+                        'id': u.id,
+                        'telegram_id': u.telegram_id,
+                        'subscription_tier': u.subscription_tier,
+                        'data': d,
+                    })
+            return out
 
     async def increment_ai_analyses_count(self, user_id: int) -> None:
         """Атомарно увеличивает счётчик AI-проверок (по первичному ключу)."""

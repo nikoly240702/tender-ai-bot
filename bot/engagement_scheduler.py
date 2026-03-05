@@ -102,6 +102,9 @@ class EngagementScheduler:
             if current_hour == 8:
                 await self._move_expired_bitrix24_deals()
 
+            # 6. AI анализ для сделок в стадии "Новые процедуры с AI" без результата
+            await self._auto_analyze_bitrix24_ai_deals()
+
         finally:
             await bot.session.close()
 
@@ -717,6 +720,94 @@ class EngagementScheduler:
 
         except Exception as e:
             logger.error(f"_move_expired_bitrix24_deals error: {e}", exc_info=True)
+
+
+    async def _auto_analyze_bitrix24_ai_deals(self):
+        """
+        Каждый час: ищет сделки в стадии «Новые процедуры с AI» (UC_OZCYR2)
+        без AI резюме и запускает AI анализ документации.
+        """
+        try:
+            from tender_sniper.database import get_sniper_db
+            from bot.handlers.bitrix24 import update_bitrix24_deal_ai_results, STAGE_AI
+            from bot.handlers.webapp import _run_ai_analysis
+            import aiohttp
+
+            db = await get_sniper_db()
+            users = await db.get_users_with_bitrix24()
+            if not users:
+                return
+
+            logger.info(f"🤖 Bitrix24 AI polling: checking {len(users)} users")
+            total_analyzed = 0
+
+            for user in users:
+                webhook_url = user['data'].get('bitrix24_webhook_url', '')
+                if not webhook_url:
+                    continue
+                if not webhook_url.endswith('/'):
+                    webhook_url += '/'
+
+                # Получаем сделки в UC_OZCYR2 без AI резюме
+                try:
+                    async with aiohttp.ClientSession(
+                        timeout=aiohttp.ClientTimeout(total=10)
+                    ) as session:
+                        async with session.post(
+                            webhook_url + 'crm.deal.list.json',
+                            json={
+                                'filter': {
+                                    'STAGE_ID': STAGE_AI,
+                                    'UF_CRM_AI_SUMMARY': '',
+                                },
+                                'select': ['ID', 'UF_CRM_TENDER_NUMBER', 'UF_CRM_AI_SUMMARY'],
+                                'order': {'ID': 'DESC'},
+                                'start': 0,
+                            }
+                        ) as resp:
+                            if resp.status != 200:
+                                continue
+                            data = await resp.json()
+                            deals = data.get('result', []) or []
+                except Exception as e:
+                    logger.debug(f"Bitrix24 deal.list error for user {user['id']}: {e}")
+                    continue
+
+                if not deals:
+                    continue
+
+                logger.info(f"  User {user['id']}: {len(deals)} deals need AI analysis")
+
+                for deal in deals[:5]:  # Не более 5 за цикл, чтобы не перегружать
+                    deal_id = str(deal.get('ID', ''))
+                    tender_number = deal.get('UF_CRM_TENDER_NUMBER', '')
+                    if not deal_id or not tender_number:
+                        continue
+
+                    # Проверяем повторно — AI резюме уже не пустое?
+                    if deal.get('UF_CRM_AI_SUMMARY'):
+                        continue
+
+                    try:
+                        subscription_tier = user.get('subscription_tier', 'trial')
+                        formatted, is_ai, extraction = await _run_ai_analysis(
+                            tender_number, subscription_tier
+                        )
+                        await update_bitrix24_deal_ai_results(
+                            webhook_url.rstrip('/'), deal_id, extraction, formatted
+                        )
+                        total_analyzed += 1
+                        logger.info(f"  ✅ AI analyzed: deal {deal_id} / tender {tender_number}")
+                    except Exception as e:
+                        logger.debug(f"  AI analysis failed for deal {deal_id}: {e}")
+
+                    await asyncio.sleep(1)  # Пауза между анализами
+
+            if total_analyzed:
+                logger.info(f"✅ Bitrix24 AI polling: {total_analyzed} deals analyzed")
+
+        except Exception as e:
+            logger.error(f"_auto_analyze_bitrix24_ai_deals error: {e}", exc_info=True)
 
 
 # ============================================
