@@ -151,6 +151,26 @@ async def update_bitrix24_deal_ai_results(
     return True
 
 
+async def _run_ai_analysis_background(
+    webhook_url: str,
+    deal_id: str,
+    tender_number: str,
+    subscription_tier: str,
+):
+    """
+    Фоновая задача: запускает AI анализ документации и обновляет сделку в Б24.
+    Вызывается после создания сделки через «🤖 В Б24 + AI».
+    """
+    try:
+        from bot.handlers.webapp import _run_ai_analysis
+        logger.info(f"Bitrix24 background AI: starting for tender={tender_number}, deal={deal_id}")
+        formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
+        await update_bitrix24_deal_ai_results(webhook_url, deal_id, extraction, formatted)
+        logger.info(f"Bitrix24 background AI: done for deal={deal_id}")
+    except Exception as e:
+        logger.debug(f"Bitrix24 background AI for deal {deal_id}: {e}")
+
+
 async def update_bitrix24_deal_stage(webhook_url: str, deal_id: str, stage_id: str) -> bool:
     """
     Перемещает сделку на указанный этап через crm.deal.update.
@@ -396,7 +416,7 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
         else:
             stage_id = STAGE_AI
 
-        # Если уже в Битрикс24 — перемещаем на AI-этап
+        # Если уже в Битрикс24 — перемещаем на AI-этап и запускаем анализ
         if notification.get('bitrix24_exported') and notification.get('bitrix24_deal_id'):
             deal_id = notification['bitrix24_deal_id']
             ok = await update_bitrix24_deal_stage(webhook_url, deal_id, stage_id)
@@ -406,6 +426,11 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
                     f"✅ Сделка #{deal_id} перемещена: «{label}»",
                     show_alert=True
                 )
+                if stage_id == STAGE_AI:
+                    subscription_tier = user.get('subscription_tier', 'trial')
+                    asyncio.create_task(
+                        _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
+                    )
             else:
                 await callback.answer("❌ Не удалось переместить сделку", show_alert=True)
             return
@@ -437,6 +462,13 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
             await _replace_bitrix_button(callback, tender_number, deal_id, prefix="bitrix_ai")
             label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
             await callback.answer(f"✅ Сделка #{deal_id} → «{label}»!", show_alert=True)
+
+            # Запускаем полный AI анализ документации в фоне
+            if stage_id == STAGE_AI:
+                subscription_tier = user.get('subscription_tier', 'trial')
+                asyncio.create_task(
+                    _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
+                )
         else:
             await callback.answer(
                 "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
