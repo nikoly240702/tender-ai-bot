@@ -2650,6 +2650,24 @@ class TenderSniperDB:
             logger.error(f"Ошибка mark_notification_bitrix_exported: {e}")
             return False
 
+    async def get_notification_by_bitrix24_deal_id(self, deal_id: str) -> Optional[Dict[str, Any]]:
+        """Находит уведомление по ID сделки в Битрикс24."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(SniperNotificationModel).where(
+                    SniperNotificationModel.bitrix24_deal_id == str(deal_id)
+                )
+            )
+            notif = result.scalars().first()
+            if not notif:
+                return None
+            return {
+                'id': notif.id,
+                'user_id': notif.user_id,
+                'tender_number': notif.tender_number,
+                'bitrix24_deal_id': notif.bitrix24_deal_id,
+            }
+
     async def get_unexported_notifications(self, user_id: int, days: int = 7) -> List[Dict[str, Any]]:
         """Получает неэкспортированные уведомления за указанный период."""
         async with DatabaseSession() as session:

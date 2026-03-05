@@ -149,6 +149,24 @@ def run_migrations():
     logger.info("=" * 70)
 
 
+async def run_bitrix24_update():
+    """Обновляет поля существующих сделок в Битрикс24 (одноразово, если выставлена переменная)."""
+    if os.environ.get('RUN_UPDATE_BITRIX24') != '1':
+        return
+
+    logger.info("=" * 70)
+    logger.info("🔄 ОБНОВЛЕНИЕ ПОЛЕЙ СДЕЛОК В БИТРИКС24")
+    logger.info("=" * 70)
+
+    try:
+        import scripts.update_bitrix24_deals as u
+        await u.main()
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления сделок в Битрикс24: {e}")
+
+    logger.info("=" * 70)
+
+
 async def run_bitrix24_migration():
     """Запускаем одноразовую миграцию в Битрикс24, если выставлена переменная."""
     if os.environ.get('RUN_MIGRATION_BITRIX24') != '1':
@@ -176,9 +194,10 @@ async def main():
     run_migrations()
 
     # ============================================
-    # PRODUCTION: Одноразовая миграция в Битрикс24
+    # PRODUCTION: Одноразовые задачи Битрикс24
     # ============================================
     await run_bitrix24_migration()
+    await run_bitrix24_update()
 
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler

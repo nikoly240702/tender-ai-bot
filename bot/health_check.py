@@ -278,6 +278,82 @@ async def landing_handler(request):
     return web.Response(text="Tender Sniper — coming soon", content_type="text/html")
 
 
+async def _process_bitrix24_ai_analyze(deal_id: str):
+    """Фоновая задача: запускает AI анализ документации и обновляет сделку в Б24."""
+    try:
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+
+        notif = await db.get_notification_by_bitrix24_deal_id(deal_id)
+        if not notif:
+            logger.warning(f"Bitrix24 webhook: notification not found for deal_id={deal_id}")
+            return
+
+        user_id = notif['user_id']
+        tender_number = notif['tender_number']
+
+        user = await db.get_user_by_id(user_id)
+        if not user:
+            logger.warning(f"Bitrix24 webhook: user {user_id} not found")
+            return
+
+        webhook_url = (user.get('data') or {}).get('bitrix24_webhook_url', '')
+        if not webhook_url:
+            logger.warning(f"Bitrix24 webhook: no webhook_url for user {user_id}")
+            return
+
+        subscription_tier = user.get('subscription_tier', 'trial')
+
+        logger.info(f"Bitrix24 webhook: running AI analysis for tender={tender_number}, deal={deal_id}")
+        from bot.handlers.webapp import _run_ai_analysis
+        formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
+
+        from bot.handlers.bitrix24 import update_bitrix24_deal_ai_results
+        await update_bitrix24_deal_ai_results(webhook_url, deal_id, extraction, formatted)
+        logger.info(f"Bitrix24 webhook: deal {deal_id} updated with AI results")
+
+    except Exception as e:
+        logger.error(f"Bitrix24 AI analyze webhook error for deal {deal_id}: {e}", exc_info=True)
+
+
+async def bitrix24_analyze_handler(request):
+    """
+    POST /webhook/bitrix24/analyze — вебхук от Битрикс24 для запуска AI анализа.
+
+    Битрикс24 вызывает этот URL при смене стадии (через Автоматизацию).
+    Параметры:
+        ?secret=TOKEN  — опциональная защита (env BITRIX24_ANALYZE_SECRET)
+    Body JSON: {"deal_id": "123"}  или {"document_id": ["DEAL", "123"]}
+    """
+    secret = request.query.get('secret', '')
+    expected = os.environ.get('BITRIX24_ANALYZE_SECRET', '')
+    if expected and secret != expected:
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    deal_id = ''
+    try:
+        body = await request.json()
+        deal_id = str(
+            body.get('deal_id') or
+            body.get('id') or
+            (body.get('document_id', [None, None])[1] if isinstance(body.get('document_id'), list) else '') or
+            body.get('data', {}).get('FIELDS', {}).get('ID', '')
+        ).strip()
+    except Exception:
+        try:
+            params = dict(await request.post())
+            deal_id = str(params.get('deal_id') or params.get('id', '')).strip()
+        except Exception:
+            pass
+
+    if not deal_id or deal_id == 'None':
+        return web.json_response({'error': 'deal_id required'}, status=400)
+
+    # Запускаем анализ в фоне — сразу отвечаем Битриксу OK
+    asyncio.create_task(_process_bitrix24_ai_analyze(deal_id))
+    return web.json_response({'ok': True, 'deal_id': deal_id})
+
+
 async def start_health_check_server(port: int = 8080):
     """
     Запуск health check HTTP сервера.
@@ -294,6 +370,9 @@ async def start_health_check_server(port: int = 8080):
 
     # YooKassa webhook
     app.router.add_post('/payment/webhook', yookassa_webhook_handler)
+
+    # Битрикс24 → AI анализ документации
+    app.router.add_post('/webhook/bitrix24/analyze', bitrix24_analyze_handler)
 
     # Корневой endpoint — лендинг
     app.router.add_get('/', landing_handler)

@@ -86,6 +86,71 @@ def _is_deadline_expired(submission_deadline_str: str) -> bool:
     return False
 
 
+async def update_bitrix24_deal_ai_results(
+    webhook_url: str,
+    deal_id: str,
+    extraction: dict,
+    formatted_text: str = '',
+) -> bool:
+    """
+    Обновляет сделку в Б24 результатами AI анализа документации:
+    - UF_CRM_AI_SUMMARY, UF_CRM_AI_RECOMMENDATION
+    - Перемещает в STAGE_AI
+    - Добавляет комментарий в таймлайн с полным анализом
+    """
+    import re
+
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+
+    # Определяем рекомендацию по количеству red_flags
+    red_flags = extraction.get('red_flags') or []
+    n_flags = len(red_flags) if isinstance(red_flags, list) else 0
+    if n_flags == 0:
+        ai_rec_enum = 53   # Взять
+    elif n_flags <= 2:
+        ai_rec_enum = 55   # Требует анализа
+    else:
+        ai_rec_enum = 57   # Не брать
+
+    summary = extraction.get('summary', '')
+
+    # Обновляем поля сделки + меняем стадию
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.post(webhook_url + 'crm.deal.update.json', json={
+                'id': deal_id,
+                'fields': {
+                    'STAGE_ID': STAGE_AI,
+                    'UF_CRM_AI_SUMMARY': summary,
+                    'UF_CRM_AI_RECOMMENDATION': ai_rec_enum,
+                },
+            }) as resp:
+                if resp.status != 200:
+                    logger.warning(f"update_ai_results HTTP {resp.status}")
+    except Exception as e:
+        logger.error(f"update_bitrix24_deal_ai_results crm.deal.update error: {e}")
+
+    # Добавляем комментарий в таймлайн с полным анализом
+    if formatted_text:
+        try:
+            clean = re.sub(r'<[^>]+>', '', formatted_text).strip()
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.post(webhook_url + 'crm.timeline.comment.add.json', json={
+                    'fields': {
+                        'ENTITY_ID': int(deal_id),
+                        'ENTITY_TYPE': 'deal',
+                        'COMMENT': f'📄 AI анализ документации\n\n{clean}',
+                    },
+                }) as resp:
+                    if resp.status != 200:
+                        logger.debug(f"timeline comment HTTP {resp.status}")
+        except Exception as e:
+            logger.debug(f"timeline comment error: {e}")
+
+    return True
+
+
 async def update_bitrix24_deal_stage(webhook_url: str, deal_id: str, stage_id: str) -> bool:
     """
     Перемещает сделку на указанный этап через crm.deal.update.

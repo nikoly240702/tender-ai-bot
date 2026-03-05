@@ -520,7 +520,7 @@ def _extract_tender_number(text: str) -> str | None:
     return None
 
 
-async def _run_ai_analysis(tender_number: str, subscription_tier: str) -> tuple[str, bool]:
+async def _run_ai_analysis(tender_number: str, subscription_tier: str) -> tuple[str, bool, dict]:
     """
     Скачать документы → извлечь текст → AI анализ → форматировать.
 
@@ -578,7 +578,7 @@ async def _run_ai_analysis(tender_number: str, subscription_tier: str) -> tuple[
     )
 
     formatted = format_extraction_for_telegram(extraction, is_ai)
-    return formatted, is_ai
+    return formatted, is_ai, extraction
 
 
 @router.message(Command("analyze"))
@@ -719,7 +719,7 @@ async def _do_analyze(message: Message, tender_number: str, subscription_tier: s
     )
 
     try:
-        formatted, is_ai = await _run_ai_analysis(tender_number, subscription_tier)
+        formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
 
         await status_msg.edit_text(
             formatted,
@@ -734,9 +734,9 @@ async def _do_analyze(message: Message, tender_number: str, subscription_tier: s
             ])
         )
 
-        # Если сделка уже в Битрикс24 — перемещаем на AI-этап
+        # Если сделка уже в Битрикс24 — обновляем AI поля и перемещаем на AI-этап
         try:
-            from bot.handlers.bitrix24 import update_bitrix24_deal_stage, STAGE_AI
+            from bot.handlers.bitrix24 import update_bitrix24_deal_ai_results
             from tender_sniper.database import get_sniper_db as _get_db
             _db = await _get_db()
             _user = await _db.get_user_by_telegram_id(message.from_user.id)
@@ -746,10 +746,10 @@ async def _do_analyze(message: Message, tender_number: str, subscription_tier: s
                     _notif = await _db.get_notification_by_tender_number(_user['id'], tender_number)
                     _deal_id = _notif.get('bitrix24_deal_id') if _notif else None
                     if _deal_id:
-                        await update_bitrix24_deal_stage(_webhook, _deal_id, STAGE_AI)
-                        logger.info(f"Bitrix24 deal {_deal_id} moved to AI stage after _do_analyze")
+                        await update_bitrix24_deal_ai_results(_webhook, _deal_id, extraction, formatted)
+                        logger.info(f"Bitrix24 deal {_deal_id} updated with AI results after _do_analyze")
         except Exception as _bx_err:
-            logger.debug(f"Bitrix24 stage update after _do_analyze: {_bx_err}")
+            logger.debug(f"Bitrix24 AI results update after _do_analyze: {_bx_err}")
 
     except ImportError as ie:
         logger.error(f"Модуль не найден: {ie}")

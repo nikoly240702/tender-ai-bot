@@ -3775,7 +3775,7 @@ async def analyze_tender_documentation(callback: CallbackQuery):
         try:
             from bot.handlers.webapp import _run_ai_analysis
 
-            formatted, is_ai = await _run_ai_analysis(tender_number, subscription_tier)
+            formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
 
             await status_msg.edit_text(
                 formatted,
@@ -3789,19 +3789,19 @@ async def analyze_tender_documentation(callback: CallbackQuery):
                 ])
             )
 
-            # Если сделка уже в Битрикс24 — перемещаем на AI-этап
+            # Если сделка уже в Битрикс24 — обновляем AI поля и перемещаем на AI-этап
             try:
-                from bot.handlers.bitrix24 import update_bitrix24_deal_stage, STAGE_AI
+                from bot.handlers.bitrix24 import update_bitrix24_deal_ai_results
                 user_data = user.get('data') or {}
                 webhook_url = user_data.get('bitrix24_webhook_url', '')
                 if webhook_url:
                     notif = await db.get_notification_by_tender_number(user['id'], tender_number)
                     deal_id = notif.get('bitrix24_deal_id') if notif else None
                     if deal_id:
-                        await update_bitrix24_deal_stage(webhook_url, deal_id, STAGE_AI)
-                        logger.info(f"Bitrix24 deal {deal_id} moved to AI stage after analyze_docs")
+                        await update_bitrix24_deal_ai_results(webhook_url, deal_id, extraction, formatted)
+                        logger.info(f"Bitrix24 deal {deal_id} updated with AI results after analyze_docs")
             except Exception as _bx_err:
-                logger.debug(f"Bitrix24 stage update after analyze_docs: {_bx_err}")
+                logger.debug(f"Bitrix24 AI results update after analyze_docs: {_bx_err}")
 
         except ImportError as ie:
             logger.error(f"Модуль не найден: {ie}")
