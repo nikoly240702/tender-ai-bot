@@ -62,7 +62,8 @@ class YooKassaClient:
         amount: Optional[float] = None,
         days: Optional[int] = None,
         description: Optional[str] = None,
-        return_url: Optional[str] = None
+        return_url: Optional[str] = None,
+        customer_email: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Создать платёж в YooKassa.
@@ -125,7 +126,7 @@ class YooKassaClient:
                 },
                 "receipt": {
                     "customer": {
-                        "email": f"user_{telegram_id}@tendersniper.ru"
+                        "email": customer_email or f"user_{telegram_id}@tendersniper.ru"
                     },
                     "items": [
                         {

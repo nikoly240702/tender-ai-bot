@@ -37,6 +37,11 @@ class PromocodeStates(StatesGroup):
     waiting_for_code = State()
 
 
+class PaymentEmailStates(StatesGroup):
+    """Состояния для ввода email перед оплатой."""
+    waiting_for_email = State()
+
+
 # ============================================
 # Keyboard Helpers
 # ============================================
@@ -452,82 +457,62 @@ async def callback_select_tier(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("subscription_pay_"))
-async def callback_pay_tier(callback: CallbackQuery):
-    """Initiate payment for subscription via YooKassa."""
-    await callback.answer()
-
-    # Парсим callback: subscription_pay_{tier}_{months}
-    # ai_unlimited содержит underscore, обрабатываем отдельно
-    raw = callback.data.replace("subscription_pay_", "")
+def _parse_pay_callback(data: str) -> tuple[str, int]:
+    """Парсим callback_data → (tier_name, months)."""
+    raw = data.replace("subscription_pay_", "")
     if raw.startswith("ai_unlimited_"):
-        tier_name = "ai_unlimited"
-        months = int(raw.split("_")[-1])
-    else:
-        parts = raw.split("_")
-        tier_name = parts[0]
-        months = int(parts[1]) if len(parts) > 1 else 1
+        return "ai_unlimited", int(raw.split("_")[-1])
+    parts = raw.split("_")
+    return parts[0], int(parts[1]) if len(parts) > 1 else 1
 
-    # ai_unlimited — аддон, нет в SUBSCRIPTION_TIERS
+
+async def _do_create_payment(message, telegram_id: int, tier_name: str, months: int, customer_email: str):
+    """Создаёт платёж и отправляет ссылку пользователю."""
     if tier_name == "ai_unlimited":
         tier_info = {"name": "AI Unlimited", "emoji": "🤖"}
     else:
         tier_info = SUBSCRIPTION_TIERS.get(tier_name)
     if not tier_info:
-        await callback.message.answer("❌ Тариф не найден")
+        await message.answer("❌ Тариф не найден")
         return
 
-    # Рассчитываем цену со скидкой
     price_info = calculate_price(tier_name, months)
 
-    # Интеграция с YooKassa
     try:
         from tender_sniper.payments import get_yookassa_client
-
         client = get_yookassa_client()
 
         if not client.is_configured:
-            # YooKassa не настроена - показываем заглушку
-            await callback.message.edit_text(
-                f"""
-💳 <b>Оплата тарифа {tier_info['name']}</b>
-
-Период: <b>{price_info['label']}</b>
-Сумма: <b>{price_info['final_price']} ₽</b>
-
-🚧 <i>Платежная система временно недоступна.</i>
-
-Для активации подписки обратитесь к администратору.
-""",
+            await message.answer(
+                f"🚧 <i>Платежная система временно недоступна.</i>\n"
+                f"Обратитесь к администратору.",
                 parse_mode="HTML",
                 reply_markup=get_back_to_menu_keyboard()
             )
             return
 
-        # Создаём платёж с учётом периода
         result = client.create_payment(
-            telegram_id=callback.from_user.id,
+            telegram_id=telegram_id,
             tier=tier_name,
             amount=price_info['final_price'],
             days=price_info['days'],
-            description=f"Подписка {tier_info['name']} на {price_info['label']}"
+            description=f"Подписка {tier_info['name']} на {price_info['label']}",
+            customer_email=customer_email
         )
 
         if 'error' in result:
-            await callback.message.edit_text(
+            await message.answer(
                 f"❌ Ошибка создания платежа: {result['error']}",
                 parse_mode="HTML",
                 reply_markup=get_back_to_menu_keyboard()
             )
             return
 
-        # Формируем текст со скидкой
         if price_info['has_discount']:
             price_text = f"<s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b> (экономия {price_info['discount_amount']} ₽)"
         else:
             price_text = f"<b>{price_info['final_price']} ₽</b>"
 
-        # Отправляем ссылку на оплату
         payment_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(
                 text=f"💳 Оплатить {price_info['final_price']} ₽",
@@ -539,58 +524,110 @@ async def callback_pay_tier(callback: CallbackQuery):
             )],
         ])
 
-        await callback.message.edit_text(
-            f"""
-💳 <b>Оплата тарифа {tier_info['name']}</b>
-
-📅 Период: <b>{price_info['label']}</b>
-💰 Сумма: {price_text}
-
-Нажмите кнопку ниже для перехода к оплате.
-После успешной оплаты подписка активируется автоматически.
-
-⏳ <i>Ссылка действительна 15 минут</i>
-""",
+        await message.answer(
+            f"💳 <b>Оплата тарифа {tier_info['name']}</b>\n\n"
+            f"📅 Период: <b>{price_info['label']}</b>\n"
+            f"💰 Сумма: {price_text}\n"
+            f"📧 Чек будет отправлен на: <code>{customer_email}</code>\n\n"
+            f"Нажмите кнопку ниже для перехода к оплате.\n"
+            f"После успешной оплаты подписка активируется автоматически.\n\n"
+            f"⏳ <i>Ссылка действительна 15 минут</i>",
             parse_mode="HTML",
             reply_markup=payment_keyboard
         )
 
-        logger.info(f"Payment created for user {callback.from_user.id}, tier {tier_name}, months {months}, amount {price_info['final_price']}, payment_id {result['payment_id']}")
+        logger.info(f"Payment created for user {telegram_id}, tier {tier_name}, months {months}, amount {price_info['final_price']}, payment_id {result['payment_id']}")
 
-        # Track subscription purchase intent
         import asyncio
         try:
             from bot.analytics import track_subscription_action
             asyncio.create_task(track_subscription_action(
-                callback.from_user.id, 'purchased',
+                telegram_id, 'purchased',
                 tier=tier_name, amount=price_info['final_price']
             ))
         except Exception:
             pass
 
-    except ImportError:
-        logger.warning("YooKassa module not available")
-        await callback.message.edit_text(
-            f"""
-💳 <b>Оплата тарифа {tier_info['name']}</b>
-
-Период: <b>{price_info['label']}</b>
-Сумма: <b>{price_info['final_price']} ₽</b>
-
-🚧 <i>Платежный модуль не установлен.</i>
-
-Для активации подписки обратитесь к администратору.
-""",
-            parse_mode="HTML",
-            reply_markup=get_back_to_menu_keyboard()
-        )
     except Exception as e:
         logger.error(f"Payment error: {e}", exc_info=True)
-        await callback.message.edit_text(
+        await message.answer(
             f"❌ Ошибка: {str(e)}",
             parse_mode="HTML",
             reply_markup=get_back_to_menu_keyboard()
         )
+
+
+@router.callback_query(F.data.startswith("subscription_pay_"))
+async def callback_pay_tier(callback: CallbackQuery, state: FSMContext):
+    """Initiate payment for subscription via YooKassa."""
+    await callback.answer()
+
+    tier_name, months = _parse_pay_callback(callback.data)
+
+    db = await get_sniper_db()
+    user = await db.get_user_by_telegram_id(callback.from_user.id)
+
+    # Проверяем есть ли сохранённый email
+    saved_email = None
+    if user:
+        user_data = user.get('data') or {}
+        saved_email = user_data.get('payment_email')
+
+    if saved_email:
+        # Email уже есть — сразу создаём платёж
+        await _do_create_payment(callback.message, callback.from_user.id, tier_name, months, saved_email)
+    else:
+        # Спрашиваем email (один раз в жизни)
+        await state.set_state(PaymentEmailStates.waiting_for_email)
+        await state.update_data(tier_name=tier_name, months=months)
+
+        await callback.message.edit_text(
+            "📧 <b>Введите ваш email для отправки чека</b>\n\n"
+            "По закону (54-ФЗ) мы обязаны отправить кассовый чек на ваш email.\n"
+            "Email сохранится — при следующих оплатах вводить не нужно.",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Отмена", callback_data="subscription_email_cancel")]
+            ])
+        )
+
+
+@router.callback_query(F.data == "subscription_email_cancel")
+async def callback_email_cancel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await state.clear()
+    await show_subscription_status(callback.message, callback.from_user.id)
+
+
+@router.message(PaymentEmailStates.waiting_for_email)
+async def process_payment_email(message: Message, state: FSMContext):
+    """Сохраняем email и создаём платёж."""
+    import re
+    email = message.text.strip().lower()
+
+    if not re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email):
+        await message.answer(
+            "❌ Некорректный email. Попробуйте ещё раз:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Отмена", callback_data="subscription_email_cancel")]
+            ])
+        )
+        return
+
+    data = await state.get_data()
+    tier_name = data.get('tier_name')
+    months = data.get('months', 1)
+    await state.clear()
+
+    # Сохраняем email в user.data
+    db = await get_sniper_db()
+    user = await db.get_user_by_telegram_id(message.from_user.id)
+    if user:
+        user_data = user.get('data') or {}
+        user_data['payment_email'] = email
+        await db.update_user_json_data(user['id'], user_data)
+
+    await _do_create_payment(message, message.from_user.id, tier_name, months, email)
 
 
 @router.callback_query(F.data == "subscription_tiers")
