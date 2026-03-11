@@ -342,6 +342,8 @@ async def create_bitrix24_deal(
     law_enum = _map_law_enum(law_type)
     if law_enum:
         fields['UF_CRM_TENDER_LAW'] = law_enum
+    if assignee['observers']:
+        fields['UF_CRM_OBSERVERS'] = assignee['observers']
 
     if not webhook_url.endswith('/'):
         webhook_url += '/'
