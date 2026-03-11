@@ -237,6 +237,54 @@ def _map_ai_rec_enum(ai_recommendation: str) -> int:
     return 55
 
 
+# ============================================
+# МАППИНГ ФИЛЬТРОВ → ОТВЕТСТВЕННЫЕ В Б24
+# ============================================
+# Ключ: подстрока имени фильтра (lowercase)
+# Значение: {'assigned': bitrix24_user_id, 'observers': [user_ids]}
+
+FILTER_ASSIGNEE_MAP = [
+    # Анастасия Жулькова (ID=21)
+    {'match': 'мебель', 'assigned': 21},
+    {'match': 'компы', 'assigned': 21},
+    {'match': 'орг. техника', 'assigned': 21, 'observers': [17]},  # Мария (17) наблюдатель
+
+    # Мария Логинова (ID=17)
+    {'match': 'разное', 'assigned': 17},
+    {'match': 'сборная прочее', 'assigned': 17},
+
+    # Николай Логинов (ID=15)
+    {'match': 'бумага', 'assigned': 15},
+    {'match': 'канцеляр', 'assigned': 15},
+]
+
+# Администратор (ID=1) и Олег Гордеев (ID=19) видят всё через права CRM
+BITRIX24_FULL_ACCESS_USERS = [1, 19]
+
+
+def _get_assignee_for_filter(filter_name: str) -> dict:
+    """
+    Определяет ответственного по имени фильтра.
+
+    Returns:
+        {'assigned_by_id': int, 'observers': list[int]}
+        Если совпадения нет — assigned_by_id=1 (админ).
+    """
+    if not filter_name:
+        return {'assigned_by_id': 1, 'observers': []}
+
+    name_lower = filter_name.lower()
+    for rule in FILTER_ASSIGNEE_MAP:
+        if rule['match'] in name_lower:
+            return {
+                'assigned_by_id': rule['assigned'],
+                'observers': rule.get('observers', [])
+            }
+
+    # Дефолт — на администратора
+    return {'assigned_by_id': 1, 'observers': []}
+
+
 async def create_bitrix24_deal(
     webhook_url: str,
     tender_number: str,
@@ -268,6 +316,9 @@ async def create_bitrix24_deal(
             except ValueError:
                 continue
 
+    # Определяем ответственного по имени фильтра
+    assignee = _get_assignee_for_filter(filter_name)
+
     fields: dict = {
         'TITLE': (tender_name[:255] if tender_name else f'Тендер № {tender_number}'),
         'OPPORTUNITY': tender_price or 0,
@@ -275,6 +326,7 @@ async def create_bitrix24_deal(
         'SOURCE_ID': 'WEB',
         'SOURCE_DESCRIPTION': 'TenderSniper Bot',
         'STAGE_ID': stage_id,
+        'ASSIGNED_BY_ID': assignee['assigned_by_id'],
         # Кастомные поля карточки
         'UF_CRM_TENDER_NUMBER': tender_number,
         'UF_CRM_TENDER_CUSTOMER': tender_customer or '',
@@ -302,6 +354,11 @@ async def create_bitrix24_deal(
                     data = await resp.json()
                     result = data.get('result')
                     if result and isinstance(result, int):
+                        logger.info(
+                            f"✅ Б24 сделка #{result} создана: "
+                            f"фильтр='{filter_name}', "
+                            f"ответственный={assignee['assigned_by_id']}"
+                        )
                         return result
                     logger.warning(f"Bitrix24 deal.add unexpected result: {data}")
                     return None
