@@ -85,6 +85,10 @@ class TenderSniperService:
 
         self._running = False
 
+        # Дедупликация: (chat_id, tender_number) — персистентный между циклами
+        self._seen_tenders: set = set()
+        self._seen_tenders_reset_at: Optional[datetime] = None
+
     async def initialize(self):
         """Инициализация всех компонентов."""
         logger.info("="*70)
@@ -263,7 +267,13 @@ class TenderSniperService:
 
             # Фаза 2: Последовательная обработка результатов + отправка
             # (деdup, quota check, send — всё в одном потоке, без race conditions)
-            seen_tenders = set()  # (chat_id, tender_number) — глобальная дедупликация
+            # Дедупликация: используем персистентный set (между циклами), сброс раз в сутки
+            now = datetime.utcnow()
+            if not self._seen_tenders_reset_at or (now - self._seen_tenders_reset_at).total_seconds() > 86400:
+                self._seen_tenders = set()
+                self._seen_tenders_reset_at = now
+                logger.info("   🔄 Сброс кэша дедупликации (24ч)")
+            seen_tenders = self._seen_tenders
             sent_count = 0
             failed_count = 0
             search_error_count = 0
@@ -366,6 +376,15 @@ class TenderSniperService:
                         dedup_key = (target_chat_id, tender_number)
                         if dedup_key in seen_tenders:
                             continue
+
+                        # Для групповых чатов: проверяем, не отправлял ли уже ДРУГОЙ пользователь
+                        if target_chat_id < 0:
+                            already_in_chat = await self.db.is_tender_sent_to_chat(tender_number, target_chat_id)
+                            if already_in_chat:
+                                seen_tenders.add(dedup_key)
+                                logger.info(f"      🔄 Дубль в групповом чате: {tender_number} → {target_chat_id}, пропуск")
+                                continue
+
                         seen_tenders.add(dedup_key)
                         notifications_to_send.append({
                             'user_id': user_id,

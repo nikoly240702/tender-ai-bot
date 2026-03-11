@@ -1007,6 +1007,35 @@ class TenderSniperDB:
             )
             return result.first() is not None
 
+    async def is_tender_sent_to_chat(self, tender_number: str, chat_id: int) -> bool:
+        """Проверка, было ли уже отправлено уведомление о тендере в чат (любым пользователем).
+
+        Для дедупликации в групповых чатах, где разные пользователи
+        имеют фильтры, совпадающие с одним и тем же тендером.
+        """
+        async with DatabaseSession() as session:
+            # Находим всех пользователей, чьи фильтры шлют в этот чат
+            from database import SniperFilter as SniperFilterModel_
+            filter_result = await session.execute(
+                select(SniperFilterModel_.user_id).where(
+                    SniperFilterModel_.notify_chat_ids.contains([chat_id])
+                ).distinct()
+            )
+            user_ids = [row[0] for row in filter_result.all()]
+
+            if not user_ids:
+                return False
+
+            result = await session.execute(
+                select(SniperNotificationModel.id).where(
+                    and_(
+                        SniperNotificationModel.tender_number == tender_number,
+                        SniperNotificationModel.user_id.in_(user_ids)
+                    )
+                ).limit(1)
+            )
+            return result.first() is not None
+
     async def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         """
         Получение статистики пользователя.
