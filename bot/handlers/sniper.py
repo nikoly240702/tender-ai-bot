@@ -590,8 +590,8 @@ async def show_my_filters(callback: CallbackQuery):
             )
             user = await db.get_user_by_telegram_id(callback.from_user.id)
 
-        # Получаем фильтры
-        filters = await db.get_active_filters(user['id'])
+        # Получаем все фильтры (включая приостановленные)
+        filters = await db.get_user_filters(user['id'], active_only=False)
 
         # Проверяем корзину
         deleted_filters = await db.get_deleted_filters(user['id'])
@@ -620,6 +620,8 @@ async def show_my_filters(callback: CallbackQuery):
 
         keyboard_buttons = []
         for i, f in enumerate(filters, 1):
+            is_active = f.get('is_active', True)
+            status_icon = "✅" if is_active else "⏸️"
             keywords = f.get('keywords', [])
             price_range = ""
             if f.get('price_min') or f.get('price_max'):
@@ -628,7 +630,7 @@ async def show_my_filters(callback: CallbackQuery):
                 price_range = f"{price_min} - {price_max} ₽"
 
             filters_text += (
-                f"{i}. <b>{f['name']}</b>\n"
+                f"{i}. {status_icon} <b>{f['name']}</b>\n"
                 f"   🔑 {', '.join(keywords[:3])}\n"
             )
             if price_range:
@@ -637,9 +639,10 @@ async def show_my_filters(callback: CallbackQuery):
             filters_text += f"   📊 Совпадений: {f.get('match_count', 0)}\n\n"
 
             # Кнопки для каждого фильтра
+            btn_prefix = "📝" if is_active else "⏸️"
             keyboard_buttons.append([
                 InlineKeyboardButton(
-                    text=f"📝 {f['name'][:20]}",
+                    text=f"{btn_prefix} {f['name'][:20]}",
                     callback_data=f"sniper_filter_{f['id']}"
                 )
             ])
@@ -702,8 +705,8 @@ async def show_my_filters_message(message: Message):
             )
             user = await db.get_user_by_telegram_id(message.from_user.id)
 
-        # Получаем фильтры
-        filters = await db.get_active_filters(user['id'])
+        # Получаем все фильтры (включая приостановленные)
+        filters = await db.get_user_filters(user['id'], active_only=False)
 
         # Проверяем корзину
         deleted_filters = await db.get_deleted_filters(user['id'])
@@ -732,6 +735,8 @@ async def show_my_filters_message(message: Message):
 
         keyboard_buttons = []
         for i, f in enumerate(filters, 1):
+            is_active = f.get('is_active', True)
+            status_icon = "✅" if is_active else "⏸️"
             keywords = f.get('keywords', [])
             price_range = ""
             if f.get('price_min') or f.get('price_max'):
@@ -740,7 +745,7 @@ async def show_my_filters_message(message: Message):
                 price_range = f"{price_min} - {price_max} ₽"
 
             filters_text += (
-                f"{i}. <b>{f['name']}</b>\n"
+                f"{i}. {status_icon} <b>{f['name']}</b>\n"
                 f"   🔑 {', '.join(keywords[:3])}\n"
             )
             if price_range:
@@ -749,9 +754,10 @@ async def show_my_filters_message(message: Message):
             filters_text += f"   📊 Совпадений: {f.get('match_count', 0)}\n\n"
 
             # Кнопки для каждого фильтра
+            btn_prefix = "📝" if is_active else "⏸️"
             keyboard_buttons.append([
                 InlineKeyboardButton(
-                    text=f"📝 {f['name'][:20]}",
+                    text=f"{btn_prefix} {f['name'][:20]}",
                     callback_data=f"sniper_filter_{f['id']}"
                 )
             ])
@@ -2100,8 +2106,8 @@ async def confirm_delete_all_filters(callback: CallbackQuery):
             await callback.message.answer("❌ Пользователь не найден")
             return
 
-        # Получаем количество фильтров
-        filters = await db.get_active_filters(user['id'])
+        # Получаем все фильтры (включая приостановленные)
+        filters = await db.get_user_filters(user['id'], active_only=False)
         filters_count = len(filters)
 
         if filters_count == 0:
