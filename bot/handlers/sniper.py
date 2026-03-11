@@ -1923,7 +1923,8 @@ async def toggle_filter_status(callback: CallbackQuery):
 
         await callback.answer(f"Фильтр {status_text}", show_alert=True)
 
-        # Обновляем отображение фильтра
+        # Обновляем отображение фильтра - подменяем callback.data для корректного парсинга
+        callback.data = f"sniper_filter_{filter_id}"
         await show_filter_details(callback)
 
     except Exception as e:

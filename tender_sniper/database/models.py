@@ -504,9 +504,9 @@ class TenderSniperDB:
             now = datetime.now()
 
             if tier == 'trial':
-                # Для trial тарифа устанавливаем 7 дней
+                # Для trial тарифа устанавливаем 14 дней
                 start = now.isoformat()
-                end = (now + timedelta(days=7)).isoformat()
+                end = (now + timedelta(days=14)).isoformat()
                 await db.execute("""
                     UPDATE sniper_users
                     SET subscription_tier = 'trial',
