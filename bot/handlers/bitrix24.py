@@ -247,6 +247,7 @@ FILTER_ASSIGNEE_MAP = [
     # Анастасия Жулькова (ID=21)
     {'match': 'мебель', 'assigned': 21},
     {'match': 'компы', 'assigned': 21},
+    {'match': 'комп', 'assigned': 21},
     {'match': 'орг. техника', 'assigned': 21, 'observers': [17]},  # Мария (17) наблюдатель
 
     # Мария Логинова (ID=17)
