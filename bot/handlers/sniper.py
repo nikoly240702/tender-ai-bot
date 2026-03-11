@@ -1027,119 +1027,122 @@ async def get_filter_statistics(filter_id: int, user_id: int) -> dict:
     return stats
 
 
+async def _render_filter_details(callback: CallbackQuery, filter_id: int):
+    """Отрисовка детальной информации о фильтре (общая логика)."""
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+
+    if not filter_data:
+        await callback.message.answer("❌ Фильтр не найден")
+        return
+
+    # Получаем user_id
+    sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
+    user_id = sniper_user['id'] if sniper_user else 0
+
+    # Формируем текст с информацией о фильтре
+    keywords = filter_data.get('keywords', [])
+    exclude_keywords = filter_data.get('exclude_keywords', [])
+    price_min = filter_data.get('price_min')
+    price_max = filter_data.get('price_max')
+    regions = filter_data.get('regions', [])
+    law_type = filter_data.get('law_type')
+    tender_types = filter_data.get('tender_types', [])
+    is_active = filter_data.get('is_active', True)
+
+    status_emoji = "✅" if is_active else "⏸️"
+    status_text = "Активен" if is_active else "Приостановлен"
+
+    text = f"📋 <b>Фильтр: {filter_data['name']}</b>\n\n"
+    text += f"Статус: {status_emoji} {status_text}\n\n"
+
+    if keywords:
+        text += f"🔑 <b>Ключевые слова:</b>\n{', '.join(keywords)}\n\n"
+
+    if exclude_keywords:
+        text += f"🚫 <b>Исключить:</b>\n{', '.join(exclude_keywords)}\n\n"
+
+    if price_min or price_max:
+        price_min_str = f"{price_min:,}" if price_min else "0"
+        price_max_str = f"{price_max:,}" if price_max else "∞"
+        text += f"💰 <b>Цена:</b> {price_min_str} - {price_max_str} ₽\n\n"
+
+    if regions:
+        text += f"📍 <b>Регионы:</b> {', '.join(regions[:3])}"
+        if len(regions) > 3:
+            text += f" и еще {len(regions) - 3}"
+        text += "\n\n"
+
+    if law_type:
+        text += f"📜 <b>Закон:</b> {law_type}\n\n"
+
+    if tender_types:
+        text += f"📦 <b>Тип закупки:</b> {', '.join(tender_types)}\n\n"
+
+    # Добавляем статистику фильтра
+    stats = await get_filter_statistics(filter_id, user_id)
+
+    text += "━━━━━━━━━━━━━━━\n"
+    text += "📊 <b>СТАТИСТИКА</b>\n\n"
+    text += f"📬 Найдено тендеров: <b>{stats['total_found']}</b>\n"
+    text += f"⭐ В избранном: <b>{stats['favorites_added']}</b>\n"
+    text += f"👎 Скрыто: <b>{stats['hidden']}</b>\n"
+
+    # Индикатор эффективности
+    eff = stats['effectiveness']
+    if eff >= 70:
+        eff_emoji = "🟢"
+    elif eff >= 40:
+        eff_emoji = "🟡"
+    else:
+        eff_emoji = "🔴"
+    text += f"{eff_emoji} Эффективность: <b>{eff}%</b>\n\n"
+
+    # Рекомендации
+    if stats['recommendations']:
+        text += "💡 <b>Рекомендации:</b>\n"
+        for rec in stats['recommendations'][:2]:
+            text += f"• {rec}\n"
+
+    # Кнопки управления фильтром
+    keyboard_buttons = [
+        [InlineKeyboardButton(
+            text="✏️ Редактировать",
+            callback_data=f"edit_filter_menu_{filter_id}"
+        )],
+        [InlineKeyboardButton(
+            text="📋 Дублировать фильтр",
+            callback_data=f"duplicate_filter_{filter_id}"
+        )],
+        [InlineKeyboardButton(
+            text="⏸️ Приостановить" if is_active else "▶️ Возобновить",
+            callback_data=f"toggle_filter_{filter_id}"
+        )],
+        [InlineKeyboardButton(
+            text="🗑️ Удалить фильтр",
+            callback_data=f"delete_filter_{filter_id}"
+        )],
+        [InlineKeyboardButton(text="« Назад к фильтрам", callback_data="sniper_my_filters")],
+        [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
+    ]
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+
+    await callback.message.edit_text(
+        text,
+        reply_markup=keyboard,
+        parse_mode="HTML"
+    )
+
+
 @router.callback_query(F.data.startswith("sniper_filter_"))
 async def show_filter_details(callback: CallbackQuery):
     """Показать детальную информацию о фильтре."""
     await callback.answer()
 
     try:
-        # Извлекаем ID фильтра
         filter_id = int(callback.data.replace("sniper_filter_", ""))
-
-        db = await get_sniper_db()
-        filter_data = await db.get_filter_by_id(filter_id)
-
-        if not filter_data:
-            await callback.message.answer("❌ Фильтр не найден")
-            return
-
-        # Получаем user_id
-        sniper_user = await db.get_user_by_telegram_id(callback.from_user.id)
-        user_id = sniper_user['id'] if sniper_user else 0
-
-        # Формируем текст с информацией о фильтре
-        keywords = filter_data.get('keywords', [])
-        exclude_keywords = filter_data.get('exclude_keywords', [])
-        price_min = filter_data.get('price_min')
-        price_max = filter_data.get('price_max')
-        regions = filter_data.get('regions', [])
-        law_type = filter_data.get('law_type')
-        tender_types = filter_data.get('tender_types', [])
-        is_active = filter_data.get('is_active', True)
-
-        status_emoji = "✅" if is_active else "⏸️"
-        status_text = "Активен" if is_active else "Приостановлен"
-
-        text = f"📋 <b>Фильтр: {filter_data['name']}</b>\n\n"
-        text += f"Статус: {status_emoji} {status_text}\n\n"
-
-        if keywords:
-            text += f"🔑 <b>Ключевые слова:</b>\n{', '.join(keywords)}\n\n"
-
-        if exclude_keywords:
-            text += f"🚫 <b>Исключить:</b>\n{', '.join(exclude_keywords)}\n\n"
-
-        if price_min or price_max:
-            price_min_str = f"{price_min:,}" if price_min else "0"
-            price_max_str = f"{price_max:,}" if price_max else "∞"
-            text += f"💰 <b>Цена:</b> {price_min_str} - {price_max_str} ₽\n\n"
-
-        if regions:
-            text += f"📍 <b>Регионы:</b> {', '.join(regions[:3])}"
-            if len(regions) > 3:
-                text += f" и еще {len(regions) - 3}"
-            text += "\n\n"
-
-        if law_type:
-            text += f"📜 <b>Закон:</b> {law_type}\n\n"
-
-        if tender_types:
-            text += f"📦 <b>Тип закупки:</b> {', '.join(tender_types)}\n\n"
-
-        # Добавляем статистику фильтра
-        stats = await get_filter_statistics(filter_id, user_id)
-
-        text += "━━━━━━━━━━━━━━━\n"
-        text += "📊 <b>СТАТИСТИКА</b>\n\n"
-        text += f"📬 Найдено тендеров: <b>{stats['total_found']}</b>\n"
-        text += f"⭐ В избранном: <b>{stats['favorites_added']}</b>\n"
-        text += f"👎 Скрыто: <b>{stats['hidden']}</b>\n"
-
-        # Индикатор эффективности
-        eff = stats['effectiveness']
-        if eff >= 70:
-            eff_emoji = "🟢"
-        elif eff >= 40:
-            eff_emoji = "🟡"
-        else:
-            eff_emoji = "🔴"
-        text += f"{eff_emoji} Эффективность: <b>{eff}%</b>\n\n"
-
-        # Рекомендации
-        if stats['recommendations']:
-            text += "💡 <b>Рекомендации:</b>\n"
-            for rec in stats['recommendations'][:2]:
-                text += f"• {rec}\n"
-
-        # Кнопки управления фильтром
-        keyboard_buttons = [
-            [InlineKeyboardButton(
-                text="✏️ Редактировать",
-                callback_data=f"edit_filter_menu_{filter_id}"
-            )],
-            [InlineKeyboardButton(
-                text="📋 Дублировать фильтр",
-                callback_data=f"duplicate_filter_{filter_id}"
-            )],
-            [InlineKeyboardButton(
-                text="⏸️ Приостановить" if is_active else "▶️ Возобновить",
-                callback_data=f"toggle_filter_{filter_id}"
-            )],
-            [InlineKeyboardButton(
-                text="🗑️ Удалить фильтр",
-                callback_data=f"delete_filter_{filter_id}"
-            )],
-            [InlineKeyboardButton(text="« Назад к фильтрам", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]
-        ]
-
-        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
-        await callback.message.edit_text(
-            text,
-            reply_markup=keyboard,
-            parse_mode="HTML"
-        )
+        await _render_filter_details(callback, filter_id)
 
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
@@ -1929,9 +1932,8 @@ async def toggle_filter_status(callback: CallbackQuery):
 
         await callback.answer(f"Фильтр {status_text}", show_alert=True)
 
-        # Обновляем отображение фильтра - подменяем callback.data для корректного парсинга
-        callback.data = f"sniper_filter_{filter_id}"
-        await show_filter_details(callback)
+        # Обновляем отображение фильтра
+        await _render_filter_details(callback, filter_id)
 
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
