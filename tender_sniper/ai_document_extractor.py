@@ -81,7 +81,9 @@ class TenderDocumentExtractor:
     "payment_deadline": "срок оплаты, например '15 рабочих дней после подписания акта'. Если нет — 'Не указано'",
     "application_security": "обеспечение заявки, например '1% от НМЦК' или '50 000 руб.' или 'Не требуется'. Если нет — 'Не указано'",
     "contract_security": "обеспечение исполнения контракта, например '5% от НМЦК' или '100 000 руб.'. Если нет — 'Не указано'",
-    "bank_guarantee_allowed": "допускается ли банковская гарантия: 'Да', 'Нет' или 'Не указано'"
+    "bank_guarantee_allowed": "допускается ли банковская гарантия: 'Да', 'Нет' или 'Не указано'",
+    "staged_delivery": "Есть ли поставка ПАРТИЯМИ/по заявкам заказчика в течение длительного срока (несколько месяцев или весь год)? 'Да' если поставка разбита на несколько этапов/партий по заявкам/графику на протяжении длительного периода. 'Нет' если поставка разовая. 'Не указано' если неясно.",
+    "payment_after_all_deliveries": "Оплата производится ТОЛЬКО после ВСЕХ поставок/выполнения всего объёма? 'Да' если оплата после завершения всех поставок/этапов. 'Нет' если оплата после каждой партии/этапа. 'Не указано' если неясно."
 }
 
 ПРАВИЛА:
@@ -89,6 +91,8 @@ class TenderDocumentExtractor:
 2. Ищи "аванс", "авансовый платёж", "предоплата"
 3. Ищи "оплата", "расчёт", "срок оплаты"
 4. Указывай проценты с символом %, суммы с "руб."
+5. staged_delivery — ищи "по заявкам заказчика", "партиями", "в течение года", "согласно графику поставок", "этапы поставки", "периодическая поставка"
+6. payment_after_all_deliveries — ищи "оплата после полного исполнения", "оплата после выполнения всего объёма", "расчёт после завершения всех поставок"
 
 """
 
@@ -261,6 +265,7 @@ class TenderDocumentExtractor:
             'submission_deadline', 'execution_deadline', 'delivery_address',
             'advance_percent', 'payment_deadline', 'application_security',
             'contract_security', 'bank_guarantee_allowed',
+            'staged_delivery', 'payment_after_all_deliveries',
             'licenses_required', 'experience_required', 'summary',
         ]
 
@@ -310,6 +315,7 @@ class TenderDocumentExtractor:
             'licenses_required', 'experience_required',
             'advance_percent', 'payment_deadline',
             'application_security', 'contract_security', 'bank_guarantee_allowed',
+            'staged_delivery', 'payment_after_all_deliveries',
             'summary',
         ]
 
@@ -369,6 +375,15 @@ class TenderDocumentExtractor:
                         flags.append(f'Высокое {label}: {val}')
                 except (ValueError, TypeError):
                     pass
+
+        # Растянутая поставка партиями + оплата после всех поставок
+        staged = str(data.get('staged_delivery', '')).lower()
+        payment_after_all = str(data.get('payment_after_all_deliveries', '')).lower()
+        if staged in ('да', 'true'):
+            if payment_after_all in ('да', 'true'):
+                flags.append('Поставка партиями в течение длительного срока, оплата только после ВСЕХ поставок')
+            else:
+                flags.append('Поставка партиями/по заявкам заказчика (растянутые сроки)')
 
         # Короткий срок подачи
         submission = str(data.get('submission_deadline', ''))
@@ -476,6 +491,8 @@ class TenderDocumentExtractor:
             'application_security': 'Не указано',
             'contract_security': 'Не указано',
             'bank_guarantee_allowed': 'Да' if 'банковская гарантия' in text_lower else 'Не указано',
+            'staged_delivery': 'Не указано',
+            'payment_after_all_deliveries': 'Не указано',
             'summary': 'Требуется детальный анализ документации.',
             'red_flags': [],
             '_meta': {
@@ -524,6 +541,20 @@ class TenderDocumentExtractor:
             found_licenses.append('СРО')
         if found_licenses:
             result['licenses_required'] = ', '.join(found_licenses)
+
+        # Растянутая поставка
+        staged_patterns = ['по заявкам заказчика', 'партиями в течение', 'согласно графику поставок', 'периодическая поставка']
+        for pattern in staged_patterns:
+            if pattern in text_lower:
+                result['staged_delivery'] = 'Да'
+                break
+
+        # Оплата после всех поставок
+        payment_patterns = ['после полного исполнения', 'после выполнения всего объём', 'после завершения всех поставок', 'после исполнения всех обязательств']
+        for pattern in payment_patterns:
+            if pattern in text_lower:
+                result['payment_after_all_deliveries'] = 'Да'
+                break
 
         # Опыт
         exp_match = re.search(
@@ -630,7 +661,7 @@ def format_extraction_for_telegram(extraction: Dict[str, Any], is_ai: bool) -> s
 def _classify_red_flag(flag: str) -> str:
     """Определяет иконку для red flag: ⛔ критичный или ⚠️ жёлтый."""
     flag_lower = flag.lower()
-    critical_keywords = ['фсб', 'фстэк', 'истёк', 'истек', 'менее 3 дней', 'менее 2 дней', 'менее 1 дня', '1 день', '2 дня']
+    critical_keywords = ['фсб', 'фстэк', 'истёк', 'истек', 'менее 3 дней', 'менее 2 дней', 'менее 1 дня', '1 день', '2 дня', 'оплата только после всех', 'партиями в течение длительного']
     for kw in critical_keywords:
         if kw in flag_lower:
             return '⛔'
