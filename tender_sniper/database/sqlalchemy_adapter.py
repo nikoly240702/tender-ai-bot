@@ -1015,10 +1015,12 @@ class TenderSniperDB:
         """
         async with DatabaseSession() as session:
             # Находим всех пользователей, чьи фильтры шлют в этот чат
+            # Используем cast к text для совместимости с JSON (не JSONB)
             from database import SniperFilter as SniperFilterModel_
+            from sqlalchemy import cast, String
             filter_result = await session.execute(
                 select(SniperFilterModel_.user_id).where(
-                    SniperFilterModel_.notify_chat_ids.contains([chat_id])
+                    cast(SniperFilterModel_.notify_chat_ids, String).like(f'%{chat_id}%')
                 ).distinct()
             )
             user_ids = [row[0] for row in filter_result.all()]
