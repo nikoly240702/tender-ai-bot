@@ -2660,9 +2660,9 @@ class TenderSniperDB:
         """
         Возвращает уведомления, у которых:
         - сделка создана в Битрикс24 (bitrix24_exported=True, deal_id не пустой)
-        - срок подачи заявки уже прошёл
+        - срок подачи заявки уже прошёл (по МСК)
         """
-        now = datetime.utcnow()
+        now = datetime.utcnow() + timedelta(hours=3)  # МСК = UTC+3
         async with DatabaseSession() as session:
             result = await session.execute(
                 select(SniperNotificationModel).where(
