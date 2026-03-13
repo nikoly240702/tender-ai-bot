@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}Яндекс Метрика{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0"><i class="bi bi-bar-chart-line me-2"></i>Яндекс Метрика</h4>
+    <div class="d-flex align-items-center gap-3">
+        <select id="periodSelect" class="form-select form-select-sm" style="width: auto;" onchange="changePeriod()">
+            <option value="7" {% if period == 7 %}selected{% endif %}>7 дней</option>
+            <option value="30" {% if period == 30 %}selected{% endif %}>30 дней</option>
+            <option value="90" {% if period == 90 %}selected{% endif %}>90 дней</option>
+        </select>
+    </div>
+</div>
+
+{% if not configured %}
+<!-- Token not configured -->
+<div class="card card-custom">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-gear text-muted" style="font-size: 48px;"></i>
+        <h5 class="mt-3">Яндекс Метрика не настроена</h5>
+        <p class="text-muted">Для подключения аналитики выполните следующие шаги:</p>
+        <div class="text-start mx-auto" style="max-width: 600px;">
+            <ol>
+                <li>Перейдите на <a href="https://oauth.yandex.ru/client/new" target="_blank">oauth.yandex.ru/client/new</a></li>
+                <li>Создайте приложение: <strong>TenderSniper Admin</strong>, платформа «Веб-сервисы»</li>
+                <li>Добавьте право: <code>metrika:read</code></li>
+                <li>Получите <code>client_id</code> → перейдите по ссылке:<br>
+                    <code>https://oauth.yandex.ru/authorize?response_type=token&client_id=&lt;CLIENT_ID&gt;</code></li>
+                <li>Скопируйте токен, добавьте в Railway env: <code>YANDEX_METRIKA_TOKEN</code></li>
+            </ol>
+        </div>
+    </div>
+</div>
+{% else %}
+
+<!-- Summary cards -->
+<div class="row g-4 mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="icon blue"><i class="bi bi-eye"></i></div>
+            <div class="value">{{ '{:,}'.format(summary.visits) }}</div>
+            <div class="label">Визиты</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="icon green"><i class="bi bi-people"></i></div>
+            <div class="value">{{ '{:,}'.format(summary.users) }}</div>
+            <div class="label">Уникальные посетители</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="icon orange"><i class="bi bi-arrow-return-left"></i></div>
+            <div class="value">{{ summary.bounce_rate }}%</div>
+            <div class="label">Отказы</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="icon purple"><i class="bi bi-clock"></i></div>
+            <div class="value">{{ '%d:%02d' | format(summary.avg_duration // 60, summary.avg_duration % 60) }}</div>
+            <div class="label">Ср. время на сайте</div>
+        </div>
+    </div>
+</div>
+
+<!-- Conversion card -->
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="icon green"><i class="bi bi-bullseye"></i></div>
+            <div class="value">{{ conversions.goal_reaches }}</div>
+            <div class="label">CTA кликов (cta_click)</div>
+            <div class="text-muted small">Конверсия: {{ conversions.conversion_rate }}%</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="icon blue"><i class="bi bi-person-plus"></i></div>
+            <div class="value">{{ registrations_count }}</div>
+            <div class="label">Регистрации в боте</div>
+            <div class="text-muted small">
+                {% if summary.users > 0 %}
+                Конверсия из посетителей: {{ ((registrations_count / summary.users) * 100) | round(1) }}%
+                {% else %}—{% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="icon orange"><i class="bi bi-cash-stack"></i></div>
+            <div class="value">{{ '{:,.0f}'.format(ad_spend) }} ₽</div>
+            <div class="label">Расход на рекламу</div>
+            <div class="text-muted small">
+                {% if registrations_count > 0 %}
+                CPA: {{ '{:,.0f}'.format(ad_spend / registrations_count) }} ₽
+                {% else %}—{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <!-- Visitors chart -->
+    <div class="col-lg-8">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-graph-up me-2"></i> Посетители и регистрации по дням
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="visitorsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Traffic sources -->
+    <div class="col-lg-4">
+        <div class="card card-custom h-100">
+            <div class="card-header">
+                <i class="bi bi-pie-chart me-2"></i> Источники трафика
+            </div>
+            <div class="card-body">
+                <div class="chart-container" style="height: 250px;">
+                    <canvas id="sourcesChart"></canvas>
+                </div>
+                <div class="mt-3">
+                    {% for source in sources %}
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <small>{{ source.name }}</small>
+                        <span class="badge bg-primary">{{ source.visits }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if configured %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Visitors + Registrations chart
+    const dailyData = {{ daily_visitors | tojson }};
+    const regData = {{ daily_registrations | tojson }};
+
+    const labels = dailyData.map(d => d.date.slice(5));
+    const visits = dailyData.map(d => d.visits);
+    const users = dailyData.map(d => d.users);
+
+    // Map registrations by date
+    const regMap = {};
+    regData.forEach(d => { regMap[d.date] = d.count; });
+    const regs = dailyData.map(d => regMap[d.date] || 0);
+
+    new Chart(document.getElementById('visitorsChart'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Визиты',
+                    data: visits,
+                    borderColor: 'rgba(102, 126, 234, 1)',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                },
+                {
+                    label: 'Уники',
+                    data: users,
+                    borderColor: 'rgba(40, 167, 69, 1)',
+                    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                },
+                {
+                    label: 'Регистрации',
+                    data: regs,
+                    borderColor: 'rgba(255, 193, 7, 1)',
+                    backgroundColor: 'rgba(255, 193, 7, 0.3)',
+                    type: 'bar',
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+
+    // Sources pie chart
+    const sourcesData = {{ sources | tojson }};
+    const colors = ['#667eea', '#28a745', '#ffc107', '#dc3545', '#764ba2', '#17a2b8', '#6c757d', '#fd7e14', '#20c997'];
+
+    if (sourcesData.length > 0) {
+        new Chart(document.getElementById('sourcesChart'), {
+            type: 'doughnut',
+            data: {
+                labels: sourcesData.map(s => s.name),
+                datasets: [{
+                    data: sourcesData.map(s => s.visits),
+                    backgroundColor: colors.slice(0, sourcesData.length),
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+});
+
+function changePeriod() {
+    const period = document.getElementById('periodSelect').value;
+    window.location.href = '/metrika?period=' + period;
+}
+</script>
+{% endif %}
+{% endblock %}

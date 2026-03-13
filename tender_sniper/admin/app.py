@@ -40,8 +40,13 @@ from database import (
     Payment,
     Referral,
     UserEvent,
+    UserFeedback,
+    TenderFavorite,
+    HiddenTender,
     DatabaseSession,
 )
+
+from tender_sniper.admin.metrika import MetrikaService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +57,15 @@ logger = logging.getLogger(__name__)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "tender2024")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+# Metrika service
+metrika_service = MetrikaService()
+
+# Tariff prices for economics calculations
+TARIFF_PRICES = {
+    'basic': 490,
+    'premium': 990,
+}
 
 # ============================================
 # FASTAPI APP
@@ -366,10 +380,34 @@ async def user_detail(
                 )
             ) or 0
 
-            # Фильтры пользователя
+            # Фильтры пользователя с stats
             filters_query = select(SniperFilter).where(SniperFilter.user_id == user.id)
             filters_result = await session.execute(filters_query)
             filters = filters_result.scalars().all()
+
+            filters_data = []
+            for f in filters:
+                notif_count = await session.scalar(
+                    select(func.count(SniperNotification.id)).where(
+                        SniperNotification.filter_id == f.id
+                    )
+                ) or 0
+                avg_score = await session.scalar(
+                    select(func.avg(SniperNotification.score)).where(
+                        SniperNotification.filter_id == f.id
+                    )
+                )
+                last_notif_result = await session.scalar(
+                    select(func.max(SniperNotification.sent_at)).where(
+                        SniperNotification.filter_id == f.id
+                    )
+                )
+                filters_data.append({
+                    "filter": f,
+                    "notif_count": notif_count,
+                    "avg_score": avg_score,
+                    "last_notif": last_notif_result,
+                })
 
             # Расчёт оставшихся дней
             now = datetime.now()
@@ -378,14 +416,66 @@ async def user_detail(
                 delta = user.trial_expires_at - now
                 days_left = delta.days if delta.days >= 0 else -1
 
+            # Events (activity timeline)
+            try:
+                events_query = (
+                    select(UserEvent)
+                    .where(UserEvent.user_id == user.id)
+                    .order_by(UserEvent.created_at.desc())
+                    .limit(50)
+                )
+                events_result = await session.execute(events_query)
+                events = events_result.scalars().all()
+            except Exception:
+                events = []
+
+            # Total notifications count
+            notifications_total = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    SniperNotification.user_id == user.id
+                )
+            ) or 0
+
+            # Payments
+            payments_query = (
+                select(Payment)
+                .where(Payment.user_id == user.id)
+                .order_by(Payment.created_at.desc())
+            )
+            payments_result = await session.execute(payments_query)
+            payments = payments_result.scalars().all()
+
+            payments_total_amount = await session.scalar(
+                select(func.sum(Payment.amount)).where(
+                    and_(Payment.user_id == user.id, Payment.status == 'succeeded')
+                )
+            ) or 0
+
+            # Referrer
+            referrer = None
+            try:
+                ref_result = await session.execute(
+                    select(Referral).where(Referral.referred_id == user.id).limit(1)
+                )
+                ref = ref_result.scalar_one_or_none()
+                if ref:
+                    referrer = await session.get(SniperUser, ref.referrer_id)
+            except Exception:
+                pass
+
         return templates.TemplateResponse("user_detail.html", {
             "request": request,
             "username": username,
             "user": user,
             "filters_count": filters_count,
             "active_filters": active_filters,
-            "filters": filters,
+            "filters_data": filters_data,
             "days_left": days_left,
+            "events": events,
+            "notifications_total": notifications_total,
+            "payments": payments,
+            "payments_total_amount": payments_total_amount,
+            "referrer": referrer,
         })
 
     except HTTPException:
@@ -1259,6 +1349,542 @@ async def analytics_page(
             "request": request,
             "error": str(e)
         })
+
+
+# ============================================
+# METRIKA (Яндекс Метрика)
+# ============================================
+
+@app.get("/metrika", response_class=HTMLResponse)
+async def metrika_page(
+    request: Request,
+    period: int = Query(30, ge=7, le=90),
+    username: str = Depends(verify_credentials)
+):
+    """Страница аналитики Яндекс Метрики."""
+    try:
+        if not metrika_service.is_configured:
+            return templates.TemplateResponse("metrika.html", {
+                "request": request,
+                "username": username,
+                "configured": False,
+                "period": period,
+            })
+
+        date_to = datetime.now().strftime('%Y-%m-%d')
+        date_from = (datetime.now() - timedelta(days=period)).strftime('%Y-%m-%d')
+
+        summary = await metrika_service.get_traffic_summary(date_from, date_to)
+        sources = await metrika_service.get_traffic_sources(date_from, date_to)
+        conversions = await metrika_service.get_goal_conversions(date_from, date_to)
+        ad_spend = await metrika_service.get_ad_spend(date_from, date_to)
+        daily_visitors = await metrika_service.get_daily_visitors(date_from, date_to)
+
+        # Registrations from DB for the same period
+        async with DatabaseSession() as session:
+            since = datetime.now() - timedelta(days=period)
+            registrations_count = await session.scalar(
+                select(func.count(SniperUser.id)).where(SniperUser.created_at >= since)
+            ) or 0
+
+            reg_query = (
+                select(
+                    func.date(SniperUser.created_at).label('date'),
+                    func.count(SniperUser.id).label('count')
+                )
+                .where(SniperUser.created_at >= since)
+                .group_by(func.date(SniperUser.created_at))
+                .order_by(func.date(SniperUser.created_at))
+            )
+            reg_result = await session.execute(reg_query)
+            daily_registrations = [
+                {'date': str(row[0]), 'count': row[1]}
+                for row in reg_result.all()
+            ]
+
+        return templates.TemplateResponse("metrika.html", {
+            "request": request,
+            "username": username,
+            "configured": True,
+            "period": period,
+            "summary": summary,
+            "sources": sources,
+            "conversions": conversions,
+            "ad_spend": ad_spend,
+            "daily_visitors": daily_visitors,
+            "daily_registrations": daily_registrations,
+            "registrations_count": registrations_count,
+        })
+
+    except Exception as e:
+        logger.error(f"Metrika page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+# ============================================
+# ECONOMICS (Юнит-экономика)
+# ============================================
+
+@app.get("/economics", response_class=HTMLResponse)
+async def economics_page(
+    request: Request,
+    period: int = Query(30, ge=7, le=90),
+    username: str = Depends(verify_credentials)
+):
+    """Страница юнит-экономики."""
+    try:
+        now = datetime.now()
+        since = now - timedelta(days=period)
+
+        async with DatabaseSession() as session:
+            # Total users
+            total_users = await session.scalar(select(func.count(SniperUser.id))) or 0
+
+            # New users in period
+            new_users = await session.scalar(
+                select(func.count(SniperUser.id)).where(SniperUser.created_at >= since)
+            ) or 0
+
+            # Revenue in period
+            total_revenue = await session.scalar(
+                select(func.sum(Payment.amount)).where(
+                    and_(Payment.status == 'succeeded', Payment.created_at >= since)
+                )
+            ) or 0
+
+            # Total revenue ever
+            total_revenue_all = await session.scalar(
+                select(func.sum(Payment.amount)).where(Payment.status == 'succeeded')
+            ) or 0
+
+            # Paying users
+            paying_users = await session.scalar(
+                select(func.count(distinct(Payment.user_id))).where(Payment.status == 'succeeded')
+            ) or 0
+
+            # Ad spend from Metrika
+            date_from = since.strftime('%Y-%m-%d')
+            date_to = now.strftime('%Y-%m-%d')
+            ad_spend = 0.0
+            if metrika_service.is_configured:
+                ad_spend = await metrika_service.get_ad_spend(date_from, date_to)
+
+            # CAC
+            cac = (ad_spend / new_users) if new_users > 0 else 0
+
+            # ARPU
+            arpu = (total_revenue_all / total_users) if total_users > 0 else 0
+
+            # ARPPU
+            arppu = (total_revenue_all / paying_users) if paying_users > 0 else 0
+
+            # Average lifetime (months) — compatible with both SQLite and PostgreSQL
+            lifetime_users_query = (
+                select(SniperUser.created_at, SniperUser.last_activity)
+                .where(SniperUser.last_activity.isnot(None))
+            )
+            lifetime_result = await session.execute(lifetime_users_query)
+            lifetime_rows = lifetime_result.all()
+            if lifetime_rows:
+                total_days = sum(
+                    (row[1] - row[0]).total_seconds() / 86400
+                    for row in lifetime_rows if row[0] and row[1]
+                )
+                avg_lifetime_days = total_days / len(lifetime_rows)
+            else:
+                avg_lifetime_days = 30
+            avg_lifetime_months = max(avg_lifetime_days / 30, 1)
+
+            # LTV
+            ltv = arpu * avg_lifetime_months
+
+            # Monthly ARPU for payback
+            monthly_arpu = (total_revenue / max(total_users, 1)) * (30 / max(period, 1))
+            payback_months = (cac / monthly_arpu) if monthly_arpu > 0 else 0
+
+            # MRR
+            basic_count = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(SniperUser.subscription_tier == 'basic', SniperUser.trial_expires_at > now)
+                )
+            ) or 0
+            premium_count = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(SniperUser.subscription_tier == 'premium', SniperUser.trial_expires_at > now)
+                )
+            ) or 0
+            mrr = basic_count * TARIFF_PRICES['basic'] + premium_count * TARIFF_PRICES['premium']
+
+            # Churn rate
+            period_start = since
+            active_start = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(SniperUser.created_at < period_start, SniperUser.last_activity >= period_start - timedelta(days=period))
+                )
+            ) or 0
+            churned = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(
+                        SniperUser.created_at < period_start,
+                        SniperUser.last_activity < period_start,
+                        SniperUser.last_activity >= period_start - timedelta(days=period)
+                    )
+                )
+            ) or 0
+            churn_rate = (churned / active_start * 100) if active_start > 0 else 0
+
+            metrics = {
+                "cac": cac,
+                "arpu": arpu,
+                "arppu": arppu,
+                "ltv": ltv,
+                "payback_months": payback_months,
+                "mrr": mrr,
+                "churn_rate": churn_rate,
+                "active_start": active_start,
+                "churned": churned,
+            }
+
+            # Daily revenue
+            revenue_query = (
+                select(
+                    func.date(Payment.created_at).label('date'),
+                    func.sum(Payment.amount).label('amount')
+                )
+                .where(and_(Payment.status == 'succeeded', Payment.created_at >= since))
+                .group_by(func.date(Payment.created_at))
+                .order_by(func.date(Payment.created_at))
+            )
+            rev_result = await session.execute(revenue_query)
+            daily_revenue_raw = {str(row[0]): float(row[1]) for row in rev_result.all()}
+
+            # Fill missing dates
+            daily_revenue = []
+            for i in range(period):
+                d = (since + timedelta(days=i)).strftime('%Y-%m-%d')
+                daily_revenue.append({"date": d, "amount": daily_revenue_raw.get(d, 0)})
+
+            # Feedback stats (notification quality)
+            feedback_stats = []
+            try:
+                fav_sub = (
+                    select(
+                        UserFeedback.filter_id,
+                        func.count(UserFeedback.id).label('cnt')
+                    )
+                    .where(UserFeedback.feedback_type == 'interesting')
+                    .group_by(UserFeedback.filter_id)
+                ).subquery()
+
+                hidden_sub = (
+                    select(
+                        UserFeedback.filter_id,
+                        func.count(UserFeedback.id).label('cnt')
+                    )
+                    .where(UserFeedback.feedback_type.in_(['hidden', 'irrelevant']))
+                    .group_by(UserFeedback.filter_id)
+                ).subquery()
+
+                # Get keywords from filters with feedback
+                filters_with_fb = (
+                    select(
+                        SniperFilter.id,
+                        SniperFilter.keywords,
+                        func.coalesce(fav_sub.c.cnt, 0).label('favorites'),
+                        func.coalesce(hidden_sub.c.cnt, 0).label('hidden'),
+                    )
+                    .outerjoin(fav_sub, SniperFilter.id == fav_sub.c.filter_id)
+                    .outerjoin(hidden_sub, SniperFilter.id == hidden_sub.c.filter_id)
+                    .where(
+                        (func.coalesce(fav_sub.c.cnt, 0) + func.coalesce(hidden_sub.c.cnt, 0)) > 0
+                    )
+                )
+                fb_result = await session.execute(filters_with_fb)
+
+                kw_stats = {}
+                for row in fb_result.all():
+                    keywords_data = row[1]
+                    if not keywords_data:
+                        continue
+                    kw_list = keywords_data if isinstance(keywords_data, list) else [kw.strip() for kw in str(keywords_data).split(',')]
+                    for kw in kw_list:
+                        kw = str(kw).strip().lower()
+                        if not kw:
+                            continue
+                        if kw not in kw_stats:
+                            kw_stats[kw] = {"favorites": 0, "hidden": 0}
+                        kw_stats[kw]["favorites"] += row[2]
+                        kw_stats[kw]["hidden"] += row[3]
+
+                for kw, stats in sorted(kw_stats.items(), key=lambda x: -(x[1]["favorites"] + x[1]["hidden"])):
+                    total = stats["favorites"] + stats["hidden"]
+                    engagement = round(stats["favorites"] / total * 100) if total > 0 else 0
+                    feedback_stats.append({
+                        "keyword": kw,
+                        "favorites": stats["favorites"],
+                        "hidden": stats["hidden"],
+                        "total": total,
+                        "engagement": engagement,
+                    })
+                feedback_stats = feedback_stats[:20]
+            except Exception as e:
+                logger.warning(f"Feedback stats error: {e}")
+
+            # Alerts
+            alerts = []
+            # Registration drop
+            week_new = await session.scalar(
+                select(func.count(SniperUser.id)).where(SniperUser.created_at >= now - timedelta(days=7))
+            ) or 0
+            prev_week_new = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(
+                        SniperUser.created_at >= now - timedelta(days=14),
+                        SniperUser.created_at < now - timedelta(days=7)
+                    )
+                )
+            ) or 0
+            if prev_week_new > 0 and week_new < prev_week_new * 0.5:
+                alerts.append({
+                    "level": "danger",
+                    "message": f"Регистрации упали более чем на 50%: {week_new} vs {prev_week_new} на прошлой неделе"
+                })
+
+            # Zero payments for 3 days
+            recent_payments = await session.scalar(
+                select(func.count(Payment.id)).where(
+                    and_(Payment.status == 'succeeded', Payment.created_at >= now - timedelta(days=3))
+                )
+            ) or 0
+            if recent_payments == 0 and paying_users > 0:
+                alerts.append({
+                    "level": "warning",
+                    "message": "0 платежей за последние 3 дня"
+                })
+
+            # Churn spike
+            if churn_rate > 30:
+                alerts.append({
+                    "level": "danger",
+                    "message": f"Высокий отток: {churn_rate:.1f}% за период"
+                })
+
+        return templates.TemplateResponse("economics.html", {
+            "request": request,
+            "username": username,
+            "period": period,
+            "metrics": metrics,
+            "daily_revenue": daily_revenue,
+            "feedback_stats": feedback_stats,
+            "alerts": alerts,
+        })
+
+    except Exception as e:
+        logger.error(f"Economics page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
+
+
+# ============================================
+# API: User notifications (lazy-load)
+# ============================================
+
+@app.get("/api/users/{user_id}/notifications")
+async def api_user_notifications(
+    user_id: int,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    username: str = Depends(verify_credentials)
+):
+    """API для подгрузки уведомлений пользователя."""
+    try:
+        offset = (page - 1) * per_page
+        async with DatabaseSession() as session:
+            total = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    SniperNotification.user_id == user_id
+                )
+            ) or 0
+            total_pages = (total + per_page - 1) // per_page
+
+            query = (
+                select(
+                    SniperNotification,
+                    SniperFilter.name.label('filter_name')
+                )
+                .outerjoin(SniperFilter, SniperNotification.filter_id == SniperFilter.id)
+                .where(SniperNotification.user_id == user_id)
+                .order_by(SniperNotification.sent_at.desc())
+                .offset(offset)
+                .limit(per_page)
+            )
+            result = await session.execute(query)
+            rows = result.all()
+
+            items = []
+            for row in rows:
+                notif = row[0]
+                filter_name = row[1]
+                items.append({
+                    "tender_number": notif.tender_number,
+                    "tender_name": notif.tender_name,
+                    "tender_price": float(notif.tender_price) if notif.tender_price else None,
+                    "score": notif.score,
+                    "filter_name": filter_name,
+                    "sent_at": notif.sent_at.strftime('%d.%m.%Y %H:%M') if notif.sent_at else None,
+                })
+
+        return JSONResponse({
+            "items": items,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+        })
+
+    except Exception as e:
+        logger.error(f"API user notifications error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# API: Cohort analysis
+# ============================================
+
+@app.get("/api/economics/cohorts")
+async def api_cohorts(
+    period: int = Query(30, ge=7, le=90),
+    username: str = Depends(verify_credentials)
+):
+    """API для когортной таблицы удержания."""
+    try:
+        now = datetime.now()
+        max_weeks = min(period // 7, 8)
+
+        async with DatabaseSession() as session:
+            # Get all users created in the last N weeks
+            cohort_start = now - timedelta(weeks=max_weeks + 1)
+            users_query = (
+                select(SniperUser.id, SniperUser.created_at, SniperUser.last_activity)
+                .where(SniperUser.created_at >= cohort_start)
+                .order_by(SniperUser.created_at)
+            )
+            result = await session.execute(users_query)
+            users = result.all()
+
+        if not users:
+            return JSONResponse({"cohorts": [], "max_week": 0})
+
+        from collections import defaultdict
+
+        # Group users by registration week
+        cohorts = defaultdict(list)
+        for user_id, created_at, last_activity in users:
+            week_start = created_at - timedelta(days=created_at.weekday())
+            week_key = week_start.strftime('%Y-%m-%d')
+            cohorts[week_key].append((created_at, last_activity))
+
+        result_cohorts = []
+        for week_key in sorted(cohorts.keys()):
+            users_in_cohort = cohorts[week_key]
+            cohort_size = len(users_in_cohort)
+            if cohort_size == 0:
+                continue
+
+            week_start_date = datetime.strptime(week_key, '%Y-%m-%d')
+            retention = []
+
+            for w in range(max_weeks + 1):
+                week_end = week_start_date + timedelta(weeks=w + 1)
+                if week_end > now:
+                    retention.append(None)
+                    continue
+
+                week_boundary = week_start_date + timedelta(weeks=w)
+                active_count = sum(
+                    1 for created, last_act in users_in_cohort
+                    if last_act and last_act >= week_boundary
+                )
+                pct = round(active_count / cohort_size * 100)
+                retention.append(pct)
+
+            result_cohorts.append({
+                "label": week_key,
+                "size": cohort_size,
+                "retention": retention,
+            })
+
+        return JSONResponse({
+            "cohorts": result_cohorts[-8:],
+            "max_week": max_weeks,
+        })
+
+    except Exception as e:
+        logger.error(f"Cohorts API error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# EXPORT: Economics CSV
+# ============================================
+
+@app.get("/export/economics")
+async def export_economics_csv(
+    period: int = Query(30, ge=7, le=90),
+    username: str = Depends(verify_credentials)
+):
+    """Экспорт экономических метрик в CSV."""
+    try:
+        now = datetime.now()
+        since = now - timedelta(days=period)
+
+        async with DatabaseSession() as session:
+            total_users = await session.scalar(select(func.count(SniperUser.id))) or 0
+            new_users = await session.scalar(
+                select(func.count(SniperUser.id)).where(SniperUser.created_at >= since)
+            ) or 0
+            total_revenue = await session.scalar(
+                select(func.sum(Payment.amount)).where(
+                    and_(Payment.status == 'succeeded', Payment.created_at >= since)
+                )
+            ) or 0
+            paying_users = await session.scalar(
+                select(func.count(distinct(Payment.user_id))).where(Payment.status == 'succeeded')
+            ) or 0
+
+            ad_spend = 0.0
+            if metrika_service.is_configured:
+                ad_spend = await metrika_service.get_ad_spend(
+                    since.strftime('%Y-%m-%d'), now.strftime('%Y-%m-%d')
+                )
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(['Metric', 'Value', 'Period'])
+        writer.writerow(['Total Users', total_users, f'{period}d'])
+        writer.writerow(['New Users', new_users, f'{period}d'])
+        writer.writerow(['Revenue (RUB)', total_revenue, f'{period}d'])
+        writer.writerow(['Paying Users', paying_users, 'all time'])
+        writer.writerow(['Ad Spend (RUB)', ad_spend, f'{period}d'])
+        writer.writerow(['CAC (RUB)', round(ad_spend / new_users, 2) if new_users > 0 else 0, f'{period}d'])
+        writer.writerow(['ARPU (RUB)', round(total_revenue / total_users, 2) if total_users > 0 else 0, f'{period}d'])
+        writer.writerow(['ARPPU (RUB)', round(total_revenue / paying_users, 2) if paying_users > 0 else 0, f'{period}d'])
+
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=economics_{datetime.now().strftime('%Y%m%d')}.csv"}
+        )
+
+    except Exception as e:
+        logger.error(f"Export economics error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================

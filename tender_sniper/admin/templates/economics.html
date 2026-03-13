@@ -1,0 +1,348 @@
+{% extends "base.html" %}
+
+{% block title %}Юнит-экономика{% endblock %}
+
+{% block extra_css %}
+<style>
+    .metric-card {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        text-align: center;
+    }
+    .metric-card .metric-value {
+        font-size: 28px;
+        font-weight: bold;
+        color: #333;
+    }
+    .metric-card .metric-label {
+        color: #888;
+        font-size: 13px;
+        margin-top: 5px;
+    }
+    .metric-card .metric-sub {
+        color: #aaa;
+        font-size: 11px;
+        margin-top: 3px;
+    }
+    .cohort-table td, .cohort-table th {
+        text-align: center;
+        padding: 8px 10px;
+        font-size: 13px;
+        min-width: 60px;
+    }
+    .cohort-cell {
+        border-radius: 4px;
+        font-weight: 500;
+        padding: 2px 8px;
+        color: #fff;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="top-bar">
+    <h4 class="mb-0"><i class="bi bi-calculator me-2"></i>Юнит-экономика</h4>
+    <div class="d-flex align-items-center gap-3">
+        <select id="periodSelect" class="form-select form-select-sm" style="width: auto;" onchange="changePeriod()">
+            <option value="7" {% if period == 7 %}selected{% endif %}>7 дней</option>
+            <option value="30" {% if period == 30 %}selected{% endif %}>30 дней</option>
+            <option value="90" {% if period == 90 %}selected{% endif %}>90 дней</option>
+        </select>
+        <a href="/export/economics" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-download"></i> CSV
+        </a>
+    </div>
+</div>
+
+<!-- Alerts -->
+{% if alerts %}
+<div class="mb-4">
+    {% for alert in alerts %}
+    <div class="alert alert-{{ alert.level }} d-flex align-items-center mb-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>
+        {{ alert.message }}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<!-- Key metrics -->
+<div class="row g-3 mb-4">
+    <div class="col-md-2">
+        <div class="metric-card">
+            <div class="metric-value">{{ '{:,.0f}'.format(metrics.cac) }} ₽</div>
+            <div class="metric-label">CAC</div>
+            <div class="metric-sub">Стоимость привлечения</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card">
+            <div class="metric-value">{{ '{:,.0f}'.format(metrics.arpu) }} ₽</div>
+            <div class="metric-label">ARPU</div>
+            <div class="metric-sub">Доход на пользователя</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card">
+            <div class="metric-value">{{ '{:,.0f}'.format(metrics.arppu) }} ₽</div>
+            <div class="metric-label">ARPPU</div>
+            <div class="metric-sub">Доход на платящего</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card">
+            <div class="metric-value">{{ '{:,.0f}'.format(metrics.ltv) }} ₽</div>
+            <div class="metric-label">LTV</div>
+            <div class="metric-sub">Lifetime value</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card">
+            <div class="metric-value">{{ '{:.1f}'.format(metrics.payback_months) }}</div>
+            <div class="metric-label">Payback (мес)</div>
+            <div class="metric-sub">Окупаемость</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card">
+            <div class="metric-value">{{ '{:,.0f}'.format(metrics.mrr) }} ₽</div>
+            <div class="metric-label">MRR</div>
+            <div class="metric-sub">Месячный доход</div>
+        </div>
+    </div>
+</div>
+
+<!-- Churn + Revenue -->
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="card card-custom h-100">
+            <div class="card-header">
+                <i class="bi bi-person-dash me-2"></i> Отток (Churn)
+            </div>
+            <div class="card-body text-center">
+                <div class="h1 mb-0 {% if metrics.churn_rate > 20 %}text-danger{% elif metrics.churn_rate > 10 %}text-warning{% else %}text-success{% endif %}">
+                    {{ '{:.1f}'.format(metrics.churn_rate) }}%
+                </div>
+                <div class="text-muted">за {{ period }} дней</div>
+                <hr>
+                <div class="row text-start">
+                    <div class="col-6">
+                        <small class="text-muted">Активных в начале</small>
+                        <div class="fw-bold">{{ metrics.active_start }}</div>
+                    </div>
+                    <div class="col-6">
+                        <small class="text-muted">Ушли</small>
+                        <div class="fw-bold text-danger">{{ metrics.churned }}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-8">
+        <div class="card card-custom h-100">
+            <div class="card-header">
+                <i class="bi bi-cash-stack me-2"></i> Доход по дням
+            </div>
+            <div class="card-body">
+                <div class="chart-container">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notification quality -->
+<div class="row g-4 mb-4">
+    <div class="col-12">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-star me-2"></i> Качество уведомлений (по фидбеку пользователей)
+            </div>
+            <div class="card-body">
+                {% if feedback_stats %}
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Ключевое слово</th>
+                                <th class="text-center">Избранное</th>
+                                <th class="text-center">Скрыто</th>
+                                <th class="text-center">Всего фидбека</th>
+                                <th class="text-center">Engagement %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in feedback_stats %}
+                            <tr>
+                                <td><code>{{ item.keyword }}</code></td>
+                                <td class="text-center"><span class="badge bg-success">{{ item.favorites }}</span></td>
+                                <td class="text-center"><span class="badge bg-danger">{{ item.hidden }}</span></td>
+                                <td class="text-center">{{ item.total }}</td>
+                                <td class="text-center">
+                                    <div class="progress" style="height: 6px; width: 80px; display: inline-block; vertical-align: middle;">
+                                        <div class="progress-bar bg-success" style="width: {{ item.engagement }}%"></div>
+                                    </div>
+                                    <small class="ms-1">{{ item.engagement }}%</small>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">Нет данных о фидбеке</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cohort retention table -->
+<div class="card card-custom mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <div><i class="bi bi-grid-3x3 me-2"></i> Когортная таблица удержания</div>
+        <small class="text-muted">По неделям регистрации</small>
+    </div>
+    <div class="card-body p-0">
+        <div id="cohortContainer" class="p-3">
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+                <div class="text-muted mt-2">Загрузка когорт...</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Revenue chart
+    const revenueData = {{ daily_revenue | tojson }};
+    const labels = revenueData.map(d => d.date.slice(5));
+    const amounts = revenueData.map(d => d.amount);
+
+    new Chart(document.getElementById('revenueChart'), {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Доход',
+                data: amounts,
+                backgroundColor: 'rgba(40, 167, 69, 0.7)',
+                borderColor: 'rgba(40, 167, 69, 1)',
+                borderWidth: 1,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+
+    // Load cohorts async
+    loadCohorts();
+});
+
+function getRetentionColor(pct) {
+    const r = Math.round(255 * (1 - pct / 100));
+    const g = Math.round(180 * (pct / 100));
+    const b = Math.round(60 * (pct / 100));
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+}
+
+async function loadCohorts() {
+    const container = document.getElementById('cohortContainer');
+    try {
+        const resp = await fetch('/api/economics/cohorts?period={{ period }}');
+        const data = await resp.json();
+
+        if (!data.cohorts || data.cohorts.length === 0) {
+            container.textContent = '';
+            const msg = document.createElement('div');
+            msg.className = 'text-center text-muted py-4';
+            msg.textContent = 'Недостаточно данных для когортного анализа';
+            container.appendChild(msg);
+            return;
+        }
+
+        container.textContent = '';
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-responsive';
+        const table = document.createElement('table');
+        table.className = 'table table-sm cohort-table mb-0';
+
+        // Header
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        ['Когорта', 'Кол-во'].forEach(text => {
+            const th = document.createElement('th');
+            th.textContent = text;
+            headerRow.appendChild(th);
+        });
+        for (let i = 0; i <= data.max_week; i++) {
+            const th = document.createElement('th');
+            th.textContent = 'Нед ' + i;
+            headerRow.appendChild(th);
+        }
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        // Body
+        const tbody = document.createElement('tbody');
+        data.cohorts.forEach(function(cohort) {
+            const tr = document.createElement('tr');
+
+            const labelTd = document.createElement('td');
+            labelTd.className = 'text-nowrap';
+            const small = document.createElement('small');
+            small.textContent = cohort.label;
+            labelTd.appendChild(small);
+            tr.appendChild(labelTd);
+
+            const sizeTd = document.createElement('td');
+            const strong = document.createElement('strong');
+            strong.textContent = cohort.size;
+            sizeTd.appendChild(strong);
+            tr.appendChild(sizeTd);
+
+            cohort.retention.forEach(function(pct) {
+                const td = document.createElement('td');
+                if (pct === null) {
+                    td.textContent = '\u2014';
+                } else {
+                    const span = document.createElement('span');
+                    span.className = 'cohort-cell';
+                    span.style.background = getRetentionColor(pct);
+                    span.textContent = pct + '%';
+                    td.appendChild(span);
+                }
+                tr.appendChild(td);
+            });
+
+            tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        wrapper.appendChild(table);
+        container.appendChild(wrapper);
+    } catch (e) {
+        container.textContent = '';
+        const msg = document.createElement('div');
+        msg.className = 'text-center text-danger py-4';
+        msg.textContent = 'Ошибка загрузки когорт';
+        container.appendChild(msg);
+    }
+}
+
+function changePeriod() {
+    const period = document.getElementById('periodSelect').value;
+    window.location.href = '/economics?period=' + period;
+}
+</script>
+{% endblock %}

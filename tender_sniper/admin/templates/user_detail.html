@@ -2,6 +2,43 @@
 
 {% block title %}Пользователь {{ user.telegram_id }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    .timeline {
+        position: relative;
+        padding-left: 30px;
+    }
+    .timeline::before {
+        content: '';
+        position: absolute;
+        left: 10px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #dee2e6;
+    }
+    .timeline-item {
+        position: relative;
+        padding-bottom: 20px;
+    }
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -24px;
+        top: 4px;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        border: 2px solid white;
+        box-shadow: 0 0 0 2px var(--primary-color);
+    }
+    .timeline-item.event-payment::before { background: #28a745; box-shadow: 0 0 0 2px #28a745; }
+    .timeline-item.event-block::before { background: #dc3545; box-shadow: 0 0 0 2px #dc3545; }
+    .timeline-item.event-filter::before { background: #ffc107; box-shadow: 0 0 0 2px #ffc107; }
+</style>
+{% endblock %}
+
 {% block content %}
 <!-- Top Bar -->
 <div class="top-bar">
@@ -31,203 +68,368 @@
     </div>
 </div>
 
-<div class="row g-4">
-    <!-- User Info Card -->
-    <div class="col-md-4">
-        <div class="card card-custom">
-            <div class="card-header">
-                <i class="bi bi-person-circle"></i> Информация
-            </div>
-            <div class="card-body">
-                <table class="table table-borderless mb-0">
-                    <tr>
-                        <td class="text-muted" style="width: 40%;">Telegram ID</td>
-                        <td><code>{{ user.telegram_id }}</code></td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Имя</td>
-                        <td>{{ user.first_name or '-' }} {{ user.last_name or '' }}</td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Username</td>
-                        <td>
-                            {% if user.username %}
-                            <a href="https://t.me/{{ user.username }}" target="_blank">@{{ user.username }}</a>
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Статус</td>
-                        <td>
-                            {% if user.status == 'blocked' %}
-                            <span class="badge badge-status badge-blocked">Заблокирован</span>
-                            {% elif user.status == 'active' %}
-                            <span class="badge badge-status badge-active">Активен</span>
-                            {% else %}
-                            <span class="badge badge-status badge-inactive">{{ user.status or 'Неизвестно' }}</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Регистрация</td>
-                        <td>{{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '-' }}</td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Последняя активность</td>
-                        <td>{{ user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else '-' }}</td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-    </div>
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-info" type="button">
+            <i class="bi bi-person-circle me-1"></i> Инфо
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button">
+            <i class="bi bi-activity me-1"></i> Активность
+            <span class="badge bg-secondary ms-1">{{ events | length }}</span>
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-notifications" type="button">
+            <i class="bi bi-bell me-1"></i> Уведомления
+            <span class="badge bg-secondary ms-1">{{ notifications_total }}</span>
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-filters" type="button">
+            <i class="bi bi-funnel me-1"></i> Фильтры
+            <span class="badge bg-secondary ms-1">{{ filters_count }}</span>
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-payments" type="button">
+            <i class="bi bi-credit-card me-1"></i> Платежи
+            <span class="badge bg-secondary ms-1">{{ payments | length }}</span>
+        </button>
+    </li>
+</ul>
 
-    <!-- Subscription Card -->
-    <div class="col-md-4">
-        <div class="card card-custom">
-            <div class="card-header">
-                <i class="bi bi-credit-card"></i> Подписка
-            </div>
-            <div class="card-body">
-                <table class="table table-borderless mb-0">
-                    <tr>
-                        <td class="text-muted" style="width: 40%;">Тариф</td>
-                        <td>
-                            <span class="badge badge-tier badge-{{ user.subscription_tier }}">
-                                {{ user.subscription_tier }}
-                            </span>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Осталось дней</td>
-                        <td>
-                            {% if days_left is not none %}
-                                {% if days_left >= 0 %}
-                                    {% if days_left <= 3 %}
-                                    <span class="badge bg-danger">{{ days_left }} дн.</span>
-                                    {% elif days_left <= 7 %}
-                                    <span class="badge bg-warning text-dark">{{ days_left }} дн.</span>
+<div class="tab-content">
+    <!-- INFO TAB -->
+    <div class="tab-pane fade show active" id="tab-info">
+        <div class="row g-4">
+            <!-- User Info Card -->
+            <div class="col-md-4">
+                <div class="card card-custom">
+                    <div class="card-header">
+                        <i class="bi bi-person-circle"></i> Информация
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-borderless mb-0">
+                            <tr>
+                                <td class="text-muted" style="width: 40%;">Telegram ID</td>
+                                <td><code>{{ user.telegram_id }}</code></td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Имя</td>
+                                <td>{{ user.first_name or '-' }} {{ user.last_name or '' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Username</td>
+                                <td>
+                                    {% if user.username %}
+                                    <a href="https://t.me/{{ user.username }}" target="_blank">@{{ user.username }}</a>
                                     {% else %}
-                                    <span class="badge bg-success">{{ days_left }} дн.</span>
+                                    <span class="text-muted">-</span>
                                     {% endif %}
-                                {% else %}
-                                    <span class="badge bg-secondary">истекла</span>
-                                {% endif %}
-                            {% else %}
-                                <span class="text-muted">-</span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Статус</td>
+                                <td>
+                                    {% if user.status == 'blocked' %}
+                                    <span class="badge badge-status badge-blocked">Заблокирован</span>
+                                    {% elif user.status == 'active' %}
+                                    <span class="badge badge-status badge-active">Активен</span>
+                                    {% else %}
+                                    <span class="badge badge-status badge-inactive">{{ user.status or 'Неизвестно' }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Регистрация</td>
+                                <td>{{ user.created_at.strftime('%d.%m.%Y %H:%M') if user.created_at else '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Последняя активность</td>
+                                <td>{{ user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else '-' }}</td>
+                            </tr>
+                            {% if referrer %}
+                            <tr>
+                                <td class="text-muted">Реферал от</td>
+                                <td><a href="/users/{{ referrer.id }}">{{ referrer.first_name or referrer.telegram_id }}</a></td>
+                            </tr>
                             {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Истекает</td>
-                        <td>
-                            {% if user.trial_expires_at %}
-                            {{ user.trial_expires_at.strftime('%d.%m.%Y %H:%M') }}
-                            {% else %}
-                            <span class="text-muted">-</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Лимит фильтров</td>
-                        <td>{{ user.filters_limit or 3 }}</td>
-                    </tr>
-                    <tr>
-                        <td class="text-muted">Лимит уведомлений</td>
-                        <td>{{ user.notifications_limit or 20 }}</td>
-                    </tr>
-                </table>
+                        </table>
+                    </div>
+                </div>
+            </div>
 
-                <hr>
+            <!-- Subscription Card -->
+            <div class="col-md-4">
+                <div class="card card-custom">
+                    <div class="card-header">
+                        <i class="bi bi-credit-card"></i> Подписка
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-borderless mb-0">
+                            <tr>
+                                <td class="text-muted" style="width: 40%;">Тариф</td>
+                                <td>
+                                    <span class="badge badge-tier badge-{{ user.subscription_tier }}">
+                                        {{ user.subscription_tier }}
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Осталось дней</td>
+                                <td>
+                                    {% if days_left is not none %}
+                                        {% if days_left >= 0 %}
+                                            {% if days_left <= 3 %}
+                                            <span class="badge bg-danger">{{ days_left }} дн.</span>
+                                            {% elif days_left <= 7 %}
+                                            <span class="badge bg-warning text-dark">{{ days_left }} дн.</span>
+                                            {% else %}
+                                            <span class="badge bg-success">{{ days_left }} дн.</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="badge bg-secondary">истекла</span>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Истекает</td>
+                                <td>
+                                    {% if user.trial_expires_at %}
+                                    {{ user.trial_expires_at.strftime('%d.%m.%Y %H:%M') }}
+                                    {% else %}
+                                    <span class="text-muted">-</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Лимит фильтров</td>
+                                <td>{{ user.filters_limit or 3 }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Лимит уведомлений</td>
+                                <td>{{ user.notifications_limit or 20 }}</td>
+                            </tr>
+                        </table>
 
-                <div class="d-flex flex-wrap gap-2">
-                    <button class="btn btn-outline-secondary btn-sm" onclick="changeTier('trial')">
-                        Trial
-                    </button>
-                    <button class="btn btn-outline-info btn-sm" onclick="changeTier('basic')">
-                        Basic
-                    </button>
-                    <button class="btn btn-outline-warning btn-sm" onclick="changeTier('premium')">
-                        Premium
-                    </button>
+                        <hr>
+
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="changeTier('trial')">Trial</button>
+                            <button class="btn btn-outline-info btn-sm" onclick="changeTier('basic')">Basic</button>
+                            <button class="btn btn-outline-warning btn-sm" onclick="changeTier('premium')">Premium</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Card -->
+            <div class="col-md-4">
+                <div class="card card-custom">
+                    <div class="card-header">
+                        <i class="bi bi-bar-chart"></i> Статистика
+                    </div>
+                    <div class="card-body">
+                        <div class="row text-center">
+                            <div class="col-6 mb-3">
+                                <div class="h3 mb-0">{{ filters_count }}</div>
+                                <small class="text-muted">Всего фильтров</small>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <div class="h3 mb-0 text-success">{{ active_filters }}</div>
+                                <small class="text-muted">Активных</small>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <div class="h3 mb-0 text-primary">{{ notifications_total }}</div>
+                                <small class="text-muted">Уведомлений</small>
+                            </div>
+                            <div class="col-6 mb-3">
+                                <div class="h3 mb-0 text-warning">{{ payments_total_amount | round(0) | int }} ₽</div>
+                                <small class="text-muted">Оплачено</small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Stats Card -->
-    <div class="col-md-4">
+    <!-- ACTIVITY TAB -->
+    <div class="tab-pane fade" id="tab-activity">
         <div class="card card-custom">
             <div class="card-header">
-                <i class="bi bi-bar-chart"></i> Статистика
+                <i class="bi bi-activity me-2"></i> Таймлайн активности (последние 50)
             </div>
             <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-6 mb-3">
-                        <div class="h3 mb-0">{{ filters_count }}</div>
-                        <small class="text-muted">Всего фильтров</small>
+                {% if events %}
+                <div class="timeline">
+                    {% for event in events %}
+                    <div class="timeline-item event-{{ event.event_type }}">
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <strong>
+                                    {% if event.event_type == 'registration' %}Регистрация
+                                    {% elif event.event_type == 'filter_created' %}Создание фильтра
+                                    {% elif event.event_type == 'filter_updated' %}Обновление фильтра
+                                    {% elif event.event_type == 'payment' %}Оплата
+                                    {% elif event.event_type == 'block' %}Блокировка
+                                    {% elif event.event_type == 'unblock' %}Разблокировка
+                                    {% elif event.event_type == 'tier_change' %}Смена тарифа
+                                    {% elif event.event_type == 'start' %}Запуск бота
+                                    {% else %}{{ event.event_type }}
+                                    {% endif %}
+                                </strong>
+                                {% if event.event_data %}
+                                <div class="text-muted small">{{ event.event_data }}</div>
+                                {% endif %}
+                            </div>
+                            <small class="text-muted text-nowrap ms-3">
+                                {{ event.created_at.strftime('%d.%m.%Y %H:%M') if event.created_at else '' }}
+                            </small>
+                        </div>
                     </div>
-                    <div class="col-6 mb-3">
-                        <div class="h3 mb-0 text-success">{{ active_filters }}</div>
-                        <small class="text-muted">Активных</small>
-                    </div>
+                    {% endfor %}
                 </div>
+                {% else %}
+                <div class="text-center text-muted py-4">Нет данных об активности</div>
+                {% endif %}
             </div>
         </div>
     </div>
-</div>
 
-<!-- Filters Table -->
-<div class="card card-custom mt-4">
-    <div class="card-header">
-        <i class="bi bi-funnel"></i> Фильтры пользователя ({{ filters_count }})
+    <!-- NOTIFICATIONS TAB -->
+    <div class="tab-pane fade" id="tab-notifications">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <div><i class="bi bi-bell me-2"></i> Уведомления</div>
+                <small class="text-muted">Всего: {{ notifications_total }}</small>
+            </div>
+            <div class="card-body p-0">
+                <div id="notificationsTable">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
+                        <span class="text-muted ms-2">Загрузка...</span>
+                    </div>
+                </div>
+                <div id="notifPagination" class="d-flex justify-content-center py-3"></div>
+            </div>
+        </div>
     </div>
-    <div class="card-body p-0">
-        <table class="table table-custom table-hover mb-0">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Название</th>
-                    <th>Ключевые слова</th>
-                    <th>Бюджет</th>
-                    <th>Статус</th>
-                    <th>Создан</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for filter in filters %}
-                <tr>
-                    <td><code>{{ filter.id }}</code></td>
-                    <td>{{ filter.name or 'Без названия' }}</td>
-                    <td>
-                        <small>{{ (filter.keywords or '')[:50] }}{% if filter.keywords and filter.keywords|length > 50 %}...{% endif %}</small>
-                    </td>
-                    <td>
-                        {% if filter.min_price or filter.max_price %}
-                        {{ '{:,.0f}'.format(filter.min_price or 0) }} - {{ '{:,.0f}'.format(filter.max_price or 999999999) }}
+
+    <!-- FILTERS TAB -->
+    <div class="tab-pane fade" id="tab-filters">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-funnel"></i> Фильтры пользователя ({{ filters_count }})
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-custom table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Название</th>
+                            <th>Ключевые слова</th>
+                            <th>Бюджет</th>
+                            <th>Статус</th>
+                            <th>Уведомлений</th>
+                            <th>Ср. score</th>
+                            <th>Последнее</th>
+                            <th>Создан</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for f in filters_data %}
+                        <tr>
+                            <td><code>{{ f.filter.id }}</code></td>
+                            <td>{{ f.filter.name or 'Без названия' }}</td>
+                            <td>
+                                <small>{{ (f.filter.keywords or '')[:50] }}{% if f.filter.keywords and f.filter.keywords|length > 50 %}...{% endif %}</small>
+                            </td>
+                            <td>
+                                {% if f.filter.min_price or f.filter.max_price %}
+                                {{ '{:,.0f}'.format(f.filter.min_price or 0) }} - {{ '{:,.0f}'.format(f.filter.max_price or 999999999) }}
+                                {% else %}
+                                <span class="text-muted">любой</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if f.filter.is_active %}
+                                <span class="badge bg-success">Активен</span>
+                                {% else %}
+                                <span class="badge bg-secondary">Неактивен</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-primary">{{ f.notif_count }}</span></td>
+                            <td>{{ f.avg_score | round(1) if f.avg_score else '—' }}</td>
+                            <td>{{ f.last_notif.strftime('%d.%m') if f.last_notif else '—' }}</td>
+                            <td>{{ f.filter.created_at.strftime('%d.%m.%Y') if f.filter.created_at else '-' }}</td>
+                        </tr>
                         {% else %}
-                        <span class="text-muted">любой</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if filter.is_active %}
-                        <span class="badge bg-success">Активен</span>
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4">
+                                У пользователя нет фильтров
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- PAYMENTS TAB -->
+    <div class="tab-pane fade" id="tab-payments">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-credit-card me-2"></i> Платежи
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-custom table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Сумма</th>
+                            <th>Тариф</th>
+                            <th>Статус</th>
+                            <th>Создан</th>
+                            <th>Завершён</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in payments %}
+                        <tr>
+                            <td><code>{{ p.id }}</code></td>
+                            <td><strong>{{ '{:,.0f}'.format(p.amount) }} ₽</strong></td>
+                            <td><span class="badge badge-tier badge-{{ p.tier }}">{{ p.tier }}</span></td>
+                            <td>
+                                {% if p.status == 'succeeded' %}
+                                <span class="badge bg-success">Оплачен</span>
+                                {% elif p.status == 'pending' %}
+                                <span class="badge bg-warning text-dark">Ожидает</span>
+                                {% elif p.status == 'canceled' %}
+                                <span class="badge bg-secondary">Отменён</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ p.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ p.created_at.strftime('%d.%m.%Y %H:%M') if p.created_at else '-' }}</td>
+                            <td>{{ p.completed_at.strftime('%d.%m.%Y %H:%M') if p.completed_at else '-' }}</td>
+                        </tr>
                         {% else %}
-                        <span class="badge bg-secondary">Неактивен</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ filter.created_at.strftime('%d.%m.%Y') if filter.created_at else '-' }}</td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="6" class="text-center text-muted py-4">
-                        У пользователя нет фильтров
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                        <tr>
+                            <td colspan="6" class="text-center text-muted py-4">Нет платежей</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -294,7 +496,7 @@ function setDays(days) {
 }
 
 async function changeTier(tier) {
-    if (!confirm(`Изменить тариф пользователя на ${tier}?`)) return;
+    if (!confirm('Изменить тариф пользователя на ' + tier + '?')) return;
 
     const formData = new FormData();
     formData.append('tier', tier);
@@ -310,5 +512,123 @@ async function changeTier(tier) {
         alert('Ошибка при изменении тарифа');
     }
 }
+
+// Lazy-load notifications
+let notifPage = 1;
+const userId = {{ user.id }};
+
+async function loadNotifications(page) {
+    notifPage = page;
+    const container = document.getElementById('notificationsTable');
+    const pagination = document.getElementById('notifPagination');
+
+    try {
+        const resp = await fetch('/api/users/' + userId + '/notifications?page=' + page + '&per_page=20');
+        const data = await resp.json();
+
+        // Build table with safe DOM methods
+        container.textContent = '';
+        const table = document.createElement('table');
+        table.className = 'table table-custom table-hover mb-0';
+
+        const thead = document.createElement('thead');
+        const headerRow = document.createElement('tr');
+        ['Тендер', 'Фильтр', 'Цена', 'Score', 'Дата'].forEach(function(text) {
+            const th = document.createElement('th');
+            th.textContent = text;
+            headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        if (data.items.length === 0) {
+            const tr = document.createElement('tr');
+            const td = document.createElement('td');
+            td.colSpan = 5;
+            td.className = 'text-center text-muted py-4';
+            td.textContent = 'Нет уведомлений';
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+        } else {
+            data.items.forEach(function(n) {
+                const tr = document.createElement('tr');
+
+                const tdName = document.createElement('td');
+                const code = document.createElement('code');
+                code.textContent = n.tender_number || '';
+                tdName.appendChild(code);
+                const nameSpan = document.createElement('div');
+                nameSpan.className = 'small text-muted';
+                nameSpan.textContent = (n.tender_name || '').substring(0, 60);
+                tdName.appendChild(nameSpan);
+                tr.appendChild(tdName);
+
+                const tdFilter = document.createElement('td');
+                tdFilter.textContent = n.filter_name || '—';
+                tr.appendChild(tdFilter);
+
+                const tdPrice = document.createElement('td');
+                tdPrice.textContent = n.tender_price ? Number(n.tender_price).toLocaleString('ru-RU') + ' ₽' : '—';
+                tr.appendChild(tdPrice);
+
+                const tdScore = document.createElement('td');
+                if (n.score) {
+                    const badge = document.createElement('span');
+                    badge.className = 'badge ' + (n.score >= 80 ? 'bg-success' : n.score >= 50 ? 'bg-warning text-dark' : 'bg-secondary');
+                    badge.textContent = n.score;
+                    tdScore.appendChild(badge);
+                } else {
+                    tdScore.textContent = '—';
+                }
+                tr.appendChild(tdScore);
+
+                const tdDate = document.createElement('td');
+                tdDate.textContent = n.sent_at || '';
+                tr.appendChild(tdDate);
+
+                tbody.appendChild(tr);
+            });
+        }
+        table.appendChild(tbody);
+        container.appendChild(table);
+
+        // Pagination
+        pagination.textContent = '';
+        if (data.total_pages > 1) {
+            const nav = document.createElement('nav');
+            const ul = document.createElement('ul');
+            ul.className = 'pagination pagination-sm mb-0';
+
+            for (let i = 1; i <= data.total_pages; i++) {
+                const li = document.createElement('li');
+                li.className = 'page-item' + (i === page ? ' active' : '');
+                const a = document.createElement('a');
+                a.className = 'page-link';
+                a.href = '#';
+                a.textContent = i;
+                a.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    loadNotifications(i);
+                });
+                li.appendChild(a);
+                ul.appendChild(li);
+            }
+            nav.appendChild(ul);
+            pagination.appendChild(nav);
+        }
+    } catch (e) {
+        container.textContent = '';
+        const msg = document.createElement('div');
+        msg.className = 'text-center text-danger py-4';
+        msg.textContent = 'Ошибка загрузки уведомлений';
+        container.appendChild(msg);
+    }
+}
+
+// Load notifications when tab is shown
+document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', function() {
+    if (notifPage === 1) loadNotifications(1);
+});
 </script>
 {% endblock %}

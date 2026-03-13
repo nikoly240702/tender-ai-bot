@@ -241,9 +241,17 @@
                 <i class="bi bi-megaphone"></i>
                 Рассылка
             </a>
-            <a href="/analytics" class="nav-link {% if '/analytics' in request.url.path %}active{% endif %}">
+            <a href="/analytics" class="nav-link {% if request.url.path == '/analytics' %}active{% endif %}">
                 <i class="bi bi-graph-up"></i>
                 Аналитика
+            </a>
+            <a href="/metrika" class="nav-link {% if '/metrika' in request.url.path %}active{% endif %}">
+                <i class="bi bi-bar-chart-line"></i>
+                Метрика
+            </a>
+            <a href="/economics" class="nav-link {% if '/economics' in request.url.path %}active{% endif %}">
+                <i class="bi bi-calculator"></i>
+                Экономика
             </a>
             <a href="/promocodes" class="nav-link {% if '/promocodes' in request.url.path %}active{% endif %}">
                 <i class="bi bi-ticket-perforated"></i>
