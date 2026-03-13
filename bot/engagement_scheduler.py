@@ -98,8 +98,8 @@ class EngagementScheduler:
             if current_hour == self.REACTIVATION_HOUR:
                 await self._send_reactivation_messages(bot)
 
-            # 5. Просроченные сделки Битрикс24 → LOSE (каждый час, 8:00–20:00 МСК)
-            if 8 <= current_hour <= 20:
+            # 5. Просроченные сделки Битрикс24 → LOSE (8:00 и 14:00 МСК)
+            if current_hour in (8, 14):
                 await self._move_expired_bitrix24_deals()
 
             # 6. AI анализ для сделок в стадии "Новые процедуры с AI" без результата
