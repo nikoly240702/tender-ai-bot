@@ -120,18 +120,6 @@ class ZakupkiRSSParser:
             'Upgrade-Insecure-Requests': '1'
         })
 
-        # Настройка прокси если указан в переменных окружения
-        self._proxy_url = os.getenv('PROXY_URL', '').strip()
-        if self._proxy_url:
-            self.session.proxies = {
-                'http': self._proxy_url,
-                'https': self._proxy_url
-            }
-            print(f"🔐 RSS парсер использует прокси: {self._proxy_url.split('@')[-1] if '@' in self._proxy_url else self._proxy_url}")
-
-        # Полное отключение SSL verify для прокси
-        self.session.verify = False
-
         # Настройка SSL контекста для игнорирования ошибок
         import ssl
         from requests.adapters import HTTPAdapter
@@ -148,26 +136,43 @@ class ZakupkiRSSParser:
                 kwargs['ssl_context'] = context
                 return super().init_poolmanager(*args, **kwargs)
 
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=2,
-            status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"]
-        )
-        adapter = SSLAdapter(max_retries=retry_strategy)
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
+        def _make_session(proxy_url=None):
+            s = requests.Session()
+            s.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1'
+            })
+            s.verify = False
+            if proxy_url:
+                s.proxies = {'http': proxy_url, 'https': proxy_url}
+            retry = Retry(total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504], allowed_methods=["HEAD", "GET", "OPTIONS"])
+            s.mount("http://", SSLAdapter(max_retries=retry))
+            s.mount("https://", SSLAdapter(max_retries=retry))
+            return s
 
-        # Fallback сессия без прокси (используется если прокси заблокирован)
-        if self._proxy_url:
-            self._fallback_session = requests.Session()
-            self._fallback_session.headers.update(self.session.headers)
-            self._fallback_session.verify = False
-            fallback_adapter = SSLAdapter(max_retries=Retry(total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504]))
-            self._fallback_session.mount("http://", fallback_adapter)
-            self._fallback_session.mount("https://", fallback_adapter)
+        # Собираем список прокси из переменных окружения: PROXY_URL, PROXY_URL_2, PROXY_URL_3, ...
+        proxy_urls = []
+        for suffix in ['', '_2', '_3', '_4', '_5']:
+            val = os.getenv(f'PROXY_URL{suffix}', '').strip()
+            if val:
+                proxy_urls.append(val)
+
+        self._proxy_sessions = [_make_session(p) for p in proxy_urls]
+        self._current_proxy_idx = 0
+
+        if proxy_urls:
+            for i, p in enumerate(proxy_urls):
+                host = p.split('@')[-1] if '@' in p else p
+                print(f"🔐 Прокси #{i+1}: {host}")
         else:
-            self._fallback_session = None
+            print("⚠️  PROXY_URL не задан — запросы идут напрямую")
+
+        # Основная сессия = первый прокси (или без прокси)
+        self.session = self._proxy_sessions[0] if self._proxy_sessions else _make_session()
 
     def _wait_for_rate_limit(self):
         """
@@ -241,37 +246,37 @@ class ZakupkiRSSParser:
 
             _log.debug(f"   RSS URL: {rss_url[:100]}...")
 
-            # Получаем RSS через requests (обходим SSL проблему)
-            try:
-                # Соблюдаем rate limit
-                self._wait_for_rate_limit()
+            # Получаем RSS через requests с ротацией прокси при блокировке
+            rss_content = None
+            sessions_to_try = list(self._proxy_sessions) if self._proxy_sessions else [self.session]
+            # Начинаем с текущего прокси
+            if self._proxy_sessions:
+                idx = self._current_proxy_idx % len(self._proxy_sessions)
+                sessions_to_try = self._proxy_sessions[idx:] + self._proxy_sessions[:idx]
 
-                response = self.session.get(rss_url, timeout=self.timeout, verify=False)
+            last_error = None
+            for i, sess in enumerate(sessions_to_try):
+                try:
+                    self._wait_for_rate_limit()
+                    response = sess.get(rss_url, timeout=self.timeout, verify=False)
+                    if response.status_code in (403, 434):
+                        _log.warning(f"⚠️  Прокси #{(self._current_proxy_idx + i) % max(len(sessions_to_try), 1) + 1} вернул {response.status_code}, пробуем следующий...")
+                        last_error = f"HTTP {response.status_code}"
+                        continue
+                    response.raise_for_status()
+                    rss_content = response.content
+                    # Запоминаем успешный прокси
+                    if self._proxy_sessions:
+                        self._current_proxy_idx = (self._current_proxy_idx + i) % len(self._proxy_sessions)
+                    break
+                except Exception as e:
+                    _log.warning(f"⚠️  Прокси #{i+1} ошибка: {e}, пробуем следующий...")
+                    last_error = e
+                    continue
 
-                # Если прокси заблокирован (434/403) — пробуем без прокси
-                if response.status_code in (403, 434) and self._fallback_session:
-                    _log.warning(f"⚠️  Прокси вернул {response.status_code}, пробуем без прокси...")
-                    response = self._fallback_session.get(rss_url, timeout=self.timeout, verify=False)
-
-                response.raise_for_status()
-                rss_content = response.content
-            except Exception as e:
-                error_msg = str(e)
-
-                # Если прокси завершился с ошибкой — пробуем fallback без прокси
-                if self._fallback_session and ('434' in error_msg or '403' in error_msg or 'ProxyError' in error_msg or 'proxy' in error_msg.lower()):
-                    try:
-                        _log.warning(f"⚠️  Прокси недоступен ({e}), пробуем без прокси...")
-                        response = self._fallback_session.get(rss_url, timeout=self.timeout, verify=False)
-                        response.raise_for_status()
-                        rss_content = response.content
-                        _log.info("✅ Fallback без прокси успешен")
-                    except Exception as e2:
-                        _log.error(f"❌ Ошибка загрузки RSS (прокси и fallback): {e2}")
-                        return []
-                else:
-                    _log.error(f"⚠️  Ошибка загрузки RSS через requests: {e}")
-                    return []
+            if rss_content is None:
+                _log.error(f"❌ Все прокси недоступны. Последняя ошибка: {last_error}")
+                return []
 
             # Парсим RSS
             feed = feedparser.parse(rss_content)
