@@ -624,7 +624,8 @@ class TenderSniperDB:
                     and_(
                         SniperFilterModel.is_active == True,
                         SniperFilterModel.deleted_at.is_(None),
-                        SniperUserModel.notifications_enabled == True  # Пауза автомониторинга
+                        SniperUserModel.notifications_enabled == True,  # Пауза автомониторинга
+                        SniperUserModel.subscription_tier != 'expired'  # Не отправлять истёкшим
                     )
                 )
             )

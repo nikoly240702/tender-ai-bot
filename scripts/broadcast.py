@@ -36,7 +36,8 @@ async def get_all_users() -> list[dict]:
     async with DatabaseSession() as session:
         result = await session.execute(text(
             "SELECT telegram_id, username, first_name FROM sniper_users "
-            "WHERE status IS NULL OR status != 'banned'"
+            "WHERE (status IS NULL OR status != 'banned') "
+            "AND subscription_tier != 'expired'"
         ))
         return [{'telegram_id': r[0], 'username': r[1], 'first_name': r[2]} for r in result if r[0]]
 
