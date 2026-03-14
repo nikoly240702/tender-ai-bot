@@ -141,11 +141,13 @@ class SubscriptionMiddleware(BaseMiddleware):
                         trial_expires_at = None
 
                 if trial_expires_at and datetime.now() > trial_expires_at:
-                    tier_name = {
-                        'trial': 'пробный период',
-                        'basic': 'подписка Basic',
-                        'premium': 'подписка Premium',
-                    }.get(tier, 'подписка')
+                    # (притяжательное, название, глагол) с учётом рода
+                    tier_display = {
+                        'trial':   ('Ваш',  'пробный период',   'закончился'),
+                        'basic':   ('Ваша', 'подписка Basic',   'закончилась'),
+                        'premium': ('Ваша', 'подписка Premium', 'закончилась'),
+                    }
+                    your, tier_name, ended = tier_display.get(tier, ('Ваша', 'подписка', 'закончилась'))
 
                     # === LAZY DOWNGRADE: обновляем tier в БД ===
                     if tier == 'trial':
@@ -165,7 +167,7 @@ class SubscriptionMiddleware(BaseMiddleware):
                             logger.error(f"Failed to downgrade user {user_id}: {e}")
 
                     message = (
-                        f"⚠️ <b>Ваш {tier_name} закончился</b>\n\n"
+                        f"⚠️ <b>{your} {tier_name} {ended}</b>\n\n"
                         "Для продолжения работы оформите или продлите подписку.\n\n"
                         "Нажмите /subscription для выбора тарифа."
                     )
