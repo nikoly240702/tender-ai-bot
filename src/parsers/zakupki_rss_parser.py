@@ -260,6 +260,14 @@ class ZakupkiRSSParser:
                     self._wait_for_rate_limit()
                     response = sess.get(rss_url, timeout=self.timeout, verify=False)
                     if response.status_code in (403, 434):
+                        # Проверяем — может это страница тех. работ
+                        try:
+                            body = response.text
+                            if 'регламентных работ' in body or 'технических работ' in body or 'ЕИС' in body:
+                                _log.warning("🔧 zakupki.gov.ru проводит регламентные работы — сайт недоступен для всех")
+                                return []
+                        except Exception:
+                            pass
                         _log.warning(f"⚠️  Прокси #{(self._current_proxy_idx + i) % max(len(sessions_to_try), 1) + 1} вернул {response.status_code}, пробуем следующий...")
                         last_error = f"HTTP {response.status_code}"
                         continue
