@@ -2,6 +2,7 @@
 Обработчики команды /start и главного меню.
 """
 
+import os
 import logging
 from aiogram import Router, F
 from aiogram.filters import CommandStart, Command
@@ -29,6 +30,9 @@ async def _track_registration(telegram_id: int, username: str = None, referral_c
     except Exception:
         pass
 
+
+# Maintenance mode: если переменная задана — показываем баннер при /start
+MAINTENANCE_MESSAGE = os.getenv('MAINTENANCE_MESSAGE', '').strip() or None
 
 # Контакт для связи
 DEVELOPER_CONTACT = "@nikolai_chizhik"
@@ -228,6 +232,10 @@ async def cmd_start(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
 
+        # Показываем баннер о тех. работах если включён
+        if MAINTENANCE_MESSAGE:
+            await message.answer(MAINTENANCE_MESSAGE, parse_mode="HTML")
+
         # Обрабатываем реферальный код
         if referral_code:
             try:
@@ -292,6 +300,10 @@ async def cmd_start(message: Message, state: FSMContext):
         reply_markup=keyboard,
         parse_mode="HTML"
     )
+
+    # Показываем баннер о тех. работах если включён
+    if MAINTENANCE_MESSAGE:
+        await message.answer(MAINTENANCE_MESSAGE, parse_mode="HTML")
 
     # Обрабатываем реферальный код если есть
     if referral_code:
