@@ -372,15 +372,9 @@ class TenderSniperService:
                     else:
                         logger.info(f"      👑 Админ {telegram_id}: неограниченный доступ")
 
-                    if not target_chat_ids:
-                        logger.warning(f"      ⚠️ target_chat_ids пуст для {tender_number}, telegram_id={telegram_id}, notify_chat_ids={filter_data.get('notify_chat_ids')}")
-
-                    added = False
-                    logger.info(f"      🔍 DEBUG: tender={tender_number}, user_id={user_id}, telegram_id={telegram_id}, targets={target_chat_ids}, seen_count={len(seen_tenders)}")
                     for target_chat_id in target_chat_ids:
                         dedup_key = (target_chat_id, tender_number)
                         if dedup_key in seen_tenders:
-                            logger.info(f"      ⏩ Дедупликация: {tender_number} → {target_chat_id}")
                             continue
 
                         # Для групповых чатов: проверяем, не отправлял ли уже ДРУГОЙ пользователь
@@ -388,7 +382,6 @@ class TenderSniperService:
                             already_in_chat = await self.db.is_tender_sent_to_chat(tender_number, target_chat_id)
                             if already_in_chat:
                                 seen_tenders.add(dedup_key)
-                                logger.info(f"      🔄 Дубль в групповом чате: {tender_number} → {target_chat_id}, пропуск")
                                 continue
 
                         seen_tenders.add(dedup_key)
@@ -415,8 +408,7 @@ class TenderSniperService:
                             'score': score,
                             'subscription_tier': subscription_tier
                         })
-                        added = True
-                    logger.info(f"      📤 К отправке: {tender_number} (score: {score}, added={added})")
+                    logger.info(f"      📤 К отправке: {tender_number} (score: {score})")
 
                 # === НЕМЕДЛЕННАЯ ОТПРАВКА уведомлений этого фильтра ===
                 # Отправляем сразу после каждого фильтра, а не копим до конца цикла.

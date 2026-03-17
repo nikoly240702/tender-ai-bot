@@ -177,6 +177,10 @@ class InstantSearch:
 
                     # Запускаем синхронный HTTP запрос в thread executor,
                     # чтобы не блокировать event loop бота
+                    # date_from = вчера, чтобы получать только свежие тендеры
+                    from datetime import timedelta
+                    date_from_str = (datetime.now() - timedelta(days=1)).strftime('%d.%m.%Y')
+
                     loop = asyncio.get_event_loop()
                     results = await loop.run_in_executor(
                         None,
@@ -191,6 +195,7 @@ class InstantSearch:
                             law_type=law_type,
                             purchase_stage=effective_purchase_stage,
                             purchase_method=purchase_method,
+                            date_from=date_from_str,
                         )
                     )
 
