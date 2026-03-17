@@ -474,7 +474,7 @@ async def main():
             logger.info("🎯 Инициализация Tender Sniper Service...")
             sniper_service = TenderSniperService(
                 bot_token=BotConfig.BOT_TOKEN,
-                poll_interval=300,  # 5 минут
+                poll_interval=120,  # 2 минуты
                 max_tenders_per_poll=100
             )
             await sniper_service.initialize()
