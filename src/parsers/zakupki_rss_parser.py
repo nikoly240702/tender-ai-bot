@@ -295,6 +295,11 @@ class ZakupkiRSSParser:
 
             _log.info(f"   📋 RSS entries: {len(feed.entries)}")
 
+            # Диагностика: самая свежая дата в RSS
+            if feed.entries:
+                newest = getattr(feed.entries[0], 'published', getattr(feed.entries[0], 'updated', '?'))
+                _log.info(f"   📅 RSS newest: {newest}")
+
             tenders = []
             filtered_count = 0
 
@@ -529,7 +534,12 @@ class ZakupkiRSSParser:
                     _log.debug(f"Ошибка парсинга HTML карточки: {e}")
                     continue
 
-            _log.info(f"   🌐 HTML fallback результат: {len(tenders)} тендеров")
+            # Диагностика: самая свежая дата в HTML
+            if tenders:
+                newest_date = tenders[0].get('published', '?')
+                _log.info(f"   🌐 HTML результат: {len(tenders)} тендеров, newest: {newest_date}")
+            else:
+                _log.info(f"   🌐 HTML результат: 0 тендеров")
             return tenders
 
         except Exception as e:
@@ -554,7 +564,7 @@ class ZakupkiRSSParser:
             'morphology': 'on',
             'search-filter': 'Дате размещения',
             'sortDirection': 'false',
-            'sortBy': 'UPDATE_DATE',
+            'sortBy': 'PUBLISH_DATE',
             'currencyIdGeneral': '-1'
         }
 
