@@ -372,9 +372,14 @@ class TenderSniperService:
                     else:
                         logger.info(f"      👑 Админ {telegram_id}: неограниченный доступ")
 
+                    if not target_chat_ids:
+                        logger.warning(f"      ⚠️ target_chat_ids пуст для {tender_number}, telegram_id={telegram_id}, notify_chat_ids={filter_data.get('notify_chat_ids')}")
+
+                    added = False
                     for target_chat_id in target_chat_ids:
                         dedup_key = (target_chat_id, tender_number)
                         if dedup_key in seen_tenders:
+                            logger.info(f"      ⏩ Дедупликация: {tender_number} → {target_chat_id}")
                             continue
 
                         # Для групповых чатов: проверяем, не отправлял ли уже ДРУГОЙ пользователь
@@ -409,7 +414,8 @@ class TenderSniperService:
                             'score': score,
                             'subscription_tier': subscription_tier
                         })
-                    logger.info(f"      📤 К отправке: {tender_number} (score: {score})")
+                        added = True
+                    logger.info(f"      📤 К отправке: {tender_number} (score: {score}, added={added})")
 
                 # === НЕМЕДЛЕННАЯ ОТПРАВКА уведомлений этого фильтра ===
                 # Отправляем сразу после каждого фильтра, а не копим до конца цикла.
