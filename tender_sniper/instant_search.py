@@ -175,10 +175,10 @@ class InstantSearch:
                         # 2 типа - без фильтрации на RSS уровне
                         tender_type_for_rss = None
 
-                    # Запускаем синхронный HTTP запрос в thread executor,
-                    # чтобы не блокировать event loop бота
+                    # Запускаем RSS и HTML параллельно для максимального покрытия
                     loop = asyncio.get_event_loop()
-                    results = await loop.run_in_executor(
+
+                    rss_future = loop.run_in_executor(
                         None,
                         functools.partial(
                             self.parser.search_tenders_rss,
@@ -194,24 +194,47 @@ class InstantSearch:
                         )
                     )
 
-                    # HTML fallback: если RSS вернул 0 результатов
-                    if not results:
-                        logger.info(f"      🌐 RSS пуст, пробуем HTML fallback...")
-                        results = await loop.run_in_executor(
-                            None,
-                            functools.partial(
-                                self.parser.search_tenders_html,
-                                keywords=variant,
-                                price_min=price_min,
-                                price_max=price_max,
-                                max_results=results_per_query,
-                                regions=regions,
-                                tender_type=tender_type_for_rss,
-                                law_type=law_type,
-                                purchase_stage=effective_purchase_stage,
-                                purchase_method=purchase_method,
-                            )
+                    html_future = loop.run_in_executor(
+                        None,
+                        functools.partial(
+                            self.parser.search_tenders_html,
+                            keywords=variant,
+                            price_min=price_min,
+                            price_max=price_max,
+                            max_results=results_per_query,
+                            regions=regions,
+                            tender_type=tender_type_for_rss,
+                            law_type=law_type,
+                            purchase_stage=effective_purchase_stage,
+                            purchase_method=purchase_method,
                         )
+                    )
+
+                    rss_results, html_results = await asyncio.gather(
+                        rss_future, html_future, return_exceptions=True
+                    )
+
+                    # Объединяем результаты, RSS приоритетнее (больше данных)
+                    results = []
+                    merged_numbers = set()
+
+                    if isinstance(rss_results, list):
+                        for t in rss_results:
+                            num = t.get('number')
+                            if num:
+                                merged_numbers.add(num)
+                            results.append(t)
+
+                    if isinstance(html_results, list):
+                        html_new = 0
+                        for t in html_results:
+                            num = t.get('number')
+                            if num and num not in merged_numbers:
+                                merged_numbers.add(num)
+                                results.append(t)
+                                html_new += 1
+                        if html_new > 0:
+                            logger.info(f"      🌐 HTML добавил {html_new} новых тендеров (не было в RSS)")
 
                     # Дедупликация по номеру тендера + client-side фильтрация
                     for tender in results:

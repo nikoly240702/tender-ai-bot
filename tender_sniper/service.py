@@ -243,7 +243,32 @@ class TenderSniperService:
                 logger.info("   ℹ️  Нет активных фильтров для проверки")
                 return
 
-            # 2. Для КАЖДОГО фильтра делаем целевой поиск (ПАРАЛЛЕЛЬНО)
+            # 2. Фильтруем expired триалы ДО поиска (экономим RSS-запросы)
+            active_filters = []
+            for f in filters:
+                tier = f.get('subscription_tier', 'trial')
+                if tier == 'trial':
+                    trial_exp = f.get('trial_expires_at')
+                    if trial_exp:
+                        if isinstance(trial_exp, str):
+                            try:
+                                trial_exp = datetime.fromisoformat(trial_exp)
+                            except (ValueError, TypeError):
+                                trial_exp = None
+                        if trial_exp and datetime.utcnow() > trial_exp:
+                            logger.info(f"   ⏰ Триал истёк для user {f['user_id']}, пропускаем фильтр «{f['name']}»")
+                            continue
+                    elif not trial_exp:
+                        # Триал без даты — считаем истёкшим
+                        logger.info(f"   ⏰ Триал без даты для user {f['user_id']}, пропускаем фильтр «{f['name']}»")
+                        continue
+                active_filters.append(f)
+
+            skipped = len(filters) - len(active_filters)
+            if skipped > 0:
+                logger.info(f"   ⏩ Пропущено {skipped} фильтров (expired trial)")
+            filters = active_filters
+
             # Pre-populate кэш пользователей из JOIN данных (избегаем N+1)
             user_data_cache = {}
             for f in filters:
@@ -251,7 +276,7 @@ class TenderSniperService:
                 if ud and ud.get('telegram_id'):
                     user_data_cache[ud['telegram_id']] = ud
 
-            # Фаза 1: Параллельный RSS-поиск по всем фильтрам
+            # Фаза 1: Параллельный RSS+HTML поиск по всем фильтрам
             # Семафор ограничивает одновременные запросы к RSS (не перегружаем zakupki.gov.ru)
             semaphore = asyncio.Semaphore(8)
 
@@ -284,19 +309,6 @@ class TenderSniperService:
                 user_id = filter_data['user_id']
                 telegram_id = filter_data.get('telegram_id')
                 subscription_tier = filter_data.get('subscription_tier', 'trial')
-
-                # Проверяем истёкший триал — не отправляем уведомления
-                if subscription_tier == 'trial':
-                    trial_expires_at = filter_data.get('trial_expires_at')
-                    if trial_expires_at:
-                        if isinstance(trial_expires_at, str):
-                            try:
-                                trial_expires_at = datetime.fromisoformat(trial_expires_at)
-                            except (ValueError, TypeError):
-                                trial_expires_at = None
-                        if trial_expires_at and datetime.utcnow() > trial_expires_at:
-                            logger.info(f"   ⏰ Триал истёк для user {user_id}, пропускаем фильтр «{filter_name}»")
-                            continue
 
                 # Per-filter routing: определяем куда отправлять
                 notify_chat_ids = filter_data.get('notify_chat_ids') or []
