@@ -244,7 +244,7 @@ class ZakupkiRSSParser:
                 date_to=date_to
             )
 
-            _log.debug(f"   RSS URL: {rss_url[:100]}...")
+            _log.info(f"   📡 RSS URL: {rss_url[:200]}...")
 
             # Получаем RSS через requests с ротацией прокси при блокировке
             rss_content = None
@@ -290,8 +290,16 @@ class ZakupkiRSSParser:
             feed = feedparser.parse(rss_content)
 
             if feed.bozo and not feed.entries:
-                print(f"⚠️  Ошибка парсинга RSS: {feed.bozo_exception}")
+                _log.warning(f"⚠️  Ошибка парсинга RSS: {feed.bozo_exception}")
                 return []
+
+            _log.info(f"   📋 RSS entries: {len(feed.entries)}")
+
+            # Логируем даты первых 3 entries чтобы видеть свежесть данных
+            for _i, _e in enumerate(feed.entries[:3]):
+                _pub = getattr(_e, 'published', getattr(_e, 'updated', '?'))
+                _title = getattr(_e, 'title', '?')[:60]
+                _log.info(f"   📅 Entry[{_i}]: {_pub} | {_title}")
 
             tenders = []
             filtered_count = 0
