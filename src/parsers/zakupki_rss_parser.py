@@ -564,7 +564,7 @@ class ZakupkiRSSParser:
             'morphology': 'on',
             'search-filter': 'Дате размещения',
             'sortDirection': 'false',
-            'sortBy': 'PUBLISH_DATE',
+            'sortBy': 'UPDATE_DATE',
             'currencyIdGeneral': '-1'
         }
 
