@@ -194,6 +194,25 @@ class InstantSearch:
                         )
                     )
 
+                    # HTML fallback: если RSS вернул 0 результатов
+                    if not results:
+                        logger.info(f"      🌐 RSS пуст, пробуем HTML fallback...")
+                        results = await loop.run_in_executor(
+                            None,
+                            functools.partial(
+                                self.parser.search_tenders_html,
+                                keywords=variant,
+                                price_min=price_min,
+                                price_max=price_max,
+                                max_results=results_per_query,
+                                regions=regions,
+                                tender_type=tender_type_for_rss,
+                                law_type=law_type,
+                                purchase_stage=effective_purchase_stage,
+                                purchase_method=purchase_method,
+                            )
+                        )
+
                     # Дедупликация по номеру тендера + client-side фильтрация
                     for tender in results:
                         number = tender.get('number')

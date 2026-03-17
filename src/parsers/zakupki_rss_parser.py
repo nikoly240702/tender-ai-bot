@@ -420,6 +420,128 @@ class ZakupkiRSSParser:
             print(f"✗ Ошибка получения RSS: {e}")
             return []
 
+    def search_tenders_html(
+        self,
+        keywords: Optional[str] = None,
+        price_min: Optional[int] = None,
+        price_max: Optional[int] = None,
+        max_results: int = 50,
+        regions: Optional[List[str]] = None,
+        tender_type: Optional[str] = None,
+        law_type: Optional[str] = None,
+        purchase_stage: Optional[str] = None,
+        purchase_method: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Fallback: парсинг HTML-страницы поиска вместо RSS.
+        Возвращает данные в том же формате что и search_tenders_rss.
+        """
+        try:
+            from bs4 import BeautifulSoup
+
+            # Используем тот же URL builder но меняем endpoint
+            rss_url = self._build_rss_url(
+                keywords=keywords, price_min=price_min, price_max=price_max,
+                regions=regions, tender_type=tender_type, law_type=law_type,
+                purchase_stage=purchase_stage, purchase_method=purchase_method,
+            )
+            html_url = rss_url.replace('/rss.html?', '/results.html?')
+            html_url += '&recordsPerPage=_50&pageNumber=1'
+
+            _log.info(f"   🌐 HTML fallback: {html_url[:150]}...")
+
+            # Запрос через прокси
+            sessions_to_try = list(self._proxy_sessions) if self._proxy_sessions else [self.session]
+            if self._proxy_sessions:
+                idx = self._current_proxy_idx % len(self._proxy_sessions)
+                sessions_to_try = self._proxy_sessions[idx:] + self._proxy_sessions[:idx]
+
+            html_content = None
+            for sess in sessions_to_try:
+                try:
+                    self._wait_for_rate_limit()
+                    response = sess.get(html_url, timeout=self.timeout, verify=False)
+                    if response.status_code in (403, 434):
+                        continue
+                    response.raise_for_status()
+                    html_content = response.text
+                    break
+                except Exception as e:
+                    _log.warning(f"⚠️ HTML fallback прокси ошибка: {e}")
+                    continue
+
+            if not html_content:
+                _log.error("❌ HTML fallback: все прокси недоступны")
+                return []
+
+            soup = BeautifulSoup(html_content, 'html.parser')
+            cards = soup.find_all('div', class_='search-registry-entry-block')
+            if not cards:
+                cards = soup.find_all('div', class_='search-registry-entry')
+
+            _log.info(f"   🌐 HTML fallback: найдено {len(cards)} карточек")
+
+            tenders = []
+            for card in cards[:max_results]:
+                try:
+                    tender = {}
+
+                    # Номер и URL
+                    num_div = card.find('div', class_='registry-entry__header-mid__number')
+                    if num_div:
+                        link = num_div.find('a')
+                        if link:
+                            raw_number = link.text.strip().replace('№', '').strip()
+                            tender['number'] = raw_number
+                            href = link.get('href', '')
+                            tender['url'] = self.BASE_URL + href if href.startswith('/') else href
+                            # Извлекаем чистый номер из URL
+                            reg_match = re.search(r'regNumber=([A-Z0-9]+)', href)
+                            if reg_match:
+                                tender['number'] = reg_match.group(1)
+
+                    # Название
+                    body_val = card.find('div', class_='registry-entry__body-value')
+                    if body_val:
+                        tender['name'] = body_val.text.strip()
+
+                    # Цена
+                    price_block = card.find('div', class_='price-block__value')
+                    if price_block:
+                        price_text = price_block.text.strip()
+                        cleaned = re.sub(r'[^\d,.]', '', price_text).replace(',', '.')
+                        try:
+                            tender['price'] = float(cleaned)
+                            tender['price_formatted'] = price_text
+                        except ValueError:
+                            pass
+
+                    # Заказчик
+                    customer_div = card.find('div', class_='registry-entry__body-href')
+                    if customer_div:
+                        tender['customer'] = customer_div.text.strip()
+
+                    # Даты
+                    date_blocks = card.find_all('div', class_='data-block__value')
+                    if len(date_blocks) >= 1:
+                        tender['published'] = date_blocks[0].text.strip()
+                    if len(date_blocks) >= 2:
+                        tender['submission_deadline'] = date_blocks[1].text.strip()
+
+                    if tender.get('number'):
+                        tenders.append(tender)
+
+                except Exception as e:
+                    _log.debug(f"Ошибка парсинга HTML карточки: {e}")
+                    continue
+
+            _log.info(f"   🌐 HTML fallback результат: {len(tenders)} тендеров")
+            return tenders
+
+        except Exception as e:
+            _log.error(f"❌ HTML fallback ошибка: {e}")
+            return []
+
     def _build_rss_url(
         self,
         keywords: Optional[str],
