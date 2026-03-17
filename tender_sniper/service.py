@@ -376,6 +376,7 @@ class TenderSniperService:
                         logger.warning(f"      ⚠️ target_chat_ids пуст для {tender_number}, telegram_id={telegram_id}, notify_chat_ids={filter_data.get('notify_chat_ids')}")
 
                     added = False
+                    logger.info(f"      🔍 DEBUG: tender={tender_number}, user_id={user_id}, telegram_id={telegram_id}, targets={target_chat_ids}, seen_count={len(seen_tenders)}")
                     for target_chat_id in target_chat_ids:
                         dedup_key = (target_chat_id, tender_number)
                         if dedup_key in seen_tenders:
