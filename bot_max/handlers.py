@@ -12,12 +12,85 @@ Full-featured bot matching the Telegram bot's functionality:
 """
 
 import logging
+import re
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from bot_max.client import MaxBotClient
 from tender_sniper.database import get_sniper_db
 
 logger = logging.getLogger(__name__)
+
+# ── Filter Templates (from onboarding) ──────────────────────────
+FILTER_TEMPLATES = {
+    "it": {
+        "name": "IT и компьютеры",
+        "emoji": "💻",
+        "description": "Компьютерная техника, ПО, IT-услуги",
+        "keywords": ["компьютер", "ноутбук", "сервер", "программное обеспечение", "IT", "информационные технологии"],
+        "price_min": 100000,
+        "price_max": 10000000,
+    },
+    "construction": {
+        "name": "Строительство",
+        "emoji": "🏗️",
+        "description": "Строительные работы, материалы, ремонт",
+        "keywords": ["строительство", "ремонт", "строительные работы", "капитальный ремонт", "реконструкция"],
+        "price_min": 500000,
+        "price_max": 50000000,
+    },
+    "office": {
+        "name": "Канцелярия",
+        "emoji": "📎",
+        "description": "Канцтовары, бумага, офисные принадлежности",
+        "keywords": ["канцелярские товары", "бумага", "канцтовары", "офисные принадлежности"],
+        "price_min": 50000,
+        "price_max": 2000000,
+    },
+    "food": {
+        "name": "Продукты питания",
+        "emoji": "🍎",
+        "description": "Продовольствие, питание, кейтеринг",
+        "keywords": ["продукты питания", "продовольствие", "питание", "пищевые продукты"],
+        "price_min": 100000,
+        "price_max": 5000000,
+    },
+    "cleaning": {
+        "name": "Клининг",
+        "emoji": "🧹",
+        "description": "Уборка, клининговые услуги",
+        "keywords": ["уборка", "клининг", "клининговые услуги", "содержание помещений"],
+        "price_min": 100000,
+        "price_max": 5000000,
+    },
+    "security": {
+        "name": "Охрана",
+        "emoji": "🔒",
+        "description": "Охранные услуги, безопасность",
+        "keywords": ["охрана", "охранные услуги", "безопасность", "пропускной режим"],
+        "price_min": 200000,
+        "price_max": 10000000,
+    },
+    "medical": {
+        "name": "Медицина",
+        "emoji": "🏥",
+        "description": "Медоборудование, медикаменты, медуслуги",
+        "keywords": ["медицинское оборудование", "медикаменты", "лекарственные средства", "медицинские изделия"],
+        "price_min": 100000,
+        "price_max": 20000000,
+    },
+    "furniture": {
+        "name": "Мебель",
+        "emoji": "🪑",
+        "description": "Офисная и специальная мебель",
+        "keywords": ["мебель", "офисная мебель", "мебель для школ", "учебная мебель"],
+        "price_min": 100000,
+        "price_max": 5000000,
+    },
+}
+
+# ── In-memory favorites (user_id -> set of tender_numbers) ──────
+_user_favorites: Dict[int, set] = {}
 
 # ── State management (in-memory, resets on restart) ────────────────
 # user_id -> {"state": "wiz_...", "data": {...}, "chat_id": int}
@@ -108,10 +181,24 @@ POPULAR_REGIONS = [
 # ── Keyboard layouts ──────────────────────────────────────────────
 
 MAIN_MENU_KEYBOARD = [
-    [{"type": "callback", "text": "🤖 Tender-GPT", "payload": "gpt"}],
     [
+        {"type": "callback", "text": "🤖 Tender-GPT", "payload": "gpt"},
         {"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"},
+    ],
+    [
         {"type": "callback", "text": "📋 Мои фильтры", "payload": "my_filters"},
+        {"type": "callback", "text": "📊 Все мои тендеры", "payload": "all_tenders"},
+    ],
+    [
+        {"type": "callback", "text": "⭐ Избранное", "payload": "favorites"},
+        {"type": "callback", "text": "📈 Статистика", "payload": "stats"},
+    ],
+    [
+        {"type": "callback", "text": "⏸ Пауза мониторинга", "payload": "pause_mon"},
+        {"type": "callback", "text": "🔬 AI Анализ", "payload": "ai_analyze"},
+    ],
+    [
+        {"type": "callback", "text": "🔍 Поиск тендеров", "payload": "man_search"},
     ],
     [
         {"type": "callback", "text": "💳 Подписка", "payload": "sub"},
@@ -387,11 +474,22 @@ async def handle_bot_started(
     chat_id: int,
     username: str = None,
 ):
-    """User pressed 'Start' — send welcome message."""
+    """User pressed 'Start' — send welcome message or onboarding."""
     logger.info(f"Max bot: bot_started from user {user_id} in chat {chat_id}")
-    await _ensure_user(user_id, username)
+    user = await _ensure_user(user_id, username)
     _gpt_active_chats.discard(chat_id)
     _user_states.pop(user_id, None)
+
+    # Check if new user (no filters) — show onboarding with templates
+    try:
+        db = await get_sniper_db()
+        filters = await db.get_user_filters(user['id'], active_only=False)
+        if not filters:
+            await _show_onboarding(client, chat_id, user_id)
+            return
+    except Exception as e:
+        logger.warning(f"Max bot: onboarding check failed: {e}")
+
     await client.send_message(chat_id, WELCOME_TEXT, keyboard=MAIN_MENU_KEYBOARD)
 
 
@@ -427,6 +525,24 @@ async def handle_message(client: MaxBotClient, update: Dict[str, Any]):
     # Wizard state — handle text input
     state = _user_states.get(user_id)
     if state:
+        current_state = state.get("state", "")
+
+        # AI Analysis — waiting for tender number
+        if current_state == "analyze_waiting":
+            await _handle_analyze_input(client, chat_id, user_id, username, text)
+            return
+
+        # Manual Search — waiting for keywords
+        if current_state == "search_waiting":
+            await _handle_search_input(client, chat_id, user_id, username, text)
+            return
+
+        # Filter editing states
+        if current_state.startswith("fedit_"):
+            await _handle_filter_edit_text(client, chat_id, user_id, username, text, state)
+            return
+
+        # Wizard states
         await _handle_wizard_text(client, chat_id, user_id, username, text, state)
         return
 
@@ -551,6 +667,86 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
     elif payload.startswith("fdn_"):
         fid = payload.replace("fdn_", "")
         await _view_filter(client, chat_id, user_id, username, f"fv_{fid}")
+
+    # ── Onboarding templates ──
+    elif payload.startswith("tpl_"):
+        await _handle_template_select(client, chat_id, user_id, username, payload)
+
+    elif payload == "tpl_custom":
+        await _wizard_start(client, chat_id, user_id, username)
+
+    # ── All My Tenders ──
+    elif payload == "all_tenders":
+        await _show_all_tenders(client, chat_id, user_id, username)
+
+    elif payload.startswith("td_"):
+        await _show_tender_detail(client, chat_id, user_id, username, payload)
+
+    # ── Favorites ──
+    elif payload == "favorites":
+        await _show_favorites(client, chat_id, user_id, username)
+
+    elif payload.startswith("fa_"):
+        await _add_favorite(client, chat_id, user_id, payload)
+
+    elif payload.startswith("fr_"):
+        await _remove_favorite(client, chat_id, user_id, payload)
+
+    # ── Statistics ──
+    elif payload == "stats":
+        await _show_stats(client, chat_id, user_id, username)
+
+    # ── Monitoring Pause/Resume ──
+    elif payload == "pause_mon":
+        await _toggle_monitoring(client, chat_id, user_id, username, pause=True)
+
+    elif payload == "resume_mon":
+        await _toggle_monitoring(client, chat_id, user_id, username, pause=False)
+
+    # ── AI Analysis ──
+    elif payload == "ai_analyze":
+        await _start_ai_analyze(client, chat_id, user_id)
+
+    elif payload.startswith("aia_"):
+        # Quick analyze from tender card: aia_{tender_number}
+        tender_num = payload.replace("aia_", "")
+        await _do_ai_analyze(client, chat_id, user_id, username, tender_num)
+
+    # ── Manual Search ──
+    elif payload == "man_search":
+        await _start_manual_search(client, chat_id, user_id)
+
+    # ── Filter Editing ──
+    elif payload.startswith("fe_"):
+        await _show_filter_edit_menu(client, chat_id, user_id, username, payload)
+
+    elif payload.startswith("fen_"):
+        await _start_filter_edit(client, chat_id, user_id, "name", payload.replace("fen_", ""))
+
+    elif payload.startswith("fek_"):
+        await _start_filter_edit(client, chat_id, user_id, "keywords", payload.replace("fek_", ""))
+
+    elif payload.startswith("fepn_"):
+        await _start_filter_edit(client, chat_id, user_id, "price_min", payload.replace("fepn_", ""))
+
+    elif payload.startswith("fepx_"):
+        await _start_filter_edit(client, chat_id, user_id, "price_max", payload.replace("fepx_", ""))
+
+    elif payload.startswith("fer_"):
+        await _start_filter_edit(client, chat_id, user_id, "regions", payload.replace("fer_", ""))
+
+    # ── GPT from tender card ──
+    elif payload.startswith("gpt_"):
+        tender_num = payload.replace("gpt_", "")
+        _gpt_active_chats.add(chat_id)
+        _user_states.pop(user_id, None)
+        service = await _get_gpt_service()
+        greeting = await service.get_greeting()
+        await client.send_message(
+            chat_id,
+            f"🤖 <b>Tender-GPT</b>\n\n{greeting}\n\n💡 Можете спросить о тендере {tender_num}",
+            keyboard=EXIT_GPT_KEYBOARD,
+        )
 
     else:
         logger.debug(f"Max bot: unknown callback payload: {payload}")
@@ -1514,6 +1710,7 @@ async def _view_filter(
 
     keyboard = [
         [{"type": "callback", "text": toggle_text, "payload": f"ft_{filter_id}"}],
+        [{"type": "callback", "text": "✏️ Редактировать", "payload": f"fe_{filter_id}"}],
         [{"type": "callback", "text": "🗑 Удалить", "payload": f"fd_{filter_id}"}],
         [{"type": "callback", "text": "◀️ Назад к фильтрам", "payload": "my_filters"}],
         [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
@@ -1911,10 +2108,27 @@ async def send_max_notification(
         if law_type:
             text += f"⚖️ Закон: {law_type}\n"
 
+        # Extract tender number for action buttons
+        tender_number = tender.get('number', '')
+        if not tender_number and url:
+            m = re.search(r'regNumber=(\d+)', url)
+            if m:
+                tender_number = m.group(1)
+
         keyboard = []
         if url:
-            keyboard.append([{"type": "callback", "text": "🔗 Подробнее", "payload": "menu"}])
             text += f"\n<a href=\"{url}\">🔗 Открыть на zakupki.gov.ru</a>"
+
+        # Action buttons on tender card
+        action_row = []
+        if tender_number:
+            action_row.append({"type": "callback", "text": "🔬 AI Анализ", "payload": f"aia_{tender_number[:20]}"})
+            action_row.append({"type": "callback", "text": "⭐ В избранное", "payload": f"fa_{tender_number[:20]}"})
+        if action_row:
+            keyboard.append(action_row)
+
+        if tender_number:
+            keyboard.append([{"type": "callback", "text": "🤖 Спросить GPT", "payload": f"gpt_{tender_number[:20]}"}])
 
         keyboard.append([{"type": "callback", "text": "📋 Мои фильтры", "payload": "my_filters"}])
 
@@ -1924,3 +2138,954 @@ async def send_max_notification(
 
     except Exception as e:
         logger.error(f"Max bot: error sending notification to chat {chat_id}: {e}", exc_info=True)
+
+
+# ══════════════════════════════════════════════════════════════════
+# ONBOARDING — QUICK TEMPLATES
+# ══════════════════════════════════════════════════════════════════
+
+async def _show_onboarding(client: MaxBotClient, chat_id: int, user_id: int):
+    """Show onboarding template selection for new users."""
+    text = (
+        "👋 <b>Добро пожаловать в Tender Sniper!</b>\n\n"
+        "Я помогу вам находить тендеры на zakupki.gov.ru автоматически.\n\n"
+        "<b>Как это работает:</b>\n"
+        "1️⃣ Вы создаёте фильтр с критериями\n"
+        "2️⃣ Бот мониторит 15,000+ тендеров ежедневно\n"
+        "3️⃣ Получаете уведомления о подходящих\n\n"
+        "🎁 <b>У вас 14 дней бесплатного доступа!</b>\n\n"
+        "🚀 Выберите вашу нишу для быстрого старта:"
+    )
+
+    keyboard = []
+    templates_list = list(FILTER_TEMPLATES.items())
+    for i in range(0, len(templates_list), 2):
+        row = []
+        for key, tpl in templates_list[i:i + 2]:
+            row.append({
+                "type": "callback",
+                "text": f"{tpl['emoji']} {tpl['name']}",
+                "payload": f"tpl_{key}",
+            })
+        keyboard.append(row)
+
+    keyboard.append([{"type": "callback", "text": "🎯 Своя ниша", "payload": "tpl_custom"}])
+
+    await client.send_message(chat_id, text, keyboard=keyboard)
+
+
+async def _handle_template_select(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    payload: str,
+):
+    """Create filter from template selection."""
+    template_key = payload.replace("tpl_", "")
+    template = FILTER_TEMPLATES.get(template_key)
+
+    if not template:
+        await client.send_message(chat_id, "⚠️ Шаблон не найден.", keyboard=MAIN_MENU_KEYBOARD)
+        return
+
+    try:
+        user = await _ensure_user(user_id, username)
+        if not user:
+            await client.send_message(chat_id, "⚠️ Пользователь не найден.", keyboard=MAIN_MENU_KEYBOARD)
+            return
+
+        db = await get_sniper_db()
+
+        filter_id = await db.create_filter(
+            user_id=user['id'],
+            name=f"{template['emoji']} {template['name']}",
+            keywords=template['keywords'],
+            price_min=template['price_min'],
+            price_max=template['price_max'],
+            is_active=True,
+        )
+
+        # Generate AI intent
+        try:
+            from tender_sniper.ai_relevance_checker import generate_intent
+            ai_intent = await generate_intent(
+                filter_name=f"{template['emoji']} {template['name']}",
+                keywords=template['keywords'],
+                exclude_keywords=[],
+            )
+            if ai_intent:
+                await db.update_filter_intent(filter_id, ai_intent)
+        except Exception as e:
+            logger.warning(f"Max bot: failed to generate AI intent for template filter {filter_id}: {e}")
+
+        price_min_fmt = f"{template['price_min']:,}".replace(",", " ")
+        price_max_fmt = f"{template['price_max']:,}".replace(",", " ")
+        keywords_str = ", ".join(template['keywords'][:5])
+
+        await client.send_message(
+            chat_id,
+            (
+                f"✅ <b>Фильтр создан!</b>\n\n"
+                f"{template['emoji']} <b>{template['name']}</b>\n"
+                f"🆔 ID: #{filter_id}\n\n"
+                f"🔑 Ключевые слова: <i>{keywords_str}</i>\n"
+                f"💰 Бюджет: {price_min_fmt} — {price_max_fmt} ₽\n"
+                f"📍 Регионы: Вся Россия\n\n"
+                f"🤖 Бот начал мониторинг! Вы получите уведомление, "
+                f"как только появится подходящий тендер."
+            ),
+            keyboard=[
+                [{"type": "callback", "text": "📋 Мои фильтры", "payload": "my_filters"}],
+                [{"type": "callback", "text": "➕ Создать ещё", "payload": "new_filter"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+
+        logger.info(f"Max bot: template filter #{filter_id} created for user {user_id} (template={template_key})")
+
+    except Exception as e:
+        logger.error(f"Max bot: error creating template filter: {e}", exc_info=True)
+        await client.send_message(chat_id, "⚠️ Произошла ошибка при создании фильтра.", keyboard=MAIN_MENU_KEYBOARD)
+
+
+# ══════════════════════════════════════════════════════════════════
+# ALL MY TENDERS (notification history)
+# ══════════════════════════════════════════════════════════════════
+
+async def _show_all_tenders(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+):
+    """Show recent tender notifications."""
+    try:
+        user = await _ensure_user(user_id, username)
+        if not user:
+            await client.send_message(chat_id, "⚠️ Пользователь не найден.", keyboard=BACK_KEYBOARD)
+            return
+
+        db = await get_sniper_db()
+        tenders = await db.get_user_tenders(user['id'], limit=10)
+
+        if not tenders:
+            await client.send_message(
+                chat_id,
+                (
+                    "📊 <b>Все мои тендеры</b>\n\n"
+                    "У вас пока нет уведомлений о тендерах.\n"
+                    "Создайте фильтр, и бот начнёт присылать подходящие тендеры."
+                ),
+                keyboard=[
+                    [{"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"}],
+                    [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+                ],
+            )
+            return
+
+        lines = ["📊 <b>Все мои тендеры</b>\n"]
+        keyboard = []
+
+        for i, t in enumerate(tenders, 1):
+            name = t.get('name', 'Без названия')
+            short_name = name[:50] + "..." if len(name) > 50 else name
+            price = t.get('price')
+            price_text = _format_price(price) if price else "не указана"
+            sent_at = t.get('sent_at', '')
+            date_text = sent_at[:10] if sent_at else ""
+            number = t.get('number', '')
+
+            lines.append(f"{i}. 💰 {price_text} — {short_name}")
+            if date_text:
+                lines.append(f"   📅 {date_text}")
+
+            if number:
+                keyboard.append([{
+                    "type": "callback",
+                    "text": f"📄 {i}. {short_name[:35]}",
+                    "payload": f"td_{number[:20]}",
+                }])
+
+        keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
+
+        await client.send_message(chat_id, "\n".join(lines), keyboard=keyboard)
+
+    except Exception as e:
+        logger.error(f"Max bot: error showing all tenders: {e}", exc_info=True)
+        await client.send_message(chat_id, "⚠️ Произошла ошибка.", keyboard=BACK_KEYBOARD)
+
+
+async def _show_tender_detail(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    payload: str,
+):
+    """Show details of a specific tender from history."""
+    tender_number = payload.replace("td_", "")
+
+    try:
+        user = await _ensure_user(user_id, username)
+        if not user:
+            return
+
+        db = await get_sniper_db()
+        tenders = await db.get_user_tenders(user['id'], limit=100)
+
+        tender = None
+        for t in tenders:
+            if t.get('number', '').startswith(tender_number):
+                tender = t
+                break
+
+        if not tender:
+            await client.send_message(chat_id, "⚠️ Тендер не найден.", keyboard=BACK_KEYBOARD)
+            return
+
+        name = tender.get('name', 'Без названия')
+        price = tender.get('price')
+        price_text = _format_price(price) if price else "не указана"
+        region = tender.get('region', '—')
+        customer = tender.get('customer_name', '—')
+        score = tender.get('score')
+        url = tender.get('url', '')
+        deadline = tender.get('submission_deadline', '—')
+        filter_name = tender.get('filter_name', '—')
+
+        text = (
+            f"📄 <b>Тендер</b>\n\n"
+            f"📝 <b>{name[:200]}</b>\n\n"
+            f"💰 Цена: <b>{price_text}</b>\n"
+            f"🏢 Заказчик: {customer[:100]}\n"
+            f"📍 Регион: {region}\n"
+            f"📅 Подача до: {deadline[:10] if deadline != '—' else '—'}\n"
+        )
+
+        if score:
+            text += f"🎯 Релевантность: <b>{score}%</b>\n"
+        if filter_name:
+            text += f"📋 Фильтр: {filter_name}\n"
+        if url:
+            text += f"\n<a href=\"{url}\">🔗 Открыть на zakupki.gov.ru</a>"
+
+        full_number = tender.get('number', '')
+        keyboard = []
+        action_row = []
+        if full_number:
+            action_row.append({"type": "callback", "text": "🔬 AI Анализ", "payload": f"aia_{full_number[:20]}"})
+            action_row.append({"type": "callback", "text": "⭐ В избранное", "payload": f"fa_{full_number[:20]}"})
+        if action_row:
+            keyboard.append(action_row)
+        keyboard.append([{"type": "callback", "text": "◀️ Все тендеры", "payload": "all_tenders"}])
+        keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
+
+        await client.send_message(chat_id, text, keyboard=keyboard)
+
+    except Exception as e:
+        logger.error(f"Max bot: error showing tender detail: {e}", exc_info=True)
+        await client.send_message(chat_id, "⚠️ Произошла ошибка.", keyboard=BACK_KEYBOARD)
+
+
+# ══════════════════════════════════════════════════════════════════
+# FAVORITES
+# ══════════════════════════════════════════════════════════════════
+
+async def _show_favorites(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+):
+    """Show user's favorite tenders."""
+    favs = _user_favorites.get(user_id, set())
+
+    if not favs:
+        await client.send_message(
+            chat_id,
+            (
+                "⭐ <b>Избранное</b>\n\n"
+                "У вас пока нет избранных тендеров.\n\n"
+                "Нажмите ⭐ на карточке тендера, чтобы добавить в избранное."
+            ),
+            keyboard=[
+                [{"type": "callback", "text": "📊 Все мои тендеры", "payload": "all_tenders"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+        return
+
+    # Try to get tender details from DB
+    try:
+        user = await _ensure_user(user_id, username)
+        db = await get_sniper_db()
+        all_tenders = await db.get_user_tenders(user['id'], limit=100)
+        tender_map = {t.get('number', ''): t for t in all_tenders}
+    except Exception:
+        tender_map = {}
+
+    lines = ["⭐ <b>Избранное</b>\n"]
+    keyboard = []
+
+    for i, number in enumerate(list(favs)[:15], 1):
+        tender = tender_map.get(number, {})
+        name = tender.get('name', f'Тендер {number}')
+        short_name = name[:40] + "..." if len(name) > 40 else name
+        price = tender.get('price')
+        price_text = _format_price(price) if price else ""
+
+        line = f"{i}. {short_name}"
+        if price_text:
+            line += f" — {price_text}"
+        lines.append(line)
+
+        keyboard.append([
+            {"type": "callback", "text": f"📄 {short_name[:30]}", "payload": f"td_{number[:20]}"},
+            {"type": "callback", "text": "❌ Убрать", "payload": f"fr_{number[:20]}"},
+        ])
+
+    keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
+
+    await client.send_message(chat_id, "\n".join(lines), keyboard=keyboard)
+
+
+async def _add_favorite(client: MaxBotClient, chat_id: int, user_id: int, payload: str):
+    """Add tender to favorites."""
+    tender_number = payload.replace("fa_", "")
+    if user_id not in _user_favorites:
+        _user_favorites[user_id] = set()
+    _user_favorites[user_id].add(tender_number)
+
+    await client.send_message(
+        chat_id,
+        f"⭐ Тендер <b>{tender_number}</b> добавлен в избранное!",
+        keyboard=[
+            [{"type": "callback", "text": "⭐ Избранное", "payload": "favorites"}],
+            [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+        ],
+    )
+    logger.info(f"Max bot: user {user_id} added tender {tender_number} to favorites")
+
+
+async def _remove_favorite(client: MaxBotClient, chat_id: int, user_id: int, payload: str):
+    """Remove tender from favorites."""
+    tender_number = payload.replace("fr_", "")
+    if user_id in _user_favorites:
+        _user_favorites[user_id].discard(tender_number)
+
+    await client.send_message(
+        chat_id,
+        f"❌ Тендер <b>{tender_number}</b> удалён из избранного.",
+        keyboard=[
+            [{"type": "callback", "text": "⭐ Избранное", "payload": "favorites"}],
+            [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+        ],
+    )
+    logger.info(f"Max bot: user {user_id} removed tender {tender_number} from favorites")
+
+
+# ══════════════════════════════════════════════════════════════════
+# STATISTICS
+# ══════════════════════════════════════════════════════════════════
+
+async def _show_stats(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+):
+    """Show user statistics."""
+    try:
+        user = await _ensure_user(user_id, username)
+        if not user:
+            await client.send_message(chat_id, "⚠️ Пользователь не найден.", keyboard=BACK_KEYBOARD)
+            return
+
+        db = await get_sniper_db()
+
+        # Get filters count
+        filters = await db.get_user_filters(user['id'], active_only=False)
+        active_filters = sum(1 for f in filters if f.get('is_active'))
+        total_filters = len(filters)
+
+        # Get notification count
+        tenders = await db.get_user_tenders(user['id'], limit=10000)
+        total_notifications = len(tenders)
+
+        # Days since registration
+        created_at = user.get('created_at', '')
+        days_since = 0
+        if created_at:
+            try:
+                created_dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                if created_dt.tzinfo:
+                    created_dt = created_dt.replace(tzinfo=None)
+                days_since = max(0, (datetime.now() - created_dt).days)
+            except Exception:
+                pass
+
+        # Monitoring status
+        monitoring_active = await db.get_monitoring_status(user_id)
+        monitoring_text = "🟢 Активен" if monitoring_active else "🔴 На паузе"
+
+        # Favorites count
+        favs_count = len(_user_favorites.get(user_id, set()))
+
+        text = (
+            f"📈 <b>Ваша статистика</b>\n\n"
+            f"📬 Уведомлений получено: <b>{total_notifications}</b>\n"
+            f"📋 Активных фильтров: <b>{active_filters}/{total_filters}</b>\n"
+            f"⭐ В избранном: <b>{favs_count}</b>\n"
+            f"📡 Мониторинг: <b>{monitoring_text}</b>\n"
+            f"📅 Дней с регистрации: <b>{days_since}</b>\n"
+        )
+
+        if total_notifications > 0:
+            hours_saved = max(1, total_notifications * 0.5)
+            text += f"\n⏱ Сэкономлено времени: <b>~{hours_saved:.0f} ч</b>"
+
+        await client.send_message(chat_id, text, keyboard=BACK_KEYBOARD)
+
+    except Exception as e:
+        logger.error(f"Max bot: error showing stats: {e}", exc_info=True)
+        await client.send_message(chat_id, "⚠️ Произошла ошибка.", keyboard=BACK_KEYBOARD)
+
+
+# ══════════════════════════════════════════════════════════════════
+# MONITORING PAUSE/RESUME
+# ══════════════════════════════════════════════════════════════════
+
+async def _toggle_monitoring(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    pause: bool,
+):
+    """Toggle monitoring on/off."""
+    try:
+        await _ensure_user(user_id, username)
+        db = await get_sniper_db()
+
+        if pause:
+            await db.pause_monitoring(user_id)
+            text = (
+                "⏸ <b>Мониторинг приостановлен</b>\n\n"
+                "Вы не будете получать уведомления о новых тендерах.\n"
+                "Фильтры сохранены — нажмите «Возобновить», чтобы продолжить."
+            )
+            keyboard = [
+                [{"type": "callback", "text": "▶️ Возобновить мониторинг", "payload": "resume_mon"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ]
+        else:
+            await db.resume_monitoring(user_id)
+            text = (
+                "▶️ <b>Мониторинг возобновлён</b>\n\n"
+                "Вы снова будете получать уведомления о подходящих тендерах."
+            )
+            keyboard = [
+                [{"type": "callback", "text": "⏸ Приостановить", "payload": "pause_mon"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ]
+
+        await client.send_message(chat_id, text, keyboard=keyboard)
+        logger.info(f"Max bot: monitoring {'paused' if pause else 'resumed'} for user {user_id}")
+
+    except Exception as e:
+        logger.error(f"Max bot: error toggling monitoring: {e}", exc_info=True)
+        await client.send_message(chat_id, "⚠️ Произошла ошибка.", keyboard=BACK_KEYBOARD)
+
+
+# ══════════════════════════════════════════════════════════════════
+# AI DOCUMENT ANALYSIS
+# ══════════════════════════════════════════════════════════════════
+
+async def _start_ai_analyze(client: MaxBotClient, chat_id: int, user_id: int):
+    """Start AI analysis — ask for tender number."""
+    _user_states[user_id] = {
+        "state": "analyze_waiting",
+        "data": {},
+        "chat_id": chat_id,
+    }
+
+    await client.send_message(
+        chat_id,
+        (
+            "🔬 <b>AI Анализ документации</b>\n\n"
+            "Отправьте номер тендера или ссылку на закупку.\n\n"
+            "Пример:\n"
+            "• <code>0373100012324000015</code>\n"
+            "• Ссылка с zakupki.gov.ru\n\n"
+            "Бот скачает документацию и выполнит AI-анализ."
+        ),
+        keyboard=[
+            [{"type": "callback", "text": "❌ Отмена", "payload": "menu"}],
+        ],
+    )
+
+
+async def _handle_analyze_input(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    text: str,
+):
+    """Handle tender number input for AI analysis."""
+    _user_states.pop(user_id, None)
+
+    # Extract tender number
+    tender_number = _extract_tender_number_max(text)
+    if not tender_number:
+        await client.send_message(
+            chat_id,
+            (
+                "⚠️ Не удалось найти номер тендера.\n\n"
+                "Введите номер закупки (18-25 цифр) или ссылку с zakupki.gov.ru."
+            ),
+            keyboard=[
+                [{"type": "callback", "text": "🔬 Попробовать снова", "payload": "ai_analyze"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+        return
+
+    await _do_ai_analyze(client, chat_id, user_id, username, tender_number)
+
+
+async def _do_ai_analyze(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    tender_number: str,
+):
+    """Perform AI analysis of tender documents."""
+    await client.send_message(
+        chat_id,
+        f"🔍 <b>Анализирую документацию тендера {tender_number}...</b>\n\nЭто может занять некоторое время.",
+        keyboard=[],
+    )
+
+    try:
+        from bot.handlers.webapp import _run_ai_analysis
+
+        user = await _ensure_user(user_id, username)
+        tier = user.get('subscription_tier', 'trial') if user else 'trial'
+
+        result_text, is_ai, raw_data = await _run_ai_analysis(tender_number, tier)
+
+        # Truncate if too long for Max
+        if len(result_text) > 3500:
+            result_text = result_text[:3400] + "\n\n<i>... (сокращено)</i>"
+
+        header = "🔬 <b>AI Анализ документации</b>\n\n" if is_ai else "📄 <b>Анализ документации</b>\n\n"
+
+        await client.send_message(
+            chat_id,
+            header + result_text,
+            keyboard=[
+                [{"type": "callback", "text": "🔬 Анализ другого тендера", "payload": "ai_analyze"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+
+        logger.info(f"Max bot: AI analysis completed for tender {tender_number} by user {user_id}")
+
+    except Exception as e:
+        logger.error(f"Max bot: AI analysis error for {tender_number}: {e}", exc_info=True)
+        error_msg = str(e)
+        if "Не удалось загрузить" in error_msg:
+            text = f"⚠️ Не удалось загрузить документацию тендера {tender_number}.\n\nВозможно, тендер не найден или документы недоступны."
+        else:
+            text = f"⚠️ Произошла ошибка при анализе тендера {tender_number}.\n\nПопробуйте позже."
+
+        await client.send_message(
+            chat_id,
+            text,
+            keyboard=[
+                [{"type": "callback", "text": "🔬 Попробовать снова", "payload": "ai_analyze"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+
+
+def _extract_tender_number_max(text: str) -> Optional[str]:
+    """Extract tender number from text or URL."""
+    # URL: regNumber=(\d+)
+    m = re.search(r'regNumber=(\d+)', text)
+    if m:
+        return m.group(1)
+    # Pure number (18-25 digits)
+    m = re.search(r'\b(\d{18,25})\b', text)
+    if m:
+        return m.group(1)
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════
+# MANUAL SEARCH
+# ══════════════════════════════════════════════════════════════════
+
+async def _start_manual_search(client: MaxBotClient, chat_id: int, user_id: int):
+    """Start manual search — ask for keywords."""
+    _user_states[user_id] = {
+        "state": "search_waiting",
+        "data": {},
+        "chat_id": chat_id,
+    }
+
+    await client.send_message(
+        chat_id,
+        (
+            "🔍 <b>Поиск тендеров</b>\n\n"
+            "Введите ключевые слова для поиска.\n\n"
+            "Пример: <i>компьютер, ноутбук</i>\n\n"
+            "Бот найдёт актуальные тендеры по вашему запросу."
+        ),
+        keyboard=[
+            [{"type": "callback", "text": "❌ Отмена", "payload": "menu"}],
+        ],
+    )
+
+
+async def _handle_search_input(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    text: str,
+):
+    """Handle search keywords input."""
+    _user_states.pop(user_id, None)
+
+    keywords = [kw.strip() for kw in text.replace(";", ",").split(",") if kw.strip()]
+    if not keywords:
+        await client.send_message(
+            chat_id,
+            "⚠️ Введите хотя бы одно ключевое слово.",
+            keyboard=[
+                [{"type": "callback", "text": "🔍 Попробовать снова", "payload": "man_search"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+        return
+
+    await client.send_message(
+        chat_id,
+        f"🔍 Ищу тендеры по запросу: <b>{', '.join(keywords[:5])}</b>...\n\nЭто может занять некоторое время.",
+        keyboard=[],
+    )
+
+    try:
+        from tender_sniper.instant_search import InstantSearch
+        searcher = InstantSearch()
+
+        filter_data = {
+            'name': ', '.join(keywords[:3]),
+            'keywords': keywords[:10],
+            'exclude_keywords': [],
+            'price_min': None,
+            'price_max': None,
+            'regions': [],
+            'tender_types': [],
+            'law_type': None,
+        }
+
+        user = await _ensure_user(user_id, username)
+        tier = user.get('subscription_tier', 'trial') if user else 'trial'
+
+        result = await searcher.search_by_filter(
+            filter_data=filter_data,
+            max_tenders=5,
+            use_ai_check=False,
+            user_id=user['id'] if user else None,
+            subscription_tier=tier,
+        )
+
+        matches = result.get('matches', []) or result.get('tenders', [])
+
+        if not matches:
+            await client.send_message(
+                chat_id,
+                (
+                    "🔍 <b>Результаты поиска</b>\n\n"
+                    "К сожалению, по вашему запросу ничего не найдено.\n\n"
+                    "💡 Попробуйте:\n"
+                    "• Использовать другие ключевые слова\n"
+                    "• Расширить запрос\n"
+                    "• Создать фильтр для автомониторинга"
+                ),
+                keyboard=[
+                    [{"type": "callback", "text": "🔍 Новый поиск", "payload": "man_search"}],
+                    [{"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"}],
+                    [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+                ],
+            )
+            return
+
+        lines = [f"🔍 <b>Найдено тендеров: {len(matches)}</b>\n"]
+        keyboard = []
+
+        for i, tender in enumerate(matches[:5], 1):
+            name = tender.get('name', 'Без названия')
+            short_name = name[:50] + "..." if len(name) > 50 else name
+            price = tender.get('price')
+            price_text = _format_price(price) if price else "не указана"
+            region = tender.get('region', '')
+            score = tender.get('score', tender.get('relevance_score', ''))
+
+            line = f"{i}. <b>{short_name}</b>"
+            line += f"\n   💰 {price_text}"
+            if region:
+                line += f" | 📍 {region}"
+            if score:
+                line += f" | 🎯 {score}%"
+            lines.append(line)
+
+            number = tender.get('number', '')
+            if number:
+                keyboard.append([{
+                    "type": "callback",
+                    "text": f"📄 {i}. {short_name[:30]}",
+                    "payload": f"td_{number[:20]}",
+                }])
+
+        keyboard.append([{"type": "callback", "text": "🔍 Новый поиск", "payload": "man_search"}])
+        keyboard.append([{"type": "callback", "text": "➕ Создать фильтр из запроса", "payload": "new_filter"}])
+        keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
+
+        await client.send_message(chat_id, "\n".join(lines), keyboard=keyboard)
+
+        logger.info(f"Max bot: search completed for user {user_id}, found {len(matches)} tenders")
+
+    except Exception as e:
+        logger.error(f"Max bot: search error: {e}", exc_info=True)
+        await client.send_message(
+            chat_id,
+            "⚠️ Произошла ошибка при поиске. Попробуйте позже.",
+            keyboard=[
+                [{"type": "callback", "text": "🔍 Попробовать снова", "payload": "man_search"}],
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+
+
+# ══════════════════════════════════════════════════════════════════
+# FILTER EDITING
+# ══════════════════════════════════════════════════════════════════
+
+async def _show_filter_edit_menu(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    payload: str,
+):
+    """Show edit menu for a filter."""
+    try:
+        filter_id = int(payload.replace("fe_", ""))
+    except ValueError:
+        return
+
+    db = await get_sniper_db()
+    filter_data = await db.get_filter_by_id(filter_id)
+
+    if not filter_data:
+        await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
+        return
+
+    user = await _ensure_user(user_id, username)
+    if not user or filter_data.get('user_id') != user['id']:
+        await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
+        return
+
+    name = filter_data.get('name', 'Без названия')
+    keywords = filter_data.get('keywords', [])
+    price_min = filter_data.get('price_min')
+    price_max = filter_data.get('price_max')
+    regions = filter_data.get('regions', [])
+
+    kw_text = ", ".join(keywords) if keywords else "—"
+    budget_text = _format_budget_text({"price_min": price_min, "price_max": price_max})
+    reg_text = ", ".join(regions) if regions else "Вся Россия"
+
+    fid = str(filter_id)
+
+    await client.send_message(
+        chat_id,
+        (
+            f"✏️ <b>Редактирование фильтра #{filter_id}</b>\n\n"
+            f"📝 Название: <b>{name}</b>\n"
+            f"🔑 Слова: <b>{kw_text}</b>\n"
+            f"💰 Бюджет: <b>{budget_text}</b>\n"
+            f"📍 Регион: <b>{reg_text}</b>\n\n"
+            f"Выберите что изменить:"
+        ),
+        keyboard=[
+            [{"type": "callback", "text": "📝 Название", "payload": f"fen_{fid}"}],
+            [{"type": "callback", "text": "🔑 Ключевые слова", "payload": f"fek_{fid}"}],
+            [
+                {"type": "callback", "text": "💰 Цена от", "payload": f"fepn_{fid}"},
+                {"type": "callback", "text": "💰 Цена до", "payload": f"fepx_{fid}"},
+            ],
+            [{"type": "callback", "text": "📍 Регионы", "payload": f"fer_{fid}"}],
+            [{"type": "callback", "text": "◀️ Назад к фильтру", "payload": f"fv_{fid}"}],
+        ],
+    )
+
+
+async def _start_filter_edit(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    field: str,
+    filter_id_str: str,
+):
+    """Start editing a specific filter field."""
+    try:
+        filter_id = int(filter_id_str)
+    except ValueError:
+        return
+
+    _user_states[user_id] = {
+        "state": f"fedit_{field}",
+        "data": {"filter_id": filter_id},
+        "chat_id": chat_id,
+    }
+
+    prompts = {
+        "name": "📝 Введите новое <b>название</b> фильтра:",
+        "keywords": "🔑 Введите новые <b>ключевые слова</b> через запятую:",
+        "price_min": "💰 Введите <b>минимальную цену</b> (число, 0 = без минимума):",
+        "price_max": "💰 Введите <b>максимальную цену</b> (число, 0 = без максимума):",
+        "regions": "📍 Введите <b>регионы</b> через запятую (или «все» для всей России):",
+    }
+
+    await client.send_message(
+        chat_id,
+        prompts.get(field, "Введите новое значение:"),
+        keyboard=[
+            [{"type": "callback", "text": "❌ Отмена", "payload": f"fe_{filter_id}"}],
+        ],
+    )
+
+
+async def _handle_filter_edit_text(
+    client: MaxBotClient,
+    chat_id: int,
+    user_id: int,
+    username: str,
+    text: str,
+    state: dict,
+):
+    """Handle text input for filter editing."""
+    current = state.get("state", "")
+    filter_id = state["data"].get("filter_id")
+    _user_states.pop(user_id, None)
+
+    if not filter_id:
+        await client.send_message(chat_id, "⚠️ Сессия истекла.", keyboard=MAIN_MENU_KEYBOARD)
+        return
+
+    try:
+        db = await get_sniper_db()
+        filter_data = await db.get_filter_by_id(filter_id)
+
+        if not filter_data:
+            await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
+            return
+
+        user = await _ensure_user(user_id, username)
+        if not user or filter_data.get('user_id') != user['id']:
+            await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
+            return
+
+        field = current.replace("fedit_", "")
+        update_kwargs = {}
+        success_text = ""
+
+        if field == "name":
+            new_name = text.strip()[:100]
+            if len(new_name) < 2:
+                await client.send_message(chat_id, "⚠️ Название слишком короткое.", keyboard=BACK_KEYBOARD)
+                return
+            update_kwargs = {"name": new_name}
+            success_text = f"📝 Название изменено на: <b>{new_name}</b>"
+
+        elif field == "keywords":
+            keywords = [kw.strip() for kw in text.replace(";", ",").split(",") if kw.strip()]
+            if not keywords:
+                await client.send_message(chat_id, "⚠️ Введите хотя бы одно слово.", keyboard=BACK_KEYBOARD)
+                return
+            keywords = keywords[:15]
+            update_kwargs = {"keywords": keywords}
+            success_text = f"🔑 Ключевые слова: <b>{', '.join(keywords)}</b>"
+
+        elif field == "price_min":
+            cleaned = text.strip().replace(" ", "").replace(",", "")
+            try:
+                val = int(cleaned)
+                if val <= 0:
+                    val = None
+            except ValueError:
+                await client.send_message(chat_id, "⚠️ Введите число.", keyboard=BACK_KEYBOARD)
+                return
+            update_kwargs = {"price_min": val}
+            success_text = f"💰 Мин. цена: <b>{_format_price(val)}</b>"
+
+        elif field == "price_max":
+            cleaned = text.strip().replace(" ", "").replace(",", "")
+            try:
+                val = int(cleaned)
+                if val <= 0:
+                    val = None
+            except ValueError:
+                await client.send_message(chat_id, "⚠️ Введите число.", keyboard=BACK_KEYBOARD)
+                return
+            update_kwargs = {"price_max": val}
+            success_text = f"💰 Макс. цена: <b>{_format_price(val)}</b>"
+
+        elif field == "regions":
+            if text.strip().lower() in ("все", "all", "вся россия"):
+                update_kwargs = {"regions": []}
+                success_text = "📍 Регионы: <b>Вся Россия</b>"
+            else:
+                regions = [r.strip() for r in text.replace(";", ",").split(",") if r.strip()]
+                update_kwargs = {"regions": regions}
+                success_text = f"📍 Регионы: <b>{', '.join(regions)}</b>"
+
+        if update_kwargs:
+            await db.update_filter(filter_id=filter_id, **update_kwargs)
+
+            # Regenerate AI intent if keywords changed
+            if "keywords" in update_kwargs:
+                try:
+                    from tender_sniper.ai_relevance_checker import generate_intent
+                    updated_filter = await db.get_filter_by_id(filter_id)
+                    ai_intent = await generate_intent(
+                        filter_name=updated_filter.get('name', ''),
+                        keywords=update_kwargs['keywords'],
+                        exclude_keywords=updated_filter.get('exclude_keywords', []),
+                    )
+                    if ai_intent:
+                        await db.update_filter_intent(filter_id, ai_intent)
+                except Exception as e:
+                    logger.warning(f"Max bot: failed to regenerate AI intent: {e}")
+
+            await client.send_message(
+                chat_id,
+                f"✅ Фильтр #{filter_id} обновлён!\n\n{success_text}",
+                keyboard=[
+                    [{"type": "callback", "text": "✏️ Ещё изменения", "payload": f"fe_{filter_id}"}],
+                    [{"type": "callback", "text": "📄 К фильтру", "payload": f"fv_{filter_id}"}],
+                    [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+                ],
+            )
+            logger.info(f"Max bot: filter {filter_id} updated ({field}) by user {user_id}")
+
+    except Exception as e:
+        logger.error(f"Max bot: error editing filter {filter_id}: {e}", exc_info=True)
+        await client.send_message(chat_id, "⚠️ Произошла ошибка.", keyboard=BACK_KEYBOARD)
