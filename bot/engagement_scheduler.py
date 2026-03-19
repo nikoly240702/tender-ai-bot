@@ -166,107 +166,95 @@ class EngagementScheduler:
                 # Только для trial пользователей — напоминания об истечении
                 is_trial = getattr(user, 'subscription_tier', '') == 'trial'
 
-                # День 1 - отправляем через 24 часа
+                # Хелпер: пометить → отправить → если ошибка, откатить
+                async def _send_followup(day_key: str, send_coro):
+                    """Mark as sent BEFORE sending to prevent duplicates on restart."""
+                    nonlocal followups_sent
+                    await self._update_user_data(user.id, {f'followup_{day_key}_sent': True})
+                    try:
+                        msg = await send_coro
+                        logger.info(f"📧 {day_key} follow-up sent to {user.telegram_id}")
+                        # Save message_id for possible deletion
+                        if msg and hasattr(msg, 'message_id'):
+                            await self._update_user_data(user.id, {f'followup_{day_key}_msg_id': msg.message_id})
+                        followups_sent += 1
+                    except Exception as e:
+                        logger.error(f"Failed to send {day_key} follow-up to {user.telegram_id}: {e}")
+
+                # День 1
                 if days_since_filter >= 1 and not day1_sent:
                     stats = await get_user_stats(user.telegram_id)
-                    await send_day1_followup(bot, user.telegram_id, stats)
-                    await self._update_user_data(user.id, {'followup_day1_sent': True})
-                    followups_sent += 1
+                    await _send_followup('day1', send_day1_followup(bot, user.telegram_id, stats))
 
                 # День 2 — персональное сообщение от основателя
                 elif days_since_filter >= 2 and not day2_sent:
-                    text = (
+                    await _send_followup('day2', bot.send_message(
+                        user.telegram_id,
                         "👋 Привет! Я Николай, основатель Tender Sniper.\n\n"
                         "Хотел лично спросить — как вам бот? "
                         "Всё понятно? Нашлись подходящие тендеры?\n\n"
                         "Если есть вопросы или пожелания — напишите мне лично: "
                         "@nikolai_chizhik\n\n"
                         "Хорошего дня! 🙌"
-                    )
-                    try:
-                        await bot.send_message(user.telegram_id, text)
-                        logger.info(f"📧 Day 2 personal message sent to {user.telegram_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send day 2 message to {user.telegram_id}: {e}")
-                    await self._update_user_data(user.id, {'followup_day2_sent': True})
-                    followups_sent += 1
+                    ))
 
-                # День 3 - отправляем через 72 часа
+                # День 3
                 elif days_since_filter >= 3 and not day3_sent:
                     stats = await get_user_stats(user.telegram_id)
-                    await send_day3_followup(bot, user.telegram_id, stats)
-                    await self._update_user_data(user.id, {'followup_day3_sent': True})
-                    followups_sent += 1
+                    await _send_followup('day3', send_day3_followup(bot, user.telegram_id, stats))
 
                 # День 7 — половина триала (только trial)
                 elif days_since_filter >= 7 and not day7_sent and is_trial:
                     stats = await get_user_stats(user.telegram_id)
                     total = stats.get('total_notifications', 0)
                     hours_saved = max(1, total * 0.5)
-
-                    text = (
+                    await _send_followup('day7', bot.send_message(
+                        user.telegram_id,
                         f"📊 <b>Неделя с Tender Sniper!</b>\n\n"
                         f"За 7 дней бот нашёл для вас <b>{total}</b> подходящих тендеров.\n"
                         f"Вы сэкономили примерно <b>{hours_saved:.0f} часов</b> на ручном поиске.\n\n"
                         f"⏳ Осталось <b>7 дней</b> пробного периода.\n\n"
-                        f"Оформите подписку, чтобы не потерять мониторинг:"
-                    )
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="⭐ Тарифы и подписка", callback_data="subscription_tiers")],
-                        [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
-                    ])
-                    try:
-                        await bot.send_message(user.telegram_id, text, reply_markup=keyboard, parse_mode="HTML")
-                        logger.info(f"📧 Day 7 follow-up sent to {user.telegram_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send day 7 follow-up to {user.telegram_id}: {e}")
-                    await self._update_user_data(user.id, {'followup_day7_sent': True})
-                    followups_sent += 1
+                        f"Оформите подписку, чтобы не потерять мониторинг:",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="⭐ Тарифы и подписка", callback_data="subscription_tiers")],
+                            [InlineKeyboardButton(text="🎯 Мои фильтры", callback_data="sniper_my_filters")],
+                        ]),
+                        parse_mode="HTML"
+                    ))
 
                 # День 12 — осталось 2 дня (только trial)
                 elif days_since_filter >= 12 and not day12_sent and is_trial:
                     stats = await get_user_stats(user.telegram_id)
                     total = stats.get('total_notifications', 0)
-
-                    text = (
+                    await _send_followup('day12', bot.send_message(
+                        user.telegram_id,
                         f"⚠️ <b>Пробный период заканчивается через 2 дня</b>\n\n"
                         f"За это время бот нашёл <b>{total}</b> тендеров по вашим фильтрам.\n\n"
                         f"После окончания триала мониторинг будет приостановлен.\n"
                         f"Оформите подписку, чтобы продолжить получать уведомления.\n\n"
-                        f"💡 Basic — от <b>1 490 ₽/мес</b> (5 фильтров)"
-                    )
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="⭐ Оформить подписку", callback_data="subscription_tiers")],
-                    ])
-                    try:
-                        await bot.send_message(user.telegram_id, text, reply_markup=keyboard, parse_mode="HTML")
-                        logger.info(f"📧 Day 12 follow-up sent to {user.telegram_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send day 12 follow-up to {user.telegram_id}: {e}")
-                    await self._update_user_data(user.id, {'followup_day12_sent': True})
-                    followups_sent += 1
+                        f"💡 Basic — от <b>1 490 ₽/мес</b> (5 фильтров)",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="⭐ Оформить подписку", callback_data="subscription_tiers")],
+                        ]),
+                        parse_mode="HTML"
+                    ))
 
                 # День 14 — последний день (только trial)
                 elif days_since_filter >= 14 and not day14_sent and is_trial:
-                    text = (
+                    await _send_followup('day14', bot.send_message(
+                        user.telegram_id,
                         "🔔 <b>Последний день пробного периода</b>\n\n"
                         "Завтра мониторинг тендеров будет приостановлен.\n\n"
                         "Оформите подписку сейчас, чтобы не пропустить "
                         "ни одного подходящего тендера:\n\n"
                         "📋 <b>Basic</b> — 1 490 ₽/мес (5 фильтров)\n"
-                        "🏆 <b>Premium</b> — 2 990 ₽/мес (20 фильтров + AI без лимитов)"
-                    )
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="⭐ Оформить подписку", callback_data="subscription_tiers")],
-                        [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/nikolai_chizhik")],
-                    ])
-                    try:
-                        await bot.send_message(user.telegram_id, text, reply_markup=keyboard, parse_mode="HTML")
-                        logger.info(f"📧 Day 14 follow-up sent to {user.telegram_id}")
-                    except Exception as e:
-                        logger.error(f"Failed to send day 14 follow-up to {user.telegram_id}: {e}")
-                    await self._update_user_data(user.id, {'followup_day14_sent': True})
-                    followups_sent += 1
+                        "🏆 <b>Premium</b> — 2 990 ₽/мес (20 фильтров + AI без лимитов)",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="⭐ Оформить подписку", callback_data="subscription_tiers")],
+                            [InlineKeyboardButton(text="💬 Связаться с поддержкой", url="https://t.me/nikolai_chizhik")],
+                        ]),
+                        parse_mode="HTML"
+                    ))
 
             except Exception as e:
                 logger.error(f"Ошибка отправки follow-up для {user.telegram_id}: {e}")
