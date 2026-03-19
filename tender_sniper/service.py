@@ -426,6 +426,15 @@ class TenderSniperService:
                 # Отправляем сразу после каждого фильтра, а не копим до конца цикла.
                 # Защита от потери уведомлений при сбоях/рестартах.
                 if notifications_to_send and self.notifier:
+                    total_found = len(notifications_to_send)
+
+                    # Trial: показываем max 5 тендеров, остальные — тизер
+                    TRIAL_NOTIFY_LIMIT = 5
+                    trial_locked_count = 0
+                    if subscription_tier == 'trial' and total_found > TRIAL_NOTIFY_LIMIT:
+                        trial_locked_count = total_found - TRIAL_NOTIFY_LIMIT
+                        notifications_to_send = notifications_to_send[:TRIAL_NOTIFY_LIMIT]
+
                     logger.info(f"      📤 Отправка {len(notifications_to_send)} уведомлений фильтра «{filter_name}»...")
 
                     for notif in notifications_to_send:
@@ -526,6 +535,28 @@ class TenderSniperService:
 
                       # Небольшая задержка между уведомлениями
                       await asyncio.sleep(0.1)
+
+                    # Trial тизер: показываем сколько ещё тендеров заблокировано
+                    if trial_locked_count > 0 and telegram_id:
+                        try:
+                            from aiogram import Bot as _Bot
+                            from aiogram.types import InlineKeyboardMarkup as _IKM, InlineKeyboardButton as _IKB
+                            _bot = _Bot(token=self.bot_token)
+                            teaser_text = (
+                                f"🔒 <b>Ещё {trial_locked_count} тендеров</b> найдено по фильтру «{filter_name}»\n\n"
+                                f"На пробном периоде отображается до {TRIAL_NOTIFY_LIMIT} тендеров за цикл.\n"
+                                f"Оформите подписку, чтобы видеть все результаты."
+                            )
+                            teaser_kb = _IKM(inline_keyboard=[
+                                [_IKB(text="⭐ Тарифы и подписка", callback_data="subscription_tiers")]
+                            ])
+                            await _bot.send_message(
+                                chat_id=telegram_id, text=teaser_text,
+                                parse_mode="HTML", reply_markup=teaser_kb
+                            )
+                            await _bot.session.close()
+                        except Exception as e:
+                            logger.warning(f"Failed to send trial teaser: {e}")
 
                     notifications_to_send = []  # Очищаем после отправки
 

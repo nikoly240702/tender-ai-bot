@@ -178,7 +178,14 @@ SUBSCRIPTION_TIERS = {
 }
 
 
-def calculate_price(tier: str, months: int) -> dict:
+# Скидка первого месяца для новых пользователей
+FIRST_MONTH_PRICES = {
+    'basic': 990,     # вместо 1490
+    'premium': 1990,  # вместо 2990
+}
+
+
+def calculate_price(tier: str, months: int, is_first_payment: bool = False) -> dict:
     """Рассчитать цену с учётом скидки."""
     base_price = BASE_PRICES.get(tier, 1490)
     duration = DURATION_OPTIONS.get(months, DURATION_OPTIONS[1])
@@ -186,6 +193,12 @@ def calculate_price(tier: str, months: int) -> dict:
     # Получаем фиксированную цену
     tier_prices = FIXED_PRICES.get(tier, FIXED_PRICES['basic'])
     final_price = tier_prices.get(months, base_price * months)
+
+    # Скидка первого месяца — только для 1 месяца
+    first_month_discount = False
+    if is_first_payment and months == 1 and tier in FIRST_MONTH_PRICES:
+        final_price = FIRST_MONTH_PRICES[tier]
+        first_month_discount = True
 
     full_price = base_price * duration['months']
     discount_amount = full_price - final_price
@@ -200,6 +213,7 @@ def calculate_price(tier: str, months: int) -> dict:
         'label': duration['label'],
         'badge': duration.get('badge', ''),
         'has_discount': discount_amount > 0,
+        'first_month_discount': first_month_discount,
     }
 
 
@@ -424,14 +438,29 @@ async def callback_select_tier(callback: CallbackQuery):
     for feature in tier_info['features']:
         text += f"✅ {feature}\n"
 
+    # Проверяем — первая ли это покупка (для скидки)
+    is_first = False
+    try:
+        from tender_sniper.database import get_sniper_db
+        _db = await get_sniper_db()
+        _user = await _db.get_user_by_telegram_id(callback.from_user.id)
+        if _user:
+            _user_data = _user.get('data') or {}
+            is_first = not _user_data.get('has_paid_before', False)
+    except Exception:
+        pass
+
     text += "\n<b>Выберите период подписки:</b>\n"
 
     # Показываем все варианты длительности с ценами
     buttons = []
     for months in [1, 3, 6]:
-        price_info = calculate_price(tier_name, months)
+        price_info = calculate_price(tier_name, months, is_first_payment=is_first)
 
-        if price_info['has_discount']:
+        if price_info.get('first_month_discount'):
+            btn_text = f"🎁 {price_info['label']} — {price_info['final_price']} ₽ (скидка!)"
+            text += f"\n🎁 <b>{price_info['label']}</b>: <s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b> (первый месяц)"
+        elif price_info['has_discount']:
             btn_text = f"{price_info['badge']} {price_info['label']} — {price_info['final_price']} ₽"
             text += f"\n{price_info['badge']} <b>{price_info['label']}</b>: <s>{price_info['full_price']} ₽</s> → <b>{price_info['final_price']} ₽</b>"
         else:
@@ -476,7 +505,19 @@ async def _do_create_payment(message, telegram_id: int, tier_name: str, months: 
         await message.answer("❌ Тариф не найден")
         return
 
-    price_info = calculate_price(tier_name, months)
+    # Проверяем скидку первого месяца
+    is_first = False
+    try:
+        from tender_sniper.database import get_sniper_db
+        _db = await get_sniper_db()
+        _user = await _db.get_user_by_telegram_id(telegram_id)
+        if _user:
+            _user_data = _user.get('data') or {}
+            is_first = not _user_data.get('has_paid_before', False)
+    except Exception:
+        pass
+
+    price_info = calculate_price(tier_name, months, is_first_payment=is_first)
 
     try:
         from tender_sniper.payments import get_yookassa_client

@@ -153,6 +153,7 @@ class EngagementScheduler:
 
                 # Проверяем, были ли уже отправлены follow-up
                 day1_sent = user_data.get('followup_day1_sent', False)
+                day2_sent = user_data.get('followup_day2_sent', False)
                 day3_sent = user_data.get('followup_day3_sent', False)
                 day7_sent = user_data.get('followup_day7_sent', False)
                 day12_sent = user_data.get('followup_day12_sent', False)
@@ -166,6 +167,24 @@ class EngagementScheduler:
                     stats = await get_user_stats(user.telegram_id)
                     await send_day1_followup(bot, user.telegram_id, stats)
                     await self._update_user_data(user.id, {'followup_day1_sent': True})
+                    followups_sent += 1
+
+                # День 2 — персональное сообщение от основателя
+                elif days_since_filter >= 2 and not day2_sent:
+                    text = (
+                        "👋 Привет! Я Николай, основатель Tender Sniper.\n\n"
+                        "Хотел лично спросить — как вам бот? "
+                        "Всё понятно? Нашлись подходящие тендеры?\n\n"
+                        "Если есть вопросы или пожелания — напишите мне лично: "
+                        "@nikolai_chizhik\n\n"
+                        "Хорошего дня! 🙌"
+                    )
+                    try:
+                        await bot.send_message(user.telegram_id, text)
+                        logger.info(f"📧 Day 2 personal message sent to {user.telegram_id}")
+                    except Exception as e:
+                        logger.error(f"Failed to send day 2 message to {user.telegram_id}: {e}")
+                    await self._update_user_data(user.id, {'followup_day2_sent': True})
                     followups_sent += 1
 
                 # День 3 - отправляем через 72 часа

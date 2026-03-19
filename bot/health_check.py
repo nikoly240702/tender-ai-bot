@@ -215,6 +215,14 @@ async def yookassa_webhook_handler(request):
 
                         logger.info(f"✅ Subscription activated: user={telegram_id}, tier={tier}, expires={expires_at}")
 
+                    # Помечаем что пользователь оплачивал (для скидки первого месяца)
+                    try:
+                        user_data_current = user.get('data') or {}
+                        if not user_data_current.get('has_paid_before'):
+                            await db.update_user_json_data(user['id'], {'has_paid_before': True})
+                    except Exception as e:
+                        logger.warning(f"Failed to set has_paid_before: {e}")
+
                     # Отправляем уведомление пользователю
                     try:
                         from aiogram import Bot
