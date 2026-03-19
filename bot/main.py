@@ -529,7 +529,16 @@ async def main():
         logger.info("✅ Команды бота установлены")
         update_health_status("bot", "ok")
 
-        # Запускаем polling
+        # Запускаем Max bot в фоне (если токен задан)
+        max_bot_task = None
+        try:
+            from bot_max.main import start_max_bot
+            max_bot_task = asyncio.create_task(start_max_bot())
+            logger.info("🔷 Max bot task запущен")
+        except Exception as e:
+            logger.warning(f"Max bot не запущен: {e}")
+
+        # Запускаем Telegram polling
         logger.info("✅ Бот успешно запущен!")
         update_health_status("bot", "running")
         await dp.start_polling(bot)
