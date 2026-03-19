@@ -12,6 +12,7 @@ from typing import Any, Callable, Awaitable, Dict
 
 from aiogram import Bot, BaseMiddleware
 from aiogram.types import TelegramObject
+from aiogram.exceptions import TelegramBadRequest
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,12 @@ class ErrorAlertMiddleware(BaseMiddleware):
     ) -> Any:
         try:
             return await handler(event, data)
+        except TelegramBadRequest as e:
+            if "message is not modified" in str(e):
+                return  # Безвредная ошибка — пользователь нажал кнопку повторно
+            context = f"update={type(event).__name__}"
+            await send_error_alert(self.bot, self.admin_id, e, context)
+            raise
         except Exception as e:
             context = f"update={type(event).__name__}"
             await send_error_alert(self.bot, self.admin_id, e, context)

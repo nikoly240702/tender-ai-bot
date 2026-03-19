@@ -1529,13 +1529,16 @@ async def reset_region_selection(callback: CallbackQuery, state: FSMContext):
         f"✅ Бюджет: <b>{_format_budget_text(data)}</b>"
     )
 
-    await callback.message.edit_text(
-        f"🎯 <b>Создание фильтра</b>\n\n"
-        f"{settings_text}\n\n"
-        f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:",
-        parse_mode="HTML",
-        reply_markup=get_region_keyboard([])
-    )
+    try:
+        await callback.message.edit_text(
+            f"🎯 <b>Создание фильтра</b>\n\n"
+            f"{settings_text}\n\n"
+            f"<b>Шаг 5/9:</b> Выберите один или несколько регионов:",
+            parse_mode="HTML",
+            reply_markup=get_region_keyboard([])
+        )
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data == "ew_region_continue")
