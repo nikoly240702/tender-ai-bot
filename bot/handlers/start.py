@@ -63,9 +63,9 @@ def get_main_keyboard(is_monitoring_enabled: bool = True) -> ReplyKeyboardMarkup
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
+            [KeyboardButton(text="Tender-GPT"), KeyboardButton(text="📊 Мои фильтры")],
             [KeyboardButton(text="🏠 Главное меню"), monitoring_btn],
-            [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Мои фильтры")],
-            [KeyboardButton(text="📊 Все мои тендеры")],
+            [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="📊 Все мои тендеры")],
             [KeyboardButton(text="⭐ Избранное"), KeyboardButton(text="📈 Статистика")]
         ],
         resize_keyboard=True,

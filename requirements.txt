@@ -79,3 +79,9 @@ pydantic-settings>=2.1.0
 tenacity>=8.2.3  # Retry логика
 loguru>=0.7.0  # Продвинутое логирование
 jsonschema>=4.20.0  # JSON валидация
+
+# Tender-GPT (LangGraph agent)
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+tiktoken>=0.7.0

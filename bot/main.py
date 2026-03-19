@@ -34,6 +34,8 @@ from bot.handlers import referral
 from bot.handlers import webapp as sheets_export
 # Битрикс24 интеграция
 from bot.handlers import bitrix24 as bitrix24_handler
+# Tender-GPT AI assistant
+from bot.handlers import tender_gpt
 # Engagement Scheduler (follow-ups, digest, deadline reminders)
 from bot.engagement_scheduler import engagement_router, EngagementScheduler
 from bot.db import get_database
@@ -340,6 +342,7 @@ async def main():
     dp.include_router(sheets_export.router)  # Google Sheets экспорт (/export + кнопка "В таблицу")
     dp.include_router(bitrix24_handler.router)  # Битрикс24 интеграция
     dp.include_router(engagement_router)  # Engagement (digest, deadlines)
+    dp.include_router(tender_gpt.router)  # Tender-GPT AI assistant
     dp.include_router(sniper_search.router)  # Tender Sniper Search (старый workflow)
     dp.include_router(sniper.router)  # Tender Sniper меню
     dp.include_router(start.router)

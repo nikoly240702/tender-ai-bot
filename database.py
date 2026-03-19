@@ -98,6 +98,10 @@ class SniperUser(Base):
     has_ai_unlimited = Column(Boolean, default=False, nullable=False)
     ai_unlimited_expires_at = Column(DateTime, nullable=True)
 
+    # Tender-GPT quota (monthly)
+    gpt_messages_used_month = Column(Integer, default=0, nullable=False)
+    gpt_messages_month_reset = Column(DateTime, nullable=True)
+
     # Referral program
     referral_code = Column(String(20), unique=True, nullable=True, index=True)
     referred_by = Column(Integer, nullable=True)  # user_id who referred
@@ -744,6 +748,42 @@ class GeneratedDocument(Base):
     )
 
 
+class GptSession(Base):
+    """Сессия чата Tender-GPT."""
+    __tablename__ = 'gpt_sessions'
+
+    id = Column(String(36), primary_key=True)  # UUID as string
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    tender_number = Column(String(100), nullable=True)  # If chat started from tender card
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_message_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Relationships
+    messages = relationship("GptMessage", back_populates="session", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index('ix_gpt_sessions_user_active', 'user_id', 'is_active'),
+    )
+
+
+class GptMessage(Base):
+    """Сообщение в сессии Tender-GPT."""
+    __tablename__ = 'gpt_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(String(36), ForeignKey('gpt_sessions.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user", "assistant", "tool"
+    content = Column(Text, nullable=False)
+    tool_name = Column(String(100), nullable=True)
+    tool_args = Column(JSON, nullable=True)
+    tool_result = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relationships
+    session = relationship("GptSession", back_populates="messages")
+
+
 class WebSession(Base):
     """Сессии веб-кабинета."""
     __tablename__ = 'web_sessions'
@@ -969,6 +1009,9 @@ __all__ = [
     'CompanyProfile',
     'GeneratedDocument',
     'WebSession',
+    # Tender-GPT
+    'GptSession',
+    'GptMessage',
     # Functions
     'init_database',
     'get_session',

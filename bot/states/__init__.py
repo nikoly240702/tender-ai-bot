@@ -50,3 +50,8 @@ class CompanyProfileStates(StatesGroup):
     waiting_for_bank_account = State()
     confirming_profile = State()
     editing_field = State()
+
+
+class TenderGPTStates(StatesGroup):
+    """Состояния для Tender-GPT чата."""
+    chatting = State()  # User is in GPT chat mode
