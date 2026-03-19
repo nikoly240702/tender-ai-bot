@@ -267,3 +267,99 @@ async def analyze_risks(
     except Exception as e:
         logger.error(f"analyze_risks tool error: {e}", exc_info=True)
         return f"Ошибка при анализе рисков: {str(e)[:200]}"
+
+
+@tool
+async def analyze_documentation(tender_number: str) -> str:
+    """
+    Download and analyze tender documentation (PDF/DOCX files) from zakupki.gov.ru.
+
+    Use this tool when the user asks about specific items being procured, delivery terms,
+    delivery address, technical requirements, required licenses, payment conditions,
+    or any details that require reading the actual tender documentation.
+
+    This tool takes 1-3 minutes because it downloads and parses documents.
+
+    Args:
+        tender_number: The tender/purchase number (e.g. "0345300000526000061")
+    """
+    try:
+        from src.parsers.zakupki_document_downloader import ZakupkiDocumentDownloader
+        from src.document_processor.text_extractor import TextExtractor
+        from tender_sniper.ai_document_extractor import get_document_extractor
+
+        downloader = ZakupkiDocumentDownloader()
+        tender_url = f"https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber={tender_number}"
+
+        # Download documents (synchronous, run in thread)
+        import asyncio
+        result = await asyncio.to_thread(
+            downloader.download_documents,
+            tender_url,
+            tender_number,
+            None
+        )
+
+        if not result or result.get('downloaded', 0) == 0:
+            return f"Не удалось загрузить документацию тендера {tender_number}. Документы могут быть недоступны на zakupki.gov.ru."
+
+        # Extract text from downloaded files
+        extractor = TextExtractor()
+        all_text = ""
+        for file_info in result.get('files', []):
+            file_path = file_info.get('path', '')
+            if file_path:
+                text = extractor.extract(file_path)
+                if text:
+                    all_text += text + "\n\n"
+
+        if not all_text.strip():
+            return f"Документация тендера {tender_number} загружена, но текст не удалось извлечь (возможно, скан-копии)."
+
+        # AI extraction
+        doc_extractor = get_document_extractor()
+        extraction = await doc_extractor.extract(
+            document_text=all_text,
+            subscription_tier='premium',
+        )
+
+        if not extraction:
+            return f"AI-анализ документации тендера {tender_number} не вернул результатов."
+
+        # Format results
+        parts = []
+
+        if extraction.get('items'):
+            parts.append("ПОЗИЦИИ ЗАКУПКИ:")
+            for i, item in enumerate(extraction['items'][:15], 1):
+                name = item.get('name', '—')
+                qty = item.get('quantity', '—')
+                unit = item.get('unit', '')
+                parts.append(f"  {i}. {name} — {qty} {unit}".strip())
+
+        if extraction.get('delivery_address'):
+            parts.append(f"\nМЕСТО ПОСТАВКИ: {extraction['delivery_address']}")
+        if extraction.get('execution_deadline'):
+            parts.append(f"СРОК ПОСТАВКИ: {extraction['execution_deadline']}")
+        if extraction.get('submission_deadline'):
+            parts.append(f"СРОК ПОДАЧИ ЗАЯВОК: {extraction['submission_deadline']}")
+        if extraction.get('advance_percent'):
+            parts.append(f"АВАНС: {extraction['advance_percent']}%")
+        if extraction.get('payment_terms'):
+            parts.append(f"УСЛОВИЯ ОПЛАТЫ: {extraction['payment_terms']}")
+        if extraction.get('required_licenses'):
+            parts.append(f"ЛИЦЕНЗИИ: {', '.join(extraction['required_licenses'])}")
+        if extraction.get('required_experience'):
+            parts.append(f"ОПЫТ: {extraction['required_experience']}")
+        if extraction.get('security_amount'):
+            parts.append(f"ОБЕСПЕЧЕНИЕ ЗАЯВКИ: {extraction['security_amount']}")
+        if extraction.get('contract_security'):
+            parts.append(f"ОБЕСПЕЧЕНИЕ КОНТРАКТА: {extraction['contract_security']}")
+        if extraction.get('summary'):
+            parts.append(f"\nРЕЗЮМЕ: {extraction['summary']}")
+
+        return "\n".join(parts) if parts else f"Документация тендера {tender_number} проанализирована, но структурированные данные не извлечены."
+
+    except Exception as e:
+        logger.error(f"analyze_documentation tool error: {e}", exc_info=True)
+        return f"Ошибка при анализе документации: {str(e)[:200]}"

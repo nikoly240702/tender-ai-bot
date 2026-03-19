@@ -15,7 +15,7 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from tender_sniper.tender_gpt.prompts import SYSTEM_PROMPT
-from tender_sniper.tender_gpt.tools import search_tenders, get_tender_details, analyze_risks
+from tender_sniper.tender_gpt.tools import search_tenders, get_tender_details, analyze_risks, analyze_documentation
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class AgentState(TypedDict):
 
 
 # All available tools
-TOOLS = [search_tenders, get_tender_details, analyze_risks]
+TOOLS = [search_tenders, get_tender_details, analyze_risks, analyze_documentation]
 
 
 def create_agent_graph():
