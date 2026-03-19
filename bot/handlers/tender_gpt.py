@@ -36,7 +36,7 @@ async def _get_service():
 # ВХОД В TENDER-GPT ЧАТ
 # ============================================
 
-@router.message(F.text == "Tender-GPT")
+@router.message(F.text.in_(["🤖 Tender-GPT", "Tender-GPT"]))
 async def enter_tender_gpt(message: Message, state: FSMContext):
     """Вход в режим Tender-GPT чата через ReplyKeyboard кнопку."""
     service = await _get_service()

@@ -5,8 +5,23 @@ Orchestrates: quota check -> session management -> LangGraph agent -> save histo
 Platform-agnostic (works with Telegram, VK, web).
 """
 
+import re
 import logging
 from typing import Optional, Dict, Any
+
+
+def _md_to_html(text: str) -> str:
+    """Convert Markdown formatting to Telegram HTML."""
+    # Bold: **text** or __text__ → <b>text</b>
+    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
+    text = re.sub(r'__(.+?)__', r'<b>\1</b>', text)
+    # Italic: *text* or _text_ → <i>text</i> (but not inside URLs/words)
+    text = re.sub(r'(?<!\w)\*(?!\*)(.+?)(?<!\*)\*(?!\w)', r'<i>\1</i>', text)
+    # Code: `text` → <code>text</code>
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    # Headers: ### text → <b>text</b>
+    text = re.sub(r'^#{1,3}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+    return text
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
@@ -132,7 +147,10 @@ class TenderGPTService:
             )
             tool_calls_count = 0
 
-        # 7. Truncate response for Telegram (4096 chars max)
+        # 7. Convert Markdown to HTML for Telegram
+        ai_response = _md_to_html(ai_response)
+
+        # 8. Truncate response for Telegram (4096 chars max)
         if len(ai_response) > 4000:
             ai_response = ai_response[:3950] + "\n\n<i>...ответ сокращён</i>"
 
