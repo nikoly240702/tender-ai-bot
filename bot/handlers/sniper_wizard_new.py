@@ -2037,6 +2037,17 @@ async def create_filter_and_search(callback: CallbackQuery, state: FSMContext):
 
         logger.info(f"Created filter {filter_id} for user {callback.from_user.id}, automonitor={automonitor}")
 
+        # Записываем дату первого фильтра для follow-up сообщений (Day 1, Day 3)
+        try:
+            from datetime import datetime
+            user_data = user.get('data') or {}
+            if not user_data.get('first_filter_created_at'):
+                user_data['first_filter_created_at'] = datetime.now().isoformat()
+                user_data['onboarding_completed'] = True
+                await db.update_user_json_data(user['id'], user_data)
+        except Exception as e:
+            logger.warning(f"Failed to save first_filter_created_at: {e}")
+
         # Track filter creation
         import asyncio as _asyncio
         try:
