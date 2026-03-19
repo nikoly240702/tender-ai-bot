@@ -370,7 +370,7 @@ class InstantSearch:
             if search_results:
                 # 1. Создаём временные фильтры для pre-scoring и финального скоринга
                 temp_filter = {
-                    'id': filter_data['id'],
+                    'id': filter_data.get('id', 0),
                     'name': filter_data['name'],
                     'keywords': original_keywords,
                     'price_min': price_min,
@@ -381,7 +381,7 @@ class InstantSearch:
                 # Pre-scoring фильтр БЕЗ регионов — RSS данные часто не содержат регион,
                 # он появляется только после обогащения. Регион проверяется на финальном этапе.
                 pre_score_filter = {
-                    'id': filter_data['id'],
+                    'id': filter_data.get('id', 0),
                     'name': filter_data['name'],
                     'keywords': original_keywords,
                     'price_min': price_min,
@@ -856,7 +856,7 @@ class InstantSearch:
             output_dir = Path(__file__).parent.parent / 'output' / 'reports'
             output_dir.mkdir(parents=True, exist_ok=True)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            output_path = output_dir / f"filter_{filter_data['id']}_{timestamp}.html"
+            output_path = output_dir / f"filter_{filter_data.get('id', 0)}_{timestamp}.html"
 
         try:
             # Формируем данные для отчета
