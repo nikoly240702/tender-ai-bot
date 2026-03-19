@@ -469,6 +469,20 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Не удалось запустить Data Cleanup: {e}", exc_info=True)
 
+    # Запускаем VK Max бот (если токен задан)
+    max_bot_task = None
+    try:
+        max_token = os.getenv('MAX_BOT_TOKEN', '').strip()
+        if max_token:
+            logger.info("🔵 Запуск VK Max бота...")
+            from bot_max.main import start_max_bot
+            max_bot_task = asyncio.create_task(start_max_bot())
+            logger.info("✅ VK Max бот запущен в фоновом режиме")
+        else:
+            logger.info("ℹ️  VK Max бот отключен (MAX_BOT_TOKEN не задан)")
+    except Exception as e:
+        logger.error(f"❌ Не удалось запустить VK Max бота: {e}", exc_info=True)
+
     # Инициализируем Tender Sniper Service (если включен)
     sniper_service = None
     sniper_task = None
@@ -557,6 +571,15 @@ async def main():
             sniper_task.cancel()
             try:
                 await sniper_task
+            except asyncio.CancelledError:
+                pass
+
+        # Останавливаем VK Max бот если запущен
+        if max_bot_task and not max_bot_task.done():
+            logger.info("🛑 Остановка VK Max бота...")
+            max_bot_task.cancel()
+            try:
+                await max_bot_task
             except asyncio.CancelledError:
                 pass
 
