@@ -61,6 +61,10 @@ class EngagementScheduler:
         self._running = True
         logger.info("📅 Engagement Scheduler запущен")
 
+        # Задержка 60 сек после старта — ждём пока старый инстанс остановится
+        # Предотвращает дубли follow-up при деплое
+        await asyncio.sleep(60)
+
         while self._running:
             try:
                 await self._run_scheduled_tasks()
@@ -134,10 +138,10 @@ class EngagementScheduler:
                 if getattr(user, 'is_group', False):
                     continue
 
-                # Проверяем user.data на наличие first_filter_created_at
-                user_data = {}
-                if hasattr(user, 'data') and user.data:
-                    user_data = user.data if isinstance(user.data, dict) else {}
+                # Перечитываем user.data из БД (защита от дублей при двух инстансах)
+                async with DatabaseSession() as _sess:
+                    _fresh = await _sess.get(SniperUser, user.id)
+                    user_data = (_fresh.data if _fresh and isinstance(_fresh.data, dict) else {}) if _fresh else {}
 
                 first_filter_at = user_data.get('first_filter_created_at')
                 if not first_filter_at:
