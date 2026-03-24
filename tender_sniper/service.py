@@ -491,17 +491,27 @@ class TenderSniperService:
                             )
                             continue
 
-                        success = await self.notifier.send_tender_notification(
-                            telegram_id=ntf_telegram_id,
-                            tender=tender,
-                            match_info=notif['match_info'],
-                            filter_name=notif['filter_name'],
-                            is_auto_notification=True,
-                            subscription_tier=notif.get('subscription_tier', 'trial')
-                        )
+                        # Route notification: Max or Telegram
+                        user_platform = (user_data.get('data') or {}).get('platform', 'telegram')
+
+                        if user_platform == 'max':
+                            # Send via Max Bot API
+                            success = await self._send_max_notification(
+                                ntf_telegram_id, tender, notif['match_info'], notif['filter_name']
+                            )
+                        else:
+                            # Send via Telegram (default)
+                            success = await self.notifier.send_tender_notification(
+                                telegram_id=ntf_telegram_id,
+                                tender=tender,
+                                match_info=notif['match_info'],
+                                filter_name=notif['filter_name'],
+                                is_auto_notification=True,
+                                subscription_tier=notif.get('subscription_tier', 'trial')
+                            )
 
                         if success:
-                            logger.info(f"      ✅ Отправлено: {tender_number} → {ntf_telegram_id}")
+                            logger.info(f"      ✅ Отправлено ({user_platform}): {tender_number} → {ntf_telegram_id}")
 
                             await self.db.save_notification(
                                 user_id=notif['user_id'],
@@ -572,6 +582,56 @@ class TenderSniperService:
             logger.error(f"❌ Ошибка обработки тендеров: {e}", exc_info=True)
             self.stats['errors'] += 1
             await send_error_to_telegram(e, context="_process_new_tenders")
+
+    async def _send_max_notification(self, chat_id: int, tender: dict, match_info: dict, filter_name: str) -> bool:
+        """Send tender notification via Max Bot API."""
+        try:
+            import os
+            from bot_max.client import MaxBotClient
+
+            token = os.getenv('MAX_BOT_TOKEN', '').strip()
+            if not token:
+                logger.warning("MAX_BOT_TOKEN not set, can't send Max notification")
+                return False
+
+            client = MaxBotClient(token)
+
+            # Format notification
+            name = tender.get('name', 'Без названия')
+            number = tender.get('number', '—')
+            price = tender.get('price')
+            price_str = f"{price:,.0f} ₽".replace(',', ' ') if price else "Не указана"
+            customer = tender.get('customer', tender.get('customer_name', '—'))
+            region = tender.get('customer_region', tender.get('region', ''))
+            deadline = tender.get('submission_deadline', '—')
+            score = match_info.get('score', 0)
+            url = tender.get('url', '')
+
+            text = (
+                f"🎯 <b>{name}</b>\n\n"
+                f"💰 {price_str}\n"
+                f"🏢 {customer}\n"
+            )
+            if region:
+                text += f"📍 {region}\n"
+            text += f"📅 Подача до: {deadline}\n"
+            text += f"📊 Релевантность: {score}%\n"
+            text += f"🔍 Фильтр: {filter_name}"
+
+            buttons = []
+            if url:
+                buttons.append([{"type": "link", "text": "🔗 Открыть на zakupki.gov.ru", "url": url}])
+            buttons.append([{"type": "callback", "text": "🤖 Спросить GPT", "payload": f"gpt_tender_{number}"}])
+
+            keyboard = {"type": "inline_keyboard", "payload": {"buttons": buttons}} if buttons else None
+
+            await client.send_message(chat_id, text, format="html", keyboard=keyboard)
+            await client.close()
+            return True
+
+        except Exception as e:
+            logger.error(f"Max notification error for {chat_id}: {e}")
+            return False
 
     async def _should_send_notification(self, user_data: dict) -> bool:
         """

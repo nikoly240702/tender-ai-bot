@@ -408,16 +408,27 @@ def _get_current_settings_text(data: dict) -> str:
 
 # ── Ensure user exists in DB ─────────────────────────────────────
 
-async def _ensure_user(user_id: int, username: str = None) -> dict:
-    """Create or update user in DB, return user dict."""
+async def _ensure_user(user_id: int, username: str = None, first_name: str = None) -> dict:
+    """Create or update user in DB, return user dict. Mark as Max platform."""
     db = await get_sniper_db()
     max_username = f"max_{username}" if username else f"max_{user_id}"
     await db.create_or_update_user(
         telegram_id=user_id,
         username=max_username,
+        first_name=first_name,
         subscription_tier='trial',
     )
-    return await db.get_user_by_telegram_id(user_id)
+    user = await db.get_user_by_telegram_id(user_id)
+    # Mark platform as Max (for notification routing)
+    if user:
+        user_data = user.get('data') or {}
+        if user_data.get('platform') != 'max':
+            user_data['platform'] = 'max'
+            try:
+                await db.update_user_json_data(user['id'], user_data)
+            except Exception:
+                pass
+    return user
 
 
 # ── Region name resolver ─────────────────────────────────────────
