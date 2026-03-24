@@ -641,3 +641,217 @@ async def save_settings(request: web.Request) -> web.Response:
         await db.update_user_json_data(user['user_id'], new_data)
 
     return web.json_response({'ok': True})
+
+
+# ============================================
+# TENDER-GPT API
+# ============================================
+
+@require_auth
+async def api_gpt_chat(request: web.Request) -> web.Response:
+    """POST /cabinet/api/gpt/chat — отправить сообщение в Tender-GPT."""
+    user = request['user']
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    message = (data.get('message') or '').strip()
+    if not message:
+        return web.json_response({'error': 'Пустое сообщение'}, status=400)
+
+    try:
+        from tender_sniper.tender_gpt.service import TenderGPTService
+        service = TenderGPTService()
+
+        result = await service.chat(
+            telegram_id=user['telegram_id'],
+            user_id=user['user_id'],
+            user_message=message,
+        )
+
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"GPT chat error for user {user['user_id']}: {e}", exc_info=True)
+        return web.json_response({'error': 'Ошибка AI-сервиса. Попробуйте позже.'}, status=500)
+
+
+# ============================================
+# SUBSCRIPTION API
+# ============================================
+
+@require_auth
+async def api_subscription_info(request: web.Request) -> web.Response:
+    """GET /cabinet/api/subscription — информация о текущей подписке."""
+    user = request['user']
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    sub_info = await db.get_user_subscription_info(user['telegram_id']) or {}
+    user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
+    user_data = user_info.get('data') or {}
+
+    tier = sub_info.get('subscription_tier') or user_info.get('subscription_tier', 'trial')
+    trial_expires = sub_info.get('trial_expires_at')
+
+    # Calculate days left
+    days_left = 0
+    expires_at = None
+    if trial_expires:
+        if hasattr(trial_expires, 'isoformat'):
+            expires_at = trial_expires.isoformat()
+            days_left = max(0, (trial_expires - datetime.utcnow()).days)
+        else:
+            try:
+                exp_dt = datetime.fromisoformat(str(trial_expires))
+                expires_at = exp_dt.isoformat()
+                days_left = max(0, (exp_dt - datetime.utcnow()).days)
+            except Exception:
+                expires_at = str(trial_expires)
+
+    # Check if first payment
+    is_first = not user_data.get('has_paid_before', False)
+
+    return web.json_response({
+        'tier': tier,
+        'expires_at': expires_at,
+        'days_left': days_left,
+        'filters_limit': sub_info.get('filters_limit') or user_info.get('filters_limit', 3),
+        'notifications_limit': sub_info.get('notifications_limit') or user_info.get('notifications_limit', 15),
+        'is_first_payment': is_first,
+    })
+
+
+@require_auth
+async def api_subscription_pay(request: web.Request) -> web.Response:
+    """POST /cabinet/api/subscription/pay — создать платёж YooKassa."""
+    user = request['user']
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    tier = data.get('tier', 'basic')
+    months = int(data.get('months', 1))
+
+    if tier not in ('basic', 'premium'):
+        return web.json_response({'error': 'Неверный тариф'}, status=400)
+    if months not in (1, 3, 6):
+        return web.json_response({'error': 'Неверный период'}, status=400)
+
+    try:
+        from bot.handlers.subscriptions import calculate_price
+        from tender_sniper.payments import get_yookassa_client
+        from tender_sniper.database import get_sniper_db
+
+        db = await get_sniper_db()
+        user_info = await db.get_user_by_telegram_id(user['telegram_id'])
+        user_data = (user_info.get('data') or {}) if user_info else {}
+        is_first = not user_data.get('has_paid_before', False)
+
+        price_info = calculate_price(tier, months, is_first_payment=is_first)
+
+        client = get_yookassa_client()
+        if not client.is_configured:
+            return web.json_response({'error': 'Платёжная система не настроена'}, status=500)
+
+        result = client.create_payment(
+            telegram_id=user['telegram_id'],
+            tier=tier,
+            amount=price_info['final_price'],
+            days=price_info['days'],
+            description=f"Подписка {tier} на {price_info['label']}",
+            return_url=f"{request.scheme}://{request.host}/cabinet/subscription",
+        )
+
+        if result.get('error'):
+            return web.json_response({'error': result['error']}, status=500)
+
+        return web.json_response({
+            'url': result.get('url'),
+            'amount': price_info['final_price'],
+        })
+    except Exception as e:
+        logger.error(f"Payment creation error for user {user['user_id']}: {e}", exc_info=True)
+        return web.json_response({'error': 'Ошибка создания платежа'}, status=500)
+
+
+# ============================================
+# CALENDAR API
+# ============================================
+
+@require_auth
+async def api_calendar(request: web.Request) -> web.Response:
+    """GET /cabinet/api/calendar?month=2026-03 — тендеры с дедлайнами по дням."""
+    user = request['user']
+
+    month_str = request.query.get('month', '')
+    if not month_str:
+        month_str = datetime.utcnow().strftime('%Y-%m')
+
+    try:
+        parts = month_str.split('-')
+        year = int(parts[0])
+        month = int(parts[1])
+    except (ValueError, IndexError):
+        return web.json_response({'error': 'Invalid month format (YYYY-MM)'}, status=400)
+
+    # Calculate month boundaries
+    month_start = datetime(year, month, 1)
+    if month == 12:
+        month_end = datetime(year + 1, 1, 1)
+    else:
+        month_end = datetime(year, month + 1, 1)
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    # Get user tenders with deadlines (last 500 for coverage)
+    all_tenders = await db.get_user_tenders(user['user_id'], limit=500)
+
+    # Group by deadline date within the requested month
+    days_map = {}  # date_str -> list of tenders
+    for t in all_tenders:
+        deadline = t.get('submission_deadline')
+        if not deadline:
+            continue
+
+        try:
+            if isinstance(deadline, str):
+                dl_dt = datetime.fromisoformat(deadline)
+            else:
+                dl_dt = deadline
+        except Exception:
+            continue
+
+        if dl_dt < month_start or dl_dt >= month_end:
+            continue
+
+        date_str = dl_dt.strftime('%Y-%m-%d')
+        if date_str not in days_map:
+            days_map[date_str] = []
+
+        deadline_time = dl_dt.strftime('%H:%M') if dl_dt.hour or dl_dt.minute else ''
+
+        days_map[date_str].append({
+            'name': t.get('name', ''),
+            'number': t.get('number', ''),
+            'price': t.get('price'),
+            'url': t.get('url', ''),
+            'deadline_time': deadline_time,
+        })
+
+    # Build response
+    days = []
+    for date_str in sorted(days_map.keys()):
+        tenders = days_map[date_str]
+        days.append({
+            'date': date_str,
+            'count': len(tenders),
+            'tenders': tenders,
+        })
+
+    return web.json_response({'days': days, 'month': month_str})

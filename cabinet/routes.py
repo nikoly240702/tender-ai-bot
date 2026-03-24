@@ -27,6 +27,9 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/search', search_page)
     app.router.add_get('/cabinet/stats', stats_page)
     app.router.add_get('/cabinet/settings', settings_page)
+    app.router.add_get('/cabinet/gpt', gpt_page)
+    app.router.add_get('/cabinet/subscription', subscription_page)
+    app.router.add_get('/cabinet/calendar', calendar_page)
 
     # Auth
     app.router.add_get('/cabinet/auth/telegram', telegram_auth_callback)
@@ -59,6 +62,13 @@ def setup_cabinet_routes(app: web.Application):
     # JSON API — Settings
     app.router.add_get('/cabinet/api/settings', api.get_settings)
     app.router.add_post('/cabinet/api/settings', api.save_settings)
+    # JSON API — Tender-GPT
+    app.router.add_post('/cabinet/api/gpt/chat', api.api_gpt_chat)
+    # JSON API — Subscription
+    app.router.add_get('/cabinet/api/subscription', api.api_subscription_info)
+    app.router.add_post('/cabinet/api/subscription/pay', api.api_subscription_pay)
+    # JSON API — Calendar
+    app.router.add_get('/cabinet/api/calendar', api.api_calendar)
 
     logger.info("Cabinet routes registered at /cabinet/*")
 
@@ -116,6 +126,24 @@ async def stats_page(request: web.Request) -> web.Response:
 async def settings_page(request: web.Request) -> web.Response:
     """Страница настроек."""
     return _render_template('settings.html')
+
+
+@require_auth
+async def gpt_page(request: web.Request) -> web.Response:
+    """Страница Tender-GPT чата."""
+    return _render_template('gpt.html')
+
+
+@require_auth
+async def subscription_page(request: web.Request) -> web.Response:
+    """Страница подписки и оплаты."""
+    return _render_template('subscription.html')
+
+
+@require_auth
+async def calendar_page(request: web.Request) -> web.Response:
+    """Страница календаря дедлайнов."""
+    return _render_template('calendar.html')
 
 
 # ============================================
