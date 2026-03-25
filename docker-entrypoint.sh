@@ -1,9 +1,11 @@
 #!/bin/bash
-set -e
+# NO set -e — we handle errors manually
 
 echo "=========================================="
 echo "🚀 DOCKER ENTRYPOINT: Starting Tender AI Bot"
 echo "=========================================="
+echo "Python version: $(python --version 2>&1)"
+echo "Working dir: $(pwd)"
 
 # Проверяем DATABASE_URL
 if [ -z "$DATABASE_URL" ]; then
@@ -30,12 +32,19 @@ echo "=========================================="
 echo "🌐 Starting Admin Panel on port 8080..."
 echo "=========================================="
 
+echo "Testing imports..."
+python -c "from tender_sniper.admin.app import app; print('✅ Admin app import OK')" || echo "❌ Admin app import FAILED"
+python -c "from bot.main import main; print('✅ Bot main import OK')" || echo "❌ Bot main import FAILED"
+
 python -m uvicorn tender_sniper.admin.app:app --host 0.0.0.0 --port 8080 &
 ADMIN_PID=$!
 echo "✅ Admin Panel started (PID: $ADMIN_PID)"
 
 # Даём время админке запуститься
-sleep 2
+sleep 3
+
+# Проверяем что админка жива
+curl -sf http://localhost:8080/health && echo " ✅ Admin health OK" || echo " ⚠️ Admin health not responding yet"
 
 # Запускаем бота
 echo "=========================================="
