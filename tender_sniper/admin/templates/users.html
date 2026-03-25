@@ -5,8 +5,8 @@
 {% block content %}
 <!-- Top Bar -->
 <div class="top-bar">
-    <h4 class="mb-0">👥 Пользователи</h4>
-    <form class="d-flex gap-2" method="get" action="/users">
+    <h4 class="mb-0">Пользователи</h4>
+    <form class="d-flex gap-2 flex-wrap" method="get" action="/users">
         <input type="text" class="form-control search-box" name="search"
                placeholder="Поиск по имени или ID..." value="{{ search or '' }}">
         <select class="form-select" name="tier" style="width: auto;">
@@ -14,6 +14,18 @@
             <option value="trial" {% if tier_filter == 'trial' %}selected{% endif %}>Trial</option>
             <option value="basic" {% if tier_filter == 'basic' %}selected{% endif %}>Basic</option>
             <option value="premium" {% if tier_filter == 'premium' %}selected{% endif %}>Premium</option>
+            <option value="expired" {% if tier_filter == 'expired' %}selected{% endif %}>Истекшие</option>
+        </select>
+        <select class="form-select" name="activity" style="width: auto;">
+            <option value="">Все</option>
+            <option value="active_7d" {% if activity_filter == 'active_7d' %}selected{% endif %}>Активные (7 дн.)</option>
+            <option value="inactive" {% if activity_filter == 'inactive' %}selected{% endif %}>Неактивные</option>
+        </select>
+        <select class="form-select" name="sort" style="width: auto;">
+            <option value="created_desc" {% if sort == 'created_desc' %}selected{% endif %}>Регистрация (новые)</option>
+            <option value="created_asc" {% if sort == 'created_asc' %}selected{% endif %}>Регистрация (старые)</option>
+            <option value="activity_desc" {% if sort == 'activity_desc' %}selected{% endif %}>Последняя активность</option>
+            <option value="notifications_desc" {% if sort == 'notifications_desc' %}selected{% endif %}>Уведомления</option>
         </select>
         <button type="submit" class="btn btn-primary">
             <i class="bi bi-search"></i>
@@ -63,8 +75,10 @@
                     <th>Тариф</th>
                     <th>Подписка</th>
                     <th>Фильтров</th>
+                    <th>Уведомлений</th>
+                    <th>GPT</th>
+                    <th>Последняя активность</th>
                     <th>Статус</th>
-                    <th>Регистрация</th>
                     <th>Действия</th>
                 </tr>
             </thead>
@@ -86,7 +100,7 @@
                         </small>
                     </td>
                     <td>
-                        {% set tier_labels = {'trial': 'trial', 'basic': 'basic', 'premium': 'premium', 'expired': 'истекла', 'free': 'free'} %}
+                        {% set tier_labels = {'trial': 'trial', 'basic': 'basic', 'premium': 'premium', 'expired': 'expired', 'free': 'free'} %}
                         <span class="badge badge-tier badge-{{ item.user.subscription_tier }}">
                             {{ tier_labels.get(item.user.subscription_tier, item.user.subscription_tier) }}
                         </span>
@@ -109,7 +123,7 @@
                                 <span class="badge bg-secondary">истекла</span>
                             {% endif %}
                         {% else %}
-                            <span class="text-muted">—</span>
+                            <span class="text-muted">-</span>
                         {% endif %}
                     </td>
                     <td>
@@ -118,16 +132,32 @@
                         </span>
                     </td>
                     <td>
-                        {% if item.user.status == 'blocked' %}
-                        <span class="badge badge-status badge-blocked">Заблокирован</span>
-                        {% elif item.user.status == 'active' %}
-                        <span class="badge badge-status badge-active">Активен</span>
+                        <span class="badge bg-primary">{{ item.notifications_count or 0 }}</span>
+                    </td>
+                    <td>
+                        {% if item.gpt_messages_count > 0 %}
+                        <span class="badge bg-info">{{ item.gpt_messages_count }}</span>
                         {% else %}
-                        <span class="badge badge-status badge-inactive">{{ item.user.status or 'Неизвестно' }}</span>
+                        <span class="text-muted">0</span>
                         {% endif %}
                     </td>
                     <td>
-                        {{ item.user.created_at.strftime('%d.%m.%Y') if item.user.created_at else '-' }}
+                        {% if item.user.last_activity %}
+                        <small>{{ item.user.last_activity.strftime('%d.%m.%Y %H:%M') }}</small>
+                        {% else %}
+                        <small class="text-muted">-</small>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.status_badge == 'blocked' %}
+                        <span class="badge badge-status badge-blocked">Заблокирован</span>
+                        {% elif item.status_badge == 'expired' %}
+                        <span class="badge badge-status badge-expired">Истекла</span>
+                        {% elif item.status_badge == 'active' %}
+                        <span class="badge badge-status badge-active">Активен</span>
+                        {% else %}
+                        <span class="badge badge-status badge-inactive">Неактивен</span>
+                        {% endif %}
                     </td>
                     <td>
                         <div class="dropdown">
@@ -189,7 +219,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="8" class="text-center text-muted py-5">
+                    <td colspan="10" class="text-center text-muted py-5">
                         Пользователи не найдены
                     </td>
                 </tr>
@@ -204,7 +234,7 @@
 <nav class="mt-4">
     <ul class="pagination justify-content-center">
         <li class="page-item {% if page == 1 %}disabled{% endif %}">
-            <a class="page-link" href="?page={{ page - 1 }}&search={{ search or '' }}&tier={{ tier_filter or '' }}">
+            <a class="page-link" href="?page={{ page - 1 }}&search={{ search or '' }}&tier={{ tier_filter or '' }}&activity={{ activity_filter or '' }}&sort={{ sort or '' }}">
                 <i class="bi bi-chevron-left"></i>
             </a>
         </li>
@@ -212,7 +242,7 @@
         {% for p in range(1, total_pages + 1) %}
             {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
             <li class="page-item {% if p == page %}active{% endif %}">
-                <a class="page-link" href="?page={{ p }}&search={{ search or '' }}&tier={{ tier_filter or '' }}">{{ p }}</a>
+                <a class="page-link" href="?page={{ p }}&search={{ search or '' }}&tier={{ tier_filter or '' }}&activity={{ activity_filter or '' }}&sort={{ sort or '' }}">{{ p }}</a>
             </li>
             {% elif p == page - 3 or p == page + 3 %}
             <li class="page-item disabled">
@@ -222,7 +252,7 @@
         {% endfor %}
 
         <li class="page-item {% if page == total_pages %}disabled{% endif %}">
-            <a class="page-link" href="?page={{ page + 1 }}&search={{ search or '' }}&tier={{ tier_filter or '' }}">
+            <a class="page-link" href="?page={{ page + 1 }}&search={{ search or '' }}&tier={{ tier_filter or '' }}&activity={{ activity_filter or '' }}&sort={{ sort or '' }}">
                 <i class="bi bi-chevron-right"></i>
             </a>
         </li>

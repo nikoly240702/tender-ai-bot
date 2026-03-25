@@ -43,6 +43,8 @@ from database import (
     UserFeedback,
     TenderFavorite,
     HiddenTender,
+    GptSession,
+    GptMessage,
     DatabaseSession,
 )
 
@@ -231,6 +233,8 @@ async def users_list(
     page: int = Query(1, ge=1),
     search: str = Query(""),
     tier: str = Query(""),
+    activity: str = Query(""),
+    sort: str = Query("created_desc"),
     username: str = Depends(verify_credentials)
 ):
     """Список пользователей."""
@@ -251,8 +255,40 @@ async def users_list(
                 count_query = count_query.where(search_filter)
 
             if tier:
-                query = query.where(SniperUser.subscription_tier == tier)
-                count_query = count_query.where(SniperUser.subscription_tier == tier)
+                if tier == 'expired':
+                    # Expired = trial с истекшей подпиской
+                    now = datetime.now()
+                    query = query.where(
+                        and_(
+                            SniperUser.subscription_tier == 'trial',
+                            SniperUser.trial_expires_at != None,
+                            SniperUser.trial_expires_at < now
+                        )
+                    )
+                    count_query = count_query.where(
+                        and_(
+                            SniperUser.subscription_tier == 'trial',
+                            SniperUser.trial_expires_at != None,
+                            SniperUser.trial_expires_at < now
+                        )
+                    )
+                else:
+                    query = query.where(SniperUser.subscription_tier == tier)
+                    count_query = count_query.where(SniperUser.subscription_tier == tier)
+
+            # Activity filter
+            if activity == 'active_7d':
+                week_ago = datetime.now() - timedelta(days=7)
+                query = query.where(SniperUser.last_activity >= week_ago)
+                count_query = count_query.where(SniperUser.last_activity >= week_ago)
+            elif activity == 'inactive':
+                week_ago = datetime.now() - timedelta(days=7)
+                query = query.where(
+                    (SniperUser.last_activity == None) | (SniperUser.last_activity < week_ago)
+                )
+                count_query = count_query.where(
+                    (SniperUser.last_activity == None) | (SniperUser.last_activity < week_ago)
+                )
 
             # Подсчет
             total = await session.scalar(count_query) or 0
@@ -280,20 +316,43 @@ async def users_list(
                 .group_by(SniperNotification.user_id)
             ).subquery()
 
+            # GPT messages subquery
+            gpt_sub = (
+                select(
+                    GptSession.user_id,
+                    func.count(GptMessage.id).label('gpt_messages')
+                )
+                .select_from(GptMessage)
+                .join(GptSession, GptMessage.session_id == GptSession.id)
+                .where(GptMessage.role == 'user')
+                .group_by(GptSession.user_id)
+            ).subquery()
+
             # Основной запрос с LEFT JOIN
             main_query = (
                 query
                 .outerjoin(filters_sub, SniperUser.id == filters_sub.c.user_id)
                 .outerjoin(notif_sub, SniperUser.id == notif_sub.c.user_id)
+                .outerjoin(gpt_sub, SniperUser.id == gpt_sub.c.user_id)
                 .add_columns(
                     func.coalesce(filters_sub.c.total_filters, 0).label('filters_count'),
                     func.coalesce(filters_sub.c.active_filters, 0).label('active_filters_count'),
                     func.coalesce(notif_sub.c.total_notifications, 0).label('notifications_count'),
+                    func.coalesce(gpt_sub.c.gpt_messages, 0).label('gpt_messages_count'),
                 )
-                .order_by(SniperUser.created_at.desc())
-                .offset(offset)
-                .limit(per_page)
             )
+
+            # Sorting
+            if sort == 'activity_desc':
+                main_query = main_query.order_by(SniperUser.last_activity.desc().nullslast())
+            elif sort == 'notifications_desc':
+                main_query = main_query.order_by(desc('notifications_count'))
+            elif sort == 'created_asc':
+                main_query = main_query.order_by(SniperUser.created_at.asc())
+            else:  # created_desc (default)
+                main_query = main_query.order_by(SniperUser.created_at.desc())
+
+            main_query = main_query.offset(offset).limit(per_page)
             result = await session.execute(main_query)
             rows = result.all()
 
@@ -305,6 +364,7 @@ async def users_list(
                 filters_count = row[1]
                 active_filters = row[2]
                 notifications_count = row[3]
+                gpt_messages_count = row[4]
 
                 # Вычисляем оставшиеся дни подписки
                 days_left = None
@@ -317,13 +377,25 @@ async def users_list(
                     # trial без даты окончания — считаем истекшим
                     days_left = -1
 
+                # Status badge
+                if user.status == 'blocked':
+                    status_badge = 'blocked'
+                elif days_left is not None and days_left < 0:
+                    status_badge = 'expired'
+                elif user.last_activity and (now - user.last_activity).days <= 7:
+                    status_badge = 'active'
+                else:
+                    status_badge = 'inactive'
+
                 users_data.append({
                     "user": user,
                     "filters_count": filters_count,
                     "active_filters": active_filters,
                     "notifications_count": notifications_count,
+                    "gpt_messages_count": gpt_messages_count,
                     "days_left": days_left,
                     "expires_date": expires_date,
+                    "status_badge": status_badge,
                 })
 
             # Статистика по тарифам
@@ -337,6 +409,18 @@ async def users_list(
             tier_result = await session.execute(tier_stats_query)
             tier_counts = {row[0]: row[1] for row in tier_result.all()}
 
+            # Count expired
+            expired_count = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(
+                        SniperUser.subscription_tier == 'trial',
+                        SniperUser.trial_expires_at != None,
+                        SniperUser.trial_expires_at < now
+                    )
+                )
+            ) or 0
+            tier_counts['expired'] = expired_count
+
         return templates.TemplateResponse("users.html", {
             "request": request,
             "username": username,
@@ -347,6 +431,8 @@ async def users_list(
             "tier_counts": tier_counts,
             "search": search,
             "tier_filter": tier,
+            "activity_filter": activity,
+            "sort": sort,
         })
 
     except Exception as e:
@@ -370,13 +456,25 @@ async def user_detail(
             if not user:
                 raise HTTPException(status_code=404, detail=f"Пользователь с ID {user_id} не найден")
 
-            # Статистика фильтров
+            from sqlalchemy import case
+
+            # Статистика фильтров (расширенная)
             filters_count = await session.scalar(
                 select(func.count(SniperFilter.id)).where(SniperFilter.user_id == user.id)
             ) or 0
             active_filters = await session.scalar(
                 select(func.count(SniperFilter.id)).where(
-                    and_(SniperFilter.user_id == user.id, SniperFilter.is_active == True)
+                    and_(SniperFilter.user_id == user.id, SniperFilter.is_active == True, SniperFilter.deleted_at == None)
+                )
+            ) or 0
+            paused_filters = await session.scalar(
+                select(func.count(SniperFilter.id)).where(
+                    and_(SniperFilter.user_id == user.id, SniperFilter.is_active == False, SniperFilter.deleted_at == None)
+                )
+            ) or 0
+            deleted_filters = await session.scalar(
+                select(func.count(SniperFilter.id)).where(
+                    and_(SniperFilter.user_id == user.id, SniperFilter.deleted_at != None)
                 )
             ) or 0
 
@@ -436,6 +534,137 @@ async def user_detail(
                 )
             ) or 0
 
+            # Notifications last 7 days
+            week_ago = now - timedelta(days=7)
+            notifications_week = await session.scalar(
+                select(func.count(SniperNotification.id)).where(
+                    and_(
+                        SniperNotification.user_id == user.id,
+                        SniperNotification.sent_at >= week_ago
+                    )
+                )
+            ) or 0
+
+            # AI analyses count (notifications with match_info containing AI data)
+            ai_analyses_count = 0
+            try:
+                ai_notifs_query = (
+                    select(func.count(SniperNotification.id)).where(
+                        and_(
+                            SniperNotification.user_id == user.id,
+                            SniperNotification.match_info != None
+                        )
+                    )
+                )
+                ai_analyses_count = await session.scalar(ai_notifs_query) or 0
+            except Exception:
+                pass
+
+            # Favorites count
+            favorites_count = 0
+            try:
+                favorites_count = await session.scalar(
+                    select(func.count(TenderFavorite.id)).where(TenderFavorite.user_id == user.id)
+                ) or 0
+            except Exception:
+                pass
+
+            # GPT sessions and messages
+            gpt_sessions_data = []
+            gpt_messages_total = 0
+            try:
+                gpt_sessions_query = (
+                    select(GptSession)
+                    .where(GptSession.user_id == user.id)
+                    .order_by(GptSession.started_at.desc())
+                    .limit(20)
+                )
+                gpt_result = await session.execute(gpt_sessions_query)
+                gpt_sessions = gpt_result.scalars().all()
+
+                for gs in gpt_sessions:
+                    msg_count = await session.scalar(
+                        select(func.count(GptMessage.id)).where(GptMessage.session_id == gs.id)
+                    ) or 0
+                    gpt_sessions_data.append({
+                        "session": gs,
+                        "message_count": msg_count,
+                    })
+
+                # Total GPT messages
+                gpt_messages_total = await session.scalar(
+                    select(func.count(GptMessage.id))
+                    .select_from(GptMessage)
+                    .join(GptSession, GptMessage.session_id == GptSession.id)
+                    .where(GptSession.user_id == user.id)
+                ) or 0
+            except Exception:
+                pass
+
+            # GPT message limit (from tier)
+            gpt_limits = {'trial': 10, 'basic': 50, 'premium': 200}
+            gpt_limit = gpt_limits.get(user.subscription_tier, 10)
+
+            # Recent notifications with details (last 20)
+            recent_notifications = []
+            try:
+                rn_query = (
+                    select(SniperNotification, SniperFilter.name.label('filter_name'))
+                    .outerjoin(SniperFilter, SniperNotification.filter_id == SniperFilter.id)
+                    .where(SniperNotification.user_id == user.id)
+                    .order_by(SniperNotification.sent_at.desc())
+                    .limit(20)
+                )
+                rn_result = await session.execute(rn_query)
+                for row in rn_result.all():
+                    notif = row[0]
+                    fname = row[1]
+                    # Check if user favorited this tender
+                    is_favorited = await session.scalar(
+                        select(func.count(TenderFavorite.id)).where(
+                            and_(
+                                TenderFavorite.user_id == user.id,
+                                TenderFavorite.tender_number == notif.tender_number
+                            )
+                        )
+                    ) or 0
+                    has_ai = notif.match_info is not None and isinstance(notif.match_info, dict)
+                    recent_notifications.append({
+                        "notif": notif,
+                        "filter_name": fname,
+                        "is_favorited": is_favorited > 0,
+                        "has_ai": has_ai,
+                    })
+            except Exception:
+                pass
+
+            # AI Analysis history (notifications with AI match_info)
+            ai_analyses = []
+            try:
+                ai_query = (
+                    select(SniperNotification)
+                    .where(
+                        and_(
+                            SniperNotification.user_id == user.id,
+                            SniperNotification.match_info != None
+                        )
+                    )
+                    .order_by(SniperNotification.sent_at.desc())
+                    .limit(20)
+                )
+                ai_result = await session.execute(ai_query)
+                for notif in ai_result.scalars().all():
+                    mi = notif.match_info if isinstance(notif.match_info, dict) else {}
+                    ai_analyses.append({
+                        "notif": notif,
+                        "summary": mi.get("ai_summary") or mi.get("summary") or "",
+                        "risks": mi.get("risks") or mi.get("ai_risks") or "",
+                        "recommendation": mi.get("recommendation") or mi.get("ai_recommendation") or "",
+                        "confidence": mi.get("confidence") or mi.get("ai_confidence") or mi.get("relevance_score") or "",
+                    })
+            except Exception:
+                pass
+
             # Payments
             payments_query = (
                 select(Payment)
@@ -463,16 +692,34 @@ async def user_detail(
             except Exception:
                 pass
 
+            # Registration source detection
+            reg_source = "direct"
+            if referrer:
+                reg_source = "referral"
+            elif user.data and isinstance(user.data, dict):
+                reg_source = user.data.get("source", "direct")
+
         return templates.TemplateResponse("user_detail.html", {
             "request": request,
             "username": username,
             "user": user,
             "filters_count": filters_count,
             "active_filters": active_filters,
+            "paused_filters": paused_filters,
+            "deleted_filters": deleted_filters,
             "filters_data": filters_data,
             "days_left": days_left,
             "events": events,
             "notifications_total": notifications_total,
+            "notifications_week": notifications_week,
+            "ai_analyses_count": ai_analyses_count,
+            "favorites_count": favorites_count,
+            "gpt_sessions_data": gpt_sessions_data,
+            "gpt_messages_total": gpt_messages_total,
+            "gpt_limit": gpt_limit,
+            "recent_notifications": recent_notifications,
+            "ai_analyses": ai_analyses,
+            "reg_source": reg_source,
             "payments": payments,
             "payments_total_amount": payments_total_amount,
             "referrer": referrer,
@@ -1750,6 +1997,147 @@ async def api_user_notifications(
     except Exception as e:
         logger.error(f"API user notifications error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# API: GPT session messages (lazy-load)
+# ============================================
+
+@app.get("/api/gpt-sessions/{session_id}/messages")
+async def api_gpt_session_messages(
+    session_id: str,
+    username: str = Depends(verify_credentials)
+):
+    """API для подгрузки сообщений GPT-сессии."""
+    try:
+        async with DatabaseSession() as session:
+            messages_query = (
+                select(GptMessage)
+                .where(GptMessage.session_id == session_id)
+                .order_by(GptMessage.created_at)
+            )
+            result = await session.execute(messages_query)
+            messages = result.scalars().all()
+
+            items = []
+            for msg in messages:
+                items.append({
+                    "role": msg.role,
+                    "content": msg.content[:2000] if msg.content else "",
+                    "tool_name": msg.tool_name,
+                    "tool_args": msg.tool_args,
+                    "tool_result": (msg.tool_result[:500] if msg.tool_result else None),
+                    "created_at": msg.created_at.strftime('%d.%m.%Y %H:%M:%S') if msg.created_at else None,
+                })
+
+        return JSONResponse({"items": items})
+
+    except Exception as e:
+        logger.error(f"API GPT session messages error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# COHORT ANALYTICS PAGE
+# ============================================
+
+@app.get("/admin/cohorts", response_class=HTMLResponse)
+async def cohorts_page(
+    request: Request,
+    days: int = Query(30, ge=7, le=90),
+    username: str = Depends(verify_credentials)
+):
+    """Когортная аналитика — конверсионная воронка по дням регистрации."""
+    try:
+        from collections import defaultdict
+
+        async with DatabaseSession() as session:
+            since = datetime.now() - timedelta(days=days)
+
+            # All users registered since
+            users_query = (
+                select(SniperUser)
+                .where(SniperUser.created_at >= since)
+                .order_by(SniperUser.created_at)
+            )
+            users_result = await session.execute(users_query)
+            users = users_result.scalars().all()
+
+            # Group by registration date
+            cohort_data = defaultdict(lambda: {
+                "registered": 0,
+                "created_filter": 0,
+                "got_notification": 0,
+                "used_gpt": 0,
+                "used_ai_analysis": 0,
+                "converted_paid": 0,
+            })
+
+            for u in users:
+                day_key = u.created_at.strftime('%d.%m.%Y') if u.created_at else "N/A"
+                cohort_data[day_key]["registered"] += 1
+
+                # Created filter?
+                has_filter = await session.scalar(
+                    select(func.count(SniperFilter.id)).where(SniperFilter.user_id == u.id)
+                ) or 0
+                if has_filter > 0:
+                    cohort_data[day_key]["created_filter"] += 1
+
+                # Got notification?
+                has_notif = await session.scalar(
+                    select(func.count(SniperNotification.id)).where(SniperNotification.user_id == u.id)
+                ) or 0
+                if has_notif > 0:
+                    cohort_data[day_key]["got_notification"] += 1
+
+                # Used GPT?
+                try:
+                    has_gpt = await session.scalar(
+                        select(func.count(GptSession.id)).where(GptSession.user_id == u.id)
+                    ) or 0
+                    if has_gpt > 0:
+                        cohort_data[day_key]["used_gpt"] += 1
+                except Exception:
+                    pass
+
+                # Used AI analysis? (has match_info)
+                has_ai = await session.scalar(
+                    select(func.count(SniperNotification.id)).where(
+                        and_(
+                            SniperNotification.user_id == u.id,
+                            SniperNotification.match_info != None
+                        )
+                    )
+                ) or 0
+                if has_ai > 0:
+                    cohort_data[day_key]["used_ai_analysis"] += 1
+
+                # Converted to paid?
+                if u.subscription_tier in ('basic', 'premium'):
+                    cohort_data[day_key]["converted_paid"] += 1
+
+            # Convert to sorted list
+            cohorts = []
+            for day_key in sorted(cohort_data.keys(), key=lambda x: datetime.strptime(x, '%d.%m.%Y')):
+                cohorts.append({
+                    "date": day_key,
+                    **cohort_data[day_key],
+                })
+
+        return templates.TemplateResponse("cohorts.html", {
+            "request": request,
+            "username": username,
+            "cohorts": cohorts,
+            "days": days,
+        })
+
+    except Exception as e:
+        logger.error(f"Cohorts page error: {e}", exc_info=True)
+        return templates.TemplateResponse("error.html", {
+            "request": request,
+            "error": str(e)
+        })
 
 
 # ============================================

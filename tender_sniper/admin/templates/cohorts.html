@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}Когортная аналитика{% endblock %}
+
+{% block extra_css %}
+<style>
+    .cohort-table th, .cohort-table td {
+        text-align: center;
+        font-size: 13px;
+        padding: 10px 8px;
+    }
+    .cohort-table .date-col {
+        text-align: left;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+    .cohort-cell {
+        position: relative;
+    }
+    .cohort-cell .pct {
+        display: block;
+        font-size: 11px;
+        color: #888;
+    }
+    .funnel-bar {
+        height: 6px;
+        border-radius: 3px;
+        margin-top: 4px;
+    }
+    .summary-row td {
+        font-weight: 600;
+        background: #f8f9fa;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Top Bar -->
+<div class="top-bar">
+    <h4 class="mb-0"><i class="bi bi-diagram-3 me-2"></i> Когортная аналитика</h4>
+    <form class="d-flex gap-2" method="get" action="/admin/cohorts">
+        <select class="form-select" name="days" style="width: auto;">
+            <option value="7" {% if days == 7 %}selected{% endif %}>7 дней</option>
+            <option value="14" {% if days == 14 %}selected{% endif %}>14 дней</option>
+            <option value="30" {% if days == 30 %}selected{% endif %}>30 дней</option>
+            <option value="60" {% if days == 60 %}selected{% endif %}>60 дней</option>
+            <option value="90" {% if days == 90 %}selected{% endif %}>90 дней</option>
+        </select>
+        <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-arrow-clockwise"></i> Обновить
+        </button>
+    </form>
+</div>
+
+<!-- Funnel Summary -->
+{% if cohorts %}
+{% set totals = namespace(reg=0, filter=0, notif=0, gpt=0, ai=0, paid=0) %}
+{% for c in cohorts %}
+    {% set totals.reg = totals.reg + c.registered %}
+    {% set totals.filter = totals.filter + c.created_filter %}
+    {% set totals.notif = totals.notif + c.got_notification %}
+    {% set totals.gpt = totals.gpt + c.used_gpt %}
+    {% set totals.ai = totals.ai + c.used_ai_analysis %}
+    {% set totals.paid = totals.paid + c.converted_paid %}
+{% endfor %}
+
+<div class="row g-3 mb-4">
+    <div class="col">
+        <div class="stat-card">
+            <div class="icon blue"><i class="bi bi-person-plus"></i></div>
+            <div class="value">{{ totals.reg }}</div>
+            <div class="label">Зарегистрировались</div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="icon green"><i class="bi bi-funnel"></i></div>
+            <div class="value">{{ totals.filter }}</div>
+            <div class="label">Создали фильтр</div>
+            <small class="text-muted">{{ (totals.filter / totals.reg * 100)|round(1) if totals.reg else 0 }}%</small>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="icon purple"><i class="bi bi-bell"></i></div>
+            <div class="value">{{ totals.notif }}</div>
+            <div class="label">Получили уведомление</div>
+            <small class="text-muted">{{ (totals.notif / totals.reg * 100)|round(1) if totals.reg else 0 }}%</small>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="icon blue"><i class="bi bi-chat-dots"></i></div>
+            <div class="value">{{ totals.gpt }}</div>
+            <div class="label">Использовали GPT</div>
+            <small class="text-muted">{{ (totals.gpt / totals.reg * 100)|round(1) if totals.reg else 0 }}%</small>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="icon orange"><i class="bi bi-robot"></i></div>
+            <div class="value">{{ totals.ai }}</div>
+            <div class="label">AI анализ</div>
+            <small class="text-muted">{{ (totals.ai / totals.reg * 100)|round(1) if totals.reg else 0 }}%</small>
+        </div>
+    </div>
+    <div class="col">
+        <div class="stat-card">
+            <div class="icon green"><i class="bi bi-currency-dollar"></i></div>
+            <div class="value">{{ totals.paid }}</div>
+            <div class="label">Оплатили</div>
+            <small class="text-muted">{{ (totals.paid / totals.reg * 100)|round(1) if totals.reg else 0 }}%</small>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Cohort Table -->
+<div class="card card-custom">
+    <div class="card-header d-flex justify-content-between">
+        <div><i class="bi bi-table me-2"></i> Конверсионная воронка по дням регистрации</div>
+        <small class="text-muted">Период: {{ days }} дней</small>
+    </div>
+    <div class="card-body p-0">
+        {% if cohorts %}
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 cohort-table">
+                <thead>
+                    <tr>
+                        <th class="date-col">Дата регистрации</th>
+                        <th>Зарегистрировались</th>
+                        <th>Создали фильтр</th>
+                        <th>Получили уведомление</th>
+                        <th>Использовали GPT</th>
+                        <th>AI анализ</th>
+                        <th>Оплатили</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in cohorts %}
+                    <tr>
+                        <td class="date-col">{{ c.date }}</td>
+                        <td>
+                            <strong>{{ c.registered }}</strong>
+                        </td>
+                        <td class="cohort-cell">
+                            {{ c.created_filter }}
+                            <span class="pct">{{ (c.created_filter / c.registered * 100)|round(0)|int if c.registered else 0 }}%</span>
+                            <div class="funnel-bar" style="width: {{ (c.created_filter / c.registered * 100)|round(0)|int if c.registered else 0 }}%; background: #28a745;"></div>
+                        </td>
+                        <td class="cohort-cell">
+                            {{ c.got_notification }}
+                            <span class="pct">{{ (c.got_notification / c.registered * 100)|round(0)|int if c.registered else 0 }}%</span>
+                            <div class="funnel-bar" style="width: {{ (c.got_notification / c.registered * 100)|round(0)|int if c.registered else 0 }}%; background: #764ba2;"></div>
+                        </td>
+                        <td class="cohort-cell">
+                            {{ c.used_gpt }}
+                            <span class="pct">{{ (c.used_gpt / c.registered * 100)|round(0)|int if c.registered else 0 }}%</span>
+                            <div class="funnel-bar" style="width: {{ (c.used_gpt / c.registered * 100)|round(0)|int if c.registered else 0 }}%; background: #667eea;"></div>
+                        </td>
+                        <td class="cohort-cell">
+                            {{ c.used_ai_analysis }}
+                            <span class="pct">{{ (c.used_ai_analysis / c.registered * 100)|round(0)|int if c.registered else 0 }}%</span>
+                            <div class="funnel-bar" style="width: {{ (c.used_ai_analysis / c.registered * 100)|round(0)|int if c.registered else 0 }}%; background: #ffc107;"></div>
+                        </td>
+                        <td class="cohort-cell">
+                            {{ c.converted_paid }}
+                            <span class="pct">{{ (c.converted_paid / c.registered * 100)|round(0)|int if c.registered else 0 }}%</span>
+                            <div class="funnel-bar" style="width: {{ (c.converted_paid / c.registered * 100)|round(0)|int if c.registered else 0 }}%; background: #28a745;"></div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+
+                    <!-- Summary row -->
+                    {% if cohorts %}
+                    <tr class="summary-row">
+                        <td class="date-col">ИТОГО</td>
+                        <td>{{ totals.reg }}</td>
+                        <td>{{ totals.filter }} <span class="pct">{{ (totals.filter / totals.reg * 100)|round(1) if totals.reg else 0 }}%</span></td>
+                        <td>{{ totals.notif }} <span class="pct">{{ (totals.notif / totals.reg * 100)|round(1) if totals.reg else 0 }}%</span></td>
+                        <td>{{ totals.gpt }} <span class="pct">{{ (totals.gpt / totals.reg * 100)|round(1) if totals.reg else 0 }}%</span></td>
+                        <td>{{ totals.ai }} <span class="pct">{{ (totals.ai / totals.reg * 100)|round(1) if totals.reg else 0 }}%</span></td>
+                        <td>{{ totals.paid }} <span class="pct">{{ (totals.paid / totals.reg * 100)|round(1) if totals.reg else 0 }}%</span></td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="text-center text-muted py-5">
+            <i class="bi bi-diagram-3" style="font-size: 3rem;"></i>
+            <p class="mt-3">Нет данных за выбранный период</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Funnel Chart -->
+{% if cohorts and totals.reg > 0 %}
+<div class="card card-custom mt-4">
+    <div class="card-header">
+        <i class="bi bi-bar-chart me-2"></i> Общая воронка конверсии
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+            <canvas id="funnelChart"></canvas>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+{% if cohorts and totals.reg > 0 %}
+<script>
+const ctx = document.getElementById('funnelChart').getContext('2d');
+new Chart(ctx, {
+    type: 'bar',
+    data: {
+        labels: ['Регистрация', 'Создали фильтр', 'Получили уведомление', 'Использовали GPT', 'AI анализ', 'Оплатили'],
+        datasets: [{
+            label: 'Пользователей',
+            data: [{{ totals.reg }}, {{ totals.filter }}, {{ totals.notif }}, {{ totals.gpt }}, {{ totals.ai }}, {{ totals.paid }}],
+            backgroundColor: [
+                'rgba(102, 126, 234, 0.8)',
+                'rgba(40, 167, 69, 0.8)',
+                'rgba(118, 75, 162, 0.8)',
+                'rgba(102, 126, 234, 0.6)',
+                'rgba(255, 193, 7, 0.8)',
+                'rgba(40, 167, 69, 0.6)',
+            ],
+            borderRadius: 6,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                callbacks: {
+                    afterLabel: function(context) {
+                        const total = {{ totals.reg }};
+                        const pct = (context.raw / total * 100).toFixed(1);
+                        return pct + '% от регистраций';
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: { precision: 0 }
+            }
+        }
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

@@ -36,6 +36,16 @@
     .timeline-item.event-payment::before { background: #28a745; box-shadow: 0 0 0 2px #28a745; }
     .timeline-item.event-block::before { background: #dc3545; box-shadow: 0 0 0 2px #dc3545; }
     .timeline-item.event-filter::before { background: #ffc107; box-shadow: 0 0 0 2px #ffc107; }
+
+    .gpt-message { padding: 10px 14px; border-radius: 10px; margin-bottom: 8px; max-width: 90%; }
+    .gpt-message.user-msg { background: #e3f2fd; margin-left: auto; }
+    .gpt-message.assistant-msg { background: #f5f5f5; }
+    .gpt-message.tool-msg { background: #fff3cd; font-family: monospace; font-size: 12px; }
+    .gpt-session-card { cursor: pointer; transition: all 0.2s; }
+    .gpt-session-card:hover { background: #f8f9fa; }
+    .metric-mini { text-align: center; padding: 12px 8px; }
+    .metric-mini .value { font-size: 24px; font-weight: bold; color: #333; }
+    .metric-mini .label { font-size: 11px; color: #888; text-transform: uppercase; }
 </style>
 {% endblock %}
 
@@ -76,9 +86,9 @@
         </button>
     </li>
     <li class="nav-item">
-        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button">
-            <i class="bi bi-activity me-1"></i> Активность
-            <span class="badge bg-secondary ms-1">{{ events | length }}</span>
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-gpt" type="button">
+            <i class="bi bi-chat-dots me-1"></i> Tender-GPT
+            <span class="badge bg-info ms-1">{{ gpt_sessions_data | length }}</span>
         </button>
     </li>
     <li class="nav-item">
@@ -88,9 +98,21 @@
         </button>
     </li>
     <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-ai" type="button">
+            <i class="bi bi-robot me-1"></i> AI Анализы
+            <span class="badge bg-secondary ms-1">{{ ai_analyses | length }}</span>
+        </button>
+    </li>
+    <li class="nav-item">
         <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-filters" type="button">
             <i class="bi bi-funnel me-1"></i> Фильтры
             <span class="badge bg-secondary ms-1">{{ filters_count }}</span>
+        </button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-activity" type="button">
+            <i class="bi bi-activity me-1"></i> Таймлайн
+            <span class="badge bg-secondary ms-1">{{ events | length }}</span>
         </button>
     </li>
     <li class="nav-item">
@@ -150,6 +172,18 @@
                             <tr>
                                 <td class="text-muted">Последняя активность</td>
                                 <td>{{ user.last_activity.strftime('%d.%m.%Y %H:%M') if user.last_activity else '-' }}</td>
+                            </tr>
+                            <tr>
+                                <td class="text-muted">Источник</td>
+                                <td>
+                                    {% if reg_source == 'referral' %}
+                                    <span class="badge bg-success">Реферал</span>
+                                    {% elif reg_source == 'landing' %}
+                                    <span class="badge bg-info">Лендинг</span>
+                                    {% else %}
+                                    <span class="badge bg-secondary">Прямой</span>
+                                    {% endif %}
+                                </td>
                             </tr>
                             {% if referrer %}
                             <tr>
@@ -229,33 +263,309 @@
                 </div>
             </div>
 
-            <!-- Stats Card -->
+            <!-- Activity Metrics Card -->
             <div class="col-md-4">
                 <div class="card card-custom">
                     <div class="card-header">
-                        <i class="bi bi-bar-chart"></i> Статистика
+                        <i class="bi bi-bar-chart"></i> Метрики активности
                     </div>
-                    <div class="card-body">
-                        <div class="row text-center">
-                            <div class="col-6 mb-3">
-                                <div class="h3 mb-0">{{ filters_count }}</div>
-                                <small class="text-muted">Всего фильтров</small>
+                    <div class="card-body p-0">
+                        <div class="row g-0 text-center">
+                            <div class="col-4 metric-mini border-bottom border-end">
+                                <div class="value">{{ filters_count }}</div>
+                                <div class="label">Фильтров</div>
                             </div>
-                            <div class="col-6 mb-3">
-                                <div class="h3 mb-0 text-success">{{ active_filters }}</div>
-                                <small class="text-muted">Активных</small>
+                            <div class="col-4 metric-mini border-bottom border-end">
+                                <div class="value text-success">{{ active_filters }}</div>
+                                <div class="label">Активных</div>
                             </div>
-                            <div class="col-6 mb-3">
-                                <div class="h3 mb-0 text-primary">{{ notifications_total }}</div>
-                                <small class="text-muted">Уведомлений</small>
+                            <div class="col-4 metric-mini border-bottom">
+                                <div class="value text-muted">{{ paused_filters }}</div>
+                                <div class="label">На паузе</div>
                             </div>
-                            <div class="col-6 mb-3">
-                                <div class="h3 mb-0 text-warning">{{ payments_total_amount | round(0) | int }} ₽</div>
-                                <small class="text-muted">Оплачено</small>
+                            <div class="col-4 metric-mini border-bottom border-end">
+                                <div class="value text-primary">{{ notifications_total }}</div>
+                                <div class="label">Уведомлений</div>
+                            </div>
+                            <div class="col-4 metric-mini border-bottom border-end">
+                                <div class="value text-info">{{ notifications_week }}</div>
+                                <div class="label">За 7 дней</div>
+                            </div>
+                            <div class="col-4 metric-mini border-bottom">
+                                <div class="value" style="color: #764ba2;">{{ ai_analyses_count }}</div>
+                                <div class="label">AI анализов</div>
+                            </div>
+                            <div class="col-4 metric-mini border-end">
+                                <div class="value text-info">{{ gpt_messages_total }}</div>
+                                <div class="label">GPT сообщ.</div>
+                            </div>
+                            <div class="col-4 metric-mini border-end">
+                                <div class="value">{{ user.gpt_messages_used_month or 0 }}/{{ gpt_limit }}</div>
+                                <div class="label">GPT месяц</div>
+                            </div>
+                            <div class="col-4 metric-mini">
+                                <div class="value text-warning">{{ favorites_count }}</div>
+                                <div class="label">Избранных</div>
                             </div>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GPT TAB -->
+    <div class="tab-pane fade" id="tab-gpt">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <div><i class="bi bi-chat-dots me-2"></i> Tender-GPT сессии</div>
+                <small class="text-muted">Всего сообщений: {{ gpt_messages_total }} | Использовано в месяц: {{ user.gpt_messages_used_month or 0 }}/{{ gpt_limit }}</small>
+            </div>
+            <div class="card-body">
+                {% if gpt_sessions_data %}
+                <div class="accordion" id="gptAccordion">
+                    {% for gs in gpt_sessions_data %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed gpt-session-card" type="button"
+                                    data-bs-toggle="collapse" data-bs-target="#gpt-{{ gs.session.id }}"
+                                    onclick="loadGptMessages('{{ gs.session.id }}')">
+                                <div class="d-flex justify-content-between w-100 me-3">
+                                    <div>
+                                        <i class="bi bi-chat-left-text me-2"></i>
+                                        {{ gs.session.started_at.strftime('%d.%m.%Y %H:%M') if gs.session.started_at else '-' }}
+                                        {% if gs.session.tender_number %}
+                                        <span class="badge bg-light text-dark ms-2">
+                                            <i class="bi bi-file-earmark"></i> {{ gs.session.tender_number }}
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                    <div>
+                                        <span class="badge bg-primary">{{ gs.message_count }} сообщ.</span>
+                                        {% if gs.session.is_active %}
+                                        <span class="badge bg-success ms-1">Активна</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </button>
+                        </h2>
+                        <div id="gpt-{{ gs.session.id }}" class="accordion-collapse collapse" data-bs-parent="#gptAccordion">
+                            <div class="accordion-body" id="gpt-messages-{{ gs.session.id }}">
+                                <div class="text-center text-muted py-3">
+                                    <div class="spinner-border spinner-border-sm" role="status"></div>
+                                    Загрузка сообщений...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-chat-dots" style="font-size: 2rem;"></i>
+                    <p class="mt-2">Пользователь ещё не использовал Tender-GPT</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIFICATIONS TAB -->
+    <div class="tab-pane fade" id="tab-notifications">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <div><i class="bi bi-bell me-2"></i> Уведомления</div>
+                <small class="text-muted">Всего: {{ notifications_total }} | За неделю: {{ notifications_week }}</small>
+            </div>
+            <div class="card-body p-0">
+                {% if recent_notifications %}
+                <table class="table table-custom table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Тендер</th>
+                            <th>Фильтр</th>
+                            <th>Цена</th>
+                            <th>Score</th>
+                            <th>Дата</th>
+                            <th>Метки</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for rn in recent_notifications %}
+                        <tr>
+                            <td>
+                                <code>{{ rn.notif.tender_number }}</code>
+                                <div class="small text-muted">{{ (rn.notif.tender_name or '')[:80] }}{% if rn.notif.tender_name and rn.notif.tender_name|length > 80 %}...{% endif %}</div>
+                            </td>
+                            <td>{{ rn.filter_name or '-' }}</td>
+                            <td>
+                                {% if rn.notif.tender_price %}
+                                {{ '{:,.0f}'.format(rn.notif.tender_price) }} &#8381;
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if rn.notif.score %}
+                                <span class="badge {{ 'bg-success' if rn.notif.score >= 80 else 'bg-warning text-dark' if rn.notif.score >= 50 else 'bg-secondary' }}">
+                                    {{ rn.notif.score }}
+                                </span>
+                                {% else %}
+                                -
+                                {% endif %}
+                            </td>
+                            <td><small>{{ rn.notif.sent_at.strftime('%d.%m.%Y %H:%M') if rn.notif.sent_at else '-' }}</small></td>
+                            <td>
+                                {% if rn.is_favorited %}
+                                <span class="badge bg-warning text-dark" title="В избранном"><i class="bi bi-star-fill"></i></span>
+                                {% endif %}
+                                {% if rn.has_ai %}
+                                <span class="badge bg-info" title="Есть AI анализ"><i class="bi bi-robot"></i></span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div class="text-center text-muted py-4">Нет уведомлений</div>
+                {% endif %}
+
+                <!-- Lazy-load more -->
+                <div id="notificationsTable" class="d-none"></div>
+                <div id="notifPagination" class="d-flex justify-content-center py-3">
+                    {% if notifications_total > 20 %}
+                    <button class="btn btn-outline-primary btn-sm" onclick="loadNotifications(1)">
+                        Загрузить все уведомления ({{ notifications_total }})
+                    </button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI ANALYSES TAB -->
+    <div class="tab-pane fade" id="tab-ai">
+        <div class="card card-custom">
+            <div class="card-header">
+                <i class="bi bi-robot me-2"></i> История AI-анализов ({{ ai_analyses | length }})
+            </div>
+            <div class="card-body">
+                {% if ai_analyses %}
+                <div class="table-responsive">
+                    <table class="table table-custom table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Тендер</th>
+                                <th>AI Резюме</th>
+                                <th>Риски</th>
+                                <th>Рекомендация</th>
+                                <th>Уверенность</th>
+                                <th>Дата</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for ai in ai_analyses %}
+                            <tr>
+                                <td>
+                                    <code>{{ ai.notif.tender_number }}</code>
+                                    <div class="small text-muted">{{ (ai.notif.tender_name or '')[:60] }}...</div>
+                                </td>
+                                <td><small>{{ (ai.summary or '-')[:120] }}{% if ai.summary and ai.summary|length > 120 %}...{% endif %}</small></td>
+                                <td><small class="text-danger">{{ (ai.risks or '-')[:100] }}{% if ai.risks and ai.risks|length > 100 %}...{% endif %}</small></td>
+                                <td><small>{{ (ai.recommendation or '-')[:80] }}</small></td>
+                                <td>
+                                    {% if ai.confidence %}
+                                    <span class="badge {{ 'bg-success' if ai.confidence|int > 70 else 'bg-warning text-dark' if ai.confidence|int > 40 else 'bg-secondary' }}">
+                                        {{ ai.confidence }}%
+                                    </span>
+                                    {% else %}
+                                    -
+                                    {% endif %}
+                                </td>
+                                <td><small>{{ ai.notif.sent_at.strftime('%d.%m.%Y') if ai.notif.sent_at else '-' }}</small></td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-robot" style="font-size: 2rem;"></i>
+                    <p class="mt-2">Нет данных об AI-анализах</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- FILTERS TAB -->
+    <div class="tab-pane fade" id="tab-filters">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <div><i class="bi bi-funnel"></i> Фильтры пользователя</div>
+                <small class="text-muted">
+                    Всего: {{ filters_count }} | Активных: {{ active_filters }} | На паузе: {{ paused_filters }} | Удалено: {{ deleted_filters }}
+                </small>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-custom table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Название</th>
+                            <th>Ключевые слова</th>
+                            <th>Бюджет</th>
+                            <th>Статус</th>
+                            <th>Уведомлений</th>
+                            <th>Ср. score</th>
+                            <th>Последнее</th>
+                            <th>Создан</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for f in filters_data %}
+                        <tr{% if f.filter.deleted_at %} class="table-secondary"{% endif %}>
+                            <td><code>{{ f.filter.id }}</code></td>
+                            <td>
+                                {{ f.filter.name or 'Без названия' }}
+                                {% if f.filter.deleted_at %}
+                                <br><small class="text-danger">Удалён {{ f.filter.deleted_at.strftime('%d.%m') }}</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <small>{{ (f.filter.keywords or '')[:50] }}{% if f.filter.keywords and f.filter.keywords|length > 50 %}...{% endif %}</small>
+                            </td>
+                            <td>
+                                {% if f.filter.price_min or f.filter.price_max %}
+                                {{ '{:,.0f}'.format(f.filter.price_min or 0) }} - {{ '{:,.0f}'.format(f.filter.price_max or 999999999) }}
+                                {% else %}
+                                <span class="text-muted">любой</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if f.filter.deleted_at %}
+                                <span class="badge bg-danger">Удалён</span>
+                                {% elif f.filter.is_active %}
+                                <span class="badge bg-success">Активен</span>
+                                {% else %}
+                                <span class="badge bg-secondary">На паузе</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-primary">{{ f.notif_count }}</span></td>
+                            <td>{{ f.avg_score | round(1) if f.avg_score else '-' }}</td>
+                            <td>{{ f.last_notif.strftime('%d.%m') if f.last_notif else '-' }}</td>
+                            <td>{{ f.filter.created_at.strftime('%d.%m.%Y') if f.filter.created_at else '-' }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4">
+                                У пользователя нет фильтров
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -277,11 +587,21 @@
                                     {% if event.event_type == 'registration' %}Регистрация
                                     {% elif event.event_type == 'filter_created' %}Создание фильтра
                                     {% elif event.event_type == 'filter_updated' %}Обновление фильтра
+                                    {% elif event.event_type == 'filter_deleted' %}Удаление фильтра
                                     {% elif event.event_type == 'payment' %}Оплата
+                                    {% elif event.event_type == 'subscription_purchased' %}Покупка подписки
+                                    {% elif event.event_type == 'subscription_viewed' %}Просмотр тарифов
                                     {% elif event.event_type == 'block' %}Блокировка
                                     {% elif event.event_type == 'unblock' %}Разблокировка
                                     {% elif event.event_type == 'tier_change' %}Смена тарифа
                                     {% elif event.event_type == 'start' %}Запуск бота
+                                    {% elif event.event_type == 'search_performed' %}Поиск
+                                    {% elif event.event_type == 'bot_blocked' %}Бот заблокирован
+                                    {% elif event.event_type == 'bot_unblocked' %}Бот разблокирован
+                                    {% elif event.event_type == 'referral_link_generated' %}Реферальная ссылка
+                                    {% elif event.event_type == 'referral_used' %}Реферал использован
+                                    {% elif event.event_type == 'broadcast_delivered' %}Рассылка доставлена
+                                    {% elif event.event_type == 'broadcast_clicked' %}Клик по рассылке
                                     {% else %}{{ event.event_type }}
                                     {% endif %}
                                 </strong>
@@ -303,91 +623,12 @@
         </div>
     </div>
 
-    <!-- NOTIFICATIONS TAB -->
-    <div class="tab-pane fade" id="tab-notifications">
-        <div class="card card-custom">
-            <div class="card-header d-flex justify-content-between">
-                <div><i class="bi bi-bell me-2"></i> Уведомления</div>
-                <small class="text-muted">Всего: {{ notifications_total }}</small>
-            </div>
-            <div class="card-body p-0">
-                <div id="notificationsTable">
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary spinner-border-sm" role="status"></div>
-                        <span class="text-muted ms-2">Загрузка...</span>
-                    </div>
-                </div>
-                <div id="notifPagination" class="d-flex justify-content-center py-3"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- FILTERS TAB -->
-    <div class="tab-pane fade" id="tab-filters">
-        <div class="card card-custom">
-            <div class="card-header">
-                <i class="bi bi-funnel"></i> Фильтры пользователя ({{ filters_count }})
-            </div>
-            <div class="card-body p-0">
-                <table class="table table-custom table-hover mb-0">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Название</th>
-                            <th>Ключевые слова</th>
-                            <th>Бюджет</th>
-                            <th>Статус</th>
-                            <th>Уведомлений</th>
-                            <th>Ср. score</th>
-                            <th>Последнее</th>
-                            <th>Создан</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for f in filters_data %}
-                        <tr>
-                            <td><code>{{ f.filter.id }}</code></td>
-                            <td>{{ f.filter.name or 'Без названия' }}</td>
-                            <td>
-                                <small>{{ (f.filter.keywords or '')[:50] }}{% if f.filter.keywords and f.filter.keywords|length > 50 %}...{% endif %}</small>
-                            </td>
-                            <td>
-                                {% if f.filter.min_price or f.filter.max_price %}
-                                {{ '{:,.0f}'.format(f.filter.min_price or 0) }} - {{ '{:,.0f}'.format(f.filter.max_price or 999999999) }}
-                                {% else %}
-                                <span class="text-muted">любой</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if f.filter.is_active %}
-                                <span class="badge bg-success">Активен</span>
-                                {% else %}
-                                <span class="badge bg-secondary">Неактивен</span>
-                                {% endif %}
-                            </td>
-                            <td><span class="badge bg-primary">{{ f.notif_count }}</span></td>
-                            <td>{{ f.avg_score | round(1) if f.avg_score else '—' }}</td>
-                            <td>{{ f.last_notif.strftime('%d.%m') if f.last_notif else '—' }}</td>
-                            <td>{{ f.filter.created_at.strftime('%d.%m.%Y') if f.filter.created_at else '-' }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="9" class="text-center text-muted py-4">
-                                У пользователя нет фильтров
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-
     <!-- PAYMENTS TAB -->
     <div class="tab-pane fade" id="tab-payments">
         <div class="card card-custom">
-            <div class="card-header">
-                <i class="bi bi-credit-card me-2"></i> Платежи
+            <div class="card-header d-flex justify-content-between">
+                <div><i class="bi bi-credit-card me-2"></i> Платежи</div>
+                <small class="text-muted">Итого оплачено: {{ '{:,.0f}'.format(payments_total_amount) }} &#8381;</small>
             </div>
             <div class="card-body p-0">
                 <table class="table table-custom table-hover mb-0">
@@ -405,7 +646,7 @@
                         {% for p in payments %}
                         <tr>
                             <td><code>{{ p.id }}</code></td>
-                            <td><strong>{{ '{:,.0f}'.format(p.amount) }} ₽</strong></td>
+                            <td><strong>{{ '{:,.0f}'.format(p.amount) }} &#8381;</strong></td>
                             <td><span class="badge badge-tier badge-{{ p.tier }}">{{ p.tier }}</span></td>
                             <td>
                                 {% if p.status == 'succeeded' %}
@@ -513,20 +754,96 @@ async function changeTier(tier) {
     }
 }
 
-// Lazy-load notifications
-let notifPage = 1;
+// GPT messages lazy-load
+const loadedSessions = {};
+
+async function loadGptMessages(sessionId) {
+    if (loadedSessions[sessionId]) return;
+    loadedSessions[sessionId] = true;
+
+    const container = document.getElementById('gpt-messages-' + sessionId);
+    try {
+        const resp = await fetch('/api/gpt-sessions/' + sessionId + '/messages');
+        const data = await resp.json();
+
+        container.textContent = '';
+
+        if (data.items.length === 0) {
+            const msg = document.createElement('div');
+            msg.className = 'text-center text-muted py-3';
+            msg.textContent = 'Нет сообщений в сессии';
+            container.appendChild(msg);
+            return;
+        }
+
+        data.items.forEach(function(msg) {
+            const div = document.createElement('div');
+
+            if (msg.role === 'user') {
+                div.className = 'gpt-message user-msg';
+                const label = document.createElement('div');
+                label.className = 'small text-primary fw-bold mb-1';
+                label.textContent = 'Пользователь';
+                div.appendChild(label);
+            } else if (msg.role === 'assistant') {
+                div.className = 'gpt-message assistant-msg';
+                const label = document.createElement('div');
+                label.className = 'small text-success fw-bold mb-1';
+                label.textContent = 'AI Ассистент';
+                div.appendChild(label);
+            } else if (msg.role === 'tool') {
+                div.className = 'gpt-message tool-msg';
+                const label = document.createElement('div');
+                label.className = 'small fw-bold mb-1';
+                label.textContent = 'Инструмент: ' + (msg.tool_name || 'unknown');
+                div.appendChild(label);
+            } else {
+                div.className = 'gpt-message assistant-msg';
+            }
+
+            const content = document.createElement('div');
+            content.textContent = msg.content || '';
+            div.appendChild(content);
+
+            if (msg.tool_name && msg.role !== 'tool') {
+                const toolBadge = document.createElement('div');
+                toolBadge.className = 'mt-1';
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-warning text-dark';
+                badge.textContent = 'Tool: ' + msg.tool_name;
+                toolBadge.appendChild(badge);
+                div.appendChild(toolBadge);
+            }
+
+            const time = document.createElement('div');
+            time.className = 'text-muted small text-end mt-1';
+            time.textContent = msg.created_at || '';
+            div.appendChild(time);
+
+            container.appendChild(div);
+        });
+    } catch (e) {
+        container.textContent = '';
+        const msg = document.createElement('div');
+        msg.className = 'text-center text-danger py-3';
+        msg.textContent = 'Ошибка загрузки сообщений';
+        container.appendChild(msg);
+        loadedSessions[sessionId] = false;
+    }
+}
+
+// Lazy-load all notifications
 const userId = {{ user.id }};
 
 async function loadNotifications(page) {
-    notifPage = page;
     const container = document.getElementById('notificationsTable');
     const pagination = document.getElementById('notifPagination');
+    container.classList.remove('d-none');
 
     try {
         const resp = await fetch('/api/users/' + userId + '/notifications?page=' + page + '&per_page=20');
         const data = await resp.json();
 
-        // Build table with safe DOM methods
         container.textContent = '';
         const table = document.createElement('table');
         table.className = 'table table-custom table-hover mb-0';
@@ -565,11 +882,11 @@ async function loadNotifications(page) {
                 tr.appendChild(tdName);
 
                 const tdFilter = document.createElement('td');
-                tdFilter.textContent = n.filter_name || '—';
+                tdFilter.textContent = n.filter_name || '-';
                 tr.appendChild(tdFilter);
 
                 const tdPrice = document.createElement('td');
-                tdPrice.textContent = n.tender_price ? Number(n.tender_price).toLocaleString('ru-RU') + ' ₽' : '—';
+                tdPrice.textContent = n.tender_price ? Number(n.tender_price).toLocaleString('ru-RU') + ' \u20BD' : '-';
                 tr.appendChild(tdPrice);
 
                 const tdScore = document.createElement('td');
@@ -579,7 +896,7 @@ async function loadNotifications(page) {
                     badge.textContent = n.score;
                     tdScore.appendChild(badge);
                 } else {
-                    tdScore.textContent = '—';
+                    tdScore.textContent = '-';
                 }
                 tr.appendChild(tdScore);
 
@@ -625,10 +942,5 @@ async function loadNotifications(page) {
         container.appendChild(msg);
     }
 }
-
-// Load notifications when tab is shown
-document.querySelector('[data-bs-target="#tab-notifications"]').addEventListener('shown.bs.tab', function() {
-    if (notifPage === 1) loadNotifications(1);
-});
 </script>
 {% endblock %}
