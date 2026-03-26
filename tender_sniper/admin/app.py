@@ -2136,10 +2136,21 @@ async def cohorts_page(
                     **cohort_data[day_key],
                 })
 
+        # Calculate totals in Python (more reliable than Jinja2 namespace)
+        totals = {"reg": 0, "filter": 0, "notif": 0, "gpt": 0, "ai": 0, "paid": 0}
+        for c in cohorts:
+            totals["reg"] += c.get("registered", 0)
+            totals["filter"] += c.get("created_filter", 0)
+            totals["notif"] += c.get("got_notification", 0)
+            totals["gpt"] += c.get("used_gpt", 0)
+            totals["ai"] += c.get("used_ai_analysis", 0)
+            totals["paid"] += c.get("converted_paid", 0)
+
         return templates.TemplateResponse("cohorts.html", {
             "request": request,
             "username": username,
             "cohorts": cohorts,
+            "totals": totals,
             "days": days,
         })
 
