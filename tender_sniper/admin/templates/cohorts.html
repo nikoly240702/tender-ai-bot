@@ -53,8 +53,8 @@
 </div>
 
 <!-- Funnel Summary -->
-{% if cohorts %}
 {% set totals = namespace(reg=0, filter=0, notif=0, gpt=0, ai=0, paid=0) %}
+{% if cohorts %}
 {% for c in cohorts %}
     {% set totals.reg = totals.reg + c.registered %}
     {% set totals.filter = totals.filter + c.created_filter %}
