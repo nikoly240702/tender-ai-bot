@@ -370,12 +370,6 @@ async def start_health_check_server(port: int = 8080):
     Args:
         port: Порт для health check endpoint (default: 8080)
     """
-    # If admin panel is enabled, it already serves /health on this port — skip aiohttp server
-    if os.environ.get('ADMIN_PANEL_ENABLED', '').lower() in ('1', 'true', 'yes'):
-        logger.info("⏩ Admin panel enabled — skipping aiohttp health check server (admin panel handles /health)")
-        _health_status["status"] = "healthy"
-        return None
-
     app = web.Application()
 
     # Регистрируем endpoints
