@@ -469,18 +469,33 @@
                             <tr>
                                 <td>
                                     <code>{{ ai.notif.tender_number }}</code>
-                                    <div class="small text-muted">{{ (ai.notif.tender_name or '')[:60] }}...</div>
+                                    {% if ai.notif.tender_name %}
+                                    <div class="small text-muted">{{ ai.notif.tender_name[:60] }}{% if ai.notif.tender_name|length > 60 %}...{% endif %}</div>
+                                    {% endif %}
                                 </td>
-                                <td><small>{{ (ai.summary or '-')[:120] }}{% if ai.summary and ai.summary|length > 120 %}...{% endif %}</small></td>
-                                <td><small class="text-danger">{{ (ai.risks or '-')[:100] }}{% if ai.risks and ai.risks|length > 100 %}...{% endif %}</small></td>
-                                <td><small>{{ (ai.recommendation or '-')[:80] }}</small></td>
+                                <td><small>{{ ai.summary[:120] }}{% if ai.summary|length > 120 %}...{% endif %}</small></td>
+                                <td>
+                                    {% if ai.risks %}
+                                    <small class="text-danger">{{ ai.risks[:100] }}{% if ai.risks|length > 100 %}...{% endif %}</small>
+                                    {% else %}
+                                    <small class="text-muted">-</small>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if ai.recommendation %}
+                                    <small>{{ ai.recommendation[:80] }}{% if ai.recommendation|length > 80 %}...{% endif %}</small>
+                                    {% else %}
+                                    <small class="text-muted">-</small>
+                                    {% endif %}
+                                </td>
                                 <td>
                                     {% if ai.confidence %}
-                                    <span class="badge {{ 'bg-success' if ai.confidence|int > 70 else 'bg-warning text-dark' if ai.confidence|int > 40 else 'bg-secondary' }}">
+                                    {% set conf_val = ai.confidence|default(0)|int %}
+                                    <span class="badge {{ 'bg-success' if conf_val > 70 else 'bg-warning text-dark' if conf_val > 40 else 'bg-secondary' }}">
                                         {{ ai.confidence }}%
                                     </span>
                                     {% else %}
-                                    -
+                                    <small class="text-muted">-</small>
                                     {% endif %}
                                 </td>
                                 <td><small>{{ ai.notif.sent_at.strftime('%d.%m.%Y') if ai.notif.sent_at else '-' }}</small></td>

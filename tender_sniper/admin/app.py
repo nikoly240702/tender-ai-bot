@@ -545,18 +545,22 @@ async def user_detail(
                 )
             ) or 0
 
-            # AI analyses count (notifications with match_info containing AI data)
+            # AI analyses count — only notifications where match_info has real AI data
             ai_analyses_count = 0
             try:
                 ai_notifs_query = (
-                    select(func.count(SniperNotification.id)).where(
+                    select(SniperNotification).where(
                         and_(
                             SniperNotification.user_id == user.id,
                             SniperNotification.match_info != None
                         )
                     )
                 )
-                ai_analyses_count = await session.scalar(ai_notifs_query) or 0
+                ai_notifs_result = await session.execute(ai_notifs_query)
+                for n in ai_notifs_result.scalars().all():
+                    mi = n.match_info if isinstance(n.match_info, dict) else {}
+                    if any(mi.get(k) for k in ("ai_summary", "summary", "recommendation", "ai_recommendation")):
+                        ai_analyses_count += 1
             except Exception:
                 pass
 
@@ -638,7 +642,7 @@ async def user_detail(
             except Exception:
                 pass
 
-            # AI Analysis history (notifications with AI match_info)
+            # AI Analysis history — only notifications where match_info has actual AI data
             ai_analyses = []
             try:
                 ai_query = (
@@ -650,18 +654,25 @@ async def user_detail(
                         )
                     )
                     .order_by(SniperNotification.sent_at.desc())
-                    .limit(20)
+                    .limit(50)
                 )
                 ai_result = await session.execute(ai_query)
                 for notif in ai_result.scalars().all():
                     mi = notif.match_info if isinstance(notif.match_info, dict) else {}
+                    summary = mi.get("ai_summary") or mi.get("summary") or ""
+                    recommendation = mi.get("recommendation") or mi.get("ai_recommendation") or ""
+                    # Skip entries without any actual AI data
+                    if not summary and not recommendation:
+                        continue
                     ai_analyses.append({
                         "notif": notif,
-                        "summary": mi.get("ai_summary") or mi.get("summary") or "",
+                        "summary": summary,
                         "risks": mi.get("risks") or mi.get("ai_risks") or "",
-                        "recommendation": mi.get("recommendation") or mi.get("ai_recommendation") or "",
+                        "recommendation": recommendation,
                         "confidence": mi.get("confidence") or mi.get("ai_confidence") or mi.get("relevance_score") or "",
                     })
+                    if len(ai_analyses) >= 20:
+                        break
             except Exception:
                 pass
 
