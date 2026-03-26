@@ -279,8 +279,8 @@ async def show_subscription_status(message: Message, user_id: int = None):
         delta = expires_dt - datetime.now()
         days_remaining = max(0, delta.days)
 
-    # Check if subscription is active
-    is_active = tier in ['basic', 'premium'] or (tier == 'trial' and days_remaining > 0)
+    # Check if subscription is active (paid tiers also expire)
+    is_active = (tier in ['basic', 'premium'] and days_remaining > 0) or (tier == 'trial' and days_remaining > 0)
     is_trial = tier == 'trial'
 
     if is_active:
@@ -811,8 +811,8 @@ async def get_subscription_status_line(telegram_id: int) -> str:
         delta = expires_dt - datetime.now()
         days_remaining = max(0, delta.days)
 
-    # Check if subscription is active
-    is_active = tier in ['basic', 'premium'] or (tier == 'trial' and days_remaining > 0)
+    # Check if subscription is active (paid tiers also expire)
+    is_active = (tier in ['basic', 'premium'] and days_remaining > 0) or (tier == 'trial' and days_remaining > 0)
 
     if not is_active or tier == 'expired':
         return "❌ Подписка неактивна"

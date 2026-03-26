@@ -623,9 +623,7 @@ class TenderSniperService:
                 buttons.append([{"type": "link", "text": "🔗 Открыть на zakupki.gov.ru", "url": url}])
             buttons.append([{"type": "callback", "text": "🤖 Спросить GPT", "payload": f"gpt_tender_{number}"}])
 
-            keyboard = {"type": "inline_keyboard", "payload": {"buttons": buttons}} if buttons else None
-
-            await client.send_message(chat_id, text, format="html", keyboard=keyboard)
+            await client.send_message(chat_id, text, fmt="html", keyboard=buttons if buttons else None)
             await client.close()
             return True
 

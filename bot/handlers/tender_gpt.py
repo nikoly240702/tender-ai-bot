@@ -75,11 +75,18 @@ async def handle_gpt_message(message: Message, state: FSMContext):
 
     Проверяет квоту, отправляет в LangGraph, возвращает ответ.
     """
-    service = await _get_service()
     user_text = message.text.strip()
 
     if not user_text:
         return
+
+    # Allow user to exit GPT chat via keyboard buttons or commands
+    EXIT_TEXTS = {"🎯 Мои фильтры", "📋 Меню", "❓ Помощь", "🤖 Tender-GPT"}
+    if user_text in EXIT_TEXTS or user_text.startswith('/'):
+        await state.clear()
+        return  # Let other handlers process this
+
+    service = await _get_service()
 
     # Get user from DB
     db = await get_sniper_db()

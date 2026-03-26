@@ -412,13 +412,16 @@ async def _ensure_user(user_id: int, username: str = None, first_name: str = Non
     """Create or update user in DB, return user dict. Mark as Max platform."""
     db = await get_sniper_db()
     max_username = f"max_{username}" if username else f"max_{user_id}"
-    await db.create_or_update_user(
-        telegram_id=user_id,
-        username=max_username,
-        first_name=first_name,
-        subscription_tier='trial',
-    )
+    # Check if user already exists — don't overwrite their subscription tier
     user = await db.get_user_by_telegram_id(user_id)
+    if not user:
+        await db.create_or_update_user(
+            telegram_id=user_id,
+            username=max_username,
+            first_name=first_name,
+            subscription_tier='trial',
+        )
+        user = await db.get_user_by_telegram_id(user_id)
     # Mark platform as Max (for notification routing)
     if user:
         user_data = user.get('data') or {}

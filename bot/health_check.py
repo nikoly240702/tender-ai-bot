@@ -217,9 +217,10 @@ async def yookassa_webhook_handler(request):
 
                     # Помечаем что пользователь оплачивал (для скидки первого месяца)
                     try:
-                        user_data_current = user.get('data') or {}
-                        if not user_data_current.get('has_paid_before'):
-                            await db.update_user_json_data(user['id'], {'has_paid_before': True})
+                        existing_data = user.get('data') or {}
+                        if not existing_data.get('has_paid_before'):
+                            existing_data['has_paid_before'] = True
+                            await db.update_user_json_data(user['id'], existing_data)
                     except Exception as e:
                         logger.warning(f"Failed to set has_paid_before: {e}")
 
@@ -369,6 +370,12 @@ async def start_health_check_server(port: int = 8080):
     Args:
         port: Порт для health check endpoint (default: 8080)
     """
+    # If admin panel is enabled, it already serves /health on this port — skip aiohttp server
+    if os.environ.get('ADMIN_PANEL_ENABLED', '').lower() in ('1', 'true', 'yes'):
+        logger.info("⏩ Admin panel enabled — skipping aiohttp health check server (admin panel handles /health)")
+        _health_status["status"] = "healthy"
+        return None
+
     app = web.Application()
 
     # Регистрируем endpoints

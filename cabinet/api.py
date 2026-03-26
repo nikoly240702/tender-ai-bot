@@ -408,8 +408,7 @@ async def search_tenders(request: web.Request) -> web.Response:
 
     try:
         from tender_sniper.instant_search import InstantSearch
-        bot_token = os.getenv('BOT_TOKEN', '')
-        searcher = InstantSearch(bot_token)
+        searcher = InstantSearch()
 
         # Формируем фильтр для поиска
         import json as _json
@@ -429,10 +428,11 @@ async def search_tenders(request: web.Request) -> web.Response:
             'subscription_tier': 'basic',
         }
 
-        results = await searcher.search_by_filter(filter_data, limit=limit)
+        results = await searcher.search_by_filter(filter_data, max_tenders=limit)
 
+        matches = results.get('matches', []) if isinstance(results, dict) else results
         tenders = []
-        for r in results[:limit]:
+        for r in matches[:limit]:
             tenders.append({
                 'number': r.get('number', ''),
                 'name': r.get('name', ''),
