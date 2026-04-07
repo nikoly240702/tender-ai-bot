@@ -404,7 +404,7 @@ async def callback_select_tier(callback: CallbackQuery):
         text = (
             "🤖 <b>AI Unlimited (аддон)</b>\n\n"
             "Безлимитный AI-анализ документов тендеров.\n"
-            "Работает поверх любого тарифа (Basic/Premium).\n\n"
+            "Работает поверх любого тарифа (Starter/Pro/Business).\n\n"
             "<b>Выберите период:</b>\n"
         )
         buttons = []
