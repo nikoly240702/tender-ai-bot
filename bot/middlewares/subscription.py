@@ -150,7 +150,7 @@ class SubscriptionMiddleware(BaseMiddleware):
                     your, tier_name, ended = tier_display.get(tier, ('Ваша', 'подписка', 'закончилась'))
 
                     # === LAZY DOWNGRADE: обновляем tier в БД ===
-                    if tier == 'trial':
+                    if tier in ('trial', 'basic', 'premium'):
                         try:
                             from database import DatabaseSession, SniperUser
                             from sqlalchemy import update as sa_update

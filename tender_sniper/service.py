@@ -243,11 +243,11 @@ class TenderSniperService:
                 logger.info("   ℹ️  Нет активных фильтров для проверки")
                 return
 
-            # 2. Фильтруем expired триалы ДО поиска (экономим RSS-запросы)
+            # 2. Фильтруем expired подписки ДО поиска (экономим RSS-запросы)
             active_filters = []
             for f in filters:
                 tier = f.get('subscription_tier', 'trial')
-                if tier == 'trial':
+                if tier in ('trial', 'basic', 'premium'):
                     trial_exp = f.get('trial_expires_at')
                     if trial_exp:
                         if isinstance(trial_exp, str):

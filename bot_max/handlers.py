@@ -1939,7 +1939,7 @@ async def _show_subscription(
         delta = expires_dt - datetime.now()
         days_remaining = max(0, delta.days)
 
-    is_active = tier in ['basic', 'premium'] or (tier == 'trial' and days_remaining > 0)
+    is_active = (tier in ['basic', 'premium'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
     is_trial = tier == 'trial'
 
     tier_info = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS['trial'])
