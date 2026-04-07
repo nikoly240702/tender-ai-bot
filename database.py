@@ -111,6 +111,10 @@ class SniperUser(Base):
     is_group = Column(Boolean, default=False, server_default='false')
     group_admin_id = Column(BigInteger, nullable=True)  # telegram_id админа группы
 
+    # Email linking (Telegram <-> Max accounts) and email notifications
+    email = Column(String(255), nullable=True)
+    email_notifications_enabled = Column(Boolean, default=False, nullable=False)
+
     # Flexible data storage (JSON)
     data = Column(JSON, default=dict)  # For follow-ups, reactivation tracking, etc.
 
