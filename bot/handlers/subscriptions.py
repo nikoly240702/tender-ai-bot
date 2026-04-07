@@ -71,9 +71,9 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
             builder.row(
                 InlineKeyboardButton(text="⬆️ Повысить тариф", callback_data="subscription_tiers")
             )
-        elif subscription.get('tier') == 'basic':
+        elif subscription.get('tier') == 'starter':
             builder.row(
-                InlineKeyboardButton(text="💎 Перейти на Premium", callback_data="subscription_select_premium")
+                InlineKeyboardButton(text="💎 Перейти на Pro", callback_data="subscription_select_pro")
             )
 
         builder.row(
@@ -98,28 +98,16 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
 
 # Базовые тарифы (месячная цена)
 BASE_PRICES = {
-    'basic': 1490,
+    'starter': 499,
+    'pro': 1490,
     'premium': 2990,
-    'ai_unlimited': 1490,
 }
 
 # Фиксированные цены для разных периодов
 FIXED_PRICES = {
-    'basic': {
-        1: 1490,   # 1 месяц
-        3: 4020,   # 3 месяца (скидка 450₽ = ~10%)
-        6: 7150,   # 6 месяцев (скидка 1790₽ = ~20%)
-    },
-    'premium': {
-        1: 2990,   # 1 месяц
-        3: 8070,   # 3 месяца (скидка 900₽)
-        6: 14350,  # 6 месяцев (скидка 3590₽)
-    },
-    'ai_unlimited': {
-        1: 1490,   # 1 месяц
-        3: 4020,   # 3 месяца (скидка 450₽)
-        6: 7150,   # 6 месяцев (скидка 1790₽)
-    }
+    'starter': {1: 499, 3: 1397, 6: 2694},   # без скидки за 1 мес, ~7%/10% за 3/6 мес
+    'pro': {1: 1490, 3: 4017, 6: 7449},      # ~10%/17% за 3/6 мес
+    'premium': {1: 2990, 3: 8073, 6: 14951}, # аналогично
 }
 
 # Описания периодов
@@ -134,54 +122,67 @@ SUBSCRIPTION_TIERS = {
         'name': 'Пробный период',
         'emoji': '🎁',
         'price': 0,
-        'days': 14,
+        'days': 7,
         'max_filters': 3,
-        'max_notifications_per_day': 20,
+        'max_notifications_per_day': 50,
         'features': [
-            '3 фильтра мониторинга',
-            '20 уведомлений/день',
-            'Мгновенный поиск',
-            'Избранное',
-        ]
+            '✅ До 3 фильтров',
+            '✅ До 50 уведомлений в день',
+            '✅ Поиск по всем тендерам',
+            '⏱ 7 дней бесплатно',
+        ],
     },
-    'basic': {
-        'name': 'Basic',
+    'starter': {
+        'name': 'Starter',
+        'emoji': '🚀',
+        'price': 499,
+        'days': 30,
+        'max_filters': 5,
+        'max_notifications_per_day': 50,
+        'features': [
+            '✅ До 5 фильтров',
+            '✅ До 50 уведомлений в день',
+            '✅ Быстрые уведомления о новых тендерах',
+            'ℹ️ Без AI-анализа (см. Pro)',
+        ],
+    },
+    'pro': {
+        'name': 'Pro',
         'emoji': '⭐',
         'price': 1490,
         'days': 30,
-        'max_filters': 5,
-        'max_notifications_per_day': 100,
+        'max_filters': 15,
+        'max_notifications_per_day': 9999,
         'features': [
-            '5 фильтров мониторинга',
-            '100 уведомлений/день',
-            'Мгновенный поиск',
-            'AI-анализ (10/мес)',
-            'Telegram-поддержка',
-        ]
+            '✅ До 15 фильтров',
+            '✅ Безлимит уведомлений',
+            '✅ AI-анализ: 500 в месяц',
+            '✅ Tender-GPT: 50 сообщений в месяц',
+        ],
     },
-    'premium': {
-        'name': 'Premium',
+    'premium': {  # DB value 'premium', UI displays as "Business"
+        'name': 'Business',
         'emoji': '💎',
         'price': 2990,
         'days': 30,
-        'max_filters': 20,
+        'max_filters': 30,
         'max_notifications_per_day': 9999,
         'features': [
-            '20 фильтров мониторинга',
-            'Безлимит уведомлений',
-            'AI-анализ (50/мес)',
-            'Архивный поиск',
-            'Расширенные настройки фильтров',
-            'Приоритетная поддержка',
-        ]
-    }
+            '✅ До 30 фильтров',
+            '✅ Безлимит уведомлений',
+            '✅ Безлимитный AI-анализ',
+            '✅ Tender-GPT: 200 сообщений в месяц',
+            '✅ Приоритетная поддержка',
+        ],
+    },
 }
 
 
 # Скидка первого месяца для новых пользователей
 FIRST_MONTH_PRICES = {
-    'basic': 990,     # вместо 1490
-    'premium': 1990,  # вместо 2990
+    'pro': 990,
+    'premium': 1990,
+    # starter не имеет скидки первого месяца
 }
 
 
@@ -191,7 +192,7 @@ def calculate_price(tier: str, months: int, is_first_payment: bool = False) -> d
     duration = DURATION_OPTIONS.get(months, DURATION_OPTIONS[1])
 
     # Получаем фиксированную цену
-    tier_prices = FIXED_PRICES.get(tier, FIXED_PRICES['basic'])
+    tier_prices = FIXED_PRICES.get(tier, FIXED_PRICES['pro'])
     final_price = tier_prices.get(months, base_price * months)
 
     # Скидка первого месяца — только для 1 месяца
@@ -280,7 +281,7 @@ async def show_subscription_status(message: Message, user_id: int = None):
         days_remaining = max(0, delta.days)
 
     # Check if subscription is active (all tiers expire when expires_at is set)
-    is_active = (tier in ['basic', 'premium'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
+    is_active = (tier in ['starter', 'pro', 'premium'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
     is_trial = tier == 'trial'
 
     if is_active:
@@ -812,7 +813,7 @@ async def get_subscription_status_line(telegram_id: int) -> str:
         days_remaining = max(0, delta.days)
 
     # Check if subscription is active (all tiers expire when expires_at is set)
-    is_active = (tier in ['basic', 'premium'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
+    is_active = (tier in ['starter', 'pro', 'premium'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
 
     if not is_active or tier == 'expired':
         return "❌ Подписка неактивна"
@@ -881,7 +882,7 @@ async def process_promocode(message: Message, state: FSMContext):
     await state.clear()
 
     if result['success']:
-        tier_info = SUBSCRIPTION_TIERS.get(result['tier'], SUBSCRIPTION_TIERS['basic'])
+        tier_info = SUBSCRIPTION_TIERS.get(result['tier'], SUBSCRIPTION_TIERS['starter'])
         await message.answer(
             f"✅ <b>Промокод активирован!</b>\n\n"
             f"🎟 Код: <code>{code}</code>\n"
