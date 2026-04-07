@@ -221,7 +221,7 @@ def _build_keyboard(
         ])
 
         # AI-кнопки
-        if subscription_tier in ('basic', 'premium'):
+        if subscription_tier in ('pro', 'premium'):
             buttons.append([
                 InlineKeyboardButton(
                     text="📝 AI-резюме",

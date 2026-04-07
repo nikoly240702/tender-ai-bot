@@ -143,14 +143,15 @@ class SubscriptionMiddleware(BaseMiddleware):
                 if trial_expires_at and datetime.now() > trial_expires_at:
                     # (притяжательное, название, глагол) с учётом рода
                     tier_display = {
-                        'trial':   ('Ваш',  'пробный период',   'закончился'),
-                        'basic':   ('Ваша', 'подписка Basic',   'закончилась'),
-                        'premium': ('Ваша', 'подписка Premium', 'закончилась'),
+                        'trial':   ('Ваш',  'пробный период',     'закончился'),
+                        'starter': ('Ваша', 'подписка Starter',   'закончилась'),
+                        'pro':     ('Ваша', 'подписка Pro',       'закончилась'),
+                        'premium': ('Ваша', 'подписка Business',  'закончилась'),
                     }
                     your, tier_name, ended = tier_display.get(tier, ('Ваша', 'подписка', 'закончилась'))
 
                     # === LAZY DOWNGRADE: обновляем tier в БД ===
-                    if tier in ('trial', 'basic', 'premium'):
+                    if tier in ('trial', 'starter', 'pro', 'premium', 'basic'):
                         try:
                             from database import DatabaseSession, SniperUser
                             from sqlalchemy import update as sa_update

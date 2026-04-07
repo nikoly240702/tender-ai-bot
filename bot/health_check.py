@@ -144,10 +144,11 @@ async def yookassa_webhook_handler(request):
 
                 # Определяем лимиты для тарифа (days берём из метаданных)
                 tier_limits = {
-                    'basic': {'filters': 5, 'notifications': 100},
-                    'premium': {'filters': 20, 'notifications': 9999},
+                    'starter': {'filters': 5, 'notifications': 50},
+                    'pro': {'filters': 15, 'notifications': 9999},
+                    'premium': {'filters': 30, 'notifications': 9999},
                 }
-                limits = tier_limits.get(tier, tier_limits['basic'])
+                limits = tier_limits.get(tier, tier_limits['starter'])
                 limits['days'] = subscription_days  # Используем дни из метаданных
 
                 # Обновляем подписку пользователя

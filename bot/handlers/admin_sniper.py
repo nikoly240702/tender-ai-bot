@@ -287,7 +287,8 @@ async def show_users_and_tiers(callback: CallbackQuery):
         for user in users:
             tier_emoji = {
                 'trial': '🎁',
-                'basic': '💼',
+                'starter': '⭐',
+                'pro': '🚀',
                 'premium': '👑'
             }.get(user.subscription_tier, '❓')
 
@@ -433,14 +434,16 @@ async def manage_user_tiers(callback: CallbackQuery):
             "<code>/set_tier USER_ID TIER</code>\n\n"
             "<b>Доступные тарифы:</b>\n"
             "• <code>trial</code> - Пробный (3 фильтра, 20 уведомлений/день)\n"
-            "• <code>basic</code> - Базовый (5 фильтров, 50 уведомлений/день)\n"
-            "• <code>premium</code> - Премиум (20 фильтров, безлимит)\n\n"
+            "• <code>starter</code> - Starter (5 фильтров, 50 уведомлений/день)\n"
+            "• <code>pro</code> - Pro (15 фильтров, безлимит, 50 GPT)\n"
+            "• <code>premium</code> - Business (30 фильтров, безлимит, 200 GPT)\n\n"
             "<b>Пользователи:</b>\n\n"
         )
 
         tier_emoji = {
             'trial': '🎁',
-            'basic': '💼',
+            'starter': '⭐',
+            'pro': '🚀',
             'premium': '👑'
         }
 
@@ -487,7 +490,7 @@ async def set_user_tier(message: Message):
             return
 
         new_tier = parts[2].lower()
-        valid_tiers = ['trial', 'basic', 'premium']
+        valid_tiers = ['trial', 'starter', 'pro', 'premium']
 
         if new_tier not in valid_tiers:
             await message.answer(
@@ -513,9 +516,10 @@ async def set_user_tier(message: Message):
 
             # Обновляем тариф и лимиты
             limits_map = {
-                'trial': {'filters': 3, 'notifications': 20, 'days': 14},
-                'basic': {'filters': 5, 'notifications': 50, 'days': 30},
-                'premium': {'filters': 20, 'notifications': 9999, 'days': 30}
+                'trial': {'filters': 3, 'notifications': 20, 'days': 7},
+                'starter': {'filters': 5, 'notifications': 50, 'days': 30},
+                'pro': {'filters': 15, 'notifications': 9999, 'days': 30},
+                'premium': {'filters': 30, 'notifications': 9999, 'days': 30}
             }
 
             new_limits = limits_map[new_tier]
@@ -541,7 +545,8 @@ async def set_user_tier(message: Message):
 
         tier_emoji = {
             'trial': '🎁',
-            'basic': '💼',
+            'starter': '⭐',
+            'pro': '🚀',
             'premium': '👑'
         }
 

@@ -425,7 +425,7 @@ async def search_tenders(request: web.Request) -> web.Response:
             'tender_types': _json.dumps([]),
             'is_active': True,
             'ai_intent': None,
-            'subscription_tier': 'basic',
+            'subscription_tier': 'starter',
         }
 
         results = await searcher.search_by_filter(filter_data, max_tenders=limit)
@@ -734,10 +734,10 @@ async def api_subscription_pay(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
 
-    tier = data.get('tier', 'basic')
+    tier = data.get('tier', 'starter')
     months = int(data.get('months', 1))
 
-    if tier not in ('basic', 'premium'):
+    if tier not in ('starter', 'pro', 'premium'):
         return web.json_response({'error': 'Неверный тариф'}, status=400)
     if months not in (1, 3, 6):
         return web.json_response({'error': 'Неверный период'}, status=400)

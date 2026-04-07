@@ -73,7 +73,7 @@ class SubscriptionChecker:
                 result = await session.execute(
                     select(SniperUser).where(
                         and_(
-                            SniperUser.subscription_tier.in_(['trial', 'basic', 'premium']),
+                            SniperUser.subscription_tier.in_(['trial', 'starter', 'pro', 'premium', 'basic']),
                             SniperUser.trial_expires_at.isnot(None)
                         )
                     )
@@ -178,8 +178,9 @@ class SubscriptionChecker:
 
         tier_names = {
             'trial': 'Пробный период',
-            'basic': 'Basic',
-            'premium': 'Premium'
+            'starter': 'Starter',
+            'pro': 'Pro',
+            'premium': 'Business'
         }
         tier_name = tier_names.get(tier, tier)
 

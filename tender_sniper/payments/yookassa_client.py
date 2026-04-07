@@ -18,14 +18,16 @@ YOOKASSA_SECRET_KEY = os.getenv('YOOKASSA_SECRET_KEY', '')
 
 # Цены тарифов (в рублях)
 TARIFF_PRICES = {
-    'basic': 490.00,
-    'premium': 990.00,
+    'starter': 499.00,
+    'pro': 1490.00,
+    'premium': 2990.00,
 }
 
 # Названия тарифов для описания платежа
 TARIFF_NAMES = {
-    'basic': 'Basic (1 месяц)',
-    'premium': 'Premium (1 месяц)',
+    'starter': 'Starter (1 месяц)',
+    'pro': 'Pro (1 месяц)',
+    'premium': 'Business (1 месяц)',
 }
 
 

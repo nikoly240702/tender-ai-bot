@@ -125,7 +125,7 @@ class EngagementScheduler:
             # Получаем всех пользователей с активными подписками
             result = await session.execute(
                 select(SniperUser).where(
-                    SniperUser.subscription_tier.in_(['trial', 'basic', 'premium'])
+                    SniperUser.subscription_tier.in_(['trial', 'starter', 'pro', 'premium', 'basic'])
                 )
             )
             users = result.scalars().all()
@@ -288,7 +288,7 @@ class EngagementScheduler:
             result = await session.execute(
                 select(SniperUser).where(
                     and_(
-                        SniperUser.subscription_tier.in_(['trial', 'basic', 'premium']),
+                        SniperUser.subscription_tier.in_(['trial', 'starter', 'pro', 'premium', 'basic']),
                         SniperUser.trial_expires_at > datetime.utcnow()  # Активная подписка
                     )
                 )
@@ -428,7 +428,7 @@ class EngagementScheduler:
                     and_(
                         SniperNotification.submission_deadline.isnot(None),
                         func.date(SniperNotification.submission_deadline) == target_date,
-                        SniperUser.subscription_tier.in_(['trial', 'basic', 'premium'])
+                        SniperUser.subscription_tier.in_(['trial', 'starter', 'pro', 'premium', 'basic'])
                     )
                 )
             )

@@ -2112,10 +2112,11 @@ class TenderSniperDB:
 
             # Определяем лимиты для тарифа
             limits_map = {
-                'basic': {'filters': 5, 'notifications': 100},
-                'premium': {'filters': 20, 'notifications': 9999}
+                'starter': {'filters': 5, 'notifications': 50},
+                'pro': {'filters': 15, 'notifications': 9999},
+                'premium': {'filters': 30, 'notifications': 9999}
             }
-            limits = limits_map.get(promocode.tier, {'filters': 5, 'notifications': 100})
+            limits = limits_map.get(promocode.tier, {'filters': 5, 'notifications': 50})
 
             # Обновляем пользователя
             user.subscription_tier = promocode.tier
@@ -2229,7 +2230,7 @@ class TenderSniperDB:
                     and_(
                         SniperUserModel.trial_expires_at >= start_of_day,
                         SniperUserModel.trial_expires_at <= end_of_day,
-                        SniperUserModel.subscription_tier.in_(['trial', 'basic', 'premium']),
+                        SniperUserModel.subscription_tier.in_(['trial', 'starter', 'pro', 'premium', 'basic']),
                         SniperUserModel.status == 'active'
                     )
                 )

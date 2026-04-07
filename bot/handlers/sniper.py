@@ -368,19 +368,21 @@ async def show_sniper_stats(callback: CallbackQuery):
 
         # Получаем лимиты тарифа
         tier = user['subscription_tier']
-        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'starter' else (15 if tier == 'pro' else 30))
 
         # Определяем emoji для тарифа
         tier_emoji = {
             'trial': '🎁',
-            'basic': '⭐',
+            'starter': '⭐',
+            'pro': '🚀',
             'premium': '💎'
         }.get(tier, '🎁')
 
         tier_name = {
             'trial': 'Пробный',
-            'basic': 'Базовый',
-            'premium': 'Премиум'
+            'starter': 'Starter',
+            'pro': 'Pro',
+            'premium': 'Business'
         }.get(tier, 'Пробный')
 
         stats_text = (
@@ -2350,7 +2352,7 @@ async def restore_filter(callback: CallbackQuery):
         # Проверяем лимит фильтров
         active_filters = await db.get_user_filters(user['id'], active_only=True)
         tier = user['subscription_tier']
-        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'starter' else (15 if tier == 'pro' else 30))
 
         if len(active_filters) >= max_filters:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
