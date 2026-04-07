@@ -13,11 +13,19 @@ from tender_sniper.database.sqlalchemy_adapter import get_sniper_db
 # Определяем какие функции доступны на каких тарифах
 FEATURE_ACCESS = {
     # Функция: список тарифов с доступом
-    'archive_search': ['premium'],
-    'excel_export': ['basic', 'premium'],
-    'reminders': ['basic', 'premium'],
-    'extended_settings': ['premium'],
+    'archive_search': ['pro', 'premium'],
+    'excel_export': ['starter', 'pro', 'premium'],
+    'reminders': ['starter', 'pro', 'premium'],
+    'extended_settings': ['pro', 'premium'],
     'beta_features': ['premium'],
+}
+
+# Лимиты по тарифам (фильтры и уведомления/день)
+TIER_LIMITS = {
+    'trial': {'filters': 3, 'notifications': 50},
+    'starter': {'filters': 5, 'notifications': 50},
+    'pro': {'filters': 15, 'notifications': 9999},
+    'premium': {'filters': 30, 'notifications': 9999},
 }
 
 # Названия функций для сообщений
@@ -153,7 +161,7 @@ def requires_tier(*allowed_tiers):
     Декоратор для проверки тарифа.
 
     Использование:
-        @requires_tier('basic', 'premium')
+        @requires_tier('starter', 'pro', 'premium')
         async def handler(callback: CallbackQuery):
             ...
     """
