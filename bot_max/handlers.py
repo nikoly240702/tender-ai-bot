@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, List
 
 from bot_max.client import MaxBotClient
 from tender_sniper.database import get_sniper_db
+from bot.utils.ai_access import can_use_ai
 
 logger = logging.getLogger(__name__)
 
@@ -2677,6 +2678,25 @@ async def _do_ai_analyze(
     tender_number: str,
 ):
     """Perform AI analysis of tender documents."""
+    user = await _ensure_user(user_id, username)
+    from types import SimpleNamespace
+    _fake_user = SimpleNamespace(
+        subscription_tier=(user.get('subscription_tier', 'trial') if user else 'trial'),
+        has_ai_unlimited=(user.get('has_ai_unlimited', False) if user else False),
+        ai_unlimited_expires_at=(user.get('ai_unlimited_expires_at') if user else None),
+        ai_analyses_used_month=(user.get('ai_analyses_used_month', 0) if user else 0),
+    )
+    _allowed, _reason = can_use_ai(_fake_user)
+    if not _allowed:
+        await client.send_message(
+            chat_id,
+            f"⚠️ {_reason}",
+            keyboard=[
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+        return
+
     await client.send_message(
         chat_id,
         f"🔍 <b>Анализирую документацию тендера {tender_number}...</b>\n\nЭто может занять некоторое время.",
@@ -2686,7 +2706,6 @@ async def _do_ai_analyze(
     try:
         from bot.handlers.webapp import _run_ai_analysis
 
-        user = await _ensure_user(user_id, username)
         tier = user.get('subscription_tier', 'trial') if user else 'trial'
 
         result_text, is_ai, raw_data = await _run_ai_analysis(tender_number, tier)

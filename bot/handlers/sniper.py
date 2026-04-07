@@ -20,6 +20,7 @@ import asyncio
 from pathlib import Path
 from datetime import datetime, timedelta
 from bot.utils import safe_callback_data
+from bot.utils.ai_access import can_use_ai
 
 # Простой кэш для статуса мониторинга (избегаем запросов к БД на каждое открытие меню)
 _monitoring_status_cache: dict = {}  # {user_id: (status, timestamp)}
@@ -3675,6 +3676,18 @@ async def ai_summary_handler(callback: CallbackQuery):
             await callback.message.answer("❌ Пользователь не найден")
             return
 
+        from types import SimpleNamespace
+        _fake_user = SimpleNamespace(
+            subscription_tier=user.get('subscription_tier', 'trial'),
+            has_ai_unlimited=user.get('has_ai_unlimited', False),
+            ai_unlimited_expires_at=user.get('ai_unlimited_expires_at'),
+            ai_analyses_used_month=user.get('ai_analyses_used_month', 0),
+        )
+        _allowed, _reason = can_use_ai(_fake_user)
+        if not _allowed:
+            await callback.answer(_reason, show_alert=True)
+            return
+
         subscription_tier = user.get('subscription_tier', 'trial')
 
         # Импортируем AI модули
@@ -3754,6 +3767,18 @@ async def analyze_tender_documentation(callback: CallbackQuery):
 
         if not user:
             await callback.message.answer("❌ Пользователь не найден")
+            return
+
+        from types import SimpleNamespace
+        _fake_user = SimpleNamespace(
+            subscription_tier=user.get('subscription_tier', 'trial'),
+            has_ai_unlimited=user.get('has_ai_unlimited', False),
+            ai_unlimited_expires_at=user.get('ai_unlimited_expires_at'),
+            ai_analyses_used_month=user.get('ai_analyses_used_month', 0),
+        )
+        _allowed, _reason = can_use_ai(_fake_user)
+        if not _allowed:
+            await callback.answer(_reason, show_alert=True)
             return
 
         subscription_tier = user.get('subscription_tier', 'trial')
