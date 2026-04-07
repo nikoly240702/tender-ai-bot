@@ -2865,10 +2865,19 @@ async def yookassa_webhook(request: Request):
 
             telegram_id = metadata.get('telegram_id')
             tier = metadata.get('tier')
+            customer_email = (
+                metadata.get('customer_email')
+                or metadata.get('email')
+                or (obj.get('receipt') or {}).get('customer', {}).get('email')
+            )
 
             if not telegram_id or not tier:
                 logger.warning(f"Missing metadata in webhook: {data}")
                 return JSONResponse({'status': 'error', 'message': 'Missing metadata'})
+
+            if tier not in ('starter', 'pro', 'premium'):
+                logger.warning(f"Unknown tier in webhook: {tier}")
+                return JSONResponse({'status': 'error', 'message': f'Unknown tier: {tier}'})
 
             telegram_id = int(telegram_id)
 
@@ -2887,19 +2896,58 @@ async def yookassa_webhook(request: Request):
                 now = datetime.now()
 
                 limits_map = {
-                    'basic': {'filters': 5, 'notifications': 100},
-                    'premium': {'filters': 20, 'notifications': 9999}
+                    'starter': {'filters': 5, 'notifications': 50},
+                    'pro': {'filters': 15, 'notifications': 9999},
+                    'premium': {'filters': 30, 'notifications': 9999},
                 }
+                new_expires = now + timedelta(days=30)
+
+                main_values = {
+                    'subscription_tier': tier,
+                    'trial_expires_at': new_expires,
+                    'filters_limit': limits_map[tier]['filters'],
+                    'notifications_limit': limits_map[tier]['notifications'],
+                }
+                if customer_email:
+                    main_values['email'] = customer_email
 
                 await session.execute(
                     update(SniperUser)
                     .where(SniperUser.id == user.id)
-                    .values(
-                        subscription_tier=tier,
-                        filters_limit=limits_map.get(tier, {}).get('filters', 15),
-                        notifications_limit=limits_map.get(tier, {}).get('notifications', 50)
-                    )
+                    .values(**main_values)
                 )
+
+                # Multi-account upgrade: find siblings by email and upgrade if stronger
+                if customer_email:
+                    from bot.utils.tier_priority import should_upgrade
+                    siblings_result = await session.execute(
+                        select(SniperUser).where(
+                            SniperUser.email == customer_email,
+                            SniperUser.id != user.id,
+                        )
+                    )
+                    siblings = siblings_result.scalars().all()
+                    for sibling in siblings:
+                        if should_upgrade(
+                            current_tier=sibling.subscription_tier,
+                            current_expires=sibling.trial_expires_at,
+                            new_tier=tier,
+                            new_expires=new_expires,
+                        ):
+                            await session.execute(
+                                update(SniperUser)
+                                .where(SniperUser.id == sibling.id)
+                                .values(
+                                    subscription_tier=tier,
+                                    trial_expires_at=new_expires,
+                                    filters_limit=limits_map[tier]['filters'],
+                                    notifications_limit=limits_map[tier]['notifications'],
+                                )
+                            )
+                            logger.info(
+                                f"Multi-account upgrade: sibling user {sibling.id} "
+                                f"(tg={sibling.telegram_id}) → {tier}"
+                            )
 
                 # Записываем платёж
                 payment_record = Payment(
