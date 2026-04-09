@@ -738,13 +738,24 @@ class EngagementScheduler:
 
     async def _move_expired_bitrix24_deals(self):
         """
-        Ежедневный джоб (8:00 МСК): перемещает сделки с истёкшим сроком подачи
-        из «Новые процедуры» / «Новые процедуры с AI» в «Не берем в работу».
+        Ежедневный джоб (8:00 и 14:00 МСК): перемещает сделки с истёкшим сроком
+        подачи из «Новые процедуры» / «Новые процедуры с AI» в «Не берем в работу».
+
+        Для определения истечения используется submission_deadline из БД, а если
+        он NULL — CLOSEDATE, полученный из Битрикс24 в том же запросе, которым
+        читается текущий этап сделки.
+
+        webhook_url ищется сначала в user.data, потом в env BITRIX24_WEBHOOK
+        (нужно чтобы работал для юзеров без явной per-user настройки).
         """
         try:
+            import os
+            from datetime import datetime
             from tender_sniper.database import get_sniper_db
             from bot.handlers.bitrix24 import update_bitrix24_deal_stage, STAGE_LOSE
             import aiohttp
+
+            default_webhook = os.getenv('BITRIX24_WEBHOOK', '').strip()
 
             db = await get_sniper_db()
             expired = await db.get_expired_bitrix24_notifications()
@@ -753,25 +764,29 @@ class EngagementScheduler:
 
             logger.info(f"🔄 Bitrix24 expired deals check: {len(expired)} candidates")
             moved = 0
+            skipped_no_webhook = 0
+            skipped_wrong_stage = 0
+            skipped_not_expired = 0
+            now = datetime.utcnow()
 
             for notif in expired:
                 try:
                     user = await db.get_user_by_id(notif['user_id'])
                     if not user:
                         continue
-                    webhook_url = (user.get('data') or {}).get('bitrix24_webhook_url', '')
+                    webhook_url = (user.get('data') or {}).get('bitrix24_webhook_url', '') or default_webhook
                     if not webhook_url:
+                        skipped_no_webhook += 1
                         continue
 
                     deal_id = notif['bitrix24_deal_id']
+                    db_deadline = notif.get('submission_deadline_raw')  # may be None
 
-                    # Проверяем текущий этап сделки — не трогаем если уже в работе
-                    if not webhook_url.endswith('/'):
-                        webhook_url_slash = webhook_url + '/'
-                    else:
-                        webhook_url_slash = webhook_url
+                    # Fetch current deal state from Bitrix (stage + CLOSEDATE)
+                    webhook_url_slash = webhook_url if webhook_url.endswith('/') else webhook_url + '/'
                     endpoint = webhook_url_slash + 'crm.deal.get.json'
                     current_stage = None
+                    bitrix_closedate = None
                     try:
                         async with aiohttp.ClientSession(
                             timeout=aiohttp.ClientTimeout(total=6)
@@ -781,14 +796,36 @@ class EngagementScheduler:
                             ) as resp:
                                 if resp.status == 200:
                                     data = await resp.json()
-                                    current_stage = (data.get('result') or {}).get('STAGE_ID')
+                                    result = data.get('result') or {}
+                                    current_stage = result.get('STAGE_ID')
+                                    closedate_str = result.get('CLOSEDATE') or ''
+                                    if closedate_str:
+                                        try:
+                                            from datetime import timezone
+                                            dt = datetime.fromisoformat(closedate_str)
+                                            if dt.tzinfo is not None:
+                                                dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                                            bitrix_closedate = dt
+                                        except ValueError:
+                                            pass
                     except Exception:
                         pass
 
                     # Перемещаем только если сделка в начальных этапах
                     initial_stages = {'NEW', 'UC_OZCYR2'}
                     if current_stage and current_stage not in initial_stages:
+                        skipped_wrong_stage += 1
                         continue  # Уже продвинута — не трогаем
+
+                    # Если в БД дедлайн NULL — используем CLOSEDATE из Битрикс
+                    if db_deadline is None and bitrix_closedate is not None:
+                        if bitrix_closedate > now:
+                            skipped_not_expired += 1
+                            continue
+                    elif db_deadline is None and bitrix_closedate is None:
+                        # Нет данных ни с одной стороны — пропускаем
+                        skipped_not_expired += 1
+                        continue
 
                     ok = await update_bitrix24_deal_stage(webhook_url, deal_id, STAGE_LOSE)
                     if ok:
@@ -799,8 +836,11 @@ class EngagementScheduler:
                 except Exception as e:
                     logger.warning(f"Expired deal {notif.get('bitrix24_deal_id')}: {e}")
 
-            if moved:
-                logger.info(f"✅ Bitrix24: {moved} expired deals moved to LOSE")
+            logger.info(
+                f"✅ Bitrix24: {moved} moved to LOSE "
+                f"(skipped: no_webhook={skipped_no_webhook}, "
+                f"wrong_stage={skipped_wrong_stage}, not_expired={skipped_not_expired})"
+            )
 
         except Exception as e:
             logger.error(f"_move_expired_bitrix24_deals error: {e}", exc_info=True)

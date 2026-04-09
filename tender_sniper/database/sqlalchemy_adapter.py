@@ -2659,10 +2659,18 @@ class TenderSniperDB:
 
     async def get_expired_bitrix24_notifications(self) -> List[Dict[str, Any]]:
         """
-        Возвращает уведомления, у которых:
-        - сделка создана в Битрикс24 (bitrix24_exported=True, deal_id не пустой)
-        - срок подачи заявки уже прошёл (по МСК)
+        Возвращает уведомления-кандидаты на перемещение в LOSE в Битрикс24.
+
+        Включает записи где:
+        - сделка создана (bitrix24_exported=True, deal_id задан)
+        - submission_deadline уже прошёл (по МСК), ИЛИ submission_deadline NULL
+          (в последнем случае scheduler берёт CLOSEDATE из Битрикс24 при
+          обработке и решает там).
+
+        'submission_deadline_raw' содержит datetime (или None) — используется
+        scheduler'ом. 'submission_deadline' — строка для совместимости.
         """
+        from sqlalchemy import or_
         now = datetime.utcnow() + timedelta(hours=3)  # МСК = UTC+3
         async with DatabaseSession() as session:
             result = await session.execute(
@@ -2670,8 +2678,10 @@ class TenderSniperDB:
                     and_(
                         SniperNotificationModel.bitrix24_exported == True,
                         SniperNotificationModel.bitrix24_deal_id.isnot(None),
-                        SniperNotificationModel.submission_deadline.isnot(None),
-                        SniperNotificationModel.submission_deadline < now,
+                        or_(
+                            SniperNotificationModel.submission_deadline.is_(None),
+                            SniperNotificationModel.submission_deadline < now,
+                        )
                     )
                 )
             )
@@ -2682,6 +2692,7 @@ class TenderSniperDB:
                 'tender_number': n.tender_number,
                 'bitrix24_deal_id': n.bitrix24_deal_id,
                 'submission_deadline': n.submission_deadline.strftime('%d.%m.%Y') if n.submission_deadline else '',
+                'submission_deadline_raw': n.submission_deadline,
             } for n in notifications]
 
     async def mark_notification_bitrix_exported(self, notification_id: int, deal_id: int) -> bool:
