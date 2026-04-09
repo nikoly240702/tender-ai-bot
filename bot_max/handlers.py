@@ -18,6 +18,7 @@ from typing import Dict, Any, Optional, List
 
 from bot_max.client import MaxBotClient
 from tender_sniper.database import get_sniper_db
+from bot.utils.ai_access import can_use_ai
 
 logger = logging.getLogger(__name__)
 
@@ -421,6 +422,26 @@ async def _ensure_user(user_id: int, username: str = None, first_name: str = Non
             first_name=first_name,
             subscription_tier='trial',
         )
+        # Override default 14-day trial with new 7-day trial for Max users
+        try:
+            from datetime import datetime, timedelta
+            from database import DatabaseSession, SniperUser as SniperUserModel
+            from sqlalchemy import update as sa_update
+            now = datetime.utcnow()
+            async with DatabaseSession() as session:
+                await session.execute(
+                    sa_update(SniperUserModel)
+                    .where(SniperUserModel.telegram_id == user_id)
+                    .values(
+                        trial_started_at=now,
+                        trial_expires_at=now + timedelta(days=7),
+                        filters_limit=3,
+                        notifications_limit=50,
+                    )
+                )
+                await session.commit()
+        except Exception as e:
+            logger.warning(f"Max bot: failed to set 7-day trial for {user_id}: {e}")
         user = await db.get_user_by_telegram_id(user_id)
     # Mark platform as Max (for notification routing)
     if user:
@@ -1866,41 +1887,62 @@ async def _delete_filter(
 
 SUBSCRIPTION_TIERS = {
     'trial': {
-        'name': '🆓 Пробный период',
+        'name': 'Пробный период',
+        'emoji': '🎁',
         'price': 0,
-        'days': 14,
+        'days': 7,
         'max_filters': 3,
-        'max_notifications_per_day': 20,
+        'max_notifications_per_day': 50,
         'features': [
-            '3 фильтра мониторинга',
-            '20 уведомлений/день',
-            'Мгновенный поиск',
-        ]
+            '✅ До 3 фильтров',
+            '✅ До 50 уведомлений в день',
+            '✅ Поиск по всем тендерам',
+            '⏱ 7 дней бесплатно',
+        ],
     },
-    'basic': {
-        'name': '⭐ Basic',
-        'price': 1490,
+    'starter': {
+        'name': 'Starter',
+        'emoji': '🚀',
+        'price': 499,
+        'days': 30,
         'max_filters': 5,
-        'max_notifications_per_day': 100,
+        'max_notifications_per_day': 50,
         'features': [
-            '5 фильтров мониторинга',
-            '100 уведомлений/день',
-            'AI-анализ (10/мес)',
-            'Telegram-поддержка',
-        ]
+            '✅ До 5 фильтров',
+            '✅ До 50 уведомлений в день',
+            '✅ Быстрые уведомления о новых тендерах',
+            'ℹ️ Без AI-анализа (см. Pro)',
+        ],
     },
-    'premium': {
-        'name': '💎 Premium',
-        'price': 2990,
-        'max_filters': 20,
+    'pro': {
+        'name': 'Pro',
+        'emoji': '⭐',
+        'price': 1490,
+        'days': 30,
+        'max_filters': 15,
         'max_notifications_per_day': 9999,
         'features': [
-            '20 фильтров мониторинга',
-            'Безлимит уведомлений',
-            'AI-анализ (50/мес)',
-            'Приоритетная поддержка',
-        ]
-    }
+            '✅ До 15 фильтров',
+            '✅ Безлимит уведомлений',
+            '✅ AI-анализ: 500 в месяц',
+            '✅ Tender-GPT: 50 сообщений в месяц',
+        ],
+    },
+    'premium': {
+        'name': 'Business',
+        'emoji': '💎',
+        'price': 2990,
+        'days': 30,
+        'max_filters': 30,
+        'max_notifications_per_day': 9999,
+        'features': [
+            '✅ До 30 фильтров',
+            '✅ Безлимит уведомлений',
+            '✅ Безлимитный AI-анализ',
+            '✅ Tender-GPT: 200 сообщений в месяц',
+            '✅ Приоритетная поддержка',
+        ],
+    },
 }
 
 
@@ -1939,7 +1981,7 @@ async def _show_subscription(
         delta = expires_dt - datetime.now()
         days_remaining = max(0, delta.days)
 
-    is_active = (tier in ['basic', 'premium'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
+    is_active = (tier in ['starter', 'pro', 'premium', 'basic'] and (not expires_at or days_remaining > 0)) or (tier == 'trial' and days_remaining > 0)
     is_trial = tier == 'trial'
 
     tier_info = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS['trial'])
@@ -2677,6 +2719,25 @@ async def _do_ai_analyze(
     tender_number: str,
 ):
     """Perform AI analysis of tender documents."""
+    user = await _ensure_user(user_id, username)
+    from types import SimpleNamespace
+    _fake_user = SimpleNamespace(
+        subscription_tier=(user.get('subscription_tier', 'trial') if user else 'trial'),
+        has_ai_unlimited=(user.get('has_ai_unlimited', False) if user else False),
+        ai_unlimited_expires_at=(user.get('ai_unlimited_expires_at') if user else None),
+        ai_analyses_used_month=(user.get('ai_analyses_used_month', 0) if user else 0),
+    )
+    _allowed, _reason = can_use_ai(_fake_user)
+    if not _allowed:
+        await client.send_message(
+            chat_id,
+            f"⚠️ {_reason}",
+            keyboard=[
+                [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
+            ],
+        )
+        return
+
     await client.send_message(
         chat_id,
         f"🔍 <b>Анализирую документацию тендера {tender_number}...</b>\n\nЭто может занять некоторое время.",
@@ -2686,7 +2747,6 @@ async def _do_ai_analyze(
     try:
         from bot.handlers.webapp import _run_ai_analysis
 
-        user = await _ensure_user(user_id, username)
         tier = user.get('subscription_tier', 'trial') if user else 'trial'
 
         result_text, is_ai, raw_data = await _run_ai_analysis(tender_number, tier)

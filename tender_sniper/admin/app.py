@@ -65,8 +65,9 @@ metrika_service = MetrikaService()
 
 # Tariff prices for economics calculations
 TARIFF_PRICES = {
-    'basic': 490,
-    'premium': 990,
+    'starter': 499,
+    'pro': 1490,
+    'premium': 2990,
 }
 
 # ============================================
@@ -208,7 +209,9 @@ async def dashboard(request: Request, username: str = Depends(verify_credentials
                 "total_filters": total_filters,
                 "notifications_today": today_notifications,
                 "tier_trial": tier_stats.get('trial', 0),
-                "tier_basic": tier_stats.get('basic', 0),
+                "tier_basic": tier_stats.get('starter', 0) + tier_stats.get('basic', 0),
+                "tier_starter": tier_stats.get('starter', 0) + tier_stats.get('basic', 0),
+                "tier_pro": tier_stats.get('pro', 0),
                 "tier_premium": tier_stats.get('premium', 0),
             },
             "recent_users": recent_users,
@@ -606,7 +609,7 @@ async def user_detail(
                 pass
 
             # GPT message limit (from tier)
-            gpt_limits = {'trial': 10, 'basic': 50, 'premium': 200}
+            gpt_limits = {'trial': 10, 'starter': 0, 'pro': 50, 'premium': 200}
             gpt_limit = gpt_limits.get(user.subscription_tier, 10)
 
             # Recent notifications with details (last 20)
@@ -753,15 +756,16 @@ async def set_user_tier(
     username: str = Depends(verify_credentials)
 ):
     """Изменить тариф пользователя."""
-    valid_tiers = ['trial', 'basic', 'premium']
+    valid_tiers = ['trial', 'starter', 'pro', 'premium']
     if tier not in valid_tiers:
         raise HTTPException(status_code=400, detail="Неверный тариф")
 
     try:
         limits_map = {
-            'trial': {'filters': 3, 'notifications': 20, 'days': 14},
-            'basic': {'filters': 5, 'notifications': 50, 'days': 30},
-            'premium': {'filters': 20, 'notifications': 9999, 'days': 30}
+            'trial': {'filters': 3, 'notifications': 20, 'days': 7},
+            'starter': {'filters': 5, 'notifications': 50, 'days': 30},
+            'pro': {'filters': 15, 'notifications': 9999, 'days': 30},
+            'premium': {'filters': 30, 'notifications': 9999, 'days': 30}
         }
 
         async with DatabaseSession() as session:
@@ -774,7 +778,7 @@ async def set_user_tier(
             now = datetime.now()
 
             # Вычисляем дату окончания подписки
-            if tier in ['trial', 'basic', 'premium']:
+            if tier in ['trial', 'starter', 'pro', 'premium']:
                 if user.trial_expires_at and user.trial_expires_at > now:
                     # Если есть активная подписка - добавляем дни к ней
                     new_expires = user.trial_expires_at + timedelta(days=new_limits['days'])
@@ -815,15 +819,16 @@ async def add_subscription_days(
     if days < 1 or days > 365:
         raise HTTPException(status_code=400, detail="Количество дней должно быть от 1 до 365")
 
-    valid_tiers = ['trial', 'basic', 'premium']
+    valid_tiers = ['trial', 'starter', 'pro', 'premium']
     if tier not in valid_tiers:
         tier = 'premium'
 
     try:
         limits_map = {
             'trial': {'filters': 3, 'notifications': 20},
-            'basic': {'filters': 5, 'notifications': 50},
-            'premium': {'filters': 20, 'notifications': 9999}
+            'starter': {'filters': 5, 'notifications': 50},
+            'pro': {'filters': 15, 'notifications': 9999},
+            'premium': {'filters': 30, 'notifications': 9999}
         }
 
         async with DatabaseSession() as session:
@@ -1322,7 +1327,7 @@ async def broadcast_page(
         async with DatabaseSession() as session:
             # Статистика по тарифам
             tier_stats = {}
-            for tier in ['all', 'trial', 'basic', 'premium']:
+            for tier in ['all', 'trial', 'starter', 'pro', 'premium']:
                 if tier == 'all':
                     count = await session.scalar(select(func.count(SniperUser.id))) or 0
                 else:
@@ -1363,7 +1368,7 @@ async def send_broadcast(
     username: str = Depends(verify_credentials)
 ):
     """Отправить рассылку."""
-    valid_tiers = ['all', 'trial', 'basic', 'premium']
+    valid_tiers = ['all', 'trial', 'starter', 'pro', 'premium']
     if target_tier not in valid_tiers:
         raise HTTPException(status_code=400, detail="Неверный тариф")
 
@@ -1519,7 +1524,7 @@ async def analytics_page(
 
             paying_users = await session.scalar(
                 select(func.count(SniperUser.id)).where(
-                    SniperUser.subscription_tier.in_(['basic', 'premium'])
+                    SniperUser.subscription_tier.in_(['starter', 'pro', 'premium', 'basic'])
                 )
             ) or 0
 
@@ -1764,9 +1769,14 @@ async def economics_page(
             payback_months = (cac / monthly_arpu) if monthly_arpu > 0 else 0
 
             # MRR
-            basic_count = await session.scalar(
+            starter_count = await session.scalar(
                 select(func.count(SniperUser.id)).where(
-                    and_(SniperUser.subscription_tier == 'basic', SniperUser.trial_expires_at > now)
+                    and_(SniperUser.subscription_tier.in_(['starter', 'basic']), SniperUser.trial_expires_at > now)
+                )
+            ) or 0
+            pro_count = await session.scalar(
+                select(func.count(SniperUser.id)).where(
+                    and_(SniperUser.subscription_tier == 'pro', SniperUser.trial_expires_at > now)
                 )
             ) or 0
             premium_count = await session.scalar(
@@ -1774,7 +1784,7 @@ async def economics_page(
                     and_(SniperUser.subscription_tier == 'premium', SniperUser.trial_expires_at > now)
                 )
             ) or 0
-            mrr = basic_count * TARIFF_PRICES['basic'] + premium_count * TARIFF_PRICES['premium']
+            mrr = starter_count * TARIFF_PRICES['starter'] + pro_count * TARIFF_PRICES['pro'] + premium_count * TARIFF_PRICES['premium']
 
             # Churn rate
             period_start = since
@@ -2125,7 +2135,7 @@ async def cohorts_page(
                     cohort_data[day_key]["used_ai_analysis"] += 1
 
                 # Converted to paid?
-                if u.subscription_tier in ('basic', 'premium'):
+                if u.subscription_tier in ('starter', 'pro', 'premium', 'basic'):
                     cohort_data[day_key]["converted_paid"] += 1
 
             # Convert to sorted list
@@ -2340,7 +2350,7 @@ async def create_promocode(
     username: str = Depends(verify_credentials)
 ):
     """Создать промокод."""
-    valid_tiers = ['basic', 'premium']
+    valid_tiers = ['starter', 'pro', 'premium']
     if tier not in valid_tiers:
         raise HTTPException(status_code=400, detail="Неверный тариф")
 
@@ -2429,8 +2439,9 @@ async def activate_promocode(
 TARIFF_SETTINGS = {
     'free': {'filters': 3, 'notifications': 20, 'price': 0},
     'trial': {'filters': 3, 'notifications': 20, 'price': 0},
-    'basic': {'filters': 5, 'notifications': 100, 'price': 990},
-    'premium': {'filters': 20, 'notifications': 9999, 'price': 2990},
+    'starter': {'filters': 5, 'notifications': 50, 'price': 499},
+    'pro': {'filters': 15, 'notifications': 9999, 'price': 1490},
+    'premium': {'filters': 30, 'notifications': 9999, 'price': 2990},
     'ai_unlimited': {'filters': 0, 'notifications': 0, 'price': 1490},
 }
 
@@ -2854,10 +2865,19 @@ async def yookassa_webhook(request: Request):
 
             telegram_id = metadata.get('telegram_id')
             tier = metadata.get('tier')
+            customer_email = (
+                metadata.get('customer_email')
+                or metadata.get('email')
+                or (obj.get('receipt') or {}).get('customer', {}).get('email')
+            )
 
             if not telegram_id or not tier:
                 logger.warning(f"Missing metadata in webhook: {data}")
                 return JSONResponse({'status': 'error', 'message': 'Missing metadata'})
+
+            if tier not in ('starter', 'pro', 'premium'):
+                logger.warning(f"Unknown tier in webhook: {tier}")
+                return JSONResponse({'status': 'error', 'message': f'Unknown tier: {tier}'})
 
             telegram_id = int(telegram_id)
 
@@ -2876,19 +2896,58 @@ async def yookassa_webhook(request: Request):
                 now = datetime.now()
 
                 limits_map = {
-                    'basic': {'filters': 5, 'notifications': 100},
-                    'premium': {'filters': 20, 'notifications': 9999}
+                    'starter': {'filters': 5, 'notifications': 50},
+                    'pro': {'filters': 15, 'notifications': 9999},
+                    'premium': {'filters': 30, 'notifications': 9999},
                 }
+                new_expires = now + timedelta(days=30)
+
+                main_values = {
+                    'subscription_tier': tier,
+                    'trial_expires_at': new_expires,
+                    'filters_limit': limits_map[tier]['filters'],
+                    'notifications_limit': limits_map[tier]['notifications'],
+                }
+                if customer_email:
+                    main_values['email'] = customer_email
 
                 await session.execute(
                     update(SniperUser)
                     .where(SniperUser.id == user.id)
-                    .values(
-                        subscription_tier=tier,
-                        filters_limit=limits_map.get(tier, {}).get('filters', 15),
-                        notifications_limit=limits_map.get(tier, {}).get('notifications', 50)
-                    )
+                    .values(**main_values)
                 )
+
+                # Multi-account upgrade: find siblings by email and upgrade if stronger
+                if customer_email:
+                    from bot.utils.tier_priority import should_upgrade
+                    siblings_result = await session.execute(
+                        select(SniperUser).where(
+                            SniperUser.email == customer_email,
+                            SniperUser.id != user.id,
+                        )
+                    )
+                    siblings = siblings_result.scalars().all()
+                    for sibling in siblings:
+                        if should_upgrade(
+                            current_tier=sibling.subscription_tier,
+                            current_expires=sibling.trial_expires_at,
+                            new_tier=tier,
+                            new_expires=new_expires,
+                        ):
+                            await session.execute(
+                                update(SniperUser)
+                                .where(SniperUser.id == sibling.id)
+                                .values(
+                                    subscription_tier=tier,
+                                    trial_expires_at=new_expires,
+                                    filters_limit=limits_map[tier]['filters'],
+                                    notifications_limit=limits_map[tier]['notifications'],
+                                )
+                            )
+                            logger.info(
+                                f"Multi-account upgrade: sibling user {sibling.id} "
+                                f"(tg={sibling.telegram_id}) → {tier}"
+                            )
 
                 # Записываем платёж
                 payment_record = Payment(

@@ -21,6 +21,7 @@ python-dotenv==1.0.0
 # Additional utilities
 colorama==0.4.6
 cachetools>=5.3.0  # TTL cache для in-memory кэширования
+PyJWT>=2.8.0  # JWT token generation and validation for auth
 
 # LLM Providers (установите только нужные)
 # Anthropic Claude (оригинальный вариант)

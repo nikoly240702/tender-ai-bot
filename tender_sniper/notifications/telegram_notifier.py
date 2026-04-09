@@ -372,8 +372,8 @@ class TelegramNotifier:
                 )
             ])
 
-            # AI кнопки для Basic и Premium
-            if subscription_tier in ('basic', 'premium'):
+            # AI кнопки для Pro и Business
+            if subscription_tier in ('pro', 'premium'):
                 buttons.append([
                     InlineKeyboardButton(
                         text="📝 AI-резюме",
@@ -437,7 +437,7 @@ class TelegramNotifier:
         self,
         telegram_id: int,
         current_limit: int,
-        upgrade_plan: str = 'basic'
+        upgrade_plan: str = 'starter'
     ):
         """
         Уведомление о превышении квоты.

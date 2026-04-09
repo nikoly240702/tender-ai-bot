@@ -577,7 +577,7 @@ async def start_extended_wizard(callback: CallbackQuery, state: FSMContext):
         # Проверяем квоту на фильтры
         filters = await db.get_user_filters(user['id'], active_only=True)
         tier = user['subscription_tier']
-        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'starter' else (15 if tier == 'pro' else 30))
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(

@@ -11,7 +11,7 @@ Example usage:
     user_id = await db.create_or_update_user(
         telegram_id=123456789,
         username='user',
-        subscription_tier='basic'
+        subscription_tier='starter'
     )
 
     # Create filter

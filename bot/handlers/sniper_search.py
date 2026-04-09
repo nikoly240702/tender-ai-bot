@@ -165,7 +165,7 @@ async def start_create_filter_only(callback: CallbackQuery, state: FSMContext):
         filters = await db.get_user_filters(user['id'], active_only=True)
         # Временно используем жёстко заданные лимиты (TODO: мигрировать get_plan_limits на PostgreSQL)
         tier = user['subscription_tier']
-        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'starter' else (15 if tier == 'pro' else 30))
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(
@@ -225,7 +225,7 @@ async def start_new_filter_search(callback: CallbackQuery, state: FSMContext):
         filters = await db.get_user_filters(user['id'], active_only=True)
         # Временно используем жёстко заданные лимиты (TODO: мигрировать get_plan_limits на PostgreSQL)
         tier = user['subscription_tier']
-        max_filters = 3 if tier == 'trial' else (5 if tier == 'basic' else 20)
+        max_filters = 3 if tier == 'trial' else (5 if tier == 'starter' else (15 if tier == 'pro' else 30))
 
         if len(filters) >= max_filters:
             await callback.message.edit_text(
@@ -2599,7 +2599,7 @@ async def process_tender_count(message: Message, state: FSMContext):
 
             # Получаем лимиты тарифа для отображения (хардкод, пока не мигрирован на PostgreSQL)
             tier = user['subscription_tier']
-            daily_limit = 20 if tier == 'trial' else (50 if tier == 'basic' else 100)
+            daily_limit = 20 if tier == 'trial' else (50 if tier == 'starter' else 9999)
 
             # Отправляем результаты
             await progress_msg.edit_text(
@@ -2716,7 +2716,7 @@ async def process_tender_count(message: Message, state: FSMContext):
 
             # Получаем лимиты (хардкод, пока не мигрирован на PostgreSQL)
             tier = user['subscription_tier']
-            daily_limit = 20 if tier == 'trial' else (50 if tier == 'basic' else 100)
+            daily_limit = 20 if tier == 'trial' else (50 if tier == 'starter' else 9999)
 
             # Формируем описание фильтра
             filter_summary = f"📝 <b>{filter_name}</b>\n\n"

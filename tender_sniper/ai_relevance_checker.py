@@ -44,7 +44,8 @@ class AIRelevanceChecker:
     # Лимиты по тарифам (проверок в день)
     TIER_LIMITS = {
         'trial': 20,
-        'basic': 100,
+        'starter': 50,
+        'pro': 10000,
         'premium': 10000,  # Практически безлимит
         'admin': 100000,
     }

@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 # Monthly message limits by tier
 TIER_LIMITS = {
-    'trial': 10,
-    'basic': 50,
+    'trial': 0,
+    'starter': 0,
+    'pro': 50,
     'premium': 200,
 }
 

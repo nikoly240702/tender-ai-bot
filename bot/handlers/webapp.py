@@ -20,6 +20,7 @@ from aiogram.fsm.context import FSMContext
 
 from tender_sniper.database import get_sniper_db
 from bot.utils import safe_callback_data
+from bot.utils.ai_access import can_use_ai
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,15 @@ async def _export_notifications(
 
     user_columns = set(gs_config.get('columns', []))
     has_ai_columns = bool(user_columns & AI_COLUMNS)
-    is_ai_eligible = subscription_tier == 'premium' or gs_config.get('has_ai_unlimited')
+    from types import SimpleNamespace
+    _fake_user = SimpleNamespace(
+        subscription_tier=subscription_tier,
+        has_ai_unlimited=gs_config.get('has_ai_unlimited', False),
+        ai_unlimited_expires_at=gs_config.get('ai_unlimited_expires_at'),
+        ai_analyses_used_month=gs_config.get('ai_analyses_used_month', 0),
+    )
+    _allowed, _reason = can_use_ai(_fake_user)
+    is_ai_eligible = _allowed
 
     for i, notif in enumerate(notifications):
         try:
@@ -240,7 +249,15 @@ async def export_single_tender(callback: CallbackQuery):
         user_columns = set(gs_config.get('columns', []))
         has_ai_columns = bool(user_columns & AI_COLUMNS)
         subscription_tier = user.get('subscription_tier', 'trial')
-        is_ai_eligible = subscription_tier == 'premium' or user.get('has_ai_unlimited')
+        from types import SimpleNamespace
+        _fake_user = SimpleNamespace(
+            subscription_tier=subscription_tier,
+            has_ai_unlimited=user.get('has_ai_unlimited', False),
+            ai_unlimited_expires_at=user.get('ai_unlimited_expires_at'),
+            ai_analyses_used_month=user.get('ai_analyses_used_month', 0),
+        )
+        _allowed, _reason = can_use_ai(_fake_user)
+        is_ai_eligible = _allowed
 
         if has_ai_columns and is_ai_eligible and gs_config.get('ai_enrichment') and not ai_data:
             try:

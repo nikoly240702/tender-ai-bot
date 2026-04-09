@@ -287,10 +287,12 @@ def format_stats(stats: Dict[str, Any]) -> str:
     subscription_tier = stats.get('subscription_tier', 'trial')
     if subscription_tier == 'trial':
         message += "\n💳 Тариф: Пробный (20 уведомлений/день)"
-    elif subscription_tier == 'basic':
-        message += "\n💳 Тариф: Базовый (50 уведомлений/день)"
+    elif subscription_tier == 'starter':
+        message += "\n💳 Тариф: Starter (50 уведомлений/день)"
+    elif subscription_tier == 'pro':
+        message += "\n💳 Тариф: Pro (безлимит)"
     else:
-        message += "\n💳 Тариф: Премиум (безлимит)"
+        message += "\n💳 Тариф: Business (безлимит)"
 
     return message
 

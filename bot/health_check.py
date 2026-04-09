@@ -118,10 +118,19 @@ async def yookassa_webhook_handler(request):
             telegram_id = metadata.get('telegram_id')
             tier = metadata.get('tier')
             days_from_metadata = metadata.get('days')  # Кол-во дней из метаданных платежа
+            customer_email = (
+                metadata.get('customer_email')
+                or metadata.get('email')
+                or (obj.get('receipt') or {}).get('customer', {}).get('email')
+            )
 
             if not telegram_id or not tier:
                 logger.warning(f"⚠️ Missing metadata in webhook: {data}")
                 return web.json_response({"status": "error", "message": "Missing metadata"}, status=400)
+
+            if tier not in ('starter', 'pro', 'premium', 'ai_unlimited'):
+                logger.warning(f"⚠️ Unknown tier in webhook: {tier}")
+                return web.json_response({"status": "error", "message": f"Unknown tier: {tier}"}, status=400)
 
             telegram_id = int(telegram_id)
 
@@ -144,10 +153,11 @@ async def yookassa_webhook_handler(request):
 
                 # Определяем лимиты для тарифа (days берём из метаданных)
                 tier_limits = {
-                    'basic': {'filters': 5, 'notifications': 100},
-                    'premium': {'filters': 20, 'notifications': 9999},
+                    'starter': {'filters': 5, 'notifications': 50},
+                    'pro': {'filters': 15, 'notifications': 9999},
+                    'premium': {'filters': 30, 'notifications': 9999},
                 }
-                limits = tier_limits.get(tier, tier_limits['basic'])
+                limits = tier_limits.get(tier, tier_limits['starter'])
                 limits['days'] = subscription_days  # Используем дни из метаданных
 
                 # Обновляем подписку пользователя
@@ -214,6 +224,55 @@ async def yookassa_webhook_handler(request):
                         )
 
                         logger.info(f"✅ Subscription activated: user={telegram_id}, tier={tier}, expires={expires_at}")
+
+                        # Save email and apply multi-account upgrade (Telegram <-> Max linking)
+                        if customer_email:
+                            try:
+                                from tender_sniper.database.sqlalchemy_adapter import DatabaseSession
+                                from database import SniperUser as SniperUserModel
+                                from sqlalchemy import select, update as sa_update
+                                from bot.utils.tier_priority import should_upgrade
+
+                                async with DatabaseSession() as session:
+                                    # Save email on paying user
+                                    await session.execute(
+                                        sa_update(SniperUserModel)
+                                        .where(SniperUserModel.id == user['id'])
+                                        .values(email=customer_email)
+                                    )
+
+                                    # Find siblings with same email
+                                    siblings_result = await session.execute(
+                                        select(SniperUserModel).where(
+                                            SniperUserModel.email == customer_email,
+                                            SniperUserModel.id != user['id'],
+                                        )
+                                    )
+                                    siblings = siblings_result.scalars().all()
+
+                                    for sibling in siblings:
+                                        if should_upgrade(
+                                            current_tier=sibling.subscription_tier,
+                                            current_expires=sibling.trial_expires_at,
+                                            new_tier=tier,
+                                            new_expires=expires_at,
+                                        ):
+                                            await session.execute(
+                                                sa_update(SniperUserModel)
+                                                .where(SniperUserModel.id == sibling.id)
+                                                .values(
+                                                    subscription_tier=tier,
+                                                    trial_expires_at=expires_at,
+                                                    filters_limit=limits['filters'],
+                                                    notifications_limit=limits['notifications'],
+                                                )
+                                            )
+                                            logger.info(
+                                                f"🔗 Multi-account upgrade: sibling user {sibling.id} "
+                                                f"(tg={sibling.telegram_id}) → {tier}"
+                                            )
+                            except Exception as e:
+                                logger.error(f"Failed multi-account email upgrade: {e}", exc_info=True)
 
                     # Помечаем что пользователь оплачивал (для скидки первого месяца)
                     try:

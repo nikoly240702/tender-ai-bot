@@ -17,6 +17,8 @@ from aiogram.fsm.state import State, StatesGroup
 
 from tender_sniper.database import get_sniper_db
 from bot.utils.tender_notifications import format_favorites_list, format_stats
+from bot.utils.ai_access import can_use_ai
+from types import SimpleNamespace
 from bot.utils.tender_db_helpers import (
     get_user_favorites,
     get_user_hidden_tenders,
@@ -1678,9 +1680,14 @@ async def gsheets_columns_done(callback: CallbackQuery, state: FSMContext):
             await callback.message.edit_text("❌ Пользователь не найден")
             return
 
-        # Проверяем Premium / AI Unlimited для AI колонок
-        subscription_tier = sniper_user.get('subscription_tier', 'trial')
-        has_ai_access = subscription_tier == 'premium' or sniper_user.get('has_ai_unlimited')
+        # Проверяем доступ к AI для AI колонок
+        _fake_user = SimpleNamespace(
+            subscription_tier=sniper_user.get('subscription_tier', 'trial'),
+            has_ai_unlimited=sniper_user.get('has_ai_unlimited', False),
+            ai_unlimited_expires_at=sniper_user.get('ai_unlimited_expires_at'),
+            ai_analyses_used_month=sniper_user.get('ai_analyses_used_month', 0),
+        )
+        has_ai_access, _ = can_use_ai(_fake_user)
         ai_enrichment = has_ai_columns and has_ai_access
 
         # Если нет доступа к AI а выбрал AI колонки — убираем их

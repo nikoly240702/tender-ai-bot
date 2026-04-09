@@ -247,7 +247,7 @@ class TenderSniperService:
             active_filters = []
             for f in filters:
                 tier = f.get('subscription_tier', 'trial')
-                if tier in ('trial', 'basic', 'premium'):
+                if tier in ('trial', 'starter', 'pro', 'premium'):
                     trial_exp = f.get('trial_expires_at')
                     if trial_exp:
                         if isinstance(trial_exp, str):
@@ -370,7 +370,7 @@ class TenderSniperService:
                     is_admin = BotConfig.ADMIN_USER_ID and telegram_id == BotConfig.ADMIN_USER_ID
                     if not is_admin:
                         daily_limit = filter_data.get('notifications_limit') or (
-                            20 if subscription_tier == 'trial' else (50 if subscription_tier == 'basic' else 100)
+                            20 if subscription_tier == 'trial' else (50 if subscription_tier == 'starter' else 9999)
                         )
                         has_quota = await self.db.check_notification_quota(user_id, daily_limit)
                         if not has_quota:
