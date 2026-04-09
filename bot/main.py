@@ -169,6 +169,15 @@ async def run_bitrix24_update():
     logger.info("=" * 70)
 
 
+async def run_lily_to_expired():
+    """Одноразовый скрипт: переводит Лилю (id=2) из basic в expired."""
+    try:
+        import scripts.lily_to_expired as s
+        await s.main()
+    except Exception as e:
+        logger.error(f"lily_to_expired error: {e}")
+
+
 async def run_bitrix24_migration():
     """Запускаем одноразовую миграцию в Битрикс24, если выставлена переменная."""
     if os.environ.get('RUN_MIGRATION_BITRIX24') != '1':
@@ -198,6 +207,7 @@ async def main():
     # ============================================
     # PRODUCTION: Одноразовые задачи Битрикс24 (в фоне — не блокируют старт бота)
     # ============================================
+    asyncio.create_task(run_lily_to_expired())
     asyncio.create_task(run_bitrix24_migration())
     asyncio.create_task(run_bitrix24_update())
 

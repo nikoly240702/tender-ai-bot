@@ -3,7 +3,7 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python -m alembic upgrade head && python scripts/lily_to_expired.py ; python -m bot.main"
+startCommand = "python -m bot.main"
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"
