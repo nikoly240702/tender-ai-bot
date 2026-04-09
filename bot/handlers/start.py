@@ -63,8 +63,8 @@ def get_main_keyboard(is_monitoring_enabled: bool = True) -> ReplyKeyboardMarkup
 
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🤖 Tender-GPT"), KeyboardButton(text="🎯 Мои фильтры")],
-            [KeyboardButton(text="📋 Меню"), KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="🤖 Tender-GPT"), KeyboardButton(text="📋 Мои фильтры")],
+            [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
         persistent=True
@@ -316,6 +316,12 @@ async def cmd_start(message: Message, state: FSMContext):
                 logger.info(f"Referral processed successfully for user {message.from_user.id}")
         except Exception as e:
             logger.error(f"Error processing referral: {e}")
+
+
+@router.message(F.text == "❓ Помощь")
+async def btn_help(message: Message):
+    """Кнопка Помощь в reply-клавиатуре."""
+    await cmd_help(message)
 
 
 @router.message(Command("help"))
