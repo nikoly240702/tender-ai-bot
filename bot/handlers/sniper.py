@@ -518,42 +518,32 @@ async def show_subscription_plans(callback: CallbackQuery):
     """Показать тарифные планы."""
     await callback.answer()
 
-    plans_text = (
-        "💎 <b>Тарифные планы Tender Sniper</b>\n\n"
+    from bot.handlers.subscriptions import SUBSCRIPTION_TIERS
 
-        "🎁 <b>Пробный период (14 дней)</b>\n"
-        "• 3 фильтра мониторинга\n"
-        "• 20 уведомлений в день\n"
-        "• Мгновенный поиск\n"
-        "• Избранное\n\n"
+    plans_text = "💎 <b>Тарифные планы Tender Sniper</b>\n\n"
+    for tier_id, tier_info in SUBSCRIPTION_TIERS.items():
+        if tier_id == 'trial':
+            continue
+        price_text = f"от {tier_info['price']} ₽/мес"
+        features = "\n".join(f"• {f}" for f in tier_info.get('features', []))
+        plans_text += f"{tier_info['emoji']} <b>{tier_info['name']} — {price_text}</b>\n{features}\n\n"
 
-        "⭐ <b>Basic — от 1 490 ₽/мес</b>\n"
-        "• 5 фильтров мониторинга\n"
-        "• 100 уведомлений в день\n"
-        "• Экспорт в Excel\n"
-        "• Напоминания о тендерах\n"
-        "• Telegram-поддержка\n\n"
-
-        "💎 <b>Premium — от 2 990 ₽/мес</b>\n"
-        "• 20 фильтров мониторинга\n"
-        "• Безлимит уведомлений\n"
-        "• Архивный поиск\n"
-        "• Настройки фильтров (ИНН, чёрный список)\n"
-        "• Доступ к бета-функциям\n"
-        "• Приоритетная поддержка\n\n"
-
+    plans_text += (
         "🤖 <b>AI Unlimited — аддон +1 490 ₽/мес</b>\n"
         "• Безлимитный AI-анализ тендеров\n"
-        "• Работает с любым тарифом (Basic / Premium)\n\n"
-
+        "• Работает с любым тарифом\n\n"
         "💰 <b>Скидки:</b> 10% за 3 мес, 20% за 6 мес\n\n"
-
         "<i>Выберите тариф для просмотра цен:</i>"
     )
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⭐ Выбрать Basic", callback_data="subscription_select_basic")],
-        [InlineKeyboardButton(text="💎 Выбрать Premium", callback_data="subscription_select_premium")],
+        [InlineKeyboardButton(
+            text=f"{info['emoji']} Выбрать {info['name']}",
+            callback_data=f"subscription_select_{tier_id}"
+        )]
+        for tier_id, info in SUBSCRIPTION_TIERS.items()
+        if tier_id != 'trial'
+    ] + [
         [InlineKeyboardButton(text="🤖 AI Unlimited (аддон)", callback_data="subscription_select_ai_unlimited")],
         [InlineKeyboardButton(text="« Назад", callback_data="sniper_menu")],
         [InlineKeyboardButton(text="🏠 Главное меню", callback_data="main_menu")]

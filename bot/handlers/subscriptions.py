@@ -60,7 +60,7 @@ def get_subscription_keyboard(subscription: dict = None) -> InlineKeyboardMarkup
     if not subscription or not subscription.get('is_active'):
         # No active subscription
         builder.row(
-            InlineKeyboardButton(text="🎁 Активировать Trial (14 дней)", callback_data="subscription_activate_trial")
+            InlineKeyboardButton(text="🎁 Активировать Trial (7 дней)", callback_data="subscription_activate_trial")
         )
         builder.row(
             InlineKeyboardButton(text="📦 Посмотреть тарифы", callback_data="subscription_tiers")
@@ -320,7 +320,7 @@ async def show_subscription_status(message: Message, user_id: int = None):
 
 ❌ <b>У вас нет активной подписки</b>
 
-Активируйте пробный период на 14 дней бесплатно или выберите тариф:
+Активируйте пробный период на 7 дней бесплатно или выберите тариф:
 """
 
     # Build subscription dict for keyboard

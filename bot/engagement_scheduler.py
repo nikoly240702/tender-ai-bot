@@ -232,7 +232,7 @@ class EngagementScheduler:
                         f"За это время бот нашёл <b>{total}</b> тендеров по вашим фильтрам.\n\n"
                         f"После окончания триала мониторинг будет приостановлен.\n"
                         f"Оформите подписку, чтобы продолжить получать уведомления.\n\n"
-                        f"💡 Basic — от <b>1 490 ₽/мес</b> (5 фильтров)",
+                        f"💡 Starter — от <b>499 ₽/мес</b> (5 фильтров)",
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                             [InlineKeyboardButton(text="⭐ Оформить подписку", callback_data="subscription_tiers")],
                         ]),

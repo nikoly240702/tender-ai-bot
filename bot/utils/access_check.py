@@ -39,27 +39,27 @@ FEATURE_NAMES = {
 
 # Минимальный тариф для функции
 FEATURE_MIN_TIER = {
-    'archive_search': 'Premium',
-    'excel_export': 'Basic',
-    'reminders': 'Basic',
-    'extended_settings': 'Premium',
-    'beta_features': 'Premium',
+    'archive_search': 'Pro',
+    'excel_export': 'Starter',
+    'reminders': 'Starter',
+    'extended_settings': 'Pro',
+    'beta_features': 'Business',
 }
 
 
 def get_upgrade_keyboard(feature: str) -> InlineKeyboardMarkup:
     """Клавиатура для предложения апгрейда."""
-    min_tier = FEATURE_MIN_TIER.get(feature, 'Basic')
+    min_tier = FEATURE_MIN_TIER.get(feature, 'Starter')
 
     buttons = []
-    if min_tier == 'Basic':
+    if min_tier == 'Starter':
         buttons.append([InlineKeyboardButton(
-            text="⭐ Оформить Basic — 490 ₽/мес",
-            callback_data="subscription_select_basic"
+            text="⭐ Оформить Starter — 499 ₽/мес",
+            callback_data="subscription_select_starter"
         )])
     buttons.append([InlineKeyboardButton(
-        text="💎 Оформить Premium — 990 ₽/мес",
-        callback_data="subscription_select_premium"
+        text="💎 Оформить Pro — 1 490 ₽/мес",
+        callback_data="subscription_select_pro"
     )])
     buttons.append([InlineKeyboardButton(
         text="📦 Все тарифы",
