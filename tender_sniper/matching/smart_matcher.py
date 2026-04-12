@@ -238,6 +238,10 @@ class SmartMatcher:
         'медицинских отходов': True,
         'биологических образцов': True,
         'лекарственных препаратов': True,
+        'лекарственный препарат': True,
+        'лекарственные препараты': True,
+        'лекарственные средства': True,
+        'лекарственного препарата': True,
         # Строительная тематика
         'капитальный ремонт': True,
         'строительство здания': True,
@@ -1093,20 +1097,14 @@ class SmartMatcher:
 
             # ШАГ 6: Проверка на минимум совпадений
             if not matched_keywords:
-                logger.debug(f"   ⚠️ Нет совпадений по SmartMatcher, но найден по RSS")
-                return {
-                    'filter_id': filter_config.get('id'),
-                    'filter_name': filter_config.get('name'),
-                    'score': 10,
-                    'matched_keywords': [],
-                    'reasons': ['Найден по поисковому запросу RSS'],
-                    'matched_at': datetime.now().isoformat(),
-                    'tender_number': tender.get('number'),
-                    'tender_name': tender.get('name'),
-                    'tender_price': tender_price,
-                    'tender_url': tender.get('url'),
-                    'red_flags': detect_red_flags(tender)
-                }
+                logger.debug(f"   ⛔ Нет совпадений по ключевым словам — отклоняем")
+                return None
+
+            # ШАГ 6.5: Если фильтр имеет 3+ ключевых слова, но совпало только 1 —
+            # это слишком слабый матч (напр. "разработка" в "разработка лекарственных препаратов")
+            if total_criteria >= 3 and len(matched_keywords) == 1:
+                logger.debug(f"   ⛔ Только 1 совпадение из {total_criteria} — слишком слабый матч, отклоняем")
+                return None
 
             # ШАГ 7: СТРОГИЙ РЕЖИМ для фильтров с множеством ключевых слов
             # Если пользователь указал 5+ слов, требуем качественного матчинга
