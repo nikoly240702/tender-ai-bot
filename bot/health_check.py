@@ -225,6 +225,13 @@ async def yookassa_webhook_handler(request):
 
                         logger.info(f"✅ Subscription activated: user={telegram_id}, tier={tier}, expires={expires_at}")
 
+                        # Broadcast conversion attribution
+                        try:
+                            from bot.handlers.broadcast_tracking import attribute_conversion
+                            await attribute_conversion(user_id=user['id'], payment_id=0)
+                        except Exception as attr_err:
+                            logger.error(f"Broadcast attribution error: {attr_err}")
+
                         # Save email and apply multi-account upgrade (Telegram <-> Max linking)
                         if customer_email:
                             try:

@@ -346,6 +346,9 @@ async def main():
     # Регистрируем роутеры
     # ВАЖНО: group_chat перед остальными — для обработки my_chat_member событий
     dp.include_router(group_chat.router)
+    # broadcast tracking ДО остальных — чтобы bcast:* перехватывался раньше
+    from bot.handlers.broadcast_tracking import router as broadcast_tracking_router
+    dp.include_router(broadcast_tracking_router)
     # ВАЖНО: menu_priority ПЕРВЫМ - для обработки кнопок меню в любом FSM состоянии
     dp.include_router(menu_priority.router)
     dp.include_router(admin.router)  # Админ-панель

@@ -562,6 +562,27 @@ class BroadcastMessage(Base):
     created_by = Column(String(100), nullable=True)  # admin username
 
 
+class BroadcastRecipient(Base):
+    """Per-recipient tracking for broadcasts."""
+    __tablename__ = 'broadcast_recipients'
+
+    id = Column(Integer, primary_key=True)
+    broadcast_id = Column(Integer, ForeignKey('broadcast_messages.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default='pending', index=True)
+    # pending → delivered → clicked → converted, or → dismissed
+
+    delivered_at = Column(DateTime, nullable=True)
+    clicked_at = Column(DateTime, nullable=True)
+    clicked_button = Column(String(50), nullable=True)
+    converted_at = Column(DateTime, nullable=True)
+    converted_payment_id = Column(Integer, ForeignKey('payments.id', ondelete='SET NULL'), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint('broadcast_id', 'user_id', name='uq_broadcast_recipient'),
+    )
+
+
 class Promocode(Base):
     """Промокоды для подписок."""
     __tablename__ = 'promocodes'

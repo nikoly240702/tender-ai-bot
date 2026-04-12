@@ -45,6 +45,7 @@ class SubscriptionChecker:
         while self._running:
             try:
                 await self._check_expiring_subscriptions()
+                await self._dismiss_old_broadcasts()
             except Exception as e:
                 logger.error(f"❌ Ошибка проверки подписок: {e}", exc_info=True)
 
@@ -55,6 +56,26 @@ class SubscriptionChecker:
         """Остановка проверки."""
         self._running = False
         logger.info("🛑 Subscription Checker остановлен")
+
+    async def _dismiss_old_broadcasts(self):
+        """Mark broadcasts as 'dismissed' if no clicks in 14 days."""
+        from database import DatabaseSession, BroadcastRecipient
+        from sqlalchemy import update
+
+        cutoff = datetime.utcnow() - timedelta(days=14)
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                update(BroadcastRecipient)
+                .where(
+                    BroadcastRecipient.delivered_at < cutoff,
+                    BroadcastRecipient.clicked_at.is_(None),
+                    BroadcastRecipient.status == 'delivered',
+                )
+                .values(status='dismissed')
+            )
+            await session.commit()
+            if result.rowcount > 0:
+                logger.info(f"Dismissed {result.rowcount} old broadcast recipients")
 
     async def _check_expiring_subscriptions(self):
         """Проверить и уведомить об истекающих подписках."""

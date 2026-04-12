@@ -2959,6 +2959,14 @@ async def yookassa_webhook(request: Request):
                     completed_at=now
                 )
                 session.add(payment_record)
+                await session.flush()
+
+                # Broadcast conversion attribution
+                try:
+                    from bot.handlers.broadcast_tracking import attribute_conversion
+                    await attribute_conversion(user_id=user.id, payment_id=payment_record.id)
+                except Exception as attr_err:
+                    logger.error(f"Broadcast attribution error: {attr_err}")
 
             logger.info(f"Payment processed: user={telegram_id}, tier={tier}, amount={amount}")
 
