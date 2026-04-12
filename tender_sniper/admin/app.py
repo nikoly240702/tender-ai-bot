@@ -1415,6 +1415,51 @@ async def send_broadcast(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/broadcasts/{broadcast_id}", response_class=HTMLResponse)
+async def broadcast_stats(request: Request, broadcast_id: int, username: str = Depends(verify_credentials)):
+    """Show per-recipient stats for a specific broadcast."""
+    from database import DatabaseSession, BroadcastMessage, BroadcastRecipient, SniperUser
+
+    async with DatabaseSession() as session:
+        bm = await session.scalar(
+            select(BroadcastMessage).where(BroadcastMessage.id == broadcast_id)
+        )
+        if not bm:
+            return HTMLResponse("Broadcast not found", status_code=404)
+
+        result = await session.execute(
+            select(BroadcastRecipient, SniperUser)
+            .join(SniperUser, SniperUser.id == BroadcastRecipient.user_id)
+            .where(BroadcastRecipient.broadcast_id == broadcast_id)
+            .order_by(BroadcastRecipient.delivered_at.desc())
+        )
+        recipients = [(r, u) for r, u in result.all()]
+
+        total = len(recipients)
+        delivered = sum(1 for r, _ in recipients if r.status in ('delivered', 'clicked', 'converted', 'dismissed'))
+        clicked = sum(1 for r, _ in recipients if r.status in ('clicked', 'converted'))
+        converted = sum(1 for r, _ in recipients if r.status == 'converted')
+
+        button_clicks = {}
+        for r, _ in recipients:
+            if r.clicked_button:
+                button_clicks[r.clicked_button] = button_clicks.get(r.clicked_button, 0) + 1
+
+    return templates.TemplateResponse("broadcast_stats.html", {
+        "request": request,
+        "broadcast": bm,
+        "recipients": recipients,
+        "total": total,
+        "delivered": delivered,
+        "clicked": clicked,
+        "converted": converted,
+        "button_clicks": button_clicks,
+        "ctr_delivered": round(100 * delivered / total, 1) if total else 0,
+        "ctr_clicked": round(100 * clicked / delivered, 1) if delivered else 0,
+        "ctr_converted": round(100 * converted / clicked, 1) if clicked else 0,
+    })
+
+
 @app.get("/broadcast/history", response_class=HTMLResponse)
 async def broadcast_history(
     request: Request,
