@@ -572,6 +572,11 @@ async def handle_message(client: MaxBotClient, update: Dict[str, Any]):
             await _handle_search_input(client, chat_id, user_id, username, text)
             return
 
+        # Payment email input
+        if current_state == "pay_email":
+            await _handle_payment_email(client, chat_id, user_id, text, state)
+            return
+
         # Filter editing states
         if current_state.startswith("fedit_"):
             await _handle_filter_edit_text(client, chat_id, user_id, username, text, state)
@@ -631,6 +636,15 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
 
     elif payload == "sub_trial":
         await _activate_trial(client, chat_id, user_id, username)
+
+    elif payload.startswith("sub_pay_"):
+        tier_name = payload.replace("sub_pay_", "")
+        _user_states[user_id] = {"state": "pay_email", "tier": tier_name, "chat_id": chat_id}
+        await client.send_message(
+            chat_id,
+            "📧 Введите ваш email для получения чека об оплате:",
+            keyboard=[[{"type": "callback", "text": "❌ Отмена", "payload": "sub_tiers"}]]
+        )
 
     # ── Filter wizard: start / cancel ──
     elif payload == "new_filter":
@@ -1946,6 +1960,93 @@ SUBSCRIPTION_TIERS = {
 }
 
 
+async def _handle_payment_email(client: MaxBotClient, chat_id: int, user_id: int, text: str, state: dict):
+    """Handle email input for payment flow."""
+    import re
+    email = text.strip()
+    if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
+        await client.send_message(
+            chat_id,
+            "❌ Некорректный email. Попробуйте ещё раз:",
+            keyboard=[[{"type": "callback", "text": "❌ Отмена", "payload": "sub_tiers"}]]
+        )
+        return
+
+    tier_name = state.get("tier", "starter")
+    _user_states.pop(user_id, None)
+
+    # Get tier info
+    tier_info = SUBSCRIPTION_TIERS.get(tier_name)
+    if not tier_info:
+        await client.send_message(chat_id, "❌ Тариф не найден.", keyboard=BACK_KEYBOARD)
+        return
+
+    # Check first payment discount
+    is_first = False
+    try:
+        db = await get_sniper_db()
+        user = await db.get_user_by_telegram_id(user_id)
+        if user:
+            user_data = user.get('data') or {}
+            is_first = not user_data.get('has_paid_before', False)
+    except Exception:
+        pass
+
+    # Calculate price
+    from bot.handlers.subscriptions import calculate_price
+    price_info = calculate_price(tier_name, 1, is_first_payment=is_first)
+
+    # Create YooKassa payment
+    try:
+        from tender_sniper.payments import get_yookassa_client
+        yoo_client = get_yookassa_client()
+
+        if not yoo_client.is_configured:
+            await client.send_message(chat_id, "🚧 Платежная система временно недоступна.", keyboard=BACK_KEYBOARD)
+            return
+
+        result = yoo_client.create_payment(
+            telegram_id=user_id,
+            tier=tier_name,
+            amount=price_info['final_price'],
+            days=price_info['days'],
+            description=f"Подписка {tier_info['name']} на {price_info['label']}",
+            customer_email=email
+        )
+
+        if 'error' in result:
+            await client.send_message(chat_id, f"❌ Ошибка: {result['error']}", keyboard=BACK_KEYBOARD)
+            return
+
+        if price_info['has_discount']:
+            price_text = f"{price_info['full_price']} руб. → <b>{price_info['final_price']} руб.</b>"
+        else:
+            price_text = f"<b>{price_info['final_price']} руб.</b>"
+
+        keyboard = [
+            [{"type": "link", "text": f"💳 Оплатить {price_info['final_price']} руб.", "url": result['url']}],
+            [{"type": "callback", "text": "◀️ Назад", "payload": "sub_tiers"}],
+        ]
+
+        await client.send_message(
+            chat_id,
+            f"💳 <b>Оплата тарифа {tier_info['name']}</b>\n\n"
+            f"📅 Период: <b>{price_info['label']}</b>\n"
+            f"💰 Сумма: {price_text}\n"
+            f"📧 Чек: <code>{email}</code>\n\n"
+            f"Нажмите кнопку ниже для перехода к оплате.\n"
+            f"После оплаты подписка активируется автоматически.\n\n"
+            f"⏳ <i>Ссылка действительна 15 минут</i>",
+            keyboard=keyboard
+        )
+
+        logger.info(f"Max bot: payment created for user {user_id}, tier {tier_name}, amount {price_info['final_price']}")
+
+    except Exception as e:
+        logger.error(f"Max bot payment error: {e}", exc_info=True)
+        await client.send_message(chat_id, f"❌ Ошибка: {str(e)}", keyboard=BACK_KEYBOARD)
+
+
 async def _show_subscription(
     client: MaxBotClient,
     chat_id: int,
@@ -2013,12 +2114,12 @@ async def _show_subscription(
         text = (
             "💳 <b>Подписка</b>\n\n"
             "У вас нет активной подписки.\n\n"
-            "Активируйте пробный период на 14 дней бесплатно или выберите тариф."
+            "Активируйте пробный период на 7 дней бесплатно или выберите тариф."
         )
 
     keyboard = []
     if not is_active:
-        keyboard.append([{"type": "callback", "text": "🆓 Активировать Trial (14 дней)", "payload": "sub_trial"}])
+        keyboard.append([{"type": "callback", "text": "🆓 Активировать Trial (7 дней)", "payload": "sub_trial"}])
     keyboard.append([{"type": "callback", "text": "📊 Посмотреть тарифы", "payload": "sub_tiers"}])
     keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
 
@@ -2038,15 +2139,14 @@ async def _show_subscription_tiers(client: MaxBotClient, chat_id: int):
             text += f"  • {feature}\n"
         text += "\n"
 
-    text += (
-        "<i>💳 Оплата подписки доступна через Telegram-бота @TenderAI111_bot.\n"
-        "Подписка действует для обоих ботов (Telegram и Max).</i>"
-    )
+    text += "<i>Выберите тариф для оплаты:</i>"
 
-    keyboard = [
-        [{"type": "callback", "text": "◀️ Назад", "payload": "sub"}],
-        [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
-    ]
+    keyboard = []
+    for tier_id, info in SUBSCRIPTION_TIERS.items():
+        if tier_id == 'trial':
+            continue
+        keyboard.append([{"type": "callback", "text": f"{info['emoji']} {info['name']} — {info['price']} руб.", "payload": f"sub_pay_{tier_id}"}])
+    keyboard.append([{"type": "callback", "text": "◀️ Назад", "payload": "sub"}])
 
     await client.send_message(chat_id, text, keyboard=keyboard)
 
