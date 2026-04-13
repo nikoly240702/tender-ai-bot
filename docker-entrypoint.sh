@@ -9,19 +9,17 @@ if [ -z "$DATABASE_URL" ]; then
 fi
 echo "DATABASE_URL is set"
 
-# Alembic migrations (non-fatal)
-alembic upgrade head 2>&1 || true
-echo "Alembic done"
+# Alembic migrations run inside bot.main via run_migrations()
 
-# Start admin panel (port 8080 for healthcheck)
+# Start admin panel (port 8080 for healthcheck + admin UI)
 python -m uvicorn tender_sniper.admin.app:app --host 0.0.0.0 --port 8080 &
 ADMIN_PID=$!
 echo "Admin started PID=$ADMIN_PID"
 
 sleep 3
 
-# Start bot
-python -m bot.main &
+# Start bot (ADMIN_PANEL_ENABLED=1 tells bot.main to skip its own health server on 8080)
+ADMIN_PANEL_ENABLED=1 python -m bot.main &
 BOT_PID=$!
 echo "Bot started PID=$BOT_PID"
 
