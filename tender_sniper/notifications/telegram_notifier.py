@@ -168,6 +168,27 @@ class TelegramNotifier:
 
             self.stats['notifications_sent'] += 1
             logger.info(f"✅ Уведомление отправлено пользователю {telegram_id}")
+
+            # Email duplicate (if user opted in)
+            try:
+                from database import DatabaseSession, SniperUser
+                from sqlalchemy import select as sa_select
+
+                async with DatabaseSession() as session:
+                    user = await session.scalar(
+                        sa_select(SniperUser).where(SniperUser.telegram_id == telegram_id)
+                    )
+                    if user and user.email and user.email_notifications_enabled:
+                        from bot.integrations import get_integration_manager
+                        mgr = get_integration_manager()
+                        await mgr.send_email_notification(
+                            to_email=user.email,
+                            tender_data=tender,
+                            subject_prefix="[TenderSniper]",
+                        )
+            except Exception as e:
+                logger.warning(f"Email duplicate failed for {telegram_id}: {e}")
+
             return True
 
         except TelegramForbiddenError:

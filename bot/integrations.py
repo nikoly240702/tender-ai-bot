@@ -20,8 +20,8 @@ from typing import Dict, Any, Optional, List
 logger = logging.getLogger(__name__)
 
 # Email настройки (из env)
-SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', '587'))
+SMTP_HOST = os.getenv('SMTP_HOST', 'smtp.yandex.ru')
+SMTP_PORT = int(os.getenv('SMTP_PORT', '465'))
 SMTP_USER = os.getenv('SMTP_USER', '')
 SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
 EMAIL_FROM = os.getenv('EMAIL_FROM', SMTP_USER)
@@ -374,10 +374,15 @@ class IntegrationManager:
 
             # Отправляем асинхронно
             def send_sync():
-                with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-                    server.starttls()
-                    server.login(SMTP_USER, SMTP_PASSWORD)
-                    server.send_message(msg)
+                if SMTP_PORT == 465:
+                    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.send_message(msg)
+                else:
+                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.send_message(msg)
 
             await asyncio.to_thread(send_sync)
 
@@ -465,10 +470,15 @@ class IntegrationManager:
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
             def send_sync():
-                with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-                    server.starttls()
-                    server.login(SMTP_USER, SMTP_PASSWORD)
-                    server.send_message(msg)
+                if SMTP_PORT == 465:
+                    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.send_message(msg)
+                else:
+                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.send_message(msg)
 
             await asyncio.to_thread(send_sync)
 
