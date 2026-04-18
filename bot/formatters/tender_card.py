@@ -224,6 +224,10 @@ def _build_keyboard(
         if subscription_tier in ('pro', 'premium'):
             buttons.append([
                 InlineKeyboardButton(
+                    text="🤖 Спросить AI",
+                    callback_data=safe_callback_data("ask_ai", tender_number)
+                ),
+                InlineKeyboardButton(
                     text="📝 AI-резюме",
                     callback_data=safe_callback_data("ai_summary", tender_number)
                 ),

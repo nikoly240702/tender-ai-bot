@@ -64,6 +64,30 @@ async def enter_tender_gpt_inline(callback: CallbackQuery, state: FSMContext):
     logger.info(f"User {callback.from_user.id} entered Tender-GPT chat (inline)")
 
 
+@router.callback_query(F.data.startswith("ask_ai_"))
+async def enter_tender_gpt_with_context(callback: CallbackQuery, state: FSMContext):
+    """Вход в Tender-GPT с контекстом конкретного тендера."""
+    await callback.answer("🤖 Открываю чат с контекстом тендера...")
+    tender_number = callback.data.replace("ask_ai_", "")
+
+    service = await _get_service()
+
+    await state.set_state(TenderGPTStates.chatting)
+    await state.update_data(tender_number=tender_number)
+
+    await callback.message.answer(
+        f"🤖 <b>Tender-GPT</b> — контекст тендера <code>{tender_number}</code>\n\n"
+        f"Я загрузил данные этого тендера. Спрашивайте что угодно:\n"
+        f"• Какие риски?\n"
+        f"• Подходит ли нам?\n"
+        f"• Какие документы нужны?\n"
+        f"• Проанализируй требования\n\n"
+        f"Для выхода нажмите любую кнопку меню.",
+        parse_mode="HTML"
+    )
+    logger.info(f"User {callback.from_user.id} entered Tender-GPT with tender {tender_number}")
+
+
 # ============================================
 # ОБРАБОТКА СООБЩЕНИЙ В ЧАТЕ
 # ============================================
