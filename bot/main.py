@@ -368,6 +368,8 @@ async def main():
     dp.include_router(tender_gpt.router)  # Tender-GPT AI assistant
     dp.include_router(sniper_search.router)  # Tender Sniper Search (старый workflow)
     dp.include_router(sniper.router)  # Tender Sniper меню
+    from bot.handlers.email_settings import router as email_settings_router
+    dp.include_router(email_settings_router)  # /email, /email_off
     dp.include_router(start.router)
 
     # Глобальный обработчик ошибок
