@@ -203,6 +203,9 @@ MAIN_MENU_KEYBOARD = [
     ],
     [
         {"type": "callback", "text": "💳 Подписка", "payload": "sub"},
+        {"type": "callback", "text": "🔗 Связать с Telegram", "payload": "link_tg"},
+    ],
+    [
         {"type": "callback", "text": "❓ Помощь", "payload": "help"},
     ],
 ]
@@ -455,6 +458,63 @@ async def _ensure_user(user_id: int, username: str = None, first_name: str = Non
     return user
 
 
+async def _get_linked_user_id(max_user: dict) -> int:
+    """Get linked Telegram user_id if accounts are linked via email, otherwise return Max user_id."""
+    user_data = max_user.get('data') or {}
+    linked_id = user_data.get('linked_telegram_user_id')
+    if linked_id:
+        return linked_id
+    return max_user['id']
+
+
+async def _link_account_by_email(max_user_id: int, email: str) -> dict:
+    """Try to link Max account to Telegram account by email. Returns result dict."""
+    from database import DatabaseSession, SniperUser as SniperUserModel
+    from sqlalchemy import select
+
+    async with DatabaseSession() as session:
+        # Find Telegram user with this email
+        tg_user = await session.scalar(
+            select(SniperUserModel).where(
+                SniperUserModel.email == email,
+                SniperUserModel.id != max_user_id,
+            )
+        )
+        if not tg_user:
+            return {'success': False, 'reason': 'no_telegram_user'}
+
+        # Check it's actually a Telegram user (not another Max user)
+        tg_data = {}
+        if tg_user.data:
+            import json
+            tg_data = json.loads(tg_user.data) if isinstance(tg_user.data, str) else tg_user.data
+        if tg_data.get('platform') == 'max':
+            return {'success': False, 'reason': 'not_telegram_user'}
+
+        # Link: save linked_telegram_user_id in Max user's data
+        max_user_obj = await session.scalar(
+            select(SniperUserModel).where(SniperUserModel.id == max_user_id)
+        )
+        if max_user_obj:
+            import json
+            max_data = {}
+            if max_user_obj.data:
+                max_data = json.loads(max_user_obj.data) if isinstance(max_user_obj.data, str) else max_user_obj.data
+            max_data['linked_telegram_user_id'] = tg_user.id
+            max_data['linked_email'] = email
+            max_user_obj.data = json.dumps(max_data, ensure_ascii=False)
+
+            # Also save email on Max user
+            max_user_obj.email = email
+            await session.commit()
+
+        return {
+            'success': True,
+            'telegram_user_id': tg_user.id,
+            'telegram_username': tg_user.username,
+        }
+
+
 # ── Region name resolver ─────────────────────────────────────────
 
 REGION_PAYLOAD_MAP = {
@@ -577,6 +637,11 @@ async def handle_message(client: MaxBotClient, update: Dict[str, Any]):
             await _handle_payment_email(client, chat_id, user_id, text, state)
             return
 
+        # Link account email input
+        if current_state == "link_email":
+            await _handle_link_email(client, chat_id, user_id, text, state)
+            return
+
         # Filter editing states
         if current_state.startswith("fedit_"):
             await _handle_filter_edit_text(client, chat_id, user_id, username, text, state)
@@ -636,6 +701,32 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
 
     elif payload == "sub_trial":
         await _activate_trial(client, chat_id, user_id, username)
+
+    elif payload == "link_tg":
+        user = await _ensure_user(user_id, username)
+        if user:
+            user_data = user.get('data') or {}
+            if user_data.get('linked_telegram_user_id'):
+                linked_email = user_data.get('linked_email', '?')
+                await client.send_message(
+                    chat_id,
+                    f"🔗 Аккаунт уже привязан к Telegram (email: <code>{linked_email}</code>).\n\n"
+                    f"Фильтры и подписка общие.",
+                    keyboard=BACK_KEYBOARD
+                )
+            else:
+                _user_states[user_id] = {"state": "link_email", "chat_id": chat_id}
+                await client.send_message(
+                    chat_id,
+                    "🔗 <b>Привязка к Telegram-аккаунту</b>\n\n"
+                    "Введите email, который вы указали в Telegram-боте @TenderAI111_bot "
+                    "(через команду /email).\n\n"
+                    "Это позволит:\n"
+                    "• Видеть фильтры из Telegram\n"
+                    "• Получать уведомления в обоих мессенджерах\n"
+                    "• Общая подписка",
+                    keyboard=[[{"type": "callback", "text": "❌ Отмена", "payload": "menu"}]]
+                )
 
     elif payload.startswith("sub_pay_"):
         tier_name = payload.replace("sub_pay_", "")
@@ -1674,7 +1765,8 @@ async def _show_filters(
         return
 
     db = await get_sniper_db()
-    filters = await db.get_user_filters(user['id'], active_only=False)
+    linked_id = await _get_linked_user_id(user)
+    filters = await db.get_user_filters(linked_id, active_only=False)
 
     if not filters:
         no_filters_keyboard = [
@@ -2045,6 +2137,49 @@ async def _handle_payment_email(client: MaxBotClient, chat_id: int, user_id: int
     except Exception as e:
         logger.error(f"Max bot payment error: {e}", exc_info=True)
         await client.send_message(chat_id, f"❌ Ошибка: {str(e)}", keyboard=BACK_KEYBOARD)
+
+
+async def _handle_link_email(client: MaxBotClient, chat_id: int, user_id: int, text: str, state: dict):
+    """Handle email input for account linking."""
+    import re
+    email = text.strip()
+    if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
+        await client.send_message(
+            chat_id,
+            "❌ Некорректный email. Попробуйте ещё раз:",
+            keyboard=[[{"type": "callback", "text": "❌ Отмена", "payload": "menu"}]]
+        )
+        return
+
+    _user_states.pop(user_id, None)
+
+    user = await _ensure_user(user_id)
+    if not user:
+        await client.send_message(chat_id, "⚠️ Ошибка.", keyboard=BACK_KEYBOARD)
+        return
+
+    result = await _link_account_by_email(user['id'], email)
+
+    if result['success']:
+        await client.send_message(
+            chat_id,
+            f"✅ <b>Аккаунт привязан!</b>\n\n"
+            f"Связан с Telegram: @{result.get('telegram_username', '—')}\n\n"
+            f"Теперь вы видите фильтры из Telegram и получаете уведомления в обоих мессенджерах.",
+            keyboard=MAIN_MENU_KEYBOARD
+        )
+        logger.info(f"Max user {user_id} linked to Telegram user {result['telegram_user_id']} via email {email}")
+    else:
+        reason = result.get('reason', 'unknown')
+        if reason == 'no_telegram_user':
+            msg = (
+                f"❌ Пользователь с email <code>{email}</code> не найден в Telegram-боте.\n\n"
+                f"Сначала укажите email в @TenderAI111_bot командой:\n"
+                f"<code>/email {email}</code>"
+            )
+        else:
+            msg = "❌ Не удалось привязать аккаунт."
+        await client.send_message(chat_id, msg, keyboard=BACK_KEYBOARD)
 
 
 async def _show_subscription(
