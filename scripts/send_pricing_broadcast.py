@@ -29,29 +29,27 @@ from database import (
 # Segment 2: active trial users (trial not expired yet)
 # Segment 3: old expired users (inactive for 30+ days)
 SEGMENT_QUERIES = {
+    # Segment 1: expired/trial users who were active recently (got notifications)
     1: """
         SELECT u.* FROM sniper_users u
         WHERE (u.subscription_tier = 'expired'
                OR (u.subscription_tier = 'trial' AND u.trial_expires_at < now()))
-          AND u.last_activity > now() - interval '14 days'
           AND (
             (SELECT count(*) FROM sniper_notifications n
-             WHERE n.user_id = u.id AND n.sent_at > now() - interval '30 days') >= 5
-            OR
-            (SELECT count(*) FROM user_actions a
-             WHERE a.user_id = u.id AND a.created_at > now() - interval '30 days') >= 10
+             WHERE n.user_id = u.id AND n.sent_at > now() - interval '30 days') >= 3
           )
     """,
+    # Segment 2: active trial users (trial not expired yet)
     2: """
         SELECT * FROM sniper_users
         WHERE subscription_tier = 'trial'
           AND trial_expires_at > now()
-          AND last_activity > now() - interval '7 days'
     """,
+    # Segment 3: old expired users
     3: """
         SELECT * FROM sniper_users
-        WHERE (subscription_tier = 'expired'
-               OR (subscription_tier = 'trial' AND trial_expires_at < now() - interval '30 days'))
+        WHERE subscription_tier = 'expired'
+          AND (status IS NULL OR status != 'banned')
     """,
 }
 
@@ -91,7 +89,12 @@ async def send_to_segment(segment: int, dry_run: bool = False):
         print("ERROR: BOT_TOKEN not set")
         return
 
-    await init_database()
+    # init_database only if running standalone (not from bot.main)
+    try:
+        from database import get_database_url
+        await init_database()
+    except Exception:
+        pass  # already initialized by bot.main
 
     # 1. Fetch users
     users = await fetch_segment(segment)

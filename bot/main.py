@@ -187,6 +187,25 @@ async def run_holodilnik_filters():
         logger.error(f"create_holodilnik_filters error: {e}")
 
 
+async def run_pricing_broadcast():
+    """Запуск рассылки по сегменту, если установлена переменная RUN_BROADCAST_SEGMENT."""
+    segment = os.environ.get('RUN_BROADCAST_SEGMENT', '').strip()
+    if not segment:
+        return
+
+    logger.info("=" * 70)
+    logger.info(f"📢 ЗАПУСК РАССЫЛКИ — СЕГМЕНТ {segment}")
+    logger.info("=" * 70)
+
+    try:
+        from scripts.send_pricing_broadcast import send_to_segment
+        await send_to_segment(int(segment), dry_run=False)
+    except Exception as e:
+        logger.error(f"❌ Ошибка рассылки: {e}", exc_info=True)
+
+    logger.info("=" * 70)
+
+
 async def run_bitrix24_migration():
     """Запускаем одноразовую миграцию в Битрикс24, если выставлена переменная."""
     if os.environ.get('RUN_MIGRATION_BITRIX24') != '1':
@@ -218,6 +237,7 @@ async def main():
     # ============================================
     asyncio.create_task(run_lily_to_expired())
     asyncio.create_task(run_holodilnik_filters())
+    asyncio.create_task(run_pricing_broadcast())
     asyncio.create_task(run_bitrix24_migration())
     asyncio.create_task(run_bitrix24_update())
 
