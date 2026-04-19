@@ -2618,7 +2618,8 @@ async def _show_all_tenders(
 
         db = await get_sniper_db()
         linked_id = await _get_linked_user_id(user)
-        tenders = await db.get_user_tenders(linked_id, limit=10)
+        page_size = 20
+        tenders = await db.get_user_tenders(linked_id, limit=page_size + 1)
 
         if not tenders:
             await _smart_reply(
@@ -2633,10 +2634,13 @@ async def _show_all_tenders(
             )
             return
 
-        lines = ["📊 <b>Все мои тендеры</b>\n"]
+        has_more = len(tenders) > page_size
+        show_tenders = tenders[:page_size]
+
+        lines = [f"📊 <b>Все мои тендеры</b> (последние {len(show_tenders)})\n"]
         keyboard = []
 
-        for i, t in enumerate(tenders, 1):
+        for i, t in enumerate(show_tenders, 1):
             name = t.get('name', 'Без названия')
             short_name = name[:50] + "..." if len(name) > 50 else name
             price = t.get('price')
@@ -2658,7 +2662,7 @@ async def _show_all_tenders(
 
         keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
 
-        await client.send_message(chat_id, "\n".join(lines), keyboard=keyboard)
+        await _smart_reply(client, chat_id, "\n".join(lines), keyboard=keyboard)
 
     except Exception as e:
         logger.error(f"Max bot: error showing all tenders: {e}", exc_info=True)
