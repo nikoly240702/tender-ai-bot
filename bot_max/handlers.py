@@ -871,6 +871,13 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
     elif payload == "all_tenders":
         await _show_all_tenders(client, chat_id, user_id, username)
 
+    elif payload.startswith("tpage_"):
+        try:
+            page = int(payload.replace("tpage_", ""))
+            await _render_tenders_page(client, chat_id, user_id, page)
+        except ValueError:
+            pass
+
     elif payload.startswith("td_"):
         await _show_tender_detail(client, chat_id, user_id, username, payload)
 
@@ -2618,10 +2625,9 @@ async def _show_all_tenders(
 
         db = await get_sniper_db()
         linked_id = await _get_linked_user_id(user)
-        page_size = 20
-        tenders = await db.get_user_tenders(linked_id, limit=page_size + 1)
+        all_tenders = await db.get_user_tenders(linked_id, limit=10000)
 
-        if not tenders:
+        if not all_tenders:
             await _smart_reply(
                 client, chat_id,
                 "📊 <b>Все мои тендеры</b>\n\n"
@@ -2634,39 +2640,64 @@ async def _show_all_tenders(
             )
             return
 
-        has_more = len(tenders) > page_size
-        show_tenders = tenders[:page_size]
-
-        lines = [f"📊 <b>Все мои тендеры</b> (последние {len(show_tenders)})\n"]
-        keyboard = []
-
-        for i, t in enumerate(show_tenders, 1):
-            name = t.get('name', 'Без названия')
-            short_name = name[:50] + "..." if len(name) > 50 else name
-            price = t.get('price')
-            price_text = _format_price(price) if price else "не указана"
-            sent_at = t.get('sent_at', '')
-            date_text = sent_at[:10] if sent_at else ""
-            number = t.get('number', '')
-
-            lines.append(f"{i}. 💰 {price_text} — {short_name}")
-            if date_text:
-                lines.append(f"   📅 {date_text}")
-
-            if number:
-                keyboard.append([{
-                    "type": "callback",
-                    "text": f"📄 {i}. {short_name[:35]}",
-                    "payload": f"td_{number[:20]}",
-                }])
-
-        keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
-
-        await _smart_reply(client, chat_id, "\n".join(lines), keyboard=keyboard)
+        # Store in user state for pagination
+        _user_states[user_id] = {"state": "all_tenders", "tenders": all_tenders, "page": 0}
+        await _render_tenders_page(client, chat_id, user_id, 0)
 
     except Exception as e:
         logger.error(f"Max bot: error showing all tenders: {e}", exc_info=True)
         await client.send_message(chat_id, "⚠️ Произошла ошибка.", keyboard=BACK_KEYBOARD)
+
+
+async def _render_tenders_page(client: MaxBotClient, chat_id: int, user_id: int, page: int):
+    """Render a page of tenders with pagination."""
+    state = _user_states.get(user_id, {})
+    all_tenders = state.get('tenders', [])
+    page_size = 10
+    total_pages = max(1, (len(all_tenders) + page_size - 1) // page_size)
+    page = max(0, min(page, total_pages - 1))
+
+    start = page * page_size
+    page_tenders = all_tenders[start:start + page_size]
+
+    lines = [f"📊 <b>Все мои тендеры</b> — стр. {page + 1}/{total_pages} (всего: {len(all_tenders)})\n"]
+    keyboard = []
+
+    for i, t in enumerate(page_tenders, start + 1):
+        name = t.get('name', 'Без названия')
+        short_name = name[:50] + "..." if len(name) > 50 else name
+        price = t.get('price')
+        price_text = _format_price(price) if price else "не указана"
+        sent_at = t.get('sent_at', '')
+        date_text = sent_at[:10] if sent_at else ""
+        number = t.get('number', '')
+
+        lines.append(f"{i}. 💰 {price_text} — {short_name}")
+        if date_text:
+            lines.append(f"   📅 {date_text}")
+
+        if number:
+            keyboard.append([{
+                "type": "callback",
+                "text": f"📄 {i}. {short_name[:35]}",
+                "payload": f"td_{number[:20]}",
+            }])
+
+    # Pagination buttons
+    nav_row = []
+    if page > 0:
+        nav_row.append({"type": "callback", "text": "◀️ Назад", "payload": f"tpage_{page - 1}"})
+    if page < total_pages - 1:
+        nav_row.append({"type": "callback", "text": "Вперёд ▶️", "payload": f"tpage_{page + 1}"})
+    if nav_row:
+        keyboard.append(nav_row)
+
+    keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
+
+    # Update page in state
+    _user_states[user_id] = {**state, "page": page}
+
+    await _smart_reply(client, chat_id, "\n".join(lines), keyboard=keyboard)
 
 
 async def _show_tender_detail(
