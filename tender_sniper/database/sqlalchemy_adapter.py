@@ -366,6 +366,15 @@ class TenderSniperDB:
                 )
             )
 
+    async def count_user_notifications(self, user_id: int) -> int:
+        """Count total notifications for a user."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(func.count(SniperNotificationModel.id))
+                .where(SniperNotificationModel.user_id == user_id)
+            )
+            return result.scalar() or 0
+
     async def increment_notifications_count(self, user_id: int):
         """Инкремент счетчика уведомлений."""
         async with DatabaseSession() as session:
