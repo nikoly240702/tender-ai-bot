@@ -655,14 +655,30 @@ async def handle_message(client: MaxBotClient, update: Dict[str, Any]):
     await client.send_message(chat_id, WELCOME_TEXT, keyboard=MAIN_MENU_KEYBOARD)
 
 
+_recent_callbacks: Dict[str, float] = {}  # callback_id -> timestamp for dedup
+
+
 async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
     """Handle inline keyboard button press."""
+    import time
     callback = update.get("callback", {})
     callback_id = callback.get("callback_id")
     payload = callback.get("payload")
     user = callback.get("user", {})
     user_id = user.get("user_id")
     username = user.get("username")
+
+    # Deduplicate rapid clicks (same callback_id within 2 seconds)
+    if callback_id:
+        now = time.time()
+        if callback_id in _recent_callbacks and now - _recent_callbacks[callback_id] < 2.0:
+            logger.debug(f"Max bot: duplicate callback {callback_id}, skipping")
+            return
+        _recent_callbacks[callback_id] = now
+        # Cleanup old entries
+        if len(_recent_callbacks) > 100:
+            cutoff = now - 10
+            _recent_callbacks.clear()
     message = update.get("message", {})
     chat_id = message.get("recipient", {}).get("chat_id")
 
@@ -1826,7 +1842,11 @@ async def _view_filter(
         return
 
     user = await _ensure_user(user_id, username)
-    if not user or filter_data.get('user_id') != user['id']:
+    if not user:
+        await client.send_message(chat_id, "⚠️ Пользователь не найден.", keyboard=BACK_KEYBOARD)
+        return
+    linked_id = await _get_linked_user_id(user)
+    if filter_data.get('user_id') != linked_id:
         await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
         return
 
@@ -1895,7 +1915,11 @@ async def _toggle_filter(
             return
 
         user = await _ensure_user(user_id, username)
-        if not user or filter_data.get('user_id') != user['id']:
+        if not user:
+            await client.send_message(chat_id, "⚠️ Пользователь не найден.", keyboard=BACK_KEYBOARD)
+            return
+        linked_id = await _get_linked_user_id(user)
+        if filter_data.get('user_id') != linked_id:
             await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
             return
 
@@ -1966,7 +1990,8 @@ async def _delete_filter(
             return
 
         user = await _ensure_user(user_id, username)
-        if not user or filter_data.get('user_id') != user['id']:
+        linked_id = await _get_linked_user_id(user) if user else None
+        if not user or filter_data.get('user_id') != linked_id:
             await client.send_message(chat_id, "⚠️ Фильтр не найден.", keyboard=BACK_KEYBOARD)
             return
 
@@ -2558,7 +2583,8 @@ async def _show_all_tenders(
             return
 
         db = await get_sniper_db()
-        tenders = await db.get_user_tenders(user['id'], limit=10)
+        linked_id = await _get_linked_user_id(user)
+        tenders = await db.get_user_tenders(linked_id, limit=10)
 
         if not tenders:
             await client.send_message(
@@ -2623,7 +2649,7 @@ async def _show_tender_detail(
             return
 
         db = await get_sniper_db()
-        tenders = await db.get_user_tenders(user['id'], limit=100)
+        tenders = await db.get_user_tenders(await _get_linked_user_id(user), limit=100)
 
         tender = None
         for t in tenders:
@@ -2711,7 +2737,7 @@ async def _show_favorites(
     try:
         user = await _ensure_user(user_id, username)
         db = await get_sniper_db()
-        all_tenders = await db.get_user_tenders(user['id'], limit=100)
+        all_tenders = await db.get_user_tenders(await _get_linked_user_id(user), limit=100)
         tender_map = {t.get('number', ''): t for t in all_tenders}
     except Exception:
         tender_map = {}
@@ -2801,7 +2827,7 @@ async def _show_stats(
         total_filters = len(filters)
 
         # Get notification count
-        tenders = await db.get_user_tenders(user['id'], limit=10000)
+        tenders = await db.get_user_tenders(await _get_linked_user_id(user), limit=10000)
         total_notifications = len(tenders)
 
         # Days since registration
