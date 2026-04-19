@@ -7,40 +7,62 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/cabinet/static/cabinet.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
+    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--blue:#4a9eff;--sidebar-w:240px}
     body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
-    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh}
+    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh;z-index:10}
     .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
     .sidebar nav{flex:1}
     .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
     .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
     .sidebar .icon{width:20px;text-align:center}
     .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:auto}.sidebar .bottom a{color:var(--gray);font-size:13px}
-    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px}
-    .page-header{margin-bottom:28px}.page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}.page-header p{color:var(--gray2);font-size:14px}
-    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
-    .tbl{width:100%;border-collapse:collapse}.tbl th{text-align:left;padding:10px 12px;font-size:12px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--line)}.tbl td{padding:12px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:top}.tbl tr:hover td{background:var(--surface)}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
-    .btn-gold{background:var(--gold);color:#0a0e17}.btn-gold:hover{opacity:0.9}
-    .btn-outline{background:transparent;border:1px solid var(--line);color:var(--white)}.btn-outline:hover{border-color:var(--gold-line);color:var(--gold)}
-    .btn-sm{padding:6px 12px;font-size:12px}
-    .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
-    .badge-green{background:rgba(61,214,140,0.15);color:var(--green)}.badge-gold{background:var(--gold-dim);color:var(--gold)}.badge-gray{background:var(--surface);color:var(--gray2)}
-    .loading{text-align:center;padding:40px;color:var(--gray)}
+    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px;max-width:1200px}
+    .page-header{margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+    .page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700}
+    .page-header .stats{display:flex;gap:16px;color:var(--gray2);font-size:14px}
+    .page-header .stats b{color:var(--white)}
+    .filters-bar{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center}
+    .filter-select{background:var(--bg3);border:1px solid var(--line);color:var(--white);padding:8px 12px;border-radius:8px;font-size:13px;font-family:inherit;cursor:pointer}
+    .filter-select:focus{outline:none;border-color:var(--gold-line)}
+    .search-input{background:var(--bg3);border:1px solid var(--line);color:var(--white);padding:8px 14px;border-radius:8px;font-size:13px;font-family:inherit;width:260px}
+    .search-input::placeholder{color:var(--gray)}.search-input:focus{outline:none;border-color:var(--gold-line)}
+    .tender-list{display:flex;flex-direction:column;gap:12px}
+    .tender-card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:20px 24px;transition:border-color 0.15s}
+    .tender-card:hover{border-color:var(--gold-line)}
+    .tender-card.interested{border-left:3px solid var(--gold)}
+    .tender-card.skipped{opacity:0.5}
+    .tc-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:12px}
+    .tc-title{font-size:15px;font-weight:600;line-height:1.4;flex:1}
+    .tc-title a{color:var(--white);text-decoration:none}.tc-title a:hover{color:var(--gold)}
+    .tc-price{font-size:18px;font-weight:700;color:var(--gold);white-space:nowrap}
+    .tc-meta{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:14px;font-size:13px;color:var(--gray2)}
+    .tc-meta-item{display:flex;align-items:center;gap:5px}
+    .tc-meta-item .label{color:var(--gray)}
+    .tc-tags{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600}
+    .badge-gold{background:var(--gold-dim);color:var(--gold)}
+    .badge-green{background:rgba(61,214,140,0.15);color:var(--green)}
+    .badge-blue{background:rgba(74,158,255,0.12);color:var(--blue)}
+    .badge-gray{background:var(--surface);color:var(--gray2)}
+    .badge-red{background:rgba(231,76,60,0.12);color:var(--red)}
+    .tc-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--gray2);transition:all 0.15s;text-decoration:none;white-space:nowrap}
+    .btn:hover{border-color:var(--gold-line);color:var(--white)}
+    .btn-active{border-color:var(--gold-line);color:var(--gold);background:var(--gold-dim)}
+    .btn-red{border-color:rgba(231,76,60,0.3);color:var(--red)}.btn-red:hover{background:rgba(231,76,60,0.1)}
+    .pagination{display:flex;gap:8px;margin-top:24px;justify-content:center}
+    .pagination button{padding:8px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--white);cursor:pointer;font-size:13px;font-family:inherit;transition:all 0.15s}
+    .pagination button:hover{border-color:var(--gold-line)}.pagination button.active{background:var(--gold-dim);border-color:var(--gold-line);color:var(--gold)}
+    .pagination button:disabled{opacity:0.3;cursor:not-allowed}
+    .loading{text-align:center;padding:60px;color:var(--gray)}
     .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .pagination{display:flex;gap:8px;margin-top:20px;justify-content:center}
-    .pagination button{padding:6px 12px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--white);cursor:pointer;font-size:13px}
-    .pagination button.active{background:var(--gold-dim);border-color:var(--gold-line);color:var(--gold)}
-    .pagination button:disabled{opacity:0.3;cursor:not-allowed}
     .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
-    .tender-name{max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .tender-name a{color:var(--white);text-decoration:none}.tender-name a:hover{color:var(--gold)}
-    .active-btn{border-color:var(--gold-line)!important;color:var(--gold)!important}
-    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}}
+    .empty-state{text-align:center;padding:60px 20px;color:var(--gray2)}.empty-state h3{font-size:18px;margin-bottom:8px;color:var(--white)}
+    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}.tc-header{flex-direction:column}.filters-bar{flex-direction:column}.search-input{width:100%}}
   </style>
 </head>
 <body>
@@ -59,157 +81,367 @@
       <a href="/cabinet/subscription"><span class="icon">💳</span> Подписка</a>
     </nav>
     <div class="bottom">
-      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
+      <a href="https://t.me/TenderAI111_bot">Бот в Telegram</a>
       <a href="/cabinet/logout">Выйти</a>
     </div>
   </aside>
 
   <main class="main">
     <div class="page-header">
-      <h1>История тендеров</h1>
-      <p>Все тендеры, найденные вашими фильтрами</p>
+      <h1>Мои тендеры</h1>
+      <div class="stats" id="stats"></div>
     </div>
 
-    <div class="card" id="tenders-card">
-      <div class="loading" id="loading">
-        <div class="spinner"></div>
-        Загрузка тендеров...
-      </div>
-      <table class="tbl" id="tenders-table" style="display:none">
-        <thead>
-          <tr>
-            <th>Название</th>
-            <th>Цена</th>
-            <th>Заказчик</th>
-            <th>Фильтр</th>
-            <th>Дата</th>
-            <th>Действия</th>
-          </tr>
-        </thead>
-        <tbody id="tenders-body"></tbody>
-      </table>
-      <div class="pagination" id="pagination"></div>
+    <div class="filters-bar">
+      <input type="text" class="search-input" id="search" placeholder="Поиск по названию, номеру, заказчику...">
+      <select class="filter-select" id="filter-select">
+        <option value="">Все фильтры</option>
+      </select>
+      <select class="filter-select" id="sort-select">
+        <option value="date_desc">Сначала новые</option>
+        <option value="date_asc">Сначала старые</option>
+        <option value="price_desc">Дорогие сначала</option>
+        <option value="price_asc">Дешёвые сначала</option>
+      </select>
     </div>
+
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      Загрузка тендеров...
+    </div>
+
+    <div class="tender-list" id="tender-list" style="display:none"></div>
+    <div class="pagination" id="pagination"></div>
   </main>
 
   <div class="toast" id="toast"></div>
 
   <script>
-    function showToast(msg, dur=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur)}
-    function fmtPrice(p){if(!p)return'—';const n=parseFloat(p);if(n>=1e6)return(n/1e6).toFixed(2)+' млн';if(n>=1e3)return(n/1e3).toFixed(1)+' тыс.';return n.toFixed(0)+' руб.'}
-    function fmtDate(d){if(!d)return'—';return new Date(d).toLocaleDateString('ru-RU')}
+    // === Utilities ===
+    function showToast(msg, dur){
+      dur = dur || 3000;
+      var t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(function(){ t.classList.remove('show'); }, dur);
+    }
 
-    const feedbackState = {};
+    function escapeHtml(str){
+      if(!str) return '';
+      var div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
 
-    async function markFeedback(number, type) {
-      const resp = await fetch(`/cabinet/api/tenders/${encodeURIComponent(number)}/feedback`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({type}),
+    function fmtPrice(p){
+      if(!p) return '\u2014';
+      var n = parseFloat(p);
+      if(n >= 1e9) return (n/1e9).toFixed(1) + ' \u043c\u043b\u0440\u0434 \u20bd';
+      if(n >= 1e6) return (n/1e6).toFixed(2) + ' \u043c\u043b\u043d \u20bd';
+      if(n >= 1e3) return Math.round(n/1e3) + ' \u0442\u044b\u0441 \u20bd';
+      return n.toFixed(0) + ' \u20bd';
+    }
+
+    function fmtDate(d){
+      if(!d) return '\u2014';
+      var dt = new Date(d);
+      var day = ('0' + dt.getDate()).slice(-2);
+      var mon = ('0' + (dt.getMonth()+1)).slice(-2);
+      return day + '.' + mon + '.' + dt.getFullYear();
+    }
+
+    function fmtDeadline(d){
+      if(!d) return null;
+      var dt = new Date(d);
+      var now = new Date();
+      var diff = Math.ceil((dt - now) / 86400000);
+      if(diff < 0) return {text: '\u0418\u0441\u0442\u0451\u043a', cls: 'badge-gray'};
+      if(diff <= 3) return {text: diff + ' \u0434\u043d', cls: 'badge-red'};
+      if(diff <= 7) return {text: diff + ' \u0434\u043d', cls: 'badge-gold'};
+      return {text: diff + ' \u0434\u043d', cls: 'badge-green'};
+    }
+
+    // === State ===
+    var feedbackState = {};
+    var allTenders = [];
+    var currentPage = 1;
+    var LIMIT = 20;
+
+    // === Load data ===
+    function loadAllTenders(){
+      fetch('/cabinet/api/tenders?page=1&limit=10000')
+        .then(function(resp){
+          if(resp.status === 401){ location.href = '/cabinet/login'; return Promise.reject('auth'); }
+          return resp.json();
+        })
+        .then(function(data){
+          if(!data) return;
+          allTenders = data.tenders || [];
+
+          var filters = [];
+          var seen = {};
+          allTenders.forEach(function(t){
+            if(t.filter_name && !seen[t.filter_name]){
+              seen[t.filter_name] = true;
+              filters.push(t.filter_name);
+            }
+          });
+
+          var sel = document.getElementById('filter-select');
+          filters.forEach(function(f){
+            var opt = document.createElement('option');
+            opt.value = f;
+            opt.textContent = f;
+            sel.appendChild(opt);
+          });
+
+          var statsEl = document.getElementById('stats');
+          statsEl.textContent = '';
+          var s1 = document.createElement('span');
+          s1.innerHTML = '\u0412\u0441\u0435\u0433\u043e: <b>' + allTenders.length + '</b>';
+          var s2 = document.createElement('span');
+          s2.textContent = ' | ';
+          var s3 = document.createElement('span');
+          s3.innerHTML = '\u0424\u0438\u043b\u044c\u0442\u0440\u043e\u0432: <b>' + filters.length + '</b>';
+          statsEl.appendChild(s1);
+          statsEl.appendChild(s2);
+          statsEl.appendChild(s3);
+
+          renderPage(1);
+        })
+        .catch(function(e){ if(e !== 'auth') console.error(e); });
+    }
+
+    function getFiltered(){
+      var list = allTenders.slice();
+      var q = document.getElementById('search').value.toLowerCase().trim();
+      var flt = document.getElementById('filter-select').value;
+      var sort = document.getElementById('sort-select').value;
+
+      if(q) list = list.filter(function(t){
+        return (t.name||'').toLowerCase().indexOf(q) >= 0 ||
+               (t.number||'').toLowerCase().indexOf(q) >= 0 ||
+               (t.customer_name||'').toLowerCase().indexOf(q) >= 0;
       });
-      const data = await resp.json();
-      if (data.ok) {
-        feedbackState[number] = feedbackState[number] || {};
-        feedbackState[number][type] = true;
-        showToast(type === 'interesting' ? '⭐ Отмечено как интересное' : '✓ Пропущено');
-      } else {
-        showToast(data.error || 'Ошибка');
-      }
+      if(flt) list = list.filter(function(t){ return t.filter_name === flt; });
+
+      if(sort === 'price_desc') list.sort(function(a,b){ return (b.price||0) - (a.price||0); });
+      else if(sort === 'price_asc') list.sort(function(a,b){ return (a.price||0) - (b.price||0); });
+      else if(sort === 'date_asc') list.sort(function(a,b){ return new Date(a.sent_at||0) - new Date(b.sent_at||0); });
+
+      return list;
     }
 
-    async function exportSheets(number) {
-      const resp = await fetch(`/cabinet/api/tenders/${encodeURIComponent(number)}/export-sheets`, {method: 'POST'});
-      const data = await resp.json();
-      if (data.ok) showToast('📊 Экспортировано в Google Sheets');
-      else showToast(data.error || 'Ошибка экспорта');
-    }
-
-    let currentPage = 1;
-    const LIMIT = 30;
-
-    async function loadTenders(page) {
+    function renderPage(page){
       currentPage = page;
-      const resp = await fetch(`/cabinet/api/tenders?page=${page}&limit=${LIMIT}`);
-      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
-      const data = await resp.json();
+      var filtered = getFiltered();
+      var totalPages = Math.max(1, Math.ceil(filtered.length / LIMIT));
+      page = Math.max(1, Math.min(page, totalPages));
+
+      var start = (page - 1) * LIMIT;
+      var pageTenders = filtered.slice(start, start + LIMIT);
 
       document.getElementById('loading').style.display = 'none';
-      document.getElementById('tenders-table').style.display = 'table';
+      var listEl = document.getElementById('tender-list');
+      listEl.style.display = 'flex';
 
-      const tbody = document.getElementById('tenders-body');
-      tbody.innerHTML = '';
+      // Clear
+      while(listEl.firstChild) listEl.removeChild(listEl.firstChild);
 
-      if (!data.tenders || data.tenders.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--gray);padding:40px">Тендеров пока нет. Настройте фильтры в боте.</td></tr>';
+      if(pageTenders.length === 0){
+        var empty = document.createElement('div');
+        empty.className = 'empty-state';
+        var h3 = document.createElement('h3');
+        h3.textContent = '\u041d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e';
+        var p = document.createElement('p');
+        p.textContent = '\u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439\u0442\u0435 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b';
+        empty.appendChild(h3);
+        empty.appendChild(p);
+        listEl.appendChild(empty);
+        document.getElementById('pagination').textContent = '';
         return;
       }
 
-      data.tenders.forEach(t => {
-        const url = t.url ? `<a href="${t.url}" target="_blank">${(t.name||'').substring(0,60)}${(t.name||'').length>60?'...':''}</a>` : (t.name||'').substring(0,60);
-        const num = (t.number||'').replace(/'/g, "\\'");
-        const fb = feedbackState[t.number] || {};
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td class="tender-name">${url}</td>
-          <td>${fmtPrice(t.price)}</td>
-          <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.customer_name||'—'}</td>
-          <td><span class="badge badge-gold">${t.filter_name||'—'}</span></td>
-          <td style="white-space:nowrap">${fmtDate(t.sent_at)}</td>
-          <td>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button class="btn btn-sm btn-outline" onclick="generateDocs('${num}')" title="Создать документы">📄</button>
-              <button class="btn btn-sm btn-outline ${fb.interesting ? 'active-btn' : ''}" onclick="markFeedback('${num}','interesting')" title="Интересно">⭐</button>
-              <button class="btn btn-sm btn-outline ${fb.skip ? 'active-btn' : ''}" onclick="markFeedback('${num}','skip')" title="Пропустить">✕</button>
-              <button class="btn btn-sm btn-outline" onclick="exportSheets('${num}')" title="В таблицу">📊</button>
-            </div>
-          </td>
-        `;
-        tbody.appendChild(tr);
+      pageTenders.forEach(function(t){
+        var fb = feedbackState[t.number] || {};
+        var deadline = fmtDeadline(t.submission_deadline);
+        var region = t.tender_region || t.region || '';
+        var score = t.score || t.match_score || '';
+
+        var card = document.createElement('div');
+        card.className = 'tender-card' + (fb.interesting ? ' interested' : '') + (fb.skip ? ' skipped' : '');
+
+        // Header
+        var header = document.createElement('div');
+        header.className = 'tc-header';
+
+        var titleDiv = document.createElement('div');
+        titleDiv.className = 'tc-title';
+        if(t.url){
+          var a = document.createElement('a');
+          a.href = t.url;
+          a.target = '_blank';
+          a.textContent = t.name || '\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f';
+          titleDiv.appendChild(a);
+        } else {
+          titleDiv.textContent = t.name || '\u0411\u0435\u0437 \u043d\u0430\u0437\u0432\u0430\u043d\u0438\u044f';
+        }
+
+        var priceDiv = document.createElement('div');
+        priceDiv.className = 'tc-price';
+        priceDiv.textContent = fmtPrice(t.price);
+
+        header.appendChild(titleDiv);
+        header.appendChild(priceDiv);
+
+        // Meta
+        var meta = document.createElement('div');
+        meta.className = 'tc-meta';
+
+        function addMeta(label, value){
+          if(!value) return;
+          var item = document.createElement('div');
+          item.className = 'tc-meta-item';
+          var lbl = document.createElement('span');
+          lbl.className = 'label';
+          lbl.textContent = label;
+          item.appendChild(lbl);
+          item.appendChild(document.createTextNode(' ' + value));
+          meta.appendChild(item);
+        }
+        addMeta('\u0417\u0430\u043a\u0430\u0437\u0447\u0438\u043a:', t.customer_name || '\u2014');
+        if(region) addMeta('\u0420\u0435\u0433\u0438\u043e\u043d:', region);
+        addMeta('\u041d\u043e\u043c\u0435\u0440:', t.number || '\u2014');
+        addMeta('\u041d\u0430\u0439\u0434\u0435\u043d:', fmtDate(t.sent_at));
+
+        // Tags
+        var tags = document.createElement('div');
+        tags.className = 'tc-tags';
+
+        function addBadge(text, cls){
+          var span = document.createElement('span');
+          span.className = 'badge ' + cls;
+          span.textContent = text;
+          tags.appendChild(span);
+        }
+        addBadge(t.filter_name || '\u2014', 'badge-gold');
+        if(score) addBadge('\u0420\u0435\u043b\u0435\u0432\u0430\u043d\u0442\u043d\u043e\u0441\u0442\u044c: ' + score + '%', 'badge-blue');
+        if(deadline) addBadge('\u0414\u0435\u0434\u043b\u0430\u0439\u043d: ' + deadline.text, deadline.cls);
+        if(t.law_type) addBadge(t.law_type, 'badge-gray');
+
+        // Actions
+        var actions = document.createElement('div');
+        actions.className = 'tc-actions';
+
+        function addBtn(icon, label, cls, onclick){
+          var btn = document.createElement('button');
+          btn.className = 'btn ' + (cls || '');
+          btn.textContent = icon + ' ' + label;
+          btn.onclick = onclick;
+          actions.appendChild(btn);
+        }
+
+        if(t.url){
+          var linkBtn = document.createElement('a');
+          linkBtn.href = t.url;
+          linkBtn.target = '_blank';
+          linkBtn.className = 'btn';
+          linkBtn.textContent = '\ud83d\udd17 \u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043d\u0430 zakupki.gov';
+          actions.appendChild(linkBtn);
+        }
+
+        var num = t.number || '';
+        addBtn('\u2b50', '\u0418\u043d\u0442\u0435\u0440\u0435\u0441\u043d\u043e', fb.interesting ? 'btn-active' : '', function(){ markFeedback(num, 'interesting'); });
+        addBtn('\u2715', '\u041f\u0440\u043e\u043f\u0443\u0441\u0442\u0438\u0442\u044c', fb.skip ? 'btn-red' : '', function(){ markFeedback(num, 'skip'); });
+        addBtn('\ud83d\udcca', '\u0412 \u0442\u0430\u0431\u043b\u0438\u0446\u0443', '', function(){ exportSheets(num); });
+        addBtn('\ud83d\udcc4', '\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b', '', function(){ generateDocs(num); });
+
+        card.appendChild(header);
+        card.appendChild(meta);
+        card.appendChild(tags);
+        card.appendChild(actions);
+        listEl.appendChild(card);
       });
 
       // Pagination
-      const totalPages = Math.ceil(data.total / LIMIT);
-      const pag = document.getElementById('pagination');
-      pag.innerHTML = '';
-      if (totalPages > 1) {
-        const prev = document.createElement('button');
-        prev.textContent = '←';
+      var pag = document.getElementById('pagination');
+      while(pag.firstChild) pag.removeChild(pag.firstChild);
+      if(totalPages > 1){
+        var prev = document.createElement('button');
+        prev.textContent = '\u2190 \u041d\u0430\u0437\u0430\u0434';
         prev.disabled = page <= 1;
-        prev.onclick = () => loadTenders(page - 1);
+        prev.onclick = function(){ renderPage(page - 1); };
         pag.appendChild(prev);
 
-        for (let i = 1; i <= Math.min(totalPages, 10); i++) {
-          const btn = document.createElement('button');
-          btn.textContent = i;
-          if (i === page) btn.classList.add('active');
-          btn.onclick = () => loadTenders(i);
-          pag.appendChild(btn);
+        var maxShow = 7;
+        var startP = Math.max(1, page - 3);
+        var endP = Math.min(totalPages, startP + maxShow - 1);
+        if(endP - startP < maxShow - 1) startP = Math.max(1, endP - maxShow + 1);
+
+        for(var i = startP; i <= endP; i++){
+          (function(idx){
+            var btn = document.createElement('button');
+            btn.textContent = idx;
+            if(idx === page) btn.classList.add('active');
+            btn.onclick = function(){ renderPage(idx); };
+            pag.appendChild(btn);
+          })(i);
         }
 
-        const next = document.createElement('button');
-        next.textContent = '→';
+        var next = document.createElement('button');
+        next.textContent = '\u0412\u043f\u0435\u0440\u0451\u0434 \u2192';
         next.disabled = page >= totalPages;
-        next.onclick = () => loadTenders(page + 1);
+        next.onclick = function(){ renderPage(page + 1); };
         pag.appendChild(next);
       }
+
+      window.scrollTo({top: 0, behavior: 'smooth'});
     }
 
-    async function generateDocs(tenderNumber) {
-      showToast('Генерация документов...');
-      try {
-        const resp = await fetch(`/cabinet/api/documents/generate/${tenderNumber}`, {method: 'POST'});
-        const data = await resp.json();
-        if (data.ok) {
-          showToast('Документы сгенерированы! Перейдите в раздел "Документы".');
-        } else {
-          showToast(data.error || 'Ошибка генерации');
-        }
-      } catch(e) {
-        showToast('Ошибка: ' + e.message);
-      }
+    // === Actions ===
+    function markFeedback(number, type){
+      fetch('/cabinet/api/tenders/' + encodeURIComponent(number) + '/feedback', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({type: type}),
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data.ok){
+          feedbackState[number] = feedbackState[number] || {};
+          feedbackState[number][type] = true;
+          showToast(type === 'interesting' ? '\u2b50 \u041e\u0442\u043c\u0435\u0447\u0435\u043d\u043e \u043a\u0430\u043a \u0438\u043d\u0442\u0435\u0440\u0435\u0441\u043d\u043e\u0435' : '\u2715 \u041f\u0440\u043e\u043f\u0443\u0449\u0435\u043d\u043e');
+          renderPage(currentPage);
+        } else { showToast(data.error || '\u041e\u0448\u0438\u0431\u043a\u0430'); }
+      });
     }
 
-    loadTenders(1);
+    function exportSheets(number){
+      fetch('/cabinet/api/tenders/' + encodeURIComponent(number) + '/export-sheets', {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data.ok) showToast('\ud83d\udcca \u042d\u043a\u0441\u043f\u043e\u0440\u0442\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 Google Sheets');
+        else showToast(data.error || '\u041e\u0448\u0438\u0431\u043a\u0430 \u044d\u043a\u0441\u043f\u043e\u0440\u0442\u0430');
+      });
+    }
+
+    function generateDocs(number){
+      showToast('\ud83d\udcc4 \u0413\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u044f \u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u043e\u0432...');
+      fetch('/cabinet/api/documents/generate/' + encodeURIComponent(number), {method: 'POST'})
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if(data.ok) showToast('\u0414\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u044b \u0441\u0433\u0435\u043d\u0435\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u044b!');
+        else showToast(data.error || '\u041e\u0448\u0438\u0431\u043a\u0430');
+      })
+      .catch(function(e){ showToast('\u041e\u0448\u0438\u0431\u043a\u0430: ' + e.message); });
+    }
+
+    // === Events ===
+    document.getElementById('search').addEventListener('input', function(){ renderPage(1); });
+    document.getElementById('filter-select').addEventListener('change', function(){ renderPage(1); });
+    document.getElementById('sort-select').addEventListener('change', function(){ renderPage(1); });
+
+    loadAllTenders();
   </script>
 </body>
 </html>
