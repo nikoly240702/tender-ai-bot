@@ -55,6 +55,43 @@ async def cmd_email(message: Message):
     )
 
 
+@router.message(Command("test_email"))
+async def cmd_test_email(message: Message):
+    """Send a test email to verify SMTP works."""
+    async with DatabaseSession() as session:
+        user = await session.scalar(
+            select(SniperUser).where(SniperUser.telegram_id == message.from_user.id)
+        )
+    if not user or not user.email:
+        await message.answer("❌ Email не установлен. Используйте /email your@mail.com")
+        return
+    if not user.email_notifications_enabled:
+        await message.answer("❌ Email уведомления отключены. Используйте /email your@mail.com")
+        return
+
+    try:
+        from bot.integrations import get_integration_manager
+        mgr = get_integration_manager()
+        test_tender = {
+            'name': 'Тестовый тендер — проверка email уведомлений',
+            'number': '0000000000000000001',
+            'price': 500000,
+            'customer': 'Тестовый заказчик',
+            'region': 'Москва',
+            'deadline': '2026-05-01',
+            'url': 'https://zakupki.gov.ru',
+            'filter_name': 'Тестовый фильтр',
+        }
+        success = await mgr.send_email_notification(user.email, test_tender)
+        if success:
+            await message.answer(f"✅ Тестовое письмо отправлено на <code>{user.email}</code>", parse_mode='HTML')
+        else:
+            await message.answer("❌ Ошибка отправки. Проверьте SMTP настройки.")
+    except Exception as e:
+        logger.error(f"Test email error: {e}", exc_info=True)
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 @router.message(Command("email_off"))
 async def cmd_email_off(message: Message):
     """Disable email notifications (keeps email in DB)."""
