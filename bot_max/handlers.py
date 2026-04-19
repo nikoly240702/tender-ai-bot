@@ -460,8 +460,14 @@ async def _ensure_user(user_id: int, username: str = None, first_name: str = Non
 
 async def _get_linked_user_id(max_user: dict) -> int:
     """Get linked Telegram user_id if accounts are linked via email, otherwise return Max user_id."""
-    user_data = max_user.get('data') or {}
-    linked_id = user_data.get('linked_telegram_user_id')
+    import json as json_lib
+    raw_data = max_user.get('data') or {}
+    if isinstance(raw_data, str):
+        try:
+            raw_data = json_lib.loads(raw_data)
+        except (json_lib.JSONDecodeError, TypeError):
+            raw_data = {}
+    linked_id = raw_data.get('linked_telegram_user_id')
     if linked_id:
         return linked_id
     return max_user['id']
@@ -656,6 +662,19 @@ async def handle_message(client: MaxBotClient, update: Dict[str, Any]):
 
 
 _recent_callbacks: Dict[str, float] = {}  # callback_id -> timestamp for dedup
+_callback_msg_id: Dict[int, str] = {}  # chat_id -> msg_id from last callback (for edit instead of send)
+
+
+async def _smart_reply(client: 'MaxBotClient', chat_id: int, text: str, keyboard=None):
+    """Edit the callback message if possible, otherwise send new."""
+    msg_id = _callback_msg_id.pop(chat_id, None)
+    if msg_id:
+        try:
+            await client.edit_message(msg_id, text, keyboard=keyboard)
+            return
+        except Exception:
+            pass  # fallback to send
+    await client.send_message(chat_id, text, keyboard=keyboard)
 
 
 async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
@@ -681,11 +700,16 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
             _recent_callbacks.clear()
     message = update.get("message", {})
     chat_id = message.get("recipient", {}).get("chat_id")
+    msg_id = message.get("body", {}).get("mid")  # message_id for editing
 
     if not callback_id or not chat_id:
         return
 
     logger.info(f"Max bot: callback '{payload}' from user {user_id}")
+
+    # Store msg_id for edit-instead-of-send
+    if msg_id and chat_id:
+        _callback_msg_id[chat_id] = msg_id
 
     # Acknowledge callback
     try:
@@ -697,17 +721,17 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
     if payload == "menu":
         _gpt_active_chats.discard(chat_id)
         _user_states.pop(user_id, None)
-        await client.send_message(chat_id, WELCOME_TEXT, keyboard=MAIN_MENU_KEYBOARD)
+        await _smart_reply(client, chat_id, WELCOME_TEXT, keyboard=MAIN_MENU_KEYBOARD)
 
     elif payload == "gpt":
         _gpt_active_chats.add(chat_id)
         _user_states.pop(user_id, None)
         service = await _get_gpt_service()
         greeting = await service.get_greeting()
-        await client.send_message(chat_id, greeting, keyboard=EXIT_GPT_KEYBOARD)
+        await _smart_reply(client, chat_id, greeting, keyboard=EXIT_GPT_KEYBOARD)
 
     elif payload == "help":
-        await client.send_message(chat_id, HELP_TEXT, keyboard=BACK_KEYBOARD)
+        await _smart_reply(client, chat_id, HELP_TEXT, keyboard=BACK_KEYBOARD)
 
     elif payload == "sub":
         await _show_subscription(client, chat_id, user_id, username)
@@ -1789,13 +1813,11 @@ async def _show_filters(
             [{"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"}],
             [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
         ]
-        await client.send_message(
-            chat_id,
-            (
-                "📋 <b>Мои фильтры</b>\n\n"
-                "У вас пока нет фильтров.\n"
-                "Создайте первый фильтр, чтобы получать уведомления о тендерах."
-            ),
+        await _smart_reply(
+            client, chat_id,
+            "📋 <b>Мои фильтры</b>\n\n"
+            "У вас пока нет фильтров.\n"
+            "Создайте первый фильтр, чтобы получать уведомления о тендерах.",
             keyboard=no_filters_keyboard,
         )
         return
@@ -1818,7 +1840,7 @@ async def _show_filters(
     keyboard.append([{"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"}])
     keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
 
-    await client.send_message(chat_id, "\n".join(lines), keyboard=keyboard)
+    await _smart_reply(client, chat_id, "\n".join(lines), keyboard=keyboard)
 
 
 async def _view_filter(
@@ -2587,13 +2609,11 @@ async def _show_all_tenders(
         tenders = await db.get_user_tenders(linked_id, limit=10)
 
         if not tenders:
-            await client.send_message(
-                chat_id,
-                (
-                    "📊 <b>Все мои тендеры</b>\n\n"
-                    "У вас пока нет уведомлений о тендерах.\n"
-                    "Создайте фильтр, и бот начнёт присылать подходящие тендеры."
-                ),
+            await _smart_reply(
+                client, chat_id,
+                "📊 <b>Все мои тендеры</b>\n\n"
+                "У вас пока нет уведомлений о тендерах.\n"
+                "Создайте фильтр, и бот начнёт присылать подходящие тендеры.",
                 keyboard=[
                     [{"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"}],
                     [{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}],
