@@ -98,6 +98,51 @@ class MaxBotClient:
             resp.raise_for_status()
             return await resp.json()
 
+    async def send_file(
+        self,
+        chat_id: int,
+        file_path: str,
+        text: str = "",
+        fmt: str = "html",
+    ) -> Dict[str, Any]:
+        """Upload a file and send it as a message attachment."""
+        import os
+
+        # 1. Get upload URL
+        async with self.session.post(
+            f"{self.BASE_URL}/uploads",
+            params={"type": "file"},
+        ) as resp:
+            resp.raise_for_status()
+            upload_data = await resp.json()
+
+        upload_url = upload_data.get("url")
+        if not upload_url:
+            raise ValueError("No upload URL returned")
+
+        # 2. Upload file
+        filename = os.path.basename(file_path)
+        with open(file_path, "rb") as f:
+            form = aiohttp.FormData()
+            form.add_field("data", f, filename=filename)
+            async with self.session.post(upload_url, data=form) as resp:
+                resp.raise_for_status()
+                file_info = await resp.json()
+
+        # 3. Send message with file attachment
+        body: Dict[str, Any] = {"text": text, "format": fmt}
+        # file_info should contain the token/attachment info
+        if isinstance(file_info, dict):
+            body["attachments"] = [file_info]
+
+        async with self.session.post(
+            f"{self.BASE_URL}/messages",
+            params={"chat_id": chat_id},
+            json=body,
+        ) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
     async def get_updates(
         self,
         marker: Optional[int] = None,

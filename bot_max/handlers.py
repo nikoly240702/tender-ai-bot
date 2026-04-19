@@ -878,6 +878,9 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
         except ValueError:
             pass
 
+    elif payload == "tdownload":
+        await _download_tenders_excel(client, chat_id, user_id, username)
+
     elif payload.startswith("td_"):
         await _show_tender_detail(client, chat_id, user_id, username, payload)
 
@@ -2692,12 +2695,75 @@ async def _render_tenders_page(client: MaxBotClient, chat_id: int, user_id: int,
     if nav_row:
         keyboard.append(nav_row)
 
+    keyboard.append([{"type": "callback", "text": "📥 Скачать отчёт (Excel)", "payload": "tdownload"}])
     keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
 
     # Update page in state
     _user_states[user_id] = {**state, "page": page}
 
     await _smart_reply(client, chat_id, "\n".join(lines), keyboard=keyboard)
+
+
+async def _download_tenders_excel(client: MaxBotClient, chat_id: int, user_id: int, username: str):
+    """Generate and send Excel report with all tenders."""
+    import tempfile
+    import os
+
+    user = await _ensure_user(user_id, username)
+    if not user:
+        return
+
+    db = await get_sniper_db()
+    linked_id = await _get_linked_user_id(user)
+    tenders = await db.get_user_tenders(linked_id, limit=10000)
+
+    if not tenders:
+        await client.send_message(chat_id, "Нет тендеров для скачивания.", keyboard=BACK_KEYBOARD)
+        return
+
+    await client.send_message(chat_id, "⏳ Генерирую отчёт...")
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, Alignment
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Тендеры"
+
+        headers = ["Номер", "Название", "Цена", "Заказчик", "Регион", "Дедлайн", "Фильтр", "Дата", "Ссылка"]
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = Font(bold=True)
+
+        for row_idx, t in enumerate(tenders, 2):
+            ws.cell(row=row_idx, column=1, value=t.get('number', ''))
+            ws.cell(row=row_idx, column=2, value=t.get('name', '')[:100])
+            ws.cell(row=row_idx, column=3, value=t.get('price'))
+            ws.cell(row=row_idx, column=4, value=t.get('customer', t.get('customer_name', '')))
+            ws.cell(row=row_idx, column=5, value=t.get('region', t.get('tender_region', '')))
+            ws.cell(row=row_idx, column=6, value=t.get('submission_deadline', ''))
+            ws.cell(row=row_idx, column=7, value=t.get('filter_name', ''))
+            ws.cell(row=row_idx, column=8, value=str(t.get('sent_at', ''))[:10])
+            ws.cell(row=row_idx, column=9, value=t.get('url', ''))
+
+        # Auto-width
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 50)
+
+        tmp = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+        wb.save(tmp.name)
+        tmp.close()
+
+        await client.send_file(chat_id, tmp.name, text=f"📊 Отчёт: {len(tenders)} тендеров")
+        os.unlink(tmp.name)
+
+    except ImportError:
+        await client.send_message(chat_id, "❌ Модуль openpyxl не установлен.", keyboard=BACK_KEYBOARD)
+    except Exception as e:
+        logger.error(f"Max bot: excel download error: {e}", exc_info=True)
+        await client.send_message(chat_id, f"❌ Ошибка генерации отчёта: {e}", keyboard=BACK_KEYBOARD)
 
 
 async def _show_tender_detail(
