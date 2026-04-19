@@ -878,8 +878,11 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
         except ValueError:
             pass
 
-    elif payload == "tdownload":
+    elif payload == "tdownload_excel":
         await _download_tenders_excel(client, chat_id, user_id, username)
+
+    elif payload == "tdownload_html":
+        await _download_tenders_html(client, chat_id, user_id, username)
 
     elif payload.startswith("td_"):
         await _show_tender_detail(client, chat_id, user_id, username, payload)
@@ -2695,7 +2698,10 @@ async def _render_tenders_page(client: MaxBotClient, chat_id: int, user_id: int,
     if nav_row:
         keyboard.append(nav_row)
 
-    keyboard.append([{"type": "callback", "text": "📥 Скачать отчёт (Excel)", "payload": "tdownload"}])
+    keyboard.append([
+        {"type": "callback", "text": "📊 Excel", "payload": "tdownload_excel"},
+        {"type": "callback", "text": "🌐 HTML", "payload": "tdownload_html"},
+    ])
     keyboard.append([{"type": "callback", "text": "◀️ Главное меню", "payload": "menu"}])
 
     # Update page in state
@@ -2763,6 +2769,41 @@ async def _download_tenders_excel(client: MaxBotClient, chat_id: int, user_id: i
         await client.send_message(chat_id, "❌ Модуль openpyxl не установлен.", keyboard=BACK_KEYBOARD)
     except Exception as e:
         logger.error(f"Max bot: excel download error: {e}", exc_info=True)
+        await client.send_message(chat_id, f"❌ Ошибка генерации отчёта: {e}", keyboard=BACK_KEYBOARD)
+
+
+async def _download_tenders_html(client: MaxBotClient, chat_id: int, user_id: int, username: str):
+    """Generate and send HTML report with all tenders."""
+    import tempfile
+    import os
+
+    user = await _ensure_user(user_id, username)
+    if not user:
+        return
+
+    db = await get_sniper_db()
+    linked_id = await _get_linked_user_id(user)
+    tenders = await db.get_user_tenders(linked_id, limit=10000)
+
+    if not tenders:
+        await client.send_message(chat_id, "Нет тендеров для скачивания.", keyboard=BACK_KEYBOARD)
+        return
+
+    await client.send_message(chat_id, "⏳ Генерирую HTML отчёт...")
+
+    try:
+        from tender_sniper.all_tenders_report import generate_html_report
+        html_content = generate_html_report(tenders, username or "Max User")
+
+        tmp = tempfile.NamedTemporaryFile(suffix='.html', delete=False, mode='w', encoding='utf-8')
+        tmp.write(html_content)
+        tmp.close()
+
+        await client.send_file(chat_id, tmp.name, text=f"🌐 HTML отчёт: {len(tenders)} тендеров")
+        os.unlink(tmp.name)
+
+    except Exception as e:
+        logger.error(f"Max bot: html download error: {e}", exc_info=True)
         await client.send_message(chat_id, f"❌ Ошибка генерации отчёта: {e}", keyboard=BACK_KEYBOARD)
 
 
