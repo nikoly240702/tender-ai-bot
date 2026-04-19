@@ -27,6 +27,58 @@ SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
 EMAIL_FROM = os.getenv('EMAIL_FROM', SMTP_USER)
 
 
+def _smtp_send(msg):
+    """Send email via SMTP, using SOCKS5 proxy if available (for Yandex from foreign servers)."""
+    proxy_url = os.getenv('PROXY_URL', '').strip()
+
+    if proxy_url and proxy_url.startswith('socks5://'):
+        # Parse proxy: socks5://user:pass@host:port
+        import socks
+        import socket
+        from urllib.parse import urlparse
+
+        parsed = urlparse(proxy_url)
+        proxy_host = parsed.hostname
+        proxy_port = parsed.port or 1080
+        proxy_user = parsed.username
+        proxy_pass = parsed.password
+
+        # Create SOCKS5 socket
+        sock = socks.socksocket()
+        sock.set_proxy(socks.SOCKS5, proxy_host, proxy_port,
+                       username=proxy_user, password=proxy_pass)
+        sock.settimeout(30)
+        sock.connect((SMTP_HOST, SMTP_PORT))
+
+        if SMTP_PORT == 465:
+            import ssl
+            context = ssl.create_default_context()
+            sock = context.wrap_socket(sock, server_hostname=SMTP_HOST)
+            server = smtplib.SMTP_SSL(host=SMTP_HOST, port=SMTP_PORT)
+            server.sock = sock
+        else:
+            server = smtplib.SMTP()
+            server.sock = sock
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+
+        server.login(SMTP_USER, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+    else:
+        # Direct connection (no proxy)
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+
+
 class IntegrationManager:
     """Менеджер интеграций для отправки тендеров в внешние системы."""
 
@@ -372,19 +424,7 @@ class IntegrationManager:
             msg.attach(MIMEText(text_body, 'plain', 'utf-8'))
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-            # Отправляем асинхронно
-            def send_sync():
-                if SMTP_PORT == 465:
-                    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.send_message(msg)
-                else:
-                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-                        server.starttls()
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.send_message(msg)
-
-            await asyncio.to_thread(send_sync)
+            await asyncio.to_thread(_smtp_send, msg)
 
             logger.info(f"Email sent to {to_email}")
             return True
@@ -469,18 +509,7 @@ class IntegrationManager:
 
             msg.attach(MIMEText(html_body, 'html', 'utf-8'))
 
-            def send_sync():
-                if SMTP_PORT == 465:
-                    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.send_message(msg)
-                else:
-                    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-                        server.starttls()
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.send_message(msg)
-
-            await asyncio.to_thread(send_sync)
+            await asyncio.to_thread(_smtp_send, msg)
 
             logger.info(f"Batch email sent to {to_email} ({len(tenders)} tenders)")
             return True
