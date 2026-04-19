@@ -143,15 +143,16 @@
 
     // Tier feature lists (static, trusted content)
     var TIER_FEATURES = {
-      trial: ['3 фильтра мониторинга', '20 уведомлений/день', 'Мгновенный поиск', 'Избранное'],
-      basic: ['5 фильтров мониторинга', '100 уведомлений/день', 'Мгновенный поиск', 'AI-анализ (10/мес)', 'Telegram-поддержка'],
-      premium: ['20 фильтров мониторинга', 'Безлимит уведомлений', 'AI-анализ (50/мес)', 'Архивный поиск', 'Расширенные настройки фильтров', 'Приоритетная поддержка']
+      trial: ['3 фильтра мониторинга', '50 уведомлений/день', 'Мгновенный поиск', 'Избранное', '7 дней бесплатно'],
+      starter: ['5 фильтров мониторинга', '50 уведомлений/день', 'Мгновенный поиск', 'Избранное', 'Telegram-поддержка'],
+      pro: ['15 фильтров мониторинга', 'Безлимит уведомлений', 'AI-анализ (500/мес)', 'Tender-GPT (50 сообщ/мес)', 'Архивный поиск'],
+      premium: ['30 фильтров мониторинга', 'Безлимит уведомлений', 'Безлимит AI-анализ', 'Tender-GPT (200 сообщ/мес)', 'Расширенные настройки', 'Приоритетная поддержка']
     };
 
-    var TIER_NAMES = {trial: 'Пробный период', basic: 'Basic', premium: 'Premium'};
-    var TIER_EMOJI = {trial: '🎁', basic: '⭐', premium: '💎'};
-    var FIXED_PRICES = {basic: {1: 1490, 3: 4020, 6: 7150}, premium: {1: 2990, 3: 8070, 6: 14350}};
-    var FIRST_MONTH = {basic: 990, premium: 1990};
+    var TIER_NAMES = {trial: 'Пробный период', starter: 'Starter', pro: 'Pro', premium: 'Business'};
+    var TIER_EMOJI = {trial: '\ud83c\udf81', starter: '\u2b50', pro: '\ud83d\ude80', premium: '\ud83d\udc8e'};
+    var FIXED_PRICES = {starter: {1: 499, 3: 1397, 6: 2694}, pro: {1: 1490, 3: 4017, 6: 7449}, premium: {1: 2990, 3: 8073, 6: 14951}};
+    var FIRST_MONTH = {pro: 990, premium: 1990};
 
     function selectPeriod(months) {
       selectedMonths = months;
@@ -256,42 +257,47 @@
       grid.textContent = '';
       var isFirst = subData ? subData.is_first_payment : false;
 
-      // Trial
+      // Starter
+      var starterPrice = FIXED_PRICES.starter[selectedMonths];
       grid.appendChild(createTierCard({
-        emoji: '🎁', title: 'Пробный', price: 0, priceSuffix: '',
-        period: '14 дней', features: TIER_FEATURES.trial,
-        btnText: 'Текущий при регистрации', btnClass: 'btn-outline', btnDisabled: true
+        emoji: '\u2b50', title: 'Starter',
+        price: starterPrice,
+        priceSuffix: selectedMonths > 1 ? ('za ' + selectedMonths + ' \u043c\u0435\u0441.') : '/\u043c\u0435\u0441',
+        period: selectedMonths + ' \u043c\u0435\u0441.',
+        features: TIER_FEATURES.starter,
+        btnText: '\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c ' + fmtRub(starterPrice),
+        btnClick: function() { pay('starter', selectedMonths); }
       }));
 
-      // Basic
-      var basicPrice = FIXED_PRICES.basic[selectedMonths];
-      var basicDiscount = isFirst && selectedMonths === 1;
-      var basicFinal = basicDiscount ? FIRST_MONTH.basic : basicPrice;
+      // Pro
+      var proPrice = FIXED_PRICES.pro[selectedMonths];
+      var proDiscount = isFirst && selectedMonths === 1;
+      var proFinal = proDiscount ? FIRST_MONTH.pro : proPrice;
       grid.appendChild(createTierCard({
-        emoji: '⭐', title: 'Basic', recommended: true,
-        price: basicFinal,
-        oldPrice: basicDiscount ? 1490 : null,
-        priceSuffix: selectedMonths > 1 ? ('за ' + selectedMonths + ' мес.') : '/мес',
-        period: basicDiscount ? 'Скидка первого месяца!' : (selectedMonths + ' мес.'),
-        periodColor: basicDiscount ? 'var(--green)' : null,
-        features: TIER_FEATURES.basic,
-        btnText: 'Оплатить ' + fmtRub(basicFinal),
-        btnClick: function() { pay('basic', selectedMonths); }
+        emoji: '\ud83d\ude80', title: 'Pro', recommended: true,
+        price: proFinal,
+        oldPrice: proDiscount ? 1490 : null,
+        priceSuffix: selectedMonths > 1 ? ('\u0437\u0430 ' + selectedMonths + ' \u043c\u0435\u0441.') : '/\u043c\u0435\u0441',
+        period: proDiscount ? '\u0421\u043a\u0438\u0434\u043a\u0430 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u043c\u0435\u0441\u044f\u0446\u0430!' : (selectedMonths + ' \u043c\u0435\u0441.'),
+        periodColor: proDiscount ? 'var(--green)' : null,
+        features: TIER_FEATURES.pro,
+        btnText: '\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c ' + fmtRub(proFinal),
+        btnClick: function() { pay('pro', selectedMonths); }
       }));
 
-      // Premium
+      // Business (premium)
       var premPrice = FIXED_PRICES.premium[selectedMonths];
       var premDiscount = isFirst && selectedMonths === 1;
       var premFinal = premDiscount ? FIRST_MONTH.premium : premPrice;
       grid.appendChild(createTierCard({
-        emoji: '💎', title: 'Premium',
+        emoji: '\ud83d\udc8e', title: 'Business',
         price: premFinal,
         oldPrice: premDiscount ? 2990 : null,
-        priceSuffix: selectedMonths > 1 ? ('за ' + selectedMonths + ' мес.') : '/мес',
-        period: premDiscount ? 'Скидка первого месяца!' : (selectedMonths + ' мес.'),
+        priceSuffix: selectedMonths > 1 ? ('\u0437\u0430 ' + selectedMonths + ' \u043c\u0435\u0441.') : '/\u043c\u0435\u0441',
+        period: premDiscount ? '\u0421\u043a\u0438\u0434\u043a\u0430 \u043f\u0435\u0440\u0432\u043e\u0433\u043e \u043c\u0435\u0441\u044f\u0446\u0430!' : (selectedMonths + ' \u043c\u0435\u0441.'),
         periodColor: premDiscount ? 'var(--green)' : null,
         features: TIER_FEATURES.premium,
-        btnText: 'Оплатить ' + fmtRub(premFinal),
+        btnText: '\u041e\u043f\u043b\u0430\u0442\u0438\u0442\u044c ' + fmtRub(premFinal),
         btnClick: function() { pay('premium', selectedMonths); }
       }));
     }
