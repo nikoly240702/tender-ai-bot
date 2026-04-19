@@ -448,7 +448,7 @@ async def _ensure_user(user_id: int, username: str = None, first_name: str = Non
         user = await db.get_user_by_telegram_id(user_id)
     # Mark platform as Max (for notification routing)
     if user:
-        user_data = user.get('data') or {}
+        user_data = _parse_user_data(user.get('data'))
         if user_data.get('platform') != 'max':
             user_data['platform'] = 'max'
             try:
@@ -458,15 +458,24 @@ async def _ensure_user(user_id: int, username: str = None, first_name: str = Non
     return user
 
 
+def _parse_user_data(raw) -> dict:
+    """Safely parse user.data — could be dict, JSON string, or None."""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        import json as json_lib
+        try:
+            return json_lib.loads(raw)
+        except (json_lib.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
 async def _get_linked_user_id(max_user: dict) -> int:
     """Get linked Telegram user_id if accounts are linked via email, otherwise return Max user_id."""
-    import json as json_lib
-    raw_data = max_user.get('data') or {}
-    if isinstance(raw_data, str):
-        try:
-            raw_data = json_lib.loads(raw_data)
-        except (json_lib.JSONDecodeError, TypeError):
-            raw_data = {}
+    raw_data = _parse_user_data(max_user.get('data'))
     linked_id = raw_data.get('linked_telegram_user_id')
     if linked_id:
         return linked_id
@@ -687,17 +696,20 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
     user_id = user.get("user_id")
     username = user.get("username")
 
-    # Deduplicate rapid clicks (same callback_id within 2 seconds)
-    if callback_id:
-        now = time.time()
-        if callback_id in _recent_callbacks and now - _recent_callbacks[callback_id] < 2.0:
-            logger.debug(f"Max bot: duplicate callback {callback_id}, skipping")
-            return
-        _recent_callbacks[callback_id] = now
-        # Cleanup old entries
-        if len(_recent_callbacks) > 100:
-            cutoff = now - 10
-            _recent_callbacks.clear()
+    # Deduplicate rapid/double callbacks (same user+payload within 1.5 seconds)
+    dedup_key = f"{user_id}:{payload}"
+    now = time.time()
+    if dedup_key in _recent_callbacks and now - _recent_callbacks[dedup_key] < 1.5:
+        logger.debug(f"Max bot: duplicate callback {dedup_key}, skipping")
+        try:
+            await client.answer_callback(callback_id)
+        except Exception:
+            pass
+        return
+    _recent_callbacks[dedup_key] = now
+    # Cleanup old entries
+    if len(_recent_callbacks) > 200:
+        _recent_callbacks.clear()
     message = update.get("message", {})
     chat_id = message.get("recipient", {}).get("chat_id")
     msg_id = message.get("body", {}).get("mid")  # message_id for editing
@@ -745,7 +757,7 @@ async def handle_callback(client: MaxBotClient, update: Dict[str, Any]):
     elif payload == "link_tg":
         user = await _ensure_user(user_id, username)
         if user:
-            user_data = user.get('data') or {}
+            user_data = _parse_user_data(user.get('data'))
             if user_data.get('linked_telegram_user_id'):
                 linked_email = user_data.get('linked_email', '?')
                 await client.send_message(
@@ -2126,7 +2138,7 @@ async def _handle_payment_email(client: MaxBotClient, chat_id: int, user_id: int
         db = await get_sniper_db()
         user = await db.get_user_by_telegram_id(user_id)
         if user:
-            user_data = user.get('data') or {}
+            user_data = _parse_user_data(user.get('data'))
             is_first = not user_data.get('has_paid_before', False)
     except Exception:
         pass
