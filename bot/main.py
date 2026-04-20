@@ -206,6 +206,24 @@ async def run_pricing_broadcast():
     logger.info("=" * 70)
 
 
+async def run_feedback_survey_scheduler():
+    """Планировщик one-shot feedback-рассылки на 2026-04-21 11:00 MSK."""
+    try:
+        from scripts.send_feedback_survey import scheduled_feedback_survey
+        token = os.getenv('TELEGRAM_BOT_TOKEN') or os.getenv('BOT_TOKEN')
+        if not token:
+            logger.warning("TELEGRAM_BOT_TOKEN not set, feedback survey scheduler skipped")
+            return
+        from aiogram import Bot as _Bot
+        _bot = _Bot(token=token)
+        try:
+            await scheduled_feedback_survey(_bot)
+        finally:
+            await _bot.session.close()
+    except Exception as e:
+        logger.error(f"run_feedback_survey_scheduler error: {e}", exc_info=True)
+
+
 async def run_bitrix24_migration():
     """Запускаем одноразовую миграцию в Битрикс24, если выставлена переменная."""
     if os.environ.get('RUN_MIGRATION_BITRIX24') != '1':
@@ -240,6 +258,7 @@ async def main():
     asyncio.create_task(run_pricing_broadcast())
     asyncio.create_task(run_bitrix24_migration())
     asyncio.create_task(run_bitrix24_update())
+    asyncio.create_task(run_feedback_survey_scheduler())
 
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler
