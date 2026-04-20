@@ -32,7 +32,8 @@
     .loading{text-align:center;padding:40px;color:var(--gray)}
     .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
+    .toast{position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-12px);padding:12px 24px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;font-weight:600;z-index:1000;opacity:0;transition:opacity 0.25s, transform 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.35)}.toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+    .btn:disabled{opacity:0.6;cursor:not-allowed}
 
     /* Filter cards */
     .filter-card{border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:12px;background:var(--bg3);transition:border-color 0.15s}
@@ -194,7 +195,7 @@
       </div>
 
       <div class="form-actions">
-        <button class="btn btn-gold" onclick="saveFilter()">Сохранить</button>
+        <button class="btn btn-gold" onclick="saveFilter(this)">Сохранить</button>
         <button class="btn btn-outline" onclick="closeForm()">Отмена</button>
       </div>
     </div>
@@ -394,9 +395,15 @@
     }
 
     // ─── Save filter ───
-    async function saveFilter() {
+    async function saveFilter(btn) {
       const name = document.getElementById('f-name').value.trim();
       if (!name) { showToast('Введите название фильтра'); return; }
+
+      btn = btn || document.querySelector('.form-actions .btn-gold');
+      if (btn.disabled) return;
+      const origText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Сохраняем…';
 
       const payload = {
         name,
@@ -413,15 +420,22 @@
       const url = editingId ? `/cabinet/api/filters/${editingId}` : '/cabinet/api/filters/create';
       const method = editingId ? 'PUT' : 'POST';
 
-      const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
-      const data = await resp.json();
+      try {
+        const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+        const data = await resp.json();
 
-      if (data.ok) {
-        showToast(editingId ? 'Фильтр обновлён' : 'Фильтр создан');
-        closeForm();
-        loadFilters();
-      } else {
-        showToast(data.error || 'Ошибка сохранения');
+        if (data.ok) {
+          showToast(editingId ? '✓ Фильтр обновлён' : '✓ Фильтр создан');
+          closeForm();
+          loadFilters();
+        } else {
+          showToast(data.error || 'Ошибка сохранения');
+        }
+      } catch (e) {
+        showToast('Ошибка соединения. Попробуйте снова');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = origText;
       }
     }
 

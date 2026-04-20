@@ -168,6 +168,8 @@ class SniperFilter(Base):
 
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
+    match_count = Column(Integer, default=0, nullable=False)  # Сколько тендеров совпало с этим фильтром
+    last_match_at = Column(DateTime, nullable=True)  # Время последнего совпадения
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True, default=None)

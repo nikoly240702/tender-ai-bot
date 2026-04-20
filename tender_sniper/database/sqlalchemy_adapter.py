@@ -707,6 +707,8 @@ class TenderSniperDB:
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),
             'is_active': filter_obj.is_active,
+            'match_count': getattr(filter_obj, 'match_count', 0) or 0,
+            'last_match_at': filter_obj.last_match_at.isoformat() if getattr(filter_obj, 'last_match_at', None) else None,
             'created_at': filter_obj.created_at.isoformat() if filter_obj.created_at else None,
             'updated_at': filter_obj.updated_at.isoformat() if filter_obj.updated_at else None,
             'deleted_at': filter_obj.deleted_at.isoformat() if getattr(filter_obj, 'deleted_at', None) else None
@@ -956,6 +958,18 @@ class TenderSniperDB:
             )
               session.add(notification)
               await session.flush()
+
+              # Инкремент счётчика совпадений у фильтра (Вариант B, #3).
+              # Делаем только после успешного flush уведомления, чтобы не считать дубликаты.
+              if filter_id:
+                  await session.execute(
+                      update(SniperFilterModel)
+                      .where(SniperFilterModel.id == filter_id)
+                      .values(
+                          match_count=SniperFilterModel.match_count + 1,
+                          last_match_at=datetime.utcnow(),
+                      )
+                  )
 
               # DEBUG: Логируем что сохранилось
               logger.debug(f"   ✅ Saved notification id={notification.id}, "
