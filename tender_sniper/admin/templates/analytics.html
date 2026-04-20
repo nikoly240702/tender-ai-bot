@@ -35,6 +35,13 @@
                 </div>
                 <div class="d-flex justify-content-between align-items-center mb-3 pb-3 border-bottom">
                     <div>
+                        <i class="bi bi-shield-x text-danger me-2"></i>
+                        <span>Забанены админом</span>
+                    </div>
+                    <span class="badge bg-danger fs-6">{{ churn_stats.banned or 0 }}</span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center mb-3 pb-3 border-bottom">
+                    <div>
                         <i class="bi bi-hourglass text-warning me-2"></i>
                         <span>Неактивны 7+ дней</span>
                     </div>

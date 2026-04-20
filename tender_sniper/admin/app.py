@@ -28,7 +28,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import secrets
 
-from sqlalchemy import select, func, and_, distinct, update, delete, desc
+from sqlalchemy import select, func, and_, distinct, update, delete, desc, text
 from sqlalchemy.orm import selectinload
 
 from database import (
@@ -1562,7 +1562,7 @@ async def analytics_page(
                 select(func.count(distinct(SniperFilter.user_id)))
             ) or 0
 
-            yesterday = datetime.now() - timedelta(hours=24)
+            yesterday = datetime.utcnow() - timedelta(hours=24)
             active_24h = await session.scalar(
                 select(func.count(SniperUser.id)).where(SniperUser.last_activity >= yesterday)
             ) or 0
@@ -1608,8 +1608,16 @@ async def analytics_page(
                 for row in reg_result.all()
             ]
 
-            # Заблокировали бота (status != 'active')
-            blocked_users = await session.scalar(
+            # Заблокировали бота — авто-метка, ставится при TelegramForbiddenError
+            # через mark_user_bot_blocked() → sniper_users.data['bot_blocked']=true.
+            # Поле status='blocked' — отдельный механизм админского бана.
+            blocked_by_bot = await session.scalar(
+                text(
+                    "SELECT COUNT(*) FROM sniper_users "
+                    "WHERE data IS NOT NULL AND data->>'bot_blocked' = 'true'"
+                )
+            ) or 0
+            banned_by_admin = await session.scalar(
                 select(func.count(SniperUser.id)).where(SniperUser.status == 'blocked')
             ) or 0
 
@@ -1624,18 +1632,26 @@ async def analytics_page(
                 )
             ) or 0
 
-            # События (если таблица существует)
+            # События сегодня: считаем по московской полуночи (UTC+3),
+            # чтобы у админа из Москвы "сегодня" совпадало с календарным днём.
+            msk_midnight_today_utc = (
+                (datetime.utcnow() + timedelta(hours=3))
+                .replace(hour=0, minute=0, second=0, microsecond=0)
+                - timedelta(hours=3)
+            )
             try:
                 events_today = await session.scalar(
                     select(func.count(UserEvent.id)).where(
-                        UserEvent.created_at >= datetime.utcnow().replace(hour=0, minute=0, second=0)
+                        UserEvent.created_at >= msk_midnight_today_utc
                     )
                 ) or 0
-            except:
+            except Exception as e:
+                logger.warning(f"events_today query failed: {e}")
                 events_today = 0
 
             churn_stats = {
-                'blocked': blocked_users,
+                'blocked': blocked_by_bot,
+                'banned': banned_by_admin,
                 'inactive_7d': inactive_users,
                 'events_today': events_today,
             }
