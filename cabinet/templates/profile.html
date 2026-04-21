@@ -1,289 +1,71 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Профиль компании — Tender Sniper</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
-    body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
-    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh}
-    .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
-    .sidebar nav{flex:1}
-    .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
-    .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
-    .sidebar .icon{width:20px;text-align:center}
-    .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:auto}.sidebar .bottom a{color:var(--gray);font-size:13px}
-    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px;max-width:900px}
-    .page-header{margin-bottom:28px}.page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}.page-header p{color:var(--gray2);font-size:14px}
-    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
-    .card h3{font-size:16px;font-weight:700;margin-bottom:16px}
-    .form-group{margin-bottom:16px}.form-group label{display:block;font-size:13px;font-weight:600;color:var(--gray2);margin-bottom:6px}
-    .form-group input,.form-group textarea,.form-group select{width:100%;padding:10px 14px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--white);font-family:'Manrope',sans-serif;font-size:14px}
-    .form-group input:focus,.form-group textarea:focus{outline:none;border-color:var(--gold-line)}
-    .form-group textarea{resize:vertical;min-height:80px}
-    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    .form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 20px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
-    .btn-gold{background:var(--gold);color:#0a0e17}.btn-gold:hover{opacity:0.9}
-    .loading{text-align:center;padding:40px;color:var(--gray)}
-    .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
-    .status-bar{padding:12px 16px;border-radius:8px;margin-bottom:20px;font-size:14px}
-    .status-complete{background:rgba(61,214,140,0.1);border:1px solid rgba(61,214,140,0.3);color:var(--green)}
-    .status-incomplete{background:rgba(212,168,83,0.1);border:1px solid var(--gold-line);color:var(--gold)}
-    .checkbox-group{display:flex;align-items:center;gap:8px}.checkbox-group input[type=checkbox]{width:auto}
-    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}.form-row,.form-row-3{grid-template-columns:1fr}}
-  </style>
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">TENDER<span>SNIPER</span></div>
-    <nav>
-      <a href="/cabinet/"><span class="icon">📊</span> Тендеры</a>
-      <a href="/cabinet/search"><span class="icon">🔍</span> Поиск</a>
-      <a href="/cabinet/gpt"><span class="icon">🤖</span> Tender-GPT</a>
-      <a href="/cabinet/filters"><span class="icon">🎯</span> Фильтры</a>
-      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
-      <a href="/cabinet/profile" class="active"><span class="icon">🏢</span> Профиль</a>
-      <a href="/cabinet/stats"><span class="icon">📈</span> Статистика</a>
-      <a href="/cabinet/calendar"><span class="icon">📅</span> Календарь</a>
-      <a href="/cabinet/settings"><span class="icon">⚙️</span> Настройки</a>
-      <a href="/cabinet/subscription"><span class="icon">💳</span> Подписка</a>
-    </nav>
-    <div class="bottom">
-      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
-      <a href="/cabinet/logout">Выйти</a>
-    </div>
-  </aside>
+{% extends "_base.html" %}
+{% block title %}Профиль — Tender Sniper{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/profile.css?v=6">{% endblock %}
 
-  <main class="main">
-    <div class="page-header">
-      <h1>Профиль компании</h1>
-      <p>Реквизиты для автогенерации тендерных документов</p>
-    </div>
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Данные</div>
+  <h1>Профиль компании</h1>
+  <div class="summary">Данные подтягиваются в шапки заявок и интеграцию с Битрикс24.</div>
+</div>
 
-    <div id="status-bar"></div>
+<div class="profile-section">
+  <h2>Основное</h2>
+  <div class="section-desc">Публичное имя организации.</div>
+  <div class="profile-grid">
+    <div class="form-field full"><label>Полное наименование</label><input type="text" id="pf-company_name" placeholder="ООО «Ромашка»"></div>
+    <div class="form-field"><label>Краткое наименование</label><input type="text" id="pf-company_name_short" placeholder="Ромашка"></div>
+    <div class="form-field"><label>Организационная форма</label><input type="text" id="pf-legal_form" placeholder="ООО / ИП / АО"></div>
+    <div class="form-field"><label>Телефон</label><input type="text" id="pf-phone" placeholder="+7 (…) … …"></div>
+    <div class="form-field"><label>Email</label><input type="text" id="pf-email" placeholder="info@company.ru"></div>
+    <div class="form-field full"><label>Сайт</label><input type="text" id="pf-website" placeholder="https://company.ru"></div>
+  </div>
+</div>
 
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      Загрузка профиля...
-    </div>
+<div class="profile-section">
+  <h2>Юридические реквизиты</h2>
+  <div class="profile-grid">
+    <div class="form-field"><label>ИНН</label><input type="text" id="pf-inn"></div>
+    <div class="form-field"><label>КПП</label><input type="text" id="pf-kpp"></div>
+    <div class="form-field"><label>ОГРН</label><input type="text" id="pf-ogrn"></div>
+    <div class="form-field"><label>Статус СМП/СОНКО</label><input type="text" id="pf-smp_status" placeholder="СМП / нет"></div>
+    <div class="form-field full"><label>Юридический адрес</label><input type="text" id="pf-legal_address"></div>
+    <div class="form-field full"><label>Фактический адрес</label><input type="text" id="pf-actual_address"></div>
+    <div class="form-field full"><label>Почтовый адрес</label><input type="text" id="pf-postal_address"></div>
+  </div>
+</div>
 
-    <form id="profile-form" style="display:none" onsubmit="saveProfile(event)">
-      <div class="card">
-        <h3>Основные реквизиты</h3>
-        <div class="form-group">
-          <label>Полное наименование *</label>
-          <input type="text" id="company_name" placeholder="ООО «Рога и Копыта»" required>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Краткое наименование</label>
-            <input type="text" id="company_name_short" placeholder="ООО «РиК»">
-          </div>
-          <div class="form-group">
-            <label>Правовая форма</label>
-            <select id="legal_form">
-              <option value="">—</option>
-              <option value="ООО">ООО</option>
-              <option value="ИП">ИП</option>
-              <option value="АО">АО</option>
-              <option value="ПАО">ПАО</option>
-              <option value="ГУП">ГУП</option>
-              <option value="МУП">МУП</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-row-3">
-          <div class="form-group">
-            <label>ИНН *</label>
-            <input type="text" id="inn" placeholder="1234567890" required pattern="\d{10}(\d{2})?" title="10 или 12 цифр">
-          </div>
-          <div class="form-group">
-            <label>КПП</label>
-            <input type="text" id="kpp" placeholder="123456789" pattern="\d{9}" title="9 цифр">
-          </div>
-          <div class="form-group">
-            <label>ОГРН</label>
-            <input type="text" id="ogrn" placeholder="1234567890123" pattern="\d{13}(\d{2})?" title="13 или 15 цифр">
-          </div>
-        </div>
-      </div>
+<div class="profile-section">
+  <h2>Руководитель</h2>
+  <div class="profile-grid">
+    <div class="form-field"><label>ФИО</label><input type="text" id="pf-director_name"></div>
+    <div class="form-field"><label>Должность</label><input type="text" id="pf-director_position"></div>
+    <div class="form-field full"><label>Действует на основании</label><input type="text" id="pf-director_basis" placeholder="Устава / доверенности №…"></div>
+  </div>
+</div>
 
-      <div class="card">
-        <h3>Адреса</h3>
-        <div class="form-group">
-          <label>Юридический адрес *</label>
-          <input type="text" id="legal_address" required placeholder="123456, г. Москва, ул. Примерная, д. 1">
-        </div>
-        <div class="form-group">
-          <label>Фактический адрес</label>
-          <input type="text" id="actual_address" placeholder="Если отличается от юридического">
-        </div>
-        <div class="form-group">
-          <label>Почтовый адрес</label>
-          <input type="text" id="postal_address" placeholder="Если отличается">
-        </div>
-      </div>
+<div class="profile-section">
+  <h2>Банковские реквизиты</h2>
+  <div class="profile-grid">
+    <div class="form-field full"><label>Банк</label><input type="text" id="pf-bank_name"></div>
+    <div class="form-field"><label>БИК</label><input type="text" id="pf-bank_bik"></div>
+    <div class="form-field"><label>Расчётный счёт</label><input type="text" id="pf-bank_account"></div>
+    <div class="form-field full"><label>Корреспондентский счёт</label><input type="text" id="pf-bank_corr_account"></div>
+  </div>
+</div>
 
-      <div class="card">
-        <h3>Руководитель</h3>
-        <div class="form-group">
-          <label>ФИО руководителя *</label>
-          <input type="text" id="director_name" required placeholder="Иванов Иван Иванович">
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Должность</label>
-            <input type="text" id="director_position" placeholder="Генеральный директор">
-          </div>
-          <div class="form-group">
-            <label>Действует на основании</label>
-            <input type="text" id="director_basis" placeholder="Устав">
-          </div>
-        </div>
-      </div>
+<div class="profile-section">
+  <h2>Дополнительно</h2>
+  <div class="profile-grid">
+    <div class="form-field full"><label>Лицензии и допуски</label><textarea id="pf-licenses_text" rows="3"></textarea></div>
+    <div class="form-field full"><label>Опыт работы</label><textarea id="pf-experience_description" rows="4"></textarea></div>
+  </div>
+</div>
 
-      <div class="card">
-        <h3>Контакты</h3>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Телефон *</label>
-            <input type="tel" id="phone" required placeholder="+7 (495) 123-45-67">
-          </div>
-          <div class="form-group">
-            <label>Email *</label>
-            <input type="email" id="email" required placeholder="info@company.ru">
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Сайт</label>
-          <input type="text" id="website" placeholder="https://company.ru">
-        </div>
-      </div>
+<div class="profile-actions">
+  <button class="btn btn-primary" id="btn-save-profile">Сохранить</button>
+  <span class="save-status" id="save-status"></span>
+</div>
+{% endblock %}
 
-      <div class="card">
-        <h3>Банковские реквизиты</h3>
-        <div class="form-group">
-          <label>Название банка</label>
-          <input type="text" id="bank_name" placeholder="ПАО Сбербанк">
-        </div>
-        <div class="form-row-3">
-          <div class="form-group">
-            <label>БИК</label>
-            <input type="text" id="bank_bik" placeholder="044525225" pattern="\d{9}" title="9 цифр">
-          </div>
-          <div class="form-group">
-            <label>Расчётный счёт</label>
-            <input type="text" id="bank_account" placeholder="40702810..." pattern="\d{20}" title="20 цифр">
-          </div>
-          <div class="form-group">
-            <label>Корр. счёт</label>
-            <input type="text" id="bank_corr_account" placeholder="30101810..." pattern="\d{20}" title="20 цифр">
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Дополнительно</h3>
-        <div class="form-group checkbox-group">
-          <input type="checkbox" id="smp_status">
-          <label for="smp_status" style="margin-bottom:0">Субъект малого и среднего предпринимательства (МСП)</label>
-        </div>
-        <div class="form-group">
-          <label>Лицензии и допуски</label>
-          <textarea id="licenses_text" placeholder="Перечислите имеющиеся лицензии"></textarea>
-        </div>
-        <div class="form-group">
-          <label>Описание опыта работы</label>
-          <textarea id="experience_description" placeholder="Краткое описание опыта для технических предложений"></textarea>
-        </div>
-      </div>
-
-      <button type="submit" class="btn btn-gold" id="save-btn">Сохранить профиль</button>
-    </form>
-  </main>
-
-  <div class="toast" id="toast"></div>
-
-  <script>
-    function showToast(msg,dur=3000){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur)}
-
-    const FIELDS = ['company_name','company_name_short','legal_form','inn','kpp','ogrn',
-      'legal_address','actual_address','postal_address',
-      'director_name','director_position','director_basis',
-      'phone','email','website',
-      'bank_name','bank_bik','bank_account','bank_corr_account',
-      'licenses_text','experience_description'];
-
-    async function loadProfile() {
-      const resp = await fetch('/cabinet/api/profile');
-      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
-      const data = await resp.json();
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('profile-form').style.display = 'block';
-
-      const p = data.profile;
-      if (!p) {
-        document.getElementById('status-bar').innerHTML = '<div class="status-bar status-incomplete">Профиль ещё не заполнен. Заполните реквизиты для автогенерации документов.</div>';
-        return;
-      }
-
-      // Fill form
-      FIELDS.forEach(f => {
-        const el = document.getElementById(f);
-        if (el && p[f]) el.value = p[f];
-      });
-      document.getElementById('smp_status').checked = !!p.smp_status;
-
-      // Status
-      const statusHtml = p.is_complete
-        ? '<div class="status-bar status-complete">✅ Профиль заполнен — автогенерация документов активна</div>'
-        : '<div class="status-bar status-incomplete">⚠️ Заполните обязательные поля (отмечены *) для активации автогенерации</div>';
-      document.getElementById('status-bar').innerHTML = statusHtml;
-    }
-
-    async function saveProfile(e) {
-      e.preventDefault();
-      const btn = document.getElementById('save-btn');
-      btn.textContent = 'Сохранение...';
-      btn.disabled = true;
-
-      const data = {};
-      FIELDS.forEach(f => {
-        const el = document.getElementById(f);
-        if (el) data[f] = el.value || null;
-      });
-      data.smp_status = document.getElementById('smp_status').checked;
-
-      try {
-        const resp = await fetch('/cabinet/api/profile', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify(data),
-        });
-        const result = await resp.json();
-        if (result.ok) {
-          showToast('Профиль сохранён!');
-          loadProfile(); // Reload status
-        } else {
-          showToast(result.error || 'Ошибка сохранения');
-        }
-      } catch(e) {
-        showToast('Ошибка: ' + e.message);
-      }
-
-      btn.textContent = 'Сохранить профиль';
-      btn.disabled = false;
-    }
-
-    loadProfile();
-  </script>
-</body>
-</html>
+{% block page_js %}<script src="/cabinet/static/js/pages/profile.js?v=6"></script>{% endblock %}

@@ -113,13 +113,27 @@ async def dashboard_page(request: web.Request) -> web.Response:
 @require_auth
 async def profile_page(request: web.Request) -> web.Response:
     """Страница профиля компании."""
-    return _render_template('profile.html', request)
+    user = request['user']
+    return _render_template(
+        'profile.html', request,
+        active_page='profile',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
 async def documents_page(request: web.Request) -> web.Response:
     """Страница документов."""
-    return _render_template('documents.html', request)
+    user = request['user']
+    return _render_template(
+        'documents.html', request,
+        active_page='documents',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
@@ -153,7 +167,14 @@ async def search_page(request: web.Request) -> web.Response:
 @require_auth
 async def stats_page(request: web.Request) -> web.Response:
     """Страница статистики."""
-    return _render_template('stats.html', request)
+    user = request['user']
+    return _render_template(
+        'stats.html', request,
+        active_page='stats',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
@@ -173,19 +194,40 @@ async def settings_page(request: web.Request) -> web.Response:
 @require_auth
 async def gpt_page(request: web.Request) -> web.Response:
     """Страница Tender-GPT чата."""
-    return _render_template('gpt.html', request)
+    user = request['user']
+    return _render_template(
+        'gpt.html', request,
+        active_page='gpt',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
 async def subscription_page(request: web.Request) -> web.Response:
     """Страница подписки и оплаты."""
-    return _render_template('subscription.html', request)
+    user = request['user']
+    return _render_template(
+        'subscription.html', request,
+        active_page='subscription',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
 async def calendar_page(request: web.Request) -> web.Response:
     """Страница календаря дедлайнов."""
-    return _render_template('calendar.html', request)
+    user = request['user']
+    return _render_template(
+        'calendar.html', request,
+        active_page='calendar',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 # ============================================

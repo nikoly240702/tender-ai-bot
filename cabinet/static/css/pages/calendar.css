@@ -1,0 +1,68 @@
+.cal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px;
+}
+.cal-header .month-label {
+  font-size: 18px; font-weight: 700;
+}
+.cal-header .nav { display: flex; gap: 6px; }
+
+.calendar {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.cal-dow {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.cal-dow > div {
+  padding: 10px 12px;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); text-align: center;
+}
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-cell {
+  min-height: 84px;
+  padding: 8px 10px;
+  border-right: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.cal-cell:nth-child(7n) { border-right: none; }
+.cal-cell:hover { background: var(--line-soft); }
+.cal-cell.out { opacity: 0.4; cursor: default; background: var(--bg-3); }
+.cal-cell.out:hover { background: var(--bg-3); }
+.cal-cell .day-num {
+  font-family: var(--font-mono);
+  font-size: 13px; font-weight: 600; color: var(--text);
+}
+.cal-cell.today .day-num { color: var(--accent); }
+.cal-cell .count {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px;
+  font-weight: 600; color: var(--accent);
+  background: var(--accent-dim);
+  padding: 2px 6px; border-radius: var(--radius-sm);
+  align-self: flex-start;
+}
+.cal-cell.active { background: var(--accent-dim); border-color: var(--accent-line); }
+
+.day-details {
+  margin-top: 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+.day-details h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+.day-tender {
+  padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px;
+}
+.day-tender:last-child { border-bottom: none; }
+.day-tender .name { color: var(--text); font-weight: 500; }
+.day-tender .meta { font-size: 11px; color: var(--sub); font-family: var(--font-mono); margin-top: 2px; }

@@ -1,203 +1,47 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Статистика — Tender Sniper</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
-    body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
-    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto}
-    .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
-    .sidebar nav{flex:1}
-    .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
-    .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
-    .sidebar .icon{width:20px;text-align:center}
-    .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}.sidebar .bottom a{color:var(--gray);font-size:13px}
-    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px}
-    .page-header{margin-bottom:28px}.page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}.page-header p{color:var(--gray2);font-size:14px}
-    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
-    .card h3{font-size:16px;font-weight:700;margin-bottom:16px}
-    .tbl{width:100%;border-collapse:collapse}.tbl th{text-align:left;padding:10px 12px;font-size:12px;font-weight:600;color:var(--gray);text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--line)}.tbl td{padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:top}.tbl tr:hover td{background:var(--surface)}
-    .loading{text-align:center;padding:40px;color:var(--gray)}
-    .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}.stats-grid{grid-template-columns:1fr 1fr!important}}
+{% extends "_base.html" %}
+{% block title %}Статистика — Tender Sniper{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/stats.css?v=6">{% endblock %}
 
-    /* Stats grid */
-    .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
-    .stat-card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:20px;text-align:center}
-    .stat-card .num{font-family:'Unbounded',sans-serif;font-size:28px;font-weight:700;color:var(--gold);margin-bottom:4px}
-    .stat-card .lbl{font-size:12px;color:var(--gray2)}
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Данные</div>
+  <h1>Статистика</h1>
+  <div class="summary">Активность, совпадения и топ-фильтры.</div>
+</div>
 
-    /* Top filters */
-    .top-filter-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
-    .top-filter-row:last-child{border-bottom:none}
-    .filter-bar{height:6px;border-radius:3px;background:var(--gold-dim);margin-top:4px}
-    .filter-bar-fill{height:100%;border-radius:3px;background:var(--gold);transition:width 0.5s}
+<div class="stat-tiles">
+  <div class="stat-tile">
+    <div class="label">Сегодня</div>
+    <div class="value" id="s-today">0</div>
+    <div class="sub" id="s-today-limit">—</div>
+  </div>
+  <div class="stat-tile">
+    <div class="label">Всего уведомлений</div>
+    <div class="value" id="s-total">0</div>
+    <div class="sub">за всё время</div>
+  </div>
+  <div class="stat-tile">
+    <div class="label">Совпадений</div>
+    <div class="value" id="s-matches">0</div>
+    <div class="sub">по всем фильтрам</div>
+  </div>
+  <div class="stat-tile">
+    <div class="label">Активных фильтров</div>
+    <div class="value" id="s-filters">0</div>
+    <div class="sub">работают сейчас</div>
+  </div>
+</div>
 
-    /* Quota bar */
-    .quota-wrap{margin-top:8px}
-    .quota-bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:6px}
-    .quota-fill{height:100%;border-radius:4px;background:var(--gold);transition:width 0.5s}
-    .quota-label{display:flex;justify-content:space-between;font-size:12px;color:var(--gray);margin-top:4px}
-  </style>
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">TENDER<span>SNIPER</span></div>
-    <nav>
-      <a href="/cabinet/"><span class="icon">📊</span> Тендеры</a>
-      <a href="/cabinet/search"><span class="icon">🔍</span> Поиск</a>
-      <a href="/cabinet/gpt"><span class="icon">🤖</span> Tender-GPT</a>
-      <a href="/cabinet/filters"><span class="icon">🎯</span> Фильтры</a>
-      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
-      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
-      <a href="/cabinet/stats" class="active"><span class="icon">📈</span> Статистика</a>
-      <a href="/cabinet/calendar"><span class="icon">📅</span> Календарь</a>
-      <a href="/cabinet/settings"><span class="icon">⚙️</span> Настройки</a>
-      <a href="/cabinet/subscription"><span class="icon">💳</span> Подписка</a>
-    </nav>
-    <div class="bottom">
-      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
-      <a href="/cabinet/logout">Выйти</a>
-    </div>
-  </aside>
+<div class="stats-columns">
+  <div class="stats-column">
+    <h2>Топ-фильтры</h2>
+    <div id="top-filters"><div class="loading">загрузка…</div></div>
+  </div>
+  <div class="stats-column">
+    <h2>Последние тендеры</h2>
+    <div id="recent-tenders"><div class="loading">загрузка…</div></div>
+  </div>
+</div>
+{% endblock %}
 
-  <main class="main">
-    <div class="page-header">
-      <h1>Статистика</h1>
-      <p>Аналитика вашего мониторинга тендеров</p>
-    </div>
-
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      Загрузка статистики...
-    </div>
-
-    <div id="content" style="display:none">
-      <!-- Stat cards -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="num" id="s-today">—</div>
-          <div class="lbl">Сегодня</div>
-        </div>
-        <div class="stat-card">
-          <div class="num" id="s-total">—</div>
-          <div class="lbl">Всего уведомлений</div>
-        </div>
-        <div class="stat-card">
-          <div class="num" id="s-filters">—</div>
-          <div class="lbl">Активных фильтров</div>
-        </div>
-        <div class="stat-card">
-          <div class="num" id="s-limit">—</div>
-          <div class="lbl">Квота / день</div>
-          <div class="quota-wrap">
-            <div class="quota-bar"><div class="quota-fill" id="quota-fill" style="width:0%"></div></div>
-            <div class="quota-label"><span>0</span><span id="quota-max">—</span></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Recent tenders -->
-      <div class="card">
-        <h3>Последние тендеры</h3>
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th>Название</th>
-              <th>Цена</th>
-              <th>Фильтр</th>
-              <th>Дата</th>
-            </tr>
-          </thead>
-          <tbody id="recent-tbody"></tbody>
-        </table>
-      </div>
-
-      <!-- Top filters -->
-      <div class="card">
-        <h3>Топ фильтры</h3>
-        <div id="top-filters"></div>
-      </div>
-    </div>
-  </main>
-
-  <script>
-    function fmtPrice(p) {
-      if (!p) return '—';
-      const n = parseFloat(p);
-      if (n >= 1e6) return (n/1e6).toFixed(1) + ' млн';
-      if (n >= 1e3) return (n/1e3).toFixed(0) + ' тыс.';
-      return n.toFixed(0) + ' ₽';
-    }
-    function fmtDate(d) {
-      if (!d) return '—';
-      return new Date(d).toLocaleDateString('ru-RU');
-    }
-    function escHtml(s) {
-      return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    }
-
-    async function loadStats() {
-      const resp = await fetch('/cabinet/api/stats');
-      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
-      const data = await resp.json();
-
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('content').style.display = 'block';
-
-      // Stat cards
-      document.getElementById('s-today').textContent = data.notifications_today ?? '0';
-      document.getElementById('s-total').textContent = data.total_notifications ?? '0';
-      document.getElementById('s-filters').textContent = data.active_filters ?? '0';
-      const limit = data.notifications_limit || 15;
-      const today = data.notifications_today || 0;
-      document.getElementById('s-limit').textContent = limit;
-      document.getElementById('quota-max').textContent = limit;
-      document.getElementById('quota-fill').style.width = Math.min(100, Math.round(today / limit * 100)) + '%';
-
-      // Recent tenders
-      const tbody = document.getElementById('recent-tbody');
-      const recent = data.recent_tenders || [];
-      if (!recent.length) {
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--gray);padding:20px">Пока нет тендеров</td></tr>';
-      } else {
-        tbody.innerHTML = recent.map(t => {
-          const link = t.url ? `<a href="${escHtml(t.url)}" target="_blank" style="color:var(--white);text-decoration:none">${escHtml((t.name||'').substring(0,55))}${(t.name||'').length>55?'...':''}</a>` : escHtml((t.name||'').substring(0,55));
-          return `<tr>
-            <td>${link}</td>
-            <td style="white-space:nowrap">${fmtPrice(t.price)}</td>
-            <td>${escHtml(t.filter_name||'—')}</td>
-            <td style="white-space:nowrap">${fmtDate(t.sent_at)}</td>
-          </tr>`;
-        }).join('');
-      }
-
-      // Top filters
-      const topFilters = data.top_filters || [];
-      const maxCount = topFilters.length ? topFilters[0].count : 1;
-      const div = document.getElementById('top-filters');
-      if (!topFilters.length) {
-        div.innerHTML = '<p style="color:var(--gray);font-size:13px">Нет данных</p>';
-      } else {
-        div.innerHTML = topFilters.map(f => `
-          <div class="top-filter-row">
-            <div>
-              <div style="font-size:14px;font-weight:600">${escHtml(f.name)}</div>
-              <div class="filter-bar"><div class="filter-bar-fill" style="width:${Math.round(f.count/maxCount*100)}%"></div></div>
-            </div>
-            <div style="font-size:20px;font-weight:700;color:var(--gold);margin-left:16px">${f.count}</div>
-          </div>
-        `).join('');
-      }
-    }
-
-    loadStats();
-  </script>
-</body>
-</html>
+{% block page_js %}<script src="/cabinet/static/js/pages/stats.js?v=6"></script>{% endblock %}
