@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Tender Sniper{% endblock %}</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Unbounded:wght@900&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="/cabinet/static/css/tokens.css">
+  <link rel="stylesheet" href="/cabinet/static/css/base.css">
+  <link rel="stylesheet" href="/cabinet/static/css/components.css">
+  {% block page_css %}{% endblock %}
+</head>
+<body>
+  <div class="app">
+    {% include "_sidebar.html" %}
+
+    <main class="main">
+      {% block main %}{% endblock %}
+    </main>
+
+    <aside class="rightrail">
+      {% block rightrail %}{% include "_rightrail.html" %}{% endblock %}
+    </aside>
+  </div>
+
+  <script src="/cabinet/static/js/api.js"></script>
+  <script src="/cabinet/static/js/modal.js"></script>
+  <script src="/cabinet/static/js/toggle.js"></script>
+  {% block page_js %}{% endblock %}
+</body>
+</html>

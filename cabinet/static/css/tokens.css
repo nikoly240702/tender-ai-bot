@@ -1,0 +1,36 @@
+/* Cabinet v3 — Design tokens.
+   Тёплая бумажная палитра + жжёная сиена как акцент.
+*/
+:root {
+  --bg: #f5f2ea;
+  --bg-2: #efeadf;
+  --bg-3: #faf7f0;
+  --bg-raised: #ffffff;
+
+  --line: rgba(30, 25, 18, 0.10);
+  --line-soft: rgba(30, 25, 18, 0.06);
+
+  --text: #1a1814;
+  --sub: #52493c;
+  --muted: #8a8474;
+
+  --accent: #a05a1e;
+  --accent-hover: #b4692a;
+  --accent-dim: rgba(160, 90, 30, 0.08);
+  --accent-line: rgba(160, 90, 30, 0.25);
+
+  --alert: #b13d28;
+  --positive: #567a3f;
+
+  --font-ui: 'Inter', 'Manrope', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', Menlo, monospace;
+  --font-display: 'Unbounded', 'Inter', sans-serif;
+
+  --sidebar-w: 220px;
+  --rightrail-w: 300px;
+  --main-px: 44px;
+  --main-py: 36px;
+  --radius-sm: 3px;
+  --radius-md: 8px;
+  --radius-pill: 100px;
+}

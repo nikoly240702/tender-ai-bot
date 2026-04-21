@@ -6,6 +6,8 @@ import os
 import logging
 from pathlib import Path
 from aiohttp import web
+import aiohttp_jinja2
+import jinja2
 
 from .auth import verify_telegram_login, generate_session_token, get_current_user, require_auth
 from . import api
@@ -13,10 +15,18 @@ from . import api
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / 'templates'
+STATIC_DIR = Path(__file__).parent / 'static'
 
 
 def setup_cabinet_routes(app: web.Application):
     """Регистрация маршрутов кабинета в aiohttp app."""
+
+    aiohttp_jinja2.setup(
+        app,
+        loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
+        auto_reload=False,
+    )
+    app.router.add_static('/cabinet/static/', path=str(STATIC_DIR), name='cabinet_static')
 
     # HTML Pages
     app.router.add_get('/cabinet/login', login_page)
@@ -83,67 +93,75 @@ async def login_page(request: web.Request) -> web.Response:
     if user:
         raise web.HTTPFound('/cabinet/')
 
-    return _render_template('login.html')
+    return _render_template('login.html', request)
 
 
 @require_auth
 async def dashboard_page(request: web.Request) -> web.Response:
-    """Главная страница кабинета — история тендеров."""
-    return _render_template('dashboard.html')
+    """Главная страница кабинета — лента тендеров."""
+    user = request['user']
+    return _render_template(
+        'dashboard.html',
+        request,
+        active_page='dashboard',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
 async def profile_page(request: web.Request) -> web.Response:
     """Страница профиля компании."""
-    return _render_template('profile.html')
+    return _render_template('profile.html', request)
 
 
 @require_auth
 async def documents_page(request: web.Request) -> web.Response:
     """Страница документов."""
-    return _render_template('documents.html')
+    return _render_template('documents.html', request)
 
 
 @require_auth
 async def filters_page(request: web.Request) -> web.Response:
     """Страница фильтров."""
-    return _render_template('filters.html')
+    return _render_template('filters.html', request)
 
 
 @require_auth
 async def search_page(request: web.Request) -> web.Response:
     """Страница поиска тендеров."""
-    return _render_template('search.html')
+    return _render_template('search.html', request)
 
 
 @require_auth
 async def stats_page(request: web.Request) -> web.Response:
     """Страница статистики."""
-    return _render_template('stats.html')
+    return _render_template('stats.html', request)
 
 
 @require_auth
 async def settings_page(request: web.Request) -> web.Response:
     """Страница настроек."""
-    return _render_template('settings.html')
+    return _render_template('settings.html', request)
 
 
 @require_auth
 async def gpt_page(request: web.Request) -> web.Response:
     """Страница Tender-GPT чата."""
-    return _render_template('gpt.html')
+    return _render_template('gpt.html', request)
 
 
 @require_auth
 async def subscription_page(request: web.Request) -> web.Response:
     """Страница подписки и оплаты."""
-    return _render_template('subscription.html')
+    return _render_template('subscription.html', request)
 
 
 @require_auth
 async def calendar_page(request: web.Request) -> web.Response:
     """Страница календаря дедлайнов."""
-    return _render_template('calendar.html')
+    return _render_template('calendar.html', request)
 
 
 # ============================================
@@ -219,9 +237,6 @@ async def logout(request: web.Request) -> web.Response:
 # TEMPLATE RENDERING
 # ============================================
 
-def _render_template(template_name: str) -> web.Response:
-    """Отдаёт HTML-файл из templates/."""
-    template_path = TEMPLATES_DIR / template_name
-    if template_path.exists():
-        return web.FileResponse(template_path)
-    return web.Response(text=f"Template '{template_name}' not found", status=404)
+def _render_template(template_name: str, request: web.Request = None, **context) -> web.Response:
+    """Рендерит шаблон через aiohttp-jinja2. context передаётся в шаблон."""
+    return aiohttp_jinja2.render_template(template_name, request, context)

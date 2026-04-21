@@ -1,0 +1,63 @@
+<aside class="sidebar">
+  <div class="logo">TENDER<em>SNIPER</em></div>
+
+  <nav>
+    <div class="group">
+      <div class="group-label">Работа</div>
+      <a href="/cabinet/" {% if active_page == 'dashboard' %}class="active"{% endif %}>
+        <span>Тендеры</span>
+        <span class="count">{{ nav_counts.tenders or '' }}</span>
+      </a>
+      <a href="/cabinet/pipeline" {% if active_page == 'pipeline' %}class="active"{% endif %}>
+        <span>Pipeline</span>
+        <span class="count">скоро</span>
+      </a>
+      <a href="/cabinet/calendar" {% if active_page == 'calendar' %}class="active"{% endif %}>
+        <span>Календарь</span>
+        <span class="count">{{ nav_counts.calendar or '' }}</span>
+      </a>
+      <a href="/cabinet/documents" {% if active_page == 'documents' %}class="active"{% endif %}>
+        <span>Документы</span>
+        <span class="count">{{ nav_counts.documents or '' }}</span>
+      </a>
+    </div>
+
+    <div class="group">
+      <div class="group-label">Источники</div>
+      <a href="/cabinet/filters" {% if active_page == 'filters' %}class="active"{% endif %}>
+        <span>Фильтры</span>
+        <span class="count">{{ nav_counts.filters or '' }}</span>
+      </a>
+      <a href="/cabinet/search" {% if active_page == 'search' %}class="active"{% endif %}>
+        <span>Поиск</span>
+      </a>
+      <a href="/cabinet/gpt" {% if active_page == 'gpt' %}class="active"{% endif %}>
+        <span>Tender-GPT</span>
+      </a>
+    </div>
+
+    <div class="group">
+      <div class="group-label">Данные</div>
+      <a href="/cabinet/stats" {% if active_page == 'stats' %}class="active"{% endif %}>
+        <span>Статистика</span>
+      </a>
+      <a href="/cabinet/profile" {% if active_page == 'profile' %}class="active"{% endif %}>
+        <span>Профиль</span>
+      </a>
+      <a href="/cabinet/settings" {% if active_page == 'settings' %}class="active"{% endif %}>
+        <span>Настройки</span>
+      </a>
+      <a href="/cabinet/subscription" {% if active_page == 'subscription' %}class="active"{% endif %}>
+        <span>Подписка</span>
+      </a>
+    </div>
+  </nav>
+
+  <div class="user">
+    <div class="avatar">{{ (user_name or 'U')[0] | upper }}</div>
+    <div class="meta">
+      <div class="name">{{ user_name or 'Пользователь' }}</div>
+      <div class="tier">{{ user_tier or '' }}</div>
+    </div>
+  </div>
+</aside>

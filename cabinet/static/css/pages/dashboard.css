@@ -1,0 +1,26 @@
+/* Dashboard-specific overrides. */
+.dashboard-summary {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.dashboard-summary .stat { display: flex; flex-direction: column; gap: 2px; }
+.dashboard-summary .stat .label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dashboard-summary .stat .value {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.dashboard-summary .stat.alert .value { color: var(--alert); }
