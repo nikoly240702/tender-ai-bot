@@ -226,8 +226,8 @@
   transition: background 0.12s, transform 0.12s;
 }
 .tender-row:hover { background: rgba(160, 90, 30, 0.025); transform: translateX(2px); }
-.tender-row .title { font-size: 14px; font-weight: 500; color: var(--text); margin-bottom: 4px; line-height: 1.4; }
-.tender-row .meta { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+.tender-row .title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 4px; line-height: 1.4; }
+.tender-row .meta { font-size: 12px; color: var(--sub); font-weight: 500; display: flex; gap: 10px; flex-wrap: wrap; }
 .tender-row .meta > span + span::before { content: '·'; margin-right: 10px; color: var(--line); }
 .tender-row .right { text-align: right; font-family: var(--font-mono); }
 .tender-row .price { font-size: 14px; font-weight: 600; color: var(--text); }
@@ -293,8 +293,8 @@
 .deadline:last-child { border-bottom: none; }
 .deadline .date { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--text); }
 .deadline .days { font-family: var(--font-mono); font-size: 11px; color: var(--alert); }
-.deadline .name { font-size: 13px; color: var(--text); line-height: 1.4; }
-.deadline .cust { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.deadline .name { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.4; }
+.deadline .cust { font-size: 11px; color: var(--sub); font-weight: 500; margin-top: 2px; }
 
 .ai-block {
   background: var(--bg-raised);
