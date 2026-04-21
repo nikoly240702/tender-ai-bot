@@ -1,532 +1,111 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Фильтры — Tender Sniper</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
-    body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
-    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto}
-    .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
-    .sidebar nav{flex:1}
-    .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
-    .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
-    .sidebar .icon{width:20px;text-align:center}
-    .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}.sidebar .bottom a{color:var(--gray);font-size:13px}
-    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px;max-width:900px}
-    .page-header{margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-start}
-    .page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}
-    .page-header p{color:var(--gray2);font-size:14px}
-    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
-    .btn-gold{background:var(--gold);color:#0a0e17}.btn-gold:hover{opacity:0.9}
-    .btn-outline{background:transparent;border:1px solid var(--line);color:var(--white)}.btn-outline:hover{border-color:var(--gold-line);color:var(--gold)}
-    .btn-red{background:transparent;border:1px solid rgba(231,76,60,0.3);color:var(--red)}.btn-red:hover{background:rgba(231,76,60,0.1)}
-    .btn-sm{padding:5px 10px;font-size:12px}
-    .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
-    .badge-green{background:rgba(61,214,140,0.15);color:var(--green)}.badge-gray{background:var(--surface);color:var(--gray2)}
-    .loading{text-align:center;padding:40px;color:var(--gray)}
-    .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    .toast{position:fixed;top:24px;left:50%;transform:translateX(-50%) translateY(-12px);padding:12px 24px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;font-weight:600;z-index:1000;opacity:0;transition:opacity 0.25s, transform 0.25s;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,0.35)}.toast.show{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
-    .btn:disabled{opacity:0.6;cursor:not-allowed}
+{% extends "_base.html" %}
 
-    /* Filter cards */
-    .filter-card{border:1px solid var(--line);border-radius:10px;padding:20px;margin-bottom:12px;background:var(--bg3);transition:border-color 0.15s}
-    .filter-card:hover{border-color:var(--gold-line)}
-    .filter-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-    .filter-name{font-weight:700;font-size:15px}
-    .filter-actions{display:flex;gap:8px;flex-shrink:0}
-    .filter-keywords{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-    .keyword-tag{background:var(--surface);padding:3px 10px;border-radius:12px;font-size:12px;color:var(--gray2)}
-    .keyword-tag.excl{color:var(--red)}
-    .filter-meta{display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;font-size:12px;color:var(--gray)}
-    .empty{text-align:center;padding:48px;color:var(--gray)}
-    .empty-icon{font-size:48px;margin-bottom:12px}
-    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}}
+{% block title %}Фильтры — Tender Sniper{% endblock %}
 
-    /* Form panel */
-    .form-panel{background:var(--bg2);border:1px solid var(--gold-line);border-radius:12px;padding:28px;margin-bottom:24px;display:none}
-    .form-panel.open{display:block}
-    .form-panel h2{font-family:'Unbounded',sans-serif;font-size:16px;margin-bottom:20px}
-    .form-group{margin-bottom:16px}
-    .form-group label{display:block;font-size:13px;font-weight:600;color:var(--gray2);margin-bottom:6px}
-    .form-group input,.form-group textarea,.form-group select{width:100%;padding:9px 13px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--white);font-family:'Manrope',sans-serif;font-size:14px}
-    .form-group input:focus,.form-group textarea:focus{outline:none;border-color:var(--gold-line)}
-    .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-    .form-actions{display:flex;gap:12px;margin-top:20px}
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/filters.css?v=4">
+{% endblock %}
 
-    /* Pills selector */
-    .pills{display:flex;flex-wrap:wrap;gap:8px}
-    .pill{padding:6px 14px;border-radius:20px;border:1px solid var(--line);color:var(--gray2);font-size:13px;cursor:pointer;transition:all 0.15s;background:transparent;font-family:'Manrope',sans-serif}
-    .pill:hover{border-color:var(--gold-line);color:var(--gold)}
-    .pill.active{background:var(--gold-dim);border-color:var(--gold-line);color:var(--gold);font-weight:600}
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Источники</div>
+  <h1>Мои <em>фильтры</em></h1>
+  <div class="summary">Правила мониторинга тендеров на zakupki.gov.ru.</div>
+</div>
 
-    /* Tag input */
-    .tag-input-wrap{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);min-height:42px;cursor:text;align-items:center}
-    .tag-input-wrap:focus-within{border-color:var(--gold-line)}
-    .tag-item{display:inline-flex;align-items:center;gap:4px;background:var(--gold-dim);border:1px solid var(--gold-line);color:var(--gold);padding:2px 8px;border-radius:12px;font-size:12px;white-space:nowrap}
-    .tag-item .rm{cursor:pointer;color:var(--gold);font-size:14px;line-height:1;margin-left:2px;opacity:0.7}
-    .tag-item .rm:hover{opacity:1}
-    .tag-input{border:none;background:transparent;color:var(--white);font-family:'Manrope',sans-serif;font-size:13px;outline:none;min-width:80px;flex:1}
+<div class="filters-actions">
+  <div class="tabs">
+    <button class="active" data-tab="all">Все <span class="count" id="tab-all-count">0</span></button>
+    <button data-tab="active">Активные <span class="count" id="tab-active-count">0</span></button>
+    <button data-tab="paused">На паузе <span class="count" id="tab-paused-count">0</span></button>
+  </div>
+  <button class="btn btn-primary" id="btn-new-filter">+ Новый фильтр</button>
+</div>
 
-    /* Region select */
-    .region-search{width:100%;padding:8px 12px;border-radius:8px;background:var(--bg3);border:1px solid var(--line);color:var(--white);font-family:'Manrope',sans-serif;font-size:13px;margin-bottom:8px}
-    .region-search:focus{outline:none;border-color:var(--gold-line)}
-    .region-list{max-height:200px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;background:var(--bg3)}
-    .region-district{padding:6px 12px;font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:0.5px;background:var(--bg2)}
-    .region-item{display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;font-size:13px;transition:background 0.1s}
-    .region-item:hover{background:var(--surface)}
-    .region-item input{cursor:pointer}
-    .region-item.hidden{display:none}
+<div class="form-panel" id="form-panel">
+  <h2 id="form-title">Создать фильтр</h2>
 
-    /* Collapsible advanced */
-    .advanced-toggle{color:var(--gold);font-size:13px;cursor:pointer;background:none;border:none;font-family:'Manrope',sans-serif;padding:0;margin-bottom:12px}
-    .advanced-content{display:none}
-    .advanced-content.open{display:block}
-  </style>
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">TENDER<span>SNIPER</span></div>
-    <nav>
-      <a href="/cabinet/"><span class="icon">📊</span> Тендеры</a>
-      <a href="/cabinet/search"><span class="icon">🔍</span> Поиск</a>
-      <a href="/cabinet/gpt"><span class="icon">🤖</span> Tender-GPT</a>
-      <a href="/cabinet/filters" class="active"><span class="icon">🎯</span> Фильтры</a>
-      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
-      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
-      <a href="/cabinet/stats"><span class="icon">📈</span> Статистика</a>
-      <a href="/cabinet/calendar"><span class="icon">📅</span> Календарь</a>
-      <a href="/cabinet/settings"><span class="icon">⚙️</span> Настройки</a>
-      <a href="/cabinet/subscription"><span class="icon">💳</span> Подписка</a>
-    </nav>
-    <div class="bottom">
-      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
-      <a href="/cabinet/logout">Выйти</a>
+  <div class="form-group">
+    <label>Название</label>
+    <input type="text" id="f-name" placeholder="Например: ИТ Москва до 10 млн">
+  </div>
+
+  <div class="form-group">
+    <label>Ключевые слова <span style="color:var(--muted);font-weight:400;text-transform:none">(Enter или запятая)</span></label>
+    <div class="tag-input-wrap" id="kw-wrap">
+      <input class="tag-input" id="kw-input" placeholder="Добавить слово…">
     </div>
-  </aside>
+    <input type="hidden" id="f-keywords">
+  </div>
 
-  <main class="main">
-    <div class="page-header">
-      <div>
-        <h1>Мои фильтры</h1>
-        <p>Создавайте и редактируйте фильтры мониторинга тендеров</p>
-      </div>
-      <button class="btn btn-gold" onclick="openForm()">+ Новый фильтр</button>
+  <div class="form-group">
+    <label>Исключить слова</label>
+    <div class="tag-input-wrap" id="ex-wrap">
+      <input class="tag-input" id="ex-input" placeholder="Исключить…">
     </div>
+    <input type="hidden" id="f-exclude">
+  </div>
 
-    <!-- CREATE / EDIT PANEL -->
-    <div class="form-panel" id="form-panel">
-      <h2 id="form-title">Создать фильтр</h2>
-
-      <div class="form-group">
-        <label>Название *</label>
-        <input type="text" id="f-name" placeholder="Например: ИТ Москва до 10 млн">
-      </div>
-
-      <div class="form-group">
-        <label>Ключевые слова <span style="color:var(--gray);font-weight:400">(Enter или запятая)</span></label>
-        <div class="tag-input-wrap" id="kw-wrap" onclick="document.getElementById('kw-input').focus()">
-          <input class="tag-input" id="kw-input" placeholder="Добавить слово...">
-        </div>
-        <input type="hidden" id="f-keywords">
-      </div>
-
-      <div class="form-group">
-        <label>Исключить слова</label>
-        <div class="tag-input-wrap" id="ex-wrap" onclick="document.getElementById('ex-input').focus()">
-          <input class="tag-input" id="ex-input" placeholder="Исключить...">
-        </div>
-        <input type="hidden" id="f-exclude">
-      </div>
-
-      <div class="form-group">
-        <label>Тип закупки</label>
-        <div class="pills" id="types-pills">
-          <button class="pill active" data-val="">Любой</button>
-          <button class="pill" data-val="услуги">Услуги</button>
-          <button class="pill" data-val="товары">Товары</button>
-          <button class="pill" data-val="работы">Работы</button>
-        </div>
-        <input type="hidden" id="f-types">
-      </div>
-
-      <div class="form-group">
-        <label>Закон</label>
-        <div class="pills" id="law-pills">
-          <button class="pill active" data-val="">Любой</button>
-          <button class="pill" data-val="44">44-ФЗ</button>
-          <button class="pill" data-val="223">223-ФЗ</button>
-        </div>
-        <input type="hidden" id="f-law">
-      </div>
-
-      <div class="form-row">
-        <div class="form-group">
-          <label>Цена от (₽)</label>
-          <input type="number" id="f-price-min" placeholder="0">
-        </div>
-        <div class="form-group">
-          <label>Цена до (₽)</label>
-          <input type="number" id="f-price-max" placeholder="∞">
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>Регионы</label>
-        <input class="region-search" id="region-search" placeholder="Поиск региона..." oninput="filterRegions(this.value)">
-        <div class="region-list" id="region-list">
-          <div style="padding:20px;text-align:center;color:var(--gray)">Загрузка регионов...</div>
-        </div>
-        <input type="hidden" id="f-regions">
-      </div>
-
-      <button class="advanced-toggle" onclick="toggleAdvanced()">▸ Расширенные настройки</button>
-      <div class="advanced-content" id="advanced-content">
-        <div class="form-group">
-          <label>AI-намерение <span style="color:var(--gray);font-weight:400">(описание для AI-фильтрации)</span></label>
-          <textarea id="f-intent" rows="3" placeholder="Опишите что ищете своими словами..."></textarea>
-        </div>
-      </div>
-
-      <div class="form-actions">
-        <button class="btn btn-gold" onclick="saveFilter(this)">Сохранить</button>
-        <button class="btn btn-outline" onclick="closeForm()">Отмена</button>
-      </div>
+  <div class="form-group">
+    <label>Тип закупки</label>
+    <div class="pills-row" id="types-pills">
+      <button class="chip active" data-val="">Любой</button>
+      <button class="chip" data-val="услуги">Услуги</button>
+      <button class="chip" data-val="товары">Товары</button>
+      <button class="chip" data-val="работы">Работы</button>
     </div>
+    <input type="hidden" id="f-types">
+  </div>
 
-    <!-- FILTERS LIST -->
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      Загрузка фильтров...
+  <div class="form-group">
+    <label>Закон</label>
+    <div class="pills-row" id="law-pills">
+      <button class="chip active" data-val="">Любой</button>
+      <button class="chip" data-val="44">44-ФЗ</button>
+      <button class="chip" data-val="223">223-ФЗ</button>
     </div>
-    <div id="filters-list" style="display:none"></div>
-  </main>
+    <input type="hidden" id="f-law">
+  </div>
 
-  <div class="toast" id="toast"></div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Цена от (₽)</label>
+      <input type="number" id="f-price-min" placeholder="0">
+    </div>
+    <div class="form-group">
+      <label>Цена до (₽)</label>
+      <input type="number" id="f-price-max" placeholder="∞">
+    </div>
+  </div>
 
-  <script>
-    let editingId = null;
-    let allRegions = [];
-    let keywords = [];
-    let excludes = [];
+  <div class="form-group">
+    <label>Регионы</label>
+    <input class="region-search" id="region-search" placeholder="Поиск региона…">
+    <div class="region-list" id="region-list">
+      <div class="loading">загрузка регионов…</div>
+    </div>
+    <input type="hidden" id="f-regions">
+  </div>
 
-    // ─── Toast ───
-    function showToast(msg, dur=3000) {
-      const t = document.getElementById('toast');
-      t.textContent = msg;
-      t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), dur);
-    }
+  <button class="advanced-toggle" id="advanced-btn">▸ Расширенные настройки</button>
+  <div class="advanced-content" id="advanced-content">
+    <div class="form-group">
+      <label>AI-намерение <span style="color:var(--muted);font-weight:400;text-transform:none">(описание для AI-фильтрации)</span></label>
+      <textarea id="f-intent" rows="3" placeholder="Опишите что ищете своими словами…"></textarea>
+    </div>
+  </div>
 
-    // ─── Price format ───
-    function fmtPrice(p) {
-      if (!p) return '';
-      const n = parseFloat(p);
-      if (n >= 1e6) return (n/1e6).toFixed(1) + ' млн';
-      if (n >= 1e3) return (n/1e3).toFixed(0) + ' тыс.';
-      return n.toFixed(0);
-    }
+  <div class="form-actions">
+    <button class="btn btn-primary" id="btn-save-filter">Сохранить</button>
+    <button class="btn btn-secondary" id="btn-cancel-filter">Отмена</button>
+  </div>
+</div>
 
-    // ─── Tag input ───
-    function initTagInput(wrapId, inputId, arr, hiddenId) {
-      const input = document.getElementById(inputId);
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter' || e.key === ',') {
-          e.preventDefault();
-          addTag(wrapId, arr, hiddenId, input.value.trim().replace(/,$/, ''));
-          input.value = '';
-        } else if (e.key === 'Backspace' && !input.value && arr.length > 0) {
-          arr.pop();
-          renderTags(wrapId, inputId, arr, hiddenId);
-        }
-      });
-      input.addEventListener('blur', () => {
-        if (input.value.trim()) {
-          addTag(wrapId, arr, hiddenId, input.value.trim());
-          input.value = '';
-        }
-      });
-    }
+<div id="filters-list">
+  <div class="loading">загрузка фильтров…</div>
+</div>
+{% endblock %}
 
-    function addTag(wrapId, arr, hiddenId, val) {
-      if (!val || arr.includes(val)) return;
-      arr.push(val);
-      renderTags(wrapId, wrapId === 'kw-wrap' ? 'kw-input' : 'ex-input', arr, hiddenId);
-    }
-
-    function removeTag(wrapId, arr, hiddenId, idx) {
-      arr.splice(idx, 1);
-      renderTags(wrapId, wrapId === 'kw-wrap' ? 'kw-input' : 'ex-input', arr, hiddenId);
-    }
-
-    function renderTags(wrapId, inputId, arr, hiddenId) {
-      const wrap = document.getElementById(wrapId);
-      const input = document.getElementById(inputId);
-      // remove old tags
-      wrap.querySelectorAll('.tag-item').forEach(t => t.remove());
-      arr.forEach((tag, i) => {
-        const el = document.createElement('span');
-        el.className = 'tag-item';
-        el.innerHTML = `${tag} <span class="rm" onclick="removeTag('${wrapId}', ${wrapId === 'kw-wrap' ? 'keywords' : 'excludes'}, '${hiddenId}', ${i})">×</span>`;
-        wrap.insertBefore(el, input);
-      });
-      document.getElementById(hiddenId).value = JSON.stringify(arr);
-    }
-
-    // ─── Pills ───
-    function initPills(groupId, hiddenId) {
-      document.querySelectorAll(`#${groupId} .pill`).forEach(p => {
-        p.addEventListener('click', () => {
-          document.querySelectorAll(`#${groupId} .pill`).forEach(x => x.classList.remove('active'));
-          p.classList.add('active');
-          document.getElementById(hiddenId).value = p.dataset.val;
-        });
-      });
-    }
-
-    // ─── Regions ───
-    async function loadRegions() {
-      const resp = await fetch('/cabinet/api/regions');
-      if (!resp.ok) return;
-      const data = await resp.json();
-      allRegions = data.districts || [];
-      renderRegions('');
-    }
-
-    function renderRegions(filter) {
-      const list = document.getElementById('region-list');
-      let html = '';
-      allRegions.forEach(d => {
-        const regions = d.regions.filter(r => !filter || r.toLowerCase().includes(filter.toLowerCase()));
-        if (!regions.length) return;
-        html += `<div class="region-district">${d.district} (${d.code})</div>`;
-        regions.forEach(r => {
-          html += `<label class="region-item"><input type="checkbox" value="${r}" onchange="updateRegions()"> ${r}</label>`;
-        });
-      });
-      list.innerHTML = html || '<div style="padding:12px;color:var(--gray);font-size:13px">Ничего не найдено</div>';
-    }
-
-    function filterRegions(q) {
-      renderRegions(q);
-      // restore checked state
-      const selected = getSelectedRegions();
-      document.querySelectorAll('#region-list input[type=checkbox]').forEach(cb => {
-        if (selected.includes(cb.value)) cb.checked = true;
-      });
-    }
-
-    function getSelectedRegions() {
-      try { return JSON.parse(document.getElementById('f-regions').value || '[]'); } catch { return []; }
-    }
-
-    function updateRegions() {
-      const selected = [];
-      document.querySelectorAll('#region-list input[type=checkbox]:checked').forEach(cb => selected.push(cb.value));
-      document.getElementById('f-regions').value = JSON.stringify(selected);
-    }
-
-    function setSelectedRegions(regions) {
-      document.getElementById('f-regions').value = JSON.stringify(regions);
-      document.querySelectorAll('#region-list input[type=checkbox]').forEach(cb => {
-        cb.checked = regions.includes(cb.value);
-      });
-    }
-
-    // ─── Advanced toggle ───
-    function toggleAdvanced() {
-      const c = document.getElementById('advanced-content');
-      const btn = document.querySelector('.advanced-toggle');
-      if (c.classList.toggle('open')) {
-        btn.textContent = '▾ Расширенные настройки';
-      } else {
-        btn.textContent = '▸ Расширенные настройки';
-      }
-    }
-
-    // ─── Form open/close ───
-    function openForm(filter) {
-      editingId = filter ? filter.id : null;
-      keywords = filter ? (filter.keywords || []) : [];
-      excludes = filter ? (filter.exclude_keywords || []) : [];
-
-      document.getElementById('form-title').textContent = filter ? 'Редактировать фильтр' : 'Создать фильтр';
-      document.getElementById('f-name').value = filter ? (filter.name || '') : '';
-      document.getElementById('f-price-min').value = filter ? (filter.price_min || '') : '';
-      document.getElementById('f-price-max').value = filter ? (filter.price_max || '') : '';
-      document.getElementById('f-intent').value = filter ? (filter.ai_intent || '') : '';
-
-      renderTags('kw-wrap', 'kw-input', keywords, 'f-keywords');
-      renderTags('ex-wrap', 'ex-input', excludes, 'f-exclude');
-
-      // Law pills
-      const law = filter ? (filter.law_type || '') : '';
-      document.querySelectorAll('#law-pills .pill').forEach(p => {
-        p.classList.toggle('active', p.dataset.val === law);
-      });
-      document.getElementById('f-law').value = law;
-
-      // Type pills
-      const types = filter ? (filter.tender_types || []) : [];
-      const typeVal = types.length === 1 ? types[0] : '';
-      document.querySelectorAll('#types-pills .pill').forEach(p => {
-        p.classList.toggle('active', p.dataset.val === typeVal);
-      });
-      document.getElementById('f-types').value = typeVal;
-
-      // Regions
-      const selRegions = filter ? (filter.regions || []) : [];
-      setSelectedRegions(selRegions);
-
-      document.getElementById('form-panel').classList.add('open');
-      document.getElementById('f-name').focus();
-      window.scrollTo({top: 0, behavior: 'smooth'});
-    }
-
-    function closeForm() {
-      document.getElementById('form-panel').classList.remove('open');
-      editingId = null;
-    }
-
-    // ─── Save filter ───
-    async function saveFilter(btn) {
-      const name = document.getElementById('f-name').value.trim();
-      if (!name) { showToast('Введите название фильтра'); return; }
-
-      btn = btn || document.querySelector('.form-actions .btn-gold');
-      if (btn.disabled) return;
-      const origText = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Сохраняем…';
-
-      const payload = {
-        name,
-        keywords: JSON.parse(document.getElementById('f-keywords').value || '[]'),
-        exclude_keywords: JSON.parse(document.getElementById('f-exclude').value || '[]'),
-        law_type: document.getElementById('f-law').value || null,
-        tender_types: document.getElementById('f-types').value ? [document.getElementById('f-types').value] : [],
-        price_min: document.getElementById('f-price-min').value ? parseFloat(document.getElementById('f-price-min').value) : null,
-        price_max: document.getElementById('f-price-max').value ? parseFloat(document.getElementById('f-price-max').value) : null,
-        regions: JSON.parse(document.getElementById('f-regions').value || '[]'),
-        ai_intent: document.getElementById('f-intent').value.trim() || null,
-      };
-
-      const url = editingId ? `/cabinet/api/filters/${editingId}` : '/cabinet/api/filters/create';
-      const method = editingId ? 'PUT' : 'POST';
-
-      try {
-        const resp = await fetch(url, {method, headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
-        const data = await resp.json();
-
-        if (data.ok) {
-          showToast(editingId ? '✓ Фильтр обновлён' : '✓ Фильтр создан');
-          closeForm();
-          loadFilters();
-        } else {
-          showToast(data.error || 'Ошибка сохранения');
-        }
-      } catch (e) {
-        showToast('Ошибка соединения. Попробуйте снова');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = origText;
-      }
-    }
-
-    // ─── Toggle filter ───
-    async function toggleFilter(id, btn) {
-      const resp = await fetch(`/cabinet/api/filters/${id}/toggle`, {method: 'POST'});
-      const data = await resp.json();
-      if (data.ok) {
-        showToast(data.is_active ? 'Фильтр активирован' : 'Фильтр приостановлен');
-        loadFilters();
-      }
-    }
-
-    // ─── Delete filter ───
-    async function deleteFilter(id) {
-      if (!confirm('Удалить фильтр?')) return;
-      const resp = await fetch(`/cabinet/api/filters/${id}`, {method: 'DELETE'});
-      const data = await resp.json();
-      if (data.ok) { showToast('Фильтр удалён'); loadFilters(); }
-      else showToast(data.error || 'Ошибка удаления');
-    }
-
-    // ─── Duplicate filter ───
-    async function duplicateFilter(filter) {
-      const dup = {...filter, name: filter.name + ' (копия)', id: null};
-      openForm(dup);
-    }
-
-    // ─── Load filters ───
-    async function loadFilters() {
-      const resp = await fetch('/cabinet/api/filters?active_only=false');
-      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
-      const data = await resp.json();
-
-      document.getElementById('loading').style.display = 'none';
-      const list = document.getElementById('filters-list');
-      list.style.display = 'block';
-
-      if (!data.filters || data.filters.length === 0) {
-        list.innerHTML = '<div class="empty"><div class="empty-icon">🎯</div><p>Фильтров пока нет</p><p style="font-size:13px;margin-top:8px">Нажмите «+ Новый фильтр» чтобы создать первый</p></div>';
-        return;
-      }
-
-      let html = '';
-      data.filters.forEach(f => {
-        const kw = (f.keywords || []).map(k => `<span class="keyword-tag">${k}</span>`).join('');
-        const ex = (f.exclude_keywords || []).map(k => `<span class="keyword-tag excl">−${k}</span>`).join('');
-        const status = f.is_active
-          ? '<span class="badge badge-green">🟢 Активен</span>'
-          : '<span class="badge badge-gray">⏸ Пауза</span>';
-
-        let meta = [];
-        if (f.price_min || f.price_max) meta.push(`Цена: ${fmtPrice(f.price_min)||'0'}—${fmtPrice(f.price_max)||'∞'} ₽`);
-        if (f.regions && f.regions.length) meta.push(`Регионы: ${f.regions.slice(0,2).join(', ')}${f.regions.length>2?' +'+f.regions.length-2:''}` );
-        if (f.law_type) meta.push(f.law_type === '44' ? '44-ФЗ' : f.law_type === '223' ? '223-ФЗ' : f.law_type);
-
-        const fStr = JSON.stringify(f).replace(/"/g, '&quot;');
-
-        html += `<div class="filter-card">
-          <div class="filter-header">
-            <span class="filter-name">${escHtml(f.name || 'Фильтр #' + f.id)}</span>
-            <div class="filter-actions">
-              ${status}
-              <button class="btn btn-sm btn-outline" onclick='openForm(${fStr})'>Изменить</button>
-              <button class="btn btn-sm btn-outline" onclick="toggleFilter(${f.id})">⏸</button>
-              <button class="btn btn-sm btn-red" onclick="deleteFilter(${f.id})">🗑</button>
-            </div>
-          </div>
-          ${kw || ex ? `<div class="filter-keywords">${kw}${ex}</div>` : ''}
-          ${meta.length ? `<div class="filter-meta">${meta.join(' &nbsp;|&nbsp; ')}</div>` : ''}
-        </div>`;
-      });
-
-      list.innerHTML = html;
-    }
-
-    function escHtml(str) {
-      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-
-    // ─── API for GET filters with active_only=false support ───
-    // (Backend already supports active_only query param via get_user_filters)
-
-    // ─── Init ───
-    initTagInput('kw-wrap', 'kw-input', keywords, 'f-keywords');
-    initTagInput('ex-wrap', 'ex-input', excludes, 'f-exclude');
-    initPills('types-pills', 'f-types');
-    initPills('law-pills', 'f-law');
-
-    loadRegions();
-    loadFilters();
-  </script>
-</body>
-</html>
+{% block page_js %}
+<script src="/cabinet/static/js/pages/filters.js?v=4"></script>
+{% endblock %}

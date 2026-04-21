@@ -1,0 +1,53 @@
+/* Cabinet v3 — settings page. */
+.settings-section {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.settings-section h2 {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+.settings-section p.desc {
+  color: var(--sub);
+  font-size: 13px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+.setting-row:last-child { border-bottom: none; }
+.setting-row .label { font-size: 14px; color: var(--text); font-weight: 500; }
+.setting-row .hint { font-size: 12px; color: var(--sub); margin-top: 2px; }
+.setting-row .right { display: flex; align-items: center; gap: 10px; }
+.setting-row input[type=number] {
+  width: 64px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: center;
+}
+.pause-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.tier-box {
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--radius-sm);
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tier-box .tier-name { font-weight: 700; color: var(--accent); }
+.tier-box .tier-meta { font-family: var(--font-mono); font-size: 12px; color: var(--sub); }

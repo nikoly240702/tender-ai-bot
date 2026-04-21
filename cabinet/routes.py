@@ -125,13 +125,29 @@ async def documents_page(request: web.Request) -> web.Response:
 @require_auth
 async def filters_page(request: web.Request) -> web.Response:
     """Страница фильтров."""
-    return _render_template('filters.html', request)
+    user = request['user']
+    return _render_template(
+        'filters.html',
+        request,
+        active_page='filters',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
 async def search_page(request: web.Request) -> web.Response:
     """Страница поиска тендеров."""
-    return _render_template('search.html', request)
+    user = request['user']
+    return _render_template(
+        'search.html',
+        request,
+        active_page='search',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth
@@ -143,7 +159,15 @@ async def stats_page(request: web.Request) -> web.Response:
 @require_auth
 async def settings_page(request: web.Request) -> web.Response:
     """Страница настроек."""
-    return _render_template('settings.html', request)
+    user = request['user']
+    return _render_template(
+        'settings.html',
+        request,
+        active_page='settings',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
 
 
 @require_auth

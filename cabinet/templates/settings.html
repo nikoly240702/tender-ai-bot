@@ -1,337 +1,72 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Настройки — Tender Sniper</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;900&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#0a0e17;--bg2:#111623;--bg3:#181e2e;--surface:rgba(255,255,255,0.04);--line:rgba(255,255,255,0.07);--gold:#d4a853;--gold-dim:rgba(212,168,83,0.12);--gold-line:rgba(212,168,83,0.25);--white:#f0f0f0;--gray:#6b7a90;--gray2:#99a8b8;--green:#3dd68c;--red:#e74c3c;--sidebar-w:240px}
-    body{background:var(--bg);color:var(--white);font-family:'Manrope',system-ui,sans-serif;font-size:15px;line-height:1.55;display:flex;min-height:100vh}
-    .sidebar{width:var(--sidebar-w);background:var(--bg2);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto}
-    .sidebar .logo{font-family:'Unbounded',sans-serif;font-size:16px;font-weight:900;margin-bottom:32px;padding:0 8px}.sidebar .logo span{color:var(--gold)}
-    .sidebar nav{flex:1}
-    .sidebar a{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;color:var(--gray2);text-decoration:none;font-size:14px;font-weight:500;transition:all 0.15s;margin-bottom:2px}
-    .sidebar a:hover{background:var(--surface);color:var(--white)}.sidebar a.active{background:var(--gold-dim);color:var(--gold)}
-    .sidebar .icon{width:20px;text-align:center}
-    .sidebar .bottom{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}.sidebar .bottom a{color:var(--gray);font-size:13px}
-    .main{margin-left:var(--sidebar-w);flex:1;padding:32px 40px;max-width:700px}
-    .page-header{margin-bottom:28px}.page-header h1{font-family:'Unbounded',sans-serif;font-size:22px;font-weight:700;margin-bottom:4px}.page-header p{color:var(--gray2);font-size:14px}
-    .card{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;margin-bottom:16px}
-    .card-title{font-size:15px;font-weight:700;margin-bottom:16px;color:var(--gray2);text-transform:uppercase;letter-spacing:0.5px;font-size:12px}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-family:'Manrope',sans-serif;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:all 0.15s;text-decoration:none}
-    .btn-gold{background:var(--gold);color:#0a0e17}.btn-gold:hover{opacity:0.9}
-    .btn-outline{background:transparent;border:1px solid var(--line);color:var(--white)}.btn-outline:hover{border-color:var(--gold-line);color:var(--gold)}
-    .btn-sm{padding:6px 12px;font-size:12px}
-    .loading{text-align:center;padding:40px;color:var(--gray)}
-    .spinner{width:32px;height:32px;border:3px solid var(--line);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px}
-    @keyframes spin{to{transform:rotate(360deg)}}
-    .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;background:var(--bg3);border:1px solid var(--gold-line);color:var(--white);font-size:14px;z-index:1000;opacity:0;transition:opacity 0.3s;pointer-events:none}.toast.show{opacity:1;pointer-events:auto}
-    @media(max-width:768px){.sidebar{width:0;overflow:hidden;padding:0}.main{margin-left:0;padding:16px}}
+{% extends "_base.html" %}
 
-    /* Setting rows */
-    .setting-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
-    .setting-row:last-child{border-bottom:none}
-    .setting-label{font-size:14px;font-weight:600}
-    .setting-desc{font-size:12px;color:var(--gray);margin-top:2px}
-    .setting-control{flex-shrink:0;margin-left:16px;display:flex;gap:8px;align-items:center}
+{% block title %}Настройки — Tender Sniper{% endblock %}
 
-    /* Toggle switch */
-    .toggle{position:relative;display:inline-block;width:44px;height:24px}
-    .toggle input{opacity:0;width:0;height:0}
-    .toggle-slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:var(--line);border-radius:24px;transition:0.3s}
-    .toggle-slider:before{position:absolute;content:'';height:18px;width:18px;left:3px;bottom:3px;background:var(--gray2);border-radius:50%;transition:0.3s}
-    .toggle input:checked + .toggle-slider{background:var(--gold)}
-    .toggle input:checked + .toggle-slider:before{transform:translateX(20px);background:#0a0e17}
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/settings.css?v=4">
+{% endblock %}
 
-    /* Time inputs */
-    .time-input{width:70px;padding:6px 10px;border-radius:6px;background:var(--bg3);border:1px solid var(--line);color:var(--white);font-family:'Manrope',sans-serif;font-size:14px;text-align:center}
-    .time-input:focus{outline:none;border-color:var(--gold-line)}
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Данные</div>
+  <h1>Настройки</h1>
+  <div class="summary">Управление уведомлениями, тихими часами и паузой мониторинга.</div>
+</div>
 
-    /* Badge */
-    .badge{display:inline-block;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600}
-    .badge-gold{background:var(--gold-dim);color:var(--gold)}
-    .badge-green{background:rgba(61,214,140,0.15);color:var(--green)}
-    .badge-gray{background:var(--surface);color:var(--gray2)}
-
-    /* Subscription info */
-    .sub-row{display:flex;gap:24px;flex-wrap:wrap}
-    .sub-item{font-size:13px}.sub-item .sub-key{color:var(--gray);font-size:12px;margin-bottom:2px}.sub-item .sub-val{font-weight:600}
-
-    /* Monitoring status */
-    .monitor-status{font-size:22px;margin-right:8px}
-    .paused-until{font-size:12px;color:var(--gold);margin-top:4px}
-  </style>
-</head>
-<body>
-  <aside class="sidebar">
-    <div class="logo">TENDER<span>SNIPER</span></div>
-    <nav>
-      <a href="/cabinet/"><span class="icon">📊</span> Тендеры</a>
-      <a href="/cabinet/search"><span class="icon">🔍</span> Поиск</a>
-      <a href="/cabinet/gpt"><span class="icon">🤖</span> Tender-GPT</a>
-      <a href="/cabinet/filters"><span class="icon">🎯</span> Фильтры</a>
-      <a href="/cabinet/documents"><span class="icon">📄</span> Документы</a>
-      <a href="/cabinet/profile"><span class="icon">🏢</span> Профиль</a>
-      <a href="/cabinet/stats"><span class="icon">📈</span> Статистика</a>
-      <a href="/cabinet/calendar"><span class="icon">📅</span> Календарь</a>
-      <a href="/cabinet/settings" class="active"><span class="icon">⚙️</span> Настройки</a>
-      <a href="/cabinet/subscription"><span class="icon">💳</span> Подписка</a>
-    </nav>
-    <div class="bottom">
-      <a href="https://t.me/TenderSniperBot">Бот в Telegram</a>
-      <a href="/cabinet/logout">Выйти</a>
+<div class="settings-section">
+  <h2>Тариф</h2>
+  <div class="tier-box">
+    <div>
+      <div class="tier-name" id="tier-name">—</div>
+      <div class="tier-meta" id="tier-meta">—</div>
     </div>
-  </aside>
+    <a href="/cabinet/subscription" class="btn btn-secondary">Управлять</a>
+  </div>
+</div>
 
-  <main class="main">
-    <div class="page-header">
-      <h1>Настройки</h1>
-      <p>Управление мониторингом и уведомлениями</p>
+<div class="settings-section">
+  <h2>Уведомления</h2>
+  <div class="setting-row">
+    <div>
+      <div class="label">Уведомления о тендерах</div>
+      <div class="hint">Получать новые тендеры по фильтрам</div>
     </div>
-
-    <div class="loading" id="loading">
-      <div class="spinner"></div>
-      Загрузка настроек...
+    <div class="right">
+      <div class="toggle" id="toggle-notifs"><div class="dot"></div></div>
     </div>
-
-    <div id="content" style="display:none">
-
-      <!-- Мониторинг -->
-      <div class="card">
-        <div class="card-title">Мониторинг</div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">
-              <span class="monitor-status" id="monitor-icon">🟢</span>
-              Статус автомониторинга
-            </div>
-            <div class="paused-until" id="paused-until" style="display:none"></div>
-          </div>
-          <div class="setting-control">
-            <button class="btn btn-sm btn-outline" onclick="pauseMonitoring('24h')">⏸ Пауза 24ч</button>
-            <button class="btn btn-sm btn-outline" onclick="pauseMonitoring('forever')">⏸ Пауза навсегда</button>
-            <button class="btn btn-sm btn-gold" id="btn-resume" onclick="pauseMonitoring('resume')" style="display:none">▶ Возобновить</button>
-          </div>
-        </div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Уведомления в бот</div>
-            <div class="setting-desc">Получать Telegram-сообщения при нахождении тендеров</div>
-          </div>
-          <div class="setting-control">
-            <label class="toggle">
-              <input type="checkbox" id="tog-notify" onchange="saveSetting('notifications_enabled', this.checked)">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <!-- Тихие часы -->
-      <div class="card">
-        <div class="card-title">Уведомления</div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Тихие часы</div>
-            <div class="setting-desc">Не отправлять уведомления в указанный период</div>
-          </div>
-          <div class="setting-control">
-            <label class="toggle">
-              <input type="checkbox" id="tog-quiet" onchange="saveQuietHours()">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-        </div>
-        <div class="setting-row" id="quiet-time-row" style="display:none">
-          <div class="setting-label">Период тишины</div>
-          <div class="setting-control" style="gap:8px;align-items:center">
-            <span style="color:var(--gray2);font-size:13px">с</span>
-            <input class="time-input" type="number" id="quiet-start" min="0" max="23" value="22" onchange="saveQuietHours()">
-            <span style="color:var(--gray2);font-size:13px">:00 до</span>
-            <input class="time-input" type="number" id="quiet-end" min="0" max="23" value="8" onchange="saveQuietHours()">
-            <span style="color:var(--gray2);font-size:13px">:00</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Подписка -->
-      <div class="card">
-        <div class="card-title">Подписка</div>
-        <div class="sub-row" id="sub-info">
-          <div class="sub-item">
-            <div class="sub-key">Тариф</div>
-            <div class="sub-val" id="sub-tier">—</div>
-          </div>
-          <div class="sub-item">
-            <div class="sub-key">Действует до</div>
-            <div class="sub-val" id="sub-expires">—</div>
-          </div>
-          <div class="sub-item">
-            <div class="sub-key">Лимит фильтров</div>
-            <div class="sub-val" id="sub-filters">—</div>
-          </div>
-          <div class="sub-item">
-            <div class="sub-key">Уведомлений в день</div>
-            <div class="sub-val" id="sub-notifs">—</div>
-          </div>
-        </div>
-        <div style="margin-top:16px;font-size:13px;color:var(--gray)">
-          Для продления или смены тарифа используйте команду <span style="color:var(--gold)">/subscribe</span> в боте.
-        </div>
-      </div>
-
-      <!-- Google Sheets -->
-      <div class="card">
-        <div class="card-title">Google Sheets</div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Статус интеграции</div>
-            <div class="setting-desc" id="sheets-desc">Проверка...</div>
-          </div>
-          <div class="setting-control">
-            <span id="sheets-badge" class="badge badge-gray">—</span>
-          </div>
-        </div>
-        <div style="margin-top:12px;font-size:13px;color:var(--gray)">
-          Настройка только через бота: <span style="color:var(--gold)">/settings → Google Sheets</span>
-        </div>
-      </div>
-
-      <!-- Профиль компании -->
-      <div class="card">
-        <div class="card-title">Профиль компании</div>
-        <div class="setting-row">
-          <div>
-            <div class="setting-label">Реквизиты для документов</div>
-            <div class="setting-desc">Заполните профиль для автоматической генерации документов</div>
-          </div>
-          <div class="setting-control">
-            <a href="/cabinet/profile" class="btn btn-outline btn-sm">Заполнить →</a>
-          </div>
-        </div>
-      </div>
-
+  </div>
+  <div class="setting-row">
+    <div>
+      <div class="label">Тихие часы</div>
+      <div class="hint">Не отправлять уведомления в ночное время</div>
     </div>
-  </main>
+    <div class="right">
+      <div class="toggle" id="toggle-quiet"><div class="dot"></div></div>
+    </div>
+  </div>
+  <div class="setting-row">
+    <div>
+      <div class="label">Период тихих часов</div>
+      <div class="hint">С какого часа по какой час не слать уведомления</div>
+    </div>
+    <div class="right">
+      С <input type="number" id="quiet-start" min="0" max="23"> до <input type="number" id="quiet-end" min="0" max="23">
+      <button class="btn btn-secondary" id="save-quiet-hours">Сохранить</button>
+    </div>
+  </div>
+</div>
 
-  <div class="toast" id="toast"></div>
+<div class="settings-section">
+  <h2>Пауза мониторинга</h2>
+  <p class="desc" id="pause-status">—</p>
+  <div class="pause-actions">
+    <button class="btn btn-secondary" id="pause-24h">Пауза 24 часа</button>
+    <button class="btn btn-secondary" id="pause-forever">Остановить</button>
+    <button class="btn btn-primary" id="pause-resume">Возобновить</button>
+  </div>
+</div>
+{% endblock %}
 
-  <script>
-    function showToast(msg, dur=3000) {
-      const t = document.getElementById('toast');
-      t.textContent = msg;
-      t.classList.add('show');
-      setTimeout(() => t.classList.remove('show'), dur);
-    }
-
-    function fmtDate(d) {
-      if (!d) return '—';
-      try { return new Date(d).toLocaleDateString('ru-RU'); } catch { return d; }
-    }
-
-    let settings = {};
-
-    async function loadSettings() {
-      const resp = await fetch('/cabinet/api/settings');
-      if (resp.status === 401) { location.href = '/cabinet/login'; return; }
-      const data = await resp.json();
-      settings = data;
-
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('content').style.display = 'block';
-
-      // Monitoring status
-      const paused = data.monitoring_paused_until;
-      const isPaused = paused && new Date(paused) > new Date();
-      document.getElementById('monitor-icon').textContent = isPaused ? '⏸' : '🟢';
-      if (isPaused) {
-        const pEl = document.getElementById('paused-until');
-        pEl.style.display = 'block';
-        const pausedDate = paused === '9999-12-31T00:00:00' ? 'навсегда' : 'до ' + fmtDate(paused);
-        pEl.textContent = 'Пауза ' + pausedDate;
-        document.getElementById('btn-resume').style.display = 'inline-flex';
-      }
-
-      // Notification toggle
-      document.getElementById('tog-notify').checked = data.notifications_enabled !== false;
-
-      // Quiet hours
-      document.getElementById('tog-quiet').checked = data.quiet_hours_enabled || false;
-      document.getElementById('quiet-start').value = data.quiet_hours_start ?? 22;
-      document.getElementById('quiet-end').value = data.quiet_hours_end ?? 8;
-      if (data.quiet_hours_enabled) {
-        document.getElementById('quiet-time-row').style.display = 'flex';
-      }
-
-      // Subscription
-      const tierMap = {trial: 'Пробный', basic: 'Базовый', premium: 'Премиум'};
-      document.getElementById('sub-tier').textContent = tierMap[data.subscription_tier] || data.subscription_tier || '—';
-      document.getElementById('sub-expires').textContent = fmtDate(data.trial_expires_at);
-      document.getElementById('sub-filters').textContent = data.filters_limit || '—';
-      document.getElementById('sub-notifs').textContent = data.notifications_limit || '—';
-
-      // Sheets
-      const sheetsEl = document.getElementById('sheets-badge');
-      const sheetsDesc = document.getElementById('sheets-desc');
-      if (data.sheets_configured) {
-        sheetsEl.textContent = 'Подключено';
-        sheetsEl.className = 'badge badge-green';
-        sheetsDesc.textContent = 'Google Sheets интегрирован. Кнопка «В таблицу» доступна.';
-      } else {
-        sheetsEl.textContent = 'Не настроено';
-        sheetsEl.className = 'badge badge-gray';
-        sheetsDesc.textContent = 'Google Sheets не подключён. Настройте через бота.';
-      }
-    }
-
-    async function saveSetting(key, value) {
-      const resp = await fetch('/cabinet/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({[key]: value}),
-      });
-      const data = await resp.json();
-      if (data.ok) showToast('Настройки сохранены');
-      else showToast(data.error || 'Ошибка сохранения');
-    }
-
-    async function saveQuietHours() {
-      const enabled = document.getElementById('tog-quiet').checked;
-      document.getElementById('quiet-time-row').style.display = enabled ? 'flex' : 'none';
-      const payload = {
-        quiet_hours_enabled: enabled,
-        quiet_hours_start: parseInt(document.getElementById('quiet-start').value) || 22,
-        quiet_hours_end: parseInt(document.getElementById('quiet-end').value) || 8,
-      };
-      const resp = await fetch('/cabinet/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload),
-      });
-      const data = await resp.json();
-      if (data.ok) showToast('Тихие часы сохранены');
-      else showToast(data.error || 'Ошибка');
-    }
-
-    async function pauseMonitoring(type) {
-      const resp = await fetch('/cabinet/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({monitoring_pause: type}),
-      });
-      const data = await resp.json();
-      if (data.ok) {
-        showToast(type === 'resume' ? '▶ Мониторинг возобновлён' : '⏸ Мониторинг приостановлен');
-        loadSettings();
-      } else {
-        showToast(data.error || 'Ошибка');
-      }
-    }
-
-    loadSettings();
-  </script>
-</body>
-</html>
+{% block page_js %}
+<script src="/cabinet/static/js/pages/settings.js?v=4"></script>
+{% endblock %}
