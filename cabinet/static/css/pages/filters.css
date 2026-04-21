@@ -35,7 +35,7 @@
 }
 .filter-card .name { font-size: 15px; font-weight: 700; color: var(--text); }
 .filter-card .kws { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.filter-card .kw { font-family: var(--font-mono); font-size: 11px; color: var(--sub); background: var(--accent-dim); padding: 3px 8px; border-radius: var(--radius-pill); }
+.filter-card .kw { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--sub); background: var(--line-soft); padding: 3px 10px; border-radius: var(--radius-pill); }
 .filter-card .kw.excl { color: var(--alert); background: rgba(177,61,40,0.08); }
 .filter-card .meta { font-size: 12px; color: var(--sub); font-weight: 500; display: flex; flex-wrap: wrap; gap: 12px; }
 .filter-card .meta .match-count { font-family: var(--font-mono); font-weight: 600; color: var(--text); }
