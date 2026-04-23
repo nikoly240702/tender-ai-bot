@@ -28,52 +28,65 @@ EMAIL_FROM = os.getenv('EMAIL_FROM', SMTP_USER)
 
 
 def _smtp_send(msg):
-    """Send email via SMTP, using SOCKS5 proxy if available (for Yandex from foreign servers)."""
+    """Send email via SMTP, routing through SOCKS5 proxy if PROXY_URL is set.
+
+    Почему вручную: smtplib.SMTP_SSL(host=...) в конструкторе сразу делает
+    прямой connect(), минуя наш SOCKS-сокет. Нужно создать SMTP_SSL()
+    БЕЗ host/port, подставить заранее подготовленный сокет, и вручную
+    вычитать SMTP-приветствие, чтобы smtplib считал себя «подключённым».
+    """
     proxy_url = os.getenv('PROXY_URL', '').strip()
 
     if proxy_url and proxy_url.startswith('socks5://'):
-        # Parse proxy: socks5://user:pass@host:port
         import socks
-        import socket
+        import ssl as _ssl
         from urllib.parse import urlparse
 
         parsed = urlparse(proxy_url)
         proxy_host = parsed.hostname
         proxy_port = parsed.port or 1080
-        proxy_user = parsed.username
-        proxy_pass = parsed.password
 
-        # Create SOCKS5 socket
         sock = socks.socksocket()
-        sock.set_proxy(socks.SOCKS5, proxy_host, proxy_port,
-                       username=proxy_user, password=proxy_pass)
+        sock.set_proxy(
+            socks.SOCKS5, proxy_host, proxy_port,
+            username=parsed.username, password=parsed.password,
+        )
         sock.settimeout(30)
         sock.connect((SMTP_HOST, SMTP_PORT))
 
         if SMTP_PORT == 465:
-            import ssl
-            context = ssl.create_default_context()
-            sock = context.wrap_socket(sock, server_hostname=SMTP_HOST)
-            server = smtplib.SMTP_SSL(host=SMTP_HOST, port=SMTP_PORT)
-            server.sock = sock
+            context = _ssl.create_default_context()
+            wrapped = context.wrap_socket(sock, server_hostname=SMTP_HOST)
+            server = smtplib.SMTP_SSL()  # без host/port — НЕТ авто-connect
+            server.sock = wrapped
+            server.file = wrapped.makefile('rb')
         else:
-            server = smtplib.SMTP()
+            server = smtplib.SMTP()  # без host/port — НЕТ авто-connect
             server.sock = sock
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
+            server.file = sock.makefile('rb')
 
+        # Реплицируем то, что SMTP.connect() делает после установки сокета:
+        # читаем серверное приветствие.
+        code, greet = server.getreply()
+        if code != 220:
+            raise smtplib.SMTPConnectError(code, greet)
+
+        if SMTP_PORT != 465:
+            server.ehlo()
+            server.starttls(context=_ssl.create_default_context())
+
+        server.ehlo()
         server.login(SMTP_USER, SMTP_PASSWORD)
         server.send_message(msg)
         server.quit()
     else:
-        # Direct connection (no proxy)
+        # Прямое подключение (без прокси) — работает с российских IP.
         if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=30) as server:
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
         else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as server:
                 server.starttls()
                 server.login(SMTP_USER, SMTP_PASSWORD)
                 server.send_message(msg)
