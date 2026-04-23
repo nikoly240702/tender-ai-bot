@@ -50,9 +50,12 @@ async def health_check_handler(request):
         except Exception as e:
             _health_status["checks"]["sniper_service"] = f"error: {str(e)}"
 
-        # Определяем общий статус
+        # Определяем общий статус: любой статус, не начинающийся с "error",
+        # считается здоровым. Это включает "ok", "running", "disabled" и т.п.
+        # Раньше проверка была строгая (только "ok*") и роняла healthcheck,
+        # когда bot переходил в "running" (строка 607 в bot/main.py).
         all_ok = all(
-            check == "ok" or check.startswith("ok")
+            not str(check).startswith("error")
             for check in _health_status["checks"].values()
         )
 
