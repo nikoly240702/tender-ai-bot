@@ -57,7 +57,30 @@
     byId('tm-price').textContent = p.main + (p.unit ? ' ' + p.unit : '');
     byId('tm-main').textContent = t.customer_name || '—';
     byId('tm-btn-open').href = t.url || '#';
+    const bxBtn = byId('tm-btn-bitrix');
+    if (bxBtn) bxBtn.dataset.tenderNumber = t.number || '';
     Modal.open('tender-modal');
+  }
+
+  const bxBtn = byId('tm-btn-bitrix');
+  if (bxBtn) {
+    bxBtn.addEventListener('click', async () => {
+      if (bxBtn.disabled) return;
+      const num = bxBtn.dataset.tenderNumber;
+      if (!num) return;
+      const orig = bxBtn.textContent;
+      bxBtn.disabled = true;
+      bxBtn.textContent = '⏳ Создаём…';
+      try {
+        const data = await window.Cabinet.apiPost('/cabinet/api/tenders/' + encodeURIComponent(num) + '/bitrix24', {});
+        if (data && data.ok) {
+          Toast.show('✓ Сделка #' + data.deal_id + ' создана в Битрикс24', 'positive');
+        }
+      } finally {
+        bxBtn.disabled = false;
+        bxBtn.textContent = orig;
+      }
+    });
   }
 
   function render(results) {

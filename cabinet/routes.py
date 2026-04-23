@@ -72,6 +72,10 @@ def setup_cabinet_routes(app: web.Application):
     # JSON API — Settings
     app.router.add_get('/cabinet/api/settings', api.get_settings)
     app.router.add_post('/cabinet/api/settings', api.save_settings)
+    # JSON API — Bitrix24 integration
+    app.router.add_post('/cabinet/api/settings/bitrix24', api.save_bitrix24_settings)
+    app.router.add_post('/cabinet/api/settings/bitrix24/test', api.test_bitrix24_settings)
+    app.router.add_post('/cabinet/api/tenders/{tender_number}/bitrix24', api.export_tender_to_bitrix24)
     # JSON API — Tender-GPT
     app.router.add_post('/cabinet/api/gpt/chat', api.api_gpt_chat)
     # JSON API — Subscription

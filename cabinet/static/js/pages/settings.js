@@ -27,6 +27,12 @@
     } else {
       byId('pause-status').textContent = 'Мониторинг активен';
     }
+
+    // Bitrix24
+    const bx = byId('bx-webhook');
+    if (bx) bx.value = s.bitrix24_webhook || '';
+    const bxT = byId('toggle-bitrix');
+    if (bxT) bxT.classList.toggle('on', !!s.bitrix24_enabled);
   }
 
   function tierLabel(t) {
@@ -63,6 +69,58 @@
   byId('pause-24h').addEventListener('click', () => save({ monitoring_pause: '24h' }, 'Мониторинг на 24 часа'));
   byId('pause-forever').addEventListener('click', () => save({ monitoring_pause: 'forever' }, 'Мониторинг остановлен'));
   byId('pause-resume').addEventListener('click', () => save({ monitoring_pause: 'resume' }, 'Мониторинг возобновлён'));
+
+  // Bitrix24 handlers
+  const bxSave = byId('bx-save');
+  if (bxSave) {
+    bxSave.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Проверяем и сохраняем…';
+      const payload = {
+        webhook_url: byId('bx-webhook').value.trim(),
+        enabled: byId('toggle-bitrix').classList.contains('on'),
+      };
+      try {
+        const data = await apiPost('/cabinet/api/settings/bitrix24', payload);
+        if (data && data.ok) {
+          Toast.show('✓ Настройки Битрикс24 сохранены', 'positive');
+          byId('bx-status').textContent = 'Сохранено';
+          byId('bx-status').style.color = 'var(--positive)';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+  }
+
+  const bxTest = byId('bx-test');
+  if (bxTest) {
+    bxTest.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Проверяем…';
+      try {
+        const data = await apiPost('/cabinet/api/settings/bitrix24/test', {});
+        const status = byId('bx-status');
+        if (data && data.ok) {
+          Toast.show('✓ Соединение работает', 'positive');
+          status.textContent = data.message || 'Соединение работает';
+          status.style.color = 'var(--positive)';
+        } else {
+          status.textContent = '';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+  }
 
   load();
 })();

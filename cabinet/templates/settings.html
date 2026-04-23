@@ -3,7 +3,7 @@
 {% block title %}Настройки — Tender Sniper{% endblock %}
 
 {% block page_css %}
-  <link rel="stylesheet" href="/cabinet/static/css/pages/settings.css?v=6">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/settings.css?v=7">
 {% endblock %}
 
 {% block main %}
@@ -57,6 +57,32 @@
 </div>
 
 <div class="settings-section">
+  <h2>Интеграции</h2>
+  <p class="desc">Битрикс24 — автоматически создавать сделку из тендера (ручная кнопка в карточке тендера).</p>
+  <div class="setting-row">
+    <div style="flex:1">
+      <div class="label">Webhook Битрикс24</div>
+      <div class="hint">Входящий webhook: Настройки → Разработчикам → Другое → Входящий webhook. Нужны права CRM.</div>
+      <input type="text" id="bx-webhook" placeholder="https://your-portal.bitrix24.ru/rest/1/xxxxxxxxxx/" style="width:100%;margin-top:8px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--bg);border:1px solid var(--line);color:var(--text);font-family:var(--font-mono);font-size:12px;">
+    </div>
+  </div>
+  <div class="setting-row">
+    <div>
+      <div class="label">Включить интеграцию</div>
+      <div class="hint">Когда выключено, кнопка «В Битрикс24» в карточке тендера не работает</div>
+    </div>
+    <div class="right">
+      <div class="toggle" id="toggle-bitrix"><div class="dot"></div></div>
+    </div>
+  </div>
+  <div class="pause-actions">
+    <button class="btn btn-primary" id="bx-save">Сохранить</button>
+    <button class="btn btn-secondary" id="bx-test">Проверить соединение</button>
+  </div>
+  <p class="desc" id="bx-status" style="margin-top:10px"></p>
+</div>
+
+<div class="settings-section">
   <h2>Пауза мониторинга</h2>
   <p class="desc" id="pause-status">—</p>
   <div class="pause-actions">
@@ -68,5 +94,5 @@
 {% endblock %}
 
 {% block page_js %}
-<script src="/cabinet/static/js/pages/settings.js?v=6"></script>
+<script src="/cabinet/static/js/pages/settings.js?v=7"></script>
 {% endblock %}

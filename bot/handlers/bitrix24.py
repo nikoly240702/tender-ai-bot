@@ -377,6 +377,75 @@ async def create_bitrix24_deal(
         return None
 
 
+async def create_simple_bitrix24_deal(
+    webhook_url: str,
+    tender_number: str,
+    tender_name: str,
+    tender_price: Optional[float],
+    tender_url: str,
+    tender_customer: str,
+    tender_region: str,
+    submission_deadline: str = '',
+) -> Optional[int]:
+    """
+    Минимальная сделка в Битрикс24 для обычных юзеров кабинета.
+
+    В отличие от create_bitrix24_deal, не требует UF_CRM_* кастомных полей
+    в воронке пользователя — вся мета тендера складывается в COMMENTS.
+    """
+    comments = '\n'.join(p for p in [
+        f'Номер тендера: {tender_number}',
+        f'Заказчик: {tender_customer}' if tender_customer else '',
+        f'Регион: {tender_region}' if tender_region else '',
+        f'Срок подачи: {submission_deadline}' if submission_deadline else '',
+        f'Ссылка: {tender_url}' if tender_url else '',
+    ] if p)
+
+    fields: dict = {
+        'TITLE': (tender_name[:255] if tender_name else f'Тендер № {tender_number}'),
+        'OPPORTUNITY': tender_price or 0,
+        'CURRENCY_ID': 'RUB',
+        'SOURCE_ID': 'WEB',
+        'SOURCE_DESCRIPTION': 'TenderSniper',
+        'COMMENTS': comments,
+    }
+
+    if submission_deadline:
+        for fmt_in, fmt_out in [('%d.%m.%Y', '%Y-%m-%d'), ('%Y-%m-%d', '%Y-%m-%d')]:
+            try:
+                fields['CLOSEDATE'] = datetime.strptime(
+                    submission_deadline[:10], fmt_in
+                ).strftime(fmt_out)
+                break
+            except ValueError:
+                continue
+
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+    endpoint = webhook_url + 'crm.deal.add.json'
+
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.post(endpoint, json={'fields': fields}) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    result = data.get('result')
+                    if result and isinstance(result, int):
+                        logger.info(f"✅ Б24 simple deal #{result} (tender {tender_number})")
+                        return result
+                    logger.warning(f"Bitrix24 simple deal.add unexpected: {data}")
+                    return None
+                body = await resp.text()
+                logger.warning(f"Bitrix24 simple deal.add HTTP {resp.status}: {body[:200]}")
+                return None
+    except asyncio.TimeoutError:
+        logger.warning("create_simple_bitrix24_deal timeout")
+        return None
+    except Exception as e:
+        logger.error(f"create_simple_bitrix24_deal error: {e}")
+        return None
+
+
 # ============================================
 # КНОПКА «В БИТРИКС24» — специфичные обработчики раньше wildcard
 # ============================================

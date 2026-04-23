@@ -591,6 +591,8 @@ async def get_settings(request: web.Request) -> web.Response:
         'filters_limit': user_info.get('filters_limit', 3),
         'notifications_limit': user_info.get('notifications_limit', 15),
         'sheets_configured': bool(sheets_config),
+        'bitrix24_webhook': data.get('bitrix24_webhook', ''),
+        'bitrix24_enabled': bool(data.get('bitrix24_enabled', False)),
     })
 
 
@@ -855,3 +857,117 @@ async def api_calendar(request: web.Request) -> web.Response:
         })
 
     return web.json_response({'days': days, 'month': month_str})
+
+
+# ============================================
+# BITRIX24 INTEGRATION API
+# ============================================
+
+@require_auth
+async def save_bitrix24_settings(request: web.Request) -> web.Response:
+    """POST /cabinet/api/settings/bitrix24 — сохранить webhook + enabled-флаг."""
+    user = request['user']
+    try:
+        payload = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    webhook_url = (payload.get('webhook_url') or '').strip()
+    enabled = bool(payload.get('enabled', True))
+
+    if webhook_url:
+        from bot.handlers.bitrix24 import validate_bitrix24_webhook
+        ok, msg = await validate_bitrix24_webhook(webhook_url)
+        if not ok:
+            return web.json_response({'error': f'Webhook невалиден: {msg}'}, status=400)
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+    user_info = await db.get_user_by_telegram_id(user['telegram_id'])
+    if not user_info:
+        return web.json_response({'error': 'User not found'}, status=404)
+
+    current = user_info.get('data') or {}
+    current['bitrix24_webhook'] = webhook_url
+    current['bitrix24_enabled'] = enabled
+    await db.update_user_json_data(user['user_id'], current)
+
+    return web.json_response({'ok': True})
+
+
+@require_auth
+async def test_bitrix24_settings(request: web.Request) -> web.Response:
+    """POST /cabinet/api/settings/bitrix24/test — тест сохранённого webhook."""
+    user = request['user']
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+    user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
+    webhook = (user_info.get('data') or {}).get('bitrix24_webhook', '')
+    if not webhook:
+        return web.json_response({'error': 'Webhook не настроен'}, status=400)
+
+    from bot.handlers.bitrix24 import validate_bitrix24_webhook
+    ok, msg = await validate_bitrix24_webhook(webhook)
+    if ok:
+        return web.json_response({'ok': True, 'message': msg or 'Соединение успешно'})
+    return web.json_response({'error': msg or 'Не удалось подключиться'}, status=400)
+
+
+@require_auth
+async def export_tender_to_bitrix24(request: web.Request) -> web.Response:
+    """POST /cabinet/api/tenders/{tender_number}/bitrix24 — создать сделку из тендера."""
+    user = request['user']
+    tender_number = request.match_info['tender_number']
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+    user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
+    user_data = user_info.get('data') or {}
+
+    webhook = user_data.get('bitrix24_webhook', '')
+    enabled = user_data.get('bitrix24_enabled', False)
+    if not webhook or not enabled:
+        return web.json_response(
+            {'error': 'Битрикс24 не настроен. Зайдите в Настройки → Интеграции.'},
+            status=400,
+        )
+
+    tenders = await db.get_user_tenders(user['user_id'], limit=500)
+    tender = next((t for t in tenders if t.get('number') == tender_number), None)
+    if not tender:
+        return web.json_response({'error': 'Тендер не найден в вашей истории'}, status=404)
+
+    from bot.handlers.bitrix24 import (
+        BITRIX24_FULL_ACCESS_USERS,
+        create_bitrix24_deal,
+        create_simple_bitrix24_deal,
+    )
+
+    if user['user_id'] in BITRIX24_FULL_ACCESS_USERS:
+        deal_id = await create_bitrix24_deal(
+            webhook_url=webhook,
+            tender_number=tender.get('number', ''),
+            tender_name=tender.get('name', ''),
+            tender_price=tender.get('price'),
+            tender_url=tender.get('url', ''),
+            tender_region=tender.get('region', '') or '',
+            tender_customer=tender.get('customer_name', '') or '',
+            filter_name=tender.get('filter_name', '') or '',
+            submission_deadline=tender.get('submission_deadline', '') or '',
+            law_type=tender.get('law_type', '') or '',
+        )
+    else:
+        deal_id = await create_simple_bitrix24_deal(
+            webhook_url=webhook,
+            tender_number=tender.get('number', ''),
+            tender_name=tender.get('name', ''),
+            tender_price=tender.get('price'),
+            tender_url=tender.get('url', ''),
+            tender_customer=tender.get('customer_name', '') or '',
+            tender_region=tender.get('region', '') or '',
+            submission_deadline=tender.get('submission_deadline', '') or '',
+        )
+
+    if deal_id:
+        return web.json_response({'ok': True, 'deal_id': deal_id})
+    return web.json_response({'error': 'Не удалось создать сделку. Проверьте webhook.'}, status=500)
