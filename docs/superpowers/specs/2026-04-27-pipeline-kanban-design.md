@@ -127,7 +127,6 @@ class Company(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(120), nullable=False)
     owner_user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
-    plan_quota_data = Column(JSON, default=dict)  # snapshot тарифа owner на момент использования
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -315,6 +314,7 @@ margin_pct = (margin / sale_price) * 100  # если sale_price > 0
 | `/cabinet/api/team/invites/:id` | DELETE | Отозвать (only owner) |
 | `/cabinet/api/team/members` | GET | Список членов |
 | `/cabinet/api/team/members/:id` | DELETE | Удалить члена (only owner; нельзя удалить самого owner) |
+| `/cabinet/api/team/leave` | POST | Покинуть команду (только member, owner не может) |
 | `/cabinet/api/team/dashboard` | GET | Метрики (only owner) |
 
 ### Middleware
@@ -483,7 +483,7 @@ Lose-карточки: левый бордер 3px красный + opacity 0.55
   3. Если ok → ничего не меняем.
   4. Если ошибка → возвращаем карточку обратно, Toast с сообщением ошибки.
 - Drag через стадии разрешён в любом направлении.
-- Drag в колонку RESULT не разрешён напрямую (требует выбора Win/Lose) — drop в RESULT открывает модалку с кнопками «Победа / Проигрыш».
+- Drop в колонку RESULT обрабатывается специально: карточка возвращается на исходную стадию, и сразу открывается модалка карточки с кнопками «Победа / Проигрыш». После выбора результата — карточка переходит в RESULT с соответствующим `result`. Это не позволяет «случайно» закрыть тендер без выбора исхода.
 
 ### Модалка карточки
 
@@ -632,7 +632,7 @@ Lose-карточки: левый бордер 3px красный + opacity 0.55
 2. Сервер:
    - Получает `company_id` юзера.
    - Если уже есть карточка с таким `(company_id, tender_number)` → 409 Conflict + Toast «Уже в Pipeline (стадия "X")» + кнопка «Открыть» в Toast.
-   - Иначе создаёт карточку: `stage=FOUND`, `assignee_user_id=current_user`, `source='feed'`, `data={...}` из кэша/парсера.
+   - Иначе создаёт карточку: `stage=FOUND`, `assignee_user_id=current_user`, `source='feed'`, `data={...}` из кэша/парсера, `sale_price=data.price_max` (максимальная цена контракта по умолчанию).
    - Записывает в `card_history` action='created'.
 3. Клиент:
    - Toast «Добавлено в Pipeline» с кнопкой «Открыть».
