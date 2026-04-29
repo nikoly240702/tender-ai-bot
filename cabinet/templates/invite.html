@@ -1,0 +1,26 @@
+{% extends "_base.html" %}
+
+{% block title %}Приглашение — Tender Sniper{% endblock %}
+
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/team.css?v=1">
+{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Команда</div>
+  <h1>Приглашение в <em>команду</em></h1>
+</div>
+
+<div class="invite-page">
+  {% if error %}
+    <div class="invite-error">
+      <h2>⚠️ {{ error }}</h2>
+      <p>Попросите владельца команды создать новую инвайт-ссылку.</p>
+      <a href="/cabinet/" class="btn btn-secondary">На главную</a>
+    </div>
+  {% else %}
+    <p>Перенаправляем на доску…</p>
+  {% endif %}
+</div>
+{% endblock %}

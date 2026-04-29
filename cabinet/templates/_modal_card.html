@@ -1,0 +1,98 @@
+<div class="modal-overlay" id="card-modal" hidden>
+  <div class="modal-window">
+    <button class="modal-close" id="card-modal-close" aria-label="Закрыть">×</button>
+    <div class="modal-head">
+      <h2 id="cm-title">Карточка</h2>
+      <a id="cm-zakupki-link" target="_blank" rel="noopener" href="#">↗ zakupki.gov.ru</a>
+    </div>
+
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-tab="details">Детали</button>
+      <button class="modal-tab" data-tab="notes">Заметки</button>
+      <button class="modal-tab" data-tab="files">Файлы</button>
+      <button class="modal-tab" data-tab="checklist">Чек-лист</button>
+      <button class="modal-tab" data-tab="history">История</button>
+    </div>
+
+    <div class="modal-body">
+      <section class="tab-pane active" data-tab="details">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Стадия</label>
+            <select id="cm-stage"></select>
+          </div>
+          <div class="form-group">
+            <label>Ответственный</label>
+            <select id="cm-assignee"></select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Закупочная цена (₽)</label>
+            <input type="number" id="cm-purchase" placeholder="от поставщика">
+          </div>
+          <div class="form-group">
+            <label>Наша цена в заявке (₽)</label>
+            <input type="number" id="cm-sale">
+          </div>
+        </div>
+        <div id="cm-margin" class="margin-box" hidden></div>
+
+        <div class="card-meta">
+          <div><span class="label">Заказчик</span><span id="cm-customer">—</span></div>
+          <div><span class="label">Регион</span><span id="cm-region">—</span></div>
+          <div><span class="label">Дедлайн</span><span id="cm-deadline">—</span></div>
+        </div>
+
+        <div class="ai-block">
+          <div class="ai-block-head">
+            <strong>AI-анализ</strong>
+            <button id="cm-ai-run" class="btn btn-secondary btn-sm">Запустить AI-анализ</button>
+          </div>
+          <div id="cm-ai-summary" class="ai-summary"></div>
+          <div id="cm-ai-recommendation" class="ai-recommendation"></div>
+        </div>
+
+        <div class="relations-block">
+          <div class="ai-block-head"><strong>Связанные тендеры</strong></div>
+          <div id="cm-relations"></div>
+          <div class="checklist-add">
+            <input type="text" id="cm-relation-input" placeholder="№ тендера для связи">
+            <button class="btn btn-primary btn-sm" id="cm-relation-add">+</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-positive btn-sm" id="cm-btn-won">Победа</button>
+          <button class="btn btn-alert btn-sm" id="cm-btn-lost">Проигрыш</button>
+          <button class="btn btn-ghost btn-sm" id="cm-btn-supplier" hidden>Найти на holodilnik.ru</button>
+          <button class="btn btn-danger btn-sm" id="cm-btn-delete" hidden>Удалить карточку</button>
+        </div>
+      </section>
+
+      <section class="tab-pane" data-tab="notes">
+        <div id="cm-notes-list" class="notes-list"></div>
+        <textarea id="cm-note-input" rows="3" placeholder="Добавить заметку…"></textarea>
+        <button class="btn btn-primary btn-sm" id="cm-note-add">Добавить</button>
+      </section>
+
+      <section class="tab-pane" data-tab="files">
+        <div id="cm-files-list"></div>
+        <input type="file" id="cm-file-input" hidden>
+        <button class="btn btn-primary btn-sm" id="cm-file-upload-btn">Загрузить файл</button>
+      </section>
+
+      <section class="tab-pane" data-tab="checklist">
+        <div id="cm-checklist"></div>
+        <div class="checklist-add">
+          <input type="text" id="cm-checklist-input" placeholder="Новый пункт">
+          <button class="btn btn-primary btn-sm" id="cm-checklist-add">+</button>
+        </div>
+      </section>
+
+      <section class="tab-pane" data-tab="history">
+        <div id="cm-history"></div>
+      </section>
+    </div>
+  </div>
+</div>

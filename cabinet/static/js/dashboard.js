@@ -111,7 +111,39 @@
     byId('tm-btn-open').href = t.url || '#';
     const bxBtn = byId('tm-btn-bitrix');
     if (bxBtn) bxBtn.dataset.tenderNumber = t.number || '';
+    const plBtn = byId('tm-btn-pipeline');
+    if (plBtn) plBtn.dataset.tenderNumber = t.number || '';
     window.Cabinet.Modal.open('tender-modal');
+  }
+
+  const plBtn = byId('tm-btn-pipeline');
+  if (plBtn) {
+    plBtn.addEventListener('click', async () => {
+      if (plBtn.disabled) return;
+      const num = plBtn.dataset.tenderNumber;
+      if (!num) return;
+      const orig = plBtn.textContent;
+      plBtn.disabled = true;
+      plBtn.textContent = '⏳ Добавляем…';
+      try {
+        const r = await fetch('/cabinet/api/pipeline/from-feed/' + encodeURIComponent(num), {
+          method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+          window.Cabinet.Toast.show('✓ Добавлено в Pipeline', 'positive');
+        } else if (r.status === 409) {
+          window.Cabinet.Toast.show('Уже в Pipeline (' + (d.stage || '') + ')', 'alert');
+        } else {
+          window.Cabinet.Toast.show(d.error || 'Ошибка', 'alert');
+        }
+      } finally {
+        plBtn.disabled = false;
+        plBtn.textContent = orig;
+      }
+    });
   }
 
   const bxBtn = byId('tm-btn-bitrix');

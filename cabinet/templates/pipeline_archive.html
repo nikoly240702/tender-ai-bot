@@ -1,0 +1,67 @@
+{% extends "_base.html" %}
+
+{% block title %}Архив Pipeline — Tender Sniper{% endblock %}
+
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=1">
+{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">CRM</div>
+  <h1>Архив <em>проигранных</em></h1>
+  <div class="summary">{{ company_name }} · {{ cards|length }} {% if cards|length == 1 %}карточка{% else %}карточек{% endif %}</div>
+</div>
+
+<div class="pipeline-actions">
+  <a href="/cabinet/pipeline" class="btn btn-ghost">← Доска</a>
+</div>
+
+<div class="archive-list">
+  {% if not cards %}
+    <div class="empty">
+      <div class="title">Архив пуст</div>
+      <div>Сюда автоматически попадают проигранные карточки старше 90 дней.</div>
+    </div>
+  {% else %}
+    {% for c in cards %}
+      <div class="kb-card lost archive-card" data-card-id="{{ c.id }}">
+        <div class="t">{{ c.data.name or 'Тендер ' + c.tender_number }}</div>
+        <div class="row">
+          {% if c.data.price_max %}<span class="price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</span>{% endif %}
+          <span class="due">архивирован {{ c.archived_at[:10] if c.archived_at else '' }}</span>
+        </div>
+        {% if c.data.customer %}<div class="cust">{{ c.data.customer }}</div>{% endif %}
+        {% if is_owner %}
+          <div class="row footer-row">
+            <button class="btn btn-ghost btn-sm unarchive-btn" data-card-id="{{ c.id }}">Вернуть на доску</button>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script>
+(function () {
+  const { Toast } = window.Cabinet;
+  document.querySelectorAll('.unarchive-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.cardId;
+      const r = await fetch('/cabinet/api/pipeline/cards/' + id + '/unarchive', {
+        method: 'POST', credentials: 'same-origin',
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        Toast.show('✓ Возвращена на доску', 'positive');
+        setTimeout(() => window.location.href = '/cabinet/pipeline', 600);
+      } else {
+        Toast.show(d.error || 'Ошибка', 'alert');
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

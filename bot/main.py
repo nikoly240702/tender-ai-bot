@@ -260,6 +260,10 @@ async def main():
     asyncio.create_task(run_bitrix24_update())
     asyncio.create_task(run_feedback_survey_scheduler())
 
+    # Pipeline: архивация lost-карточек старше 90 дней (раз в сутки)
+    from tender_sniper.jobs.archive_lost_cards import archive_loop
+    asyncio.create_task(archive_loop())
+
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler
     # ============================================

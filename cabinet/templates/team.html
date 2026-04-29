@@ -1,0 +1,96 @@
+{% extends "_base.html" %}
+
+{% block title %}Команда — Tender Sniper{% endblock %}
+
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/team.css?v=1">
+{% endblock %}
+
+{% block main %}
+<div class="page-header"
+     data-is-owner='{{ "1" if is_owner else "0" }}'
+     data-current-user-id='{{ current_user_id }}'>
+  <div class="eyebrow">Команда</div>
+  <h1>{{ company_name }}</h1>
+  <div class="summary">{{ members|length }} {% if members|length == 1 %}участник{% else %}участников{% endif %}</div>
+</div>
+
+<section class="team-section">
+  <h2>Участники</h2>
+  <div class="members-list" id="members-list">
+    {% for m in members %}
+      <div class="member-row" data-user-id="{{ m.user_id }}">
+        <span class="member-avatar">{{ m.display_name[0]|upper }}</span>
+        <div class="member-info">
+          <div class="member-name">{{ m.display_name }}{% if m.username %} <span class="member-username">@{{ m.username }}</span>{% endif %}</div>
+          <div class="member-role">{{ 'Владелец' if m.role == 'owner' else 'Сотрудник' }} · с {{ m.joined_at|string|truncate(10, true, '') }}</div>
+        </div>
+        {% if is_owner and m.role != 'owner' %}
+          <button class="btn btn-ghost btn-sm remove-member-btn" data-user-id="{{ m.user_id }}">Удалить</button>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+  {% if not is_owner %}
+    <div class="leave-block">
+      <button class="btn btn-ghost btn-sm" id="btn-leave-team">Покинуть команду</button>
+    </div>
+  {% endif %}
+</section>
+
+{% if is_owner %}
+<section class="team-section">
+  <h2>Инвайт-ссылки</h2>
+  <button class="btn btn-primary btn-sm" id="btn-create-invite">+ Создать ссылку</button>
+  <div class="invites-list" id="invites-list">
+    {% for inv in invites %}
+      <div class="invite-row" data-invite-id="{{ inv.id }}">
+        <code class="invite-token">…{{ inv.token[-8:] }}</code>
+        <span class="invite-meta">истекает {{ inv.expires_at|string|truncate(10, true, '') }} · {{ inv.used_count }}/{{ inv.max_uses }} использований</span>
+        <button class="btn btn-ghost btn-sm copy-invite-btn" data-token="{{ inv.token }}">Копировать</button>
+        <button class="btn btn-ghost btn-sm revoke-invite-btn" data-invite-id="{{ inv.id }}">Отозвать</button>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="team-section">
+  <h2>Метрики (last 30d)</h2>
+  <div class="dashboard-grid" id="dashboard-grid">
+    <div class="stat-tile"><div class="stat-label">Активных карточек</div><div class="stat-value">{{ dashboard.total_active or 0 }}</div></div>
+    <div class="stat-tile"><div class="stat-label">Выиграно</div><div class="stat-value positive">{{ dashboard.last30.won }}</div></div>
+    <div class="stat-tile"><div class="stat-label">Проиграно</div><div class="stat-value alert">{{ dashboard.last30.lost }}</div></div>
+    <div class="stat-tile"><div class="stat-label">Сумма выигрышей</div><div class="stat-value">{{ '{:,.0f}'.format(dashboard.last30.won_sum).replace(',', ' ') }} ₽</div></div>
+    <div class="stat-tile"><div class="stat-label">Маржа закрытая</div><div class="stat-value positive">{{ '{:,.0f}'.format(dashboard.last30.margin_sum).replace(',', ' ') }} ₽</div></div>
+  </div>
+
+  <div class="dash-row">
+    <h3>По стадиям</h3>
+    <div class="stage-bars">
+      {% for stage_id, label in [('FOUND','Найденные'),('IN_WORK','Взято в работу'),('RFQ','Запрос'),('QUOTED','Получено КП'),('SUBMITTED','Участвуем'),('RESULT','Результат')] %}
+        <div class="stage-bar">
+          <div class="stage-bar-label">{{ label }}</div>
+          <div class="stage-bar-track"><div class="stage-bar-fill" style="width: {{ ((dashboard.by_stage.get(stage_id, 0) / (dashboard.total_active or 1)) * 100)|round(1) }}%"></div></div>
+          <div class="stage-bar-count">{{ dashboard.by_stage.get(stage_id, 0) }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if dashboard.stale %}
+    <div class="dash-row">
+      <h3>Зависшие сделки (без движения &gt; 7 дней)</h3>
+      <ul class="stale-list">
+        {% for c in dashboard.stale %}
+          <li><a href="/cabinet/pipeline">{{ c.data.name or c.tender_number }}</a> — {{ c.stage }} · обновлено {{ c.updated_at|string|truncate(10, true, '') }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block page_js %}
+<script src="/cabinet/static/js/pages/team.js?v=1"></script>
+{% endblock %}

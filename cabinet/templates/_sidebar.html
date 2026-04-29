@@ -10,7 +10,10 @@
       </a>
       <a href="/cabinet/pipeline" {% if active_page == 'pipeline' %}class="active"{% endif %}>
         <span>Pipeline</span>
-        <span class="count">скоро</span>
+        <span class="count">{{ nav_counts.pipeline or '' }}</span>
+      </a>
+      <a href="/cabinet/team" {% if active_page == 'team' %}class="active"{% endif %}>
+        <span>Команда</span>
       </a>
       <a href="/cabinet/calendar" {% if active_page == 'calendar' %}class="active"{% endif %}>
         <span>Календарь</span>

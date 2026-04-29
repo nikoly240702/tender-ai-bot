@@ -1,0 +1,63 @@
+{% extends "_base.html" %}
+
+{% block title %}Pipeline — Tender Sniper{% endblock %}
+
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=1">
+{% endblock %}
+
+{% block main %}
+<div class="page-header"
+     data-members='{{ members|tojson|forceescape }}'
+     data-is-owner='{{ "1" if is_owner else "0" }}'
+     data-current-user-id='{{ current_user_id }}'>
+  <div class="eyebrow">CRM</div>
+  <h1>Pipeline <em>команды</em></h1>
+  <div class="summary">{{ company_name }} · {{ members|length }} {% if members|length == 1 %}человек{% else %}человек{% endif %}</div>
+</div>
+
+<div class="pipeline-actions">
+  <a href="/cabinet/pipeline/archive" class="btn btn-ghost">Архив</a>
+  <a href="/cabinet/team" class="btn btn-secondary">Команда</a>
+  <button class="btn btn-primary" id="btn-create-manual">+ Создать вручную</button>
+</div>
+
+<div class="kb-board">
+  {% for stage in stages %}
+    <div class="kb-col {% if stage in ['RFQ', 'QUOTED'] %}supplier{% endif %}" data-stage="{{ stage }}">
+      <div class="kb-col-head">
+        <span class="kb-col-title">{{ stage_labels[stage] }}</span>
+        <span class="kb-count">{{ cards_by_stage[stage]|length }}</span>
+      </div>
+      <div class="kb-col-body" data-stage="{{ stage }}">
+        {% for c in cards_by_stage[stage] %}
+          <div class="kb-card{% if c.result == 'won' %} won{% elif c.result == 'lost' %} lost{% endif %}"
+               data-card-id="{{ c.id }}" data-tender="{{ c.tender_number }}">
+            <div class="t">{{ c.data.name or 'Тендер ' + c.tender_number }}</div>
+            <div class="row">
+              {% if c.data.price_max %}
+                <span class="price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</span>
+              {% endif %}
+              {% if c.data.deadline %}<span class="due">{{ c.data.deadline }}</span>{% endif %}
+            </div>
+            {% if c.data.customer %}<div class="cust">{{ c.data.customer }}</div>{% endif %}
+            <div class="row footer-row">
+              {% if c.data.region %}<span class="region">{{ c.data.region }}</span>{% endif %}
+              {% if c.assignee_user_id %}
+                <span class="avatar">{{ c.assignee_user_id }}</span>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endfor %}
+</div>
+
+{% include "_modal_card.html" %}
+{% endblock %}
+
+{% block page_js %}
+<script src="/cabinet/static/js/vendor/Sortable.min.js"></script>
+<script src="/cabinet/static/js/pages/pipeline.js?v=1"></script>
+{% endblock %}

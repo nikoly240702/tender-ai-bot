@@ -1058,3 +1058,407 @@ async def export_tender_to_bitrix24(request: web.Request) -> web.Response:
     if deal_id:
         return web.json_response({'ok': True, 'deal_id': deal_id})
     return web.json_response({'error': 'Не удалось создать сделку. Проверьте webhook.'}, status=500)
+
+
+# ============================================
+# PIPELINE API
+# ============================================
+
+from cabinet import pipeline_service, team_service
+from cabinet.auth import require_team_member, require_owner
+
+
+@require_team_member
+async def pipeline_create_from_feed(request: web.Request) -> web.Response:
+    user = request['user']
+    company = request['company']
+    tender_number = request.match_info['tender_number']
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    filter_id = body.get('filter_id')
+
+    result = await pipeline_service.create_card_from_tender(
+        company_id=company['id'],
+        tender_number=tender_number,
+        creator_user_id=user['user_id'],
+        filter_id=filter_id,
+        source=pipeline_service.SOURCE_FEED,
+    )
+    if 'error' in result:
+        if result['error'] == 'already_exists':
+            return web.json_response({
+                'error': 'already_in_pipeline',
+                'card_id': result['existing_card']['id'],
+                'stage': result['existing_card']['stage'],
+            }, status=409)
+        return web.json_response({'error': result['error']}, status=400)
+    return web.json_response({'ok': True, 'card': result['card']})
+
+
+@require_team_member
+async def pipeline_create_manual(request: web.Request) -> web.Response:
+    user = request['user']
+    company = request['company']
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    tender_number = (body.get('tender_number') or '').strip()
+    if not tender_number:
+        return web.json_response({'error': 'tender_number required'}, status=400)
+
+    result = await pipeline_service.create_card_from_tender(
+        company_id=company['id'],
+        tender_number=tender_number,
+        creator_user_id=user['user_id'],
+        source=pipeline_service.SOURCE_MANUAL,
+    )
+    if 'error' in result:
+        if result['error'] == 'already_exists':
+            return web.json_response({'error': 'already_in_pipeline',
+                                      'card_id': result['existing_card']['id']}, status=409)
+        return web.json_response({'error': result['error']}, status=400)
+    return web.json_response({'ok': True, 'card': result['card']})
+
+
+@require_team_member
+async def pipeline_get_card(request: web.Request) -> web.Response:
+    company = request['company']
+    card_id = int(request.match_info['id'])
+    card = await pipeline_service.get_card(card_id, company['id'])
+    if not card:
+        return web.json_response({'error': 'Not found'}, status=404)
+    return web.json_response({'card': card})
+
+
+@require_team_member
+async def pipeline_card_full(request: web.Request) -> web.Response:
+    company = request['company']
+    card_id = int(request.match_info['id'])
+    card = await pipeline_service.get_card(card_id, company['id'])
+    if not card:
+        return web.json_response({'error': 'Not found'}, status=404)
+    notes = await pipeline_service.list_notes(card_id)
+    history = await pipeline_service.list_history(card_id)
+    files = await pipeline_service.list_files(card_id)
+    checklist = await pipeline_service.list_checklist(card_id)
+    relations = await pipeline_service.list_relations(card_id)
+    margin = pipeline_service.calc_margin(card['purchase_price'], card['sale_price'])
+    return web.json_response({
+        'card': card, 'notes': notes, 'history': history,
+        'files': files, 'checklist': checklist, 'relations': relations,
+        'margin': margin,
+    })
+
+
+@require_team_member
+async def pipeline_move_stage(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    new_stage = body.get('stage')
+    if not new_stage:
+        return web.json_response({'error': 'stage required'}, status=400)
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    if new_stage == pipeline_service.STAGE_RESULT:
+        return web.json_response({
+            'error': 'use_result_endpoint',
+            'message': 'Use POST /cards/:id/result with {result: won|lost}',
+        }, status=400)
+    result = await pipeline_service.move_card_stage(
+        card_id, new_stage, by_user_id=user['user_id']
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_set_result(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    res = body.get('result')
+    if res not in ('won', 'lost'):
+        return web.json_response({'error': 'result must be won or lost'}, status=400)
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    result = await pipeline_service.set_card_result(card_id, res, by_user_id=user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_set_assignee(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    target = body.get('user_id')
+    if not target:
+        return web.json_response({'error': 'user_id required'}, status=400)
+    members = await team_service.list_members(company['id'])
+    if not any(m['user_id'] == target for m in members):
+        return web.json_response({'error': 'Not a team member'}, status=400)
+    result = await pipeline_service.set_assignee(card_id, target, user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_set_prices(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    result = await pipeline_service.set_prices(
+        card_id, body.get('purchase_price'), body.get('sale_price'), user['user_id']
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_delete_card(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']; role = request['role']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    result = await pipeline_service.delete_card(
+        card_id, user['user_id'], is_owner=(role == 'owner')
+    )
+    return web.json_response(result, status=200 if result['ok'] else 403)
+
+
+@require_team_member
+async def pipeline_unarchive_card(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    card_id = int(request.match_info['id'])
+    result = await pipeline_service.unarchive_card(
+        card_id, company['id'], user['user_id']
+    )
+    return web.json_response(result, status=200 if result['ok'] else 404)
+
+
+# Notes
+@require_team_member
+async def pipeline_add_note(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    result = await pipeline_service.add_note(card_id, body.get('text', ''), user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+# Files
+@require_team_member
+async def pipeline_list_files(request: web.Request) -> web.Response:
+    company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Not found'}, status=404)
+    return web.json_response({'files': await pipeline_service.list_files(card_id)})
+
+
+@require_team_member
+async def pipeline_upload_file(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Not found'}, status=404)
+    reader = await request.multipart()
+    field = await reader.next()
+    if not field or field.name != 'file':
+        return web.json_response({'error': 'No file field'}, status=400)
+    filename = field.filename or 'file'
+    mime = field.headers.get('Content-Type', 'application/octet-stream')
+    content = bytearray()
+    while True:
+        chunk = await field.read_chunk(65536)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > pipeline_service.MAX_FILE_SIZE:
+            return web.json_response({'error': 'File too large'}, status=413)
+    result = await pipeline_service.save_file(
+        card_id, company['id'], filename, bytes(content), mime, user['user_id']
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_delete_file(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    file_id = int(request.match_info['fid'])
+    result = await pipeline_service.delete_file(file_id, company['id'], user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 403)
+
+
+@require_team_member
+async def pipeline_download_file(request: web.Request) -> web.Response:
+    company = request['company']
+    file_id = int(request.match_info['fid'])
+    info = await pipeline_service.get_file_for_download(file_id, company['id'])
+    if not info:
+        return web.json_response({'error': 'Not found'}, status=404)
+    headers = {
+        'Content-Disposition': f"attachment; filename*=UTF-8''{info['filename']}",
+        'Content-Type': info['mime_type'],
+    }
+    return web.FileResponse(info['path'], headers=headers)
+
+
+# Checklist
+@require_team_member
+async def pipeline_add_checklist(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    body = await request.json()
+    result = await pipeline_service.add_checklist(card_id, body.get('text', ''), user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_toggle_checklist(request: web.Request) -> web.Response:
+    user = request['user']
+    item_id = int(request.match_info['cid'])
+    body = await request.json()
+    done = bool(body.get('done', True))
+    result = await pipeline_service.toggle_checklist(item_id, done, user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_delete_checklist(request: web.Request) -> web.Response:
+    item_id = int(request.match_info['cid'])
+    result = await pipeline_service.delete_checklist(item_id)
+    return web.json_response(result, status=200 if result['ok'] else 404)
+
+
+# Relations
+@require_team_member
+async def pipeline_add_relation(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Card not found'}, status=404)
+    body = await request.json()
+    related = (body.get('related_tender_number') or '').strip()
+    if not related:
+        return web.json_response({'error': 'related_tender_number required'}, status=400)
+    result = await pipeline_service.add_relation(
+        card_id, related, company['id'], user['user_id'], kind='manual'
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_delete_relation(request: web.Request) -> web.Response:
+    company = request['company']
+    relation_id = int(request.match_info['rid'])
+    result = await pipeline_service.delete_relation(relation_id, company['id'])
+    return web.json_response(result, status=200 if result['ok'] else 404)
+
+
+# AI enrichment
+@require_team_member
+async def pipeline_ai_enrich(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Not found'}, status=404)
+    result = await pipeline_service.enrich_card_with_ai(card_id, user['user_id'])
+    if not result['ok']:
+        return web.json_response(result, status=result.get('status', 400))
+    return web.json_response(result, status=202)
+
+
+# ============================================
+# TEAM API
+# ============================================
+
+@require_team_member
+async def team_get_members(request: web.Request) -> web.Response:
+    company = request['company']
+    members = await team_service.list_members_with_users(company['id'])
+    return web.json_response({'members': members})
+
+
+@require_team_member
+async def team_remove_member(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    target = int(request.match_info['id'])
+    result = await team_service.remove_member(company['id'], target, user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def team_leave(request: web.Request) -> web.Response:
+    user = request['user']
+    result = await team_service.leave_team(user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def team_list_invites(request: web.Request) -> web.Response:
+    company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    invites = await team_service.list_active_invites(company['id'])
+    return web.json_response({'invites': invites})
+
+
+@require_team_member
+async def team_create_invite(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    invite = await team_service.create_invite(company['id'], user['user_id'])
+    # Public URL для отправки в TG
+    public_host = request.host
+    proto = 'https' if request.scheme == 'https' else 'http'
+    invite['url'] = f'{proto}://{public_host}/cabinet/invite/{invite["token"]}'
+    return web.json_response({'ok': True, 'invite': invite})
+
+
+@require_team_member
+async def team_revoke_invite(request: web.Request) -> web.Response:
+    user = request['user']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    invite_id = int(request.match_info['id'])
+    ok = await team_service.revoke_invite(invite_id, user['user_id'])
+    return web.json_response({'ok': ok})
+
+
+@require_team_member
+async def team_dashboard(request: web.Request) -> web.Response:
+    company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    data = await pipeline_service.team_dashboard(company['id'])
+    return web.json_response(data)

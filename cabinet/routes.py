@@ -9,7 +9,10 @@ from aiohttp import web
 import aiohttp_jinja2
 import jinja2
 
-from .auth import verify_telegram_login, generate_session_token, get_current_user, require_auth
+from .auth import (
+    verify_telegram_login, generate_session_token, get_current_user,
+    require_auth, require_team_member,
+)
 from . import api
 
 logger = logging.getLogger(__name__)
@@ -40,6 +43,10 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/gpt', gpt_page)
     app.router.add_get('/cabinet/subscription', subscription_page)
     app.router.add_get('/cabinet/calendar', calendar_page)
+    app.router.add_get('/cabinet/pipeline', pipeline_page)
+    app.router.add_get('/cabinet/pipeline/archive', pipeline_archive_page)
+    app.router.add_get('/cabinet/team', team_page)
+    app.router.add_get('/cabinet/invite/{token}', invite_page)
 
     # Auth
     app.router.add_get('/cabinet/auth/telegram', telegram_auth_callback)
@@ -85,6 +92,38 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/subscription/pay', api.api_subscription_pay)
     # JSON API — Calendar
     app.router.add_get('/cabinet/api/calendar', api.api_calendar)
+
+    # JSON API — Pipeline
+    app.router.add_post('/cabinet/api/pipeline/from-feed/{tender_number}', api.pipeline_create_from_feed)
+    app.router.add_post('/cabinet/api/pipeline/cards', api.pipeline_create_manual)
+    app.router.add_get('/cabinet/api/pipeline/cards/{id}', api.pipeline_get_card)
+    app.router.add_get('/cabinet/api/pipeline/cards/{id}/full', api.pipeline_card_full)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/stage', api.pipeline_move_stage)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/result', api.pipeline_set_result)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/assignee', api.pipeline_set_assignee)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/prices', api.pipeline_set_prices)
+    app.router.add_delete('/cabinet/api/pipeline/cards/{id}', api.pipeline_delete_card)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/unarchive', api.pipeline_unarchive_card)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/notes', api.pipeline_add_note)
+    app.router.add_get('/cabinet/api/pipeline/cards/{id}/files', api.pipeline_list_files)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/files', api.pipeline_upload_file)
+    app.router.add_delete('/cabinet/api/pipeline/files/{fid}', api.pipeline_delete_file)
+    app.router.add_get('/cabinet/api/pipeline/files/{fid}/download', api.pipeline_download_file)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/checklist', api.pipeline_add_checklist)
+    app.router.add_patch('/cabinet/api/pipeline/checklist/{cid}', api.pipeline_toggle_checklist)
+    app.router.add_delete('/cabinet/api/pipeline/checklist/{cid}', api.pipeline_delete_checklist)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/relations', api.pipeline_add_relation)
+    app.router.add_delete('/cabinet/api/pipeline/relations/{rid}', api.pipeline_delete_relation)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/ai-enrich', api.pipeline_ai_enrich)
+
+    # JSON API — Team
+    app.router.add_get('/cabinet/api/team/members', api.team_get_members)
+    app.router.add_delete('/cabinet/api/team/members/{id}', api.team_remove_member)
+    app.router.add_post('/cabinet/api/team/leave', api.team_leave)
+    app.router.add_get('/cabinet/api/team/invites', api.team_list_invites)
+    app.router.add_post('/cabinet/api/team/invites', api.team_create_invite)
+    app.router.add_delete('/cabinet/api/team/invites/{id}', api.team_revoke_invite)
+    app.router.add_get('/cabinet/api/team/dashboard', api.team_dashboard)
 
     logger.info("Cabinet routes registered at /cabinet/*")
 
@@ -312,3 +351,118 @@ async def logout(request: web.Request) -> web.Response:
 def _render_template(template_name: str, request: web.Request = None, **context) -> web.Response:
     """Рендерит шаблон через aiohttp-jinja2. context передаётся в шаблон."""
     return aiohttp_jinja2.render_template(template_name, request, context)
+
+
+# ============================================
+# PIPELINE PAGES
+# ============================================
+
+@require_team_member
+async def pipeline_page(request: web.Request) -> web.Response:
+    """Server-render Kanban доски."""
+    from cabinet import pipeline_service, team_service
+    user = request['user']
+    company = request['company']
+    role = request['role']
+    cards = await pipeline_service.list_company_cards(company['id'])
+    members = await team_service.list_members_with_users(company['id'])
+
+    by_stage = {s: [] for s in pipeline_service.ALL_STAGES}
+    for c in cards:
+        if c['stage'] in by_stage:
+            by_stage[c['stage']].append(c)
+
+    return _render_template(
+        'pipeline.html', request,
+        active_page='pipeline',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+        company_name=company['name'],
+        is_owner=(role == 'owner'),
+        current_user_id=user['user_id'],
+        stages=pipeline_service.ALL_STAGES,
+        stage_labels=pipeline_service.STAGE_LABELS,
+        cards_by_stage=by_stage,
+        members=members,
+    )
+
+
+@require_team_member
+async def pipeline_archive_page(request: web.Request) -> web.Response:
+    from cabinet import pipeline_service, team_service
+    user = request['user']
+    company = request['company']
+    role = request['role']
+    cards = await pipeline_service.list_archived_cards(company['id'])
+    members = await team_service.list_members_with_users(company['id'])
+    return _render_template(
+        'pipeline_archive.html', request,
+        active_page='pipeline',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+        company_name=company['name'],
+        is_owner=(role == 'owner'),
+        cards=cards,
+        members=members,
+    )
+
+
+@require_team_member
+async def team_page(request: web.Request) -> web.Response:
+    from cabinet import pipeline_service, team_service
+    user = request['user']
+    company = request['company']
+    role = request['role']
+    members = await team_service.list_members_with_users(company['id'])
+    invites = []
+    dashboard = None
+    if role == 'owner':
+        invites = await team_service.list_active_invites(company['id'])
+        dashboard = await pipeline_service.team_dashboard(company['id'])
+    return _render_template(
+        'team.html', request,
+        active_page='team',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+        company_name=company['name'],
+        is_owner=(role == 'owner'),
+        current_user_id=user['user_id'],
+        members=members,
+        invites=invites,
+        dashboard=dashboard,
+    )
+
+
+async def invite_page(request: web.Request) -> web.Response:
+    """Приём инвайт-ссылки. Если не залогинен — на login с next.
+    Если валидна и юзер не в команде — присоединяет, редирект на /cabinet/pipeline.
+    """
+    from cabinet import team_service
+    token = request.match_info['token']
+    user = await get_current_user(request)
+    if not user:
+        raise web.HTTPFound(f'/cabinet/login?next=/cabinet/invite/{token}')
+
+    invite = await team_service.validate_invite_token(token)
+    if not invite:
+        return _render_template(
+            'invite.html', request,
+            error='Ссылка недействительна или истекла',
+            user_name=user.get('username') or user.get('first_name') or 'Вы',
+            user_tier=user.get('subscription_tier', ''),
+            active_page='invite',
+        )
+
+    result = await team_service.accept_invite(token, user['user_id'])
+    if result['ok']:
+        raise web.HTTPFound('/cabinet/pipeline')
+    return _render_template(
+        'invite.html', request,
+        error=result.get('error', 'Не удалось присоединиться'),
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        active_page='invite',
+    )
