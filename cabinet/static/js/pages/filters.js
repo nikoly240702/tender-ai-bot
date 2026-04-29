@@ -237,6 +237,97 @@
     openForm(dup);
   }
 
+  async function loadNotifyTargets(filterId, container, summaryEl) {
+    const data = await apiGet('/cabinet/api/filters/' + filterId + '/notify-targets');
+    if (!data) {
+      container.textContent = 'Не удалось загрузить';
+      return;
+    }
+    container.dataset.personalChatId = String(data.personal.chat_id);
+    container.textContent = '';
+
+    const personal = el('label', { cls: 'notify-row' });
+    const personalCb = el('input', { attrs: { type: 'checkbox' } });
+    personalCb.checked = !!data.personal.enabled;
+    personalCb.addEventListener('change', () => saveNotifyTargets(filterId, container, summaryEl));
+    personal.appendChild(personalCb);
+    personal.appendChild(document.createTextNode(' Мне в личку'));
+    personal.dataset.chatId = String(data.personal.chat_id);
+    personal.dataset.kind = 'personal';
+    container.appendChild(personal);
+
+    if (!data.groups.length) {
+      const hint = el('div', { cls: 'notify-hint' });
+      hint.textContent = 'Чтобы получать в группу — добавьте бота в свой Telegram-чат и сделайте админом';
+      container.appendChild(hint);
+    } else {
+      data.groups.forEach(g => {
+        const row = el('label', { cls: 'notify-row' });
+        const cb = el('input', { attrs: { type: 'checkbox' } });
+        cb.checked = !!g.enabled;
+        cb.addEventListener('change', () => saveNotifyTargets(filterId, container, summaryEl));
+        row.appendChild(cb);
+        row.appendChild(document.createTextNode(' ' + g.name));
+        row.dataset.chatId = String(g.chat_id);
+        row.dataset.kind = 'group';
+        container.appendChild(row);
+      });
+    }
+
+    if (summaryEl) refreshNotifySummary(container, summaryEl);
+  }
+
+  function refreshNotifySummary(container, summaryEl) {
+    let personal = false;
+    let groupCount = 0;
+    container.querySelectorAll('.notify-row').forEach(row => {
+      const cb = row.querySelector('input[type=checkbox]');
+      if (!cb || !cb.checked) return;
+      if (row.dataset.kind === 'personal') personal = true;
+      else groupCount += 1;
+    });
+    let txt;
+    if (!personal && groupCount === 0) txt = 'Мне в личку';
+    else if (personal && groupCount === 0) txt = 'Мне в личку';
+    else if (!personal && groupCount === 1) txt = 'В группу';
+    else if (!personal) txt = groupCount + ' групп';
+    else if (groupCount === 1) txt = 'Личка + 1 группа';
+    else txt = 'Личка + ' + groupCount + ' групп';
+    summaryEl.textContent = txt;
+  }
+
+  const notifySaveTimers = {};
+
+  async function saveNotifyTargets(filterId, container, summaryEl) {
+    if (summaryEl) refreshNotifySummary(container, summaryEl);
+    if (notifySaveTimers[filterId]) clearTimeout(notifySaveTimers[filterId]);
+    notifySaveTimers[filterId] = setTimeout(async () => {
+      const chatIds = [];
+      container.querySelectorAll('.notify-row').forEach(row => {
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb && cb.checked) chatIds.push(parseInt(row.dataset.chatId, 10));
+      });
+      const resp = await fetch('/cabinet/api/filters/' + filterId + '/notify-targets', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_ids: chatIds }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (data.ok) {
+        Toast.show('✓ Сохранено', 'positive');
+        const filter = allFilters.find(f => f.id === filterId);
+        if (filter) {
+          const personalId = parseInt(container.dataset.personalChatId || '0', 10);
+          const isDefault = !chatIds.length || (chatIds.length === 1 && chatIds[0] === personalId);
+          filter.notify_chat_ids = isDefault ? null : chatIds;
+        }
+      } else {
+        Toast.show(data.error || 'Ошибка сохранения', 'alert');
+      }
+    }, 350);
+  }
+
   let currentTab = 'all';
 
   function filterList(list, tab) {
@@ -295,6 +386,32 @@
       if (f.law_type) meta.appendChild(el('span', { text: f.law_type === '44' ? '44-ФЗ' : f.law_type === '223' ? '223-ФЗ' : f.law_type }));
       meta.appendChild(el('span', { text: f.is_active ? 'Активен' : 'На паузе' }));
       card.appendChild(meta);
+
+      const notify = el('div', { cls: 'notify-routing' });
+      const notifyHeader = el('button', { cls: 'notify-toggle' });
+      notifyHeader.appendChild(el('span', { cls: 'notify-icon', text: '📨' }));
+      notifyHeader.appendChild(el('span', { cls: 'notify-label', text: 'Куда уведомлять:' }));
+      const initialTargets = f.notify_chat_ids || [];
+      const initialSummary = !initialTargets.length
+        ? 'Мне в личку'
+        : initialTargets.length + (initialTargets.length === 1 ? ' получатель' : ' получателей');
+      const summary = el('span', { cls: 'notify-summary', text: initialSummary });
+      notifyHeader.appendChild(summary);
+      notifyHeader.appendChild(el('span', { cls: 'notify-chevron', text: '▸' }));
+      const notifyBody = el('div', { cls: 'notify-body' });
+      let loaded = false;
+      notifyHeader.addEventListener('click', async () => {
+        const open = notify.classList.toggle('open');
+        notifyHeader.querySelector('.notify-chevron').textContent = open ? '▾' : '▸';
+        if (open && !loaded) {
+          notifyBody.textContent = 'загрузка…';
+          await loadNotifyTargets(f.id, notifyBody, summary);
+          loaded = true;
+        }
+      });
+      notify.appendChild(notifyHeader);
+      notify.appendChild(notifyBody);
+      card.appendChild(notify);
 
       container.appendChild(card);
     });

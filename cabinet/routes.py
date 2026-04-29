@@ -61,6 +61,8 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/filters/{id}', api.update_filter)  # fallback for browsers
     app.router.add_delete('/cabinet/api/filters/{id}', api.delete_filter)
     app.router.add_post('/cabinet/api/filters/{id}/toggle', api.toggle_filter)
+    app.router.add_get('/cabinet/api/filters/{id}/notify-targets', api.get_filter_notify_targets)
+    app.router.add_post('/cabinet/api/filters/{id}/notify-targets', api.update_filter_notify_targets)
     # JSON API — Search
     app.router.add_get('/cabinet/api/search', api.search_tenders)
     app.router.add_get('/cabinet/api/regions', api.get_regions)

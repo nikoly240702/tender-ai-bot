@@ -370,6 +370,93 @@ async def toggle_filter(request: web.Request) -> web.Response:
     return web.json_response({'ok': True, 'is_active': new_state})
 
 
+@require_auth
+async def get_filter_notify_targets(request: web.Request) -> web.Response:
+    """GET /cabinet/api/filters/:id/notify-targets — куда направляются уведомления."""
+    user = request['user']
+    filter_id = int(request.match_info['id'])
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    filter_data = await db.get_filter_by_id(filter_id)
+    if not filter_data or filter_data.get('user_id') != user['user_id']:
+        return web.json_response({'error': 'Filter not found'}, status=404)
+
+    current_targets = filter_data.get('notify_chat_ids') or []
+    user_tg_id = user['telegram_id']
+
+    # Личный чат включён, если targets пусто или там есть telegram_id юзера
+    personal_enabled = (not current_targets) or (user_tg_id in current_targets)
+
+    # Группы где юзер админ
+    groups = await db.get_user_groups(user_tg_id)
+    groups_payload = [
+        {
+            'chat_id': g['telegram_id'],
+            'name': g['name'],
+            'enabled': g['telegram_id'] in current_targets,
+        }
+        for g in groups
+    ]
+
+    return web.json_response({
+        'personal': {'chat_id': user_tg_id, 'enabled': personal_enabled},
+        'groups': groups_payload,
+    })
+
+
+@require_auth
+async def update_filter_notify_targets(request: web.Request) -> web.Response:
+    """POST /cabinet/api/filters/:id/notify-targets — сохранить таргеты.
+
+    Body: {chat_ids: [<chat_id>, ...]}.
+    Если chat_ids пуст или содержит ТОЛЬКО telegram_id юзера → сохраняем NULL
+    (это «дефолтное» поведение, как будто routing вообще не настроен — notifier
+    отправит в личку). Это согласуется с логикой Telegram-handler-а в sniper.py.
+    """
+    user = request['user']
+    filter_id = int(request.match_info['id'])
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    chat_ids = data.get('chat_ids')
+    if not isinstance(chat_ids, list):
+        return web.json_response({'error': 'chat_ids must be a list'}, status=400)
+
+    try:
+        chat_ids = [int(cid) for cid in chat_ids]
+    except (TypeError, ValueError):
+        return web.json_response({'error': 'chat_ids must contain integers'}, status=400)
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+
+    filter_data = await db.get_filter_by_id(filter_id)
+    if not filter_data or filter_data.get('user_id') != user['user_id']:
+        return web.json_response({'error': 'Filter not found'}, status=404)
+
+    user_tg_id = user['telegram_id']
+    valid_chat_ids = {user_tg_id}
+    for g in await db.get_user_groups(user_tg_id):
+        valid_chat_ids.add(g['telegram_id'])
+
+    invalid = [cid for cid in chat_ids if cid not in valid_chat_ids]
+    if invalid:
+        return web.json_response(
+            {'error': f'Chat IDs not allowed: {invalid}'}, status=403
+        )
+
+    deduped = list(dict.fromkeys(chat_ids))
+    is_default = not deduped or deduped == [user_tg_id]
+    await db.update_filter(filter_id, notify_chat_ids=None if is_default else deduped)
+
+    return web.json_response({'ok': True})
+
+
 # ============================================
 # REGIONS API
 # ============================================
