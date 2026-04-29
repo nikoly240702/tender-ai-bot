@@ -37,8 +37,26 @@
 .filter-card .kws { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .filter-card .kw { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--sub); background: var(--line-soft); padding: 3px 10px; border-radius: var(--radius-pill); }
 .filter-card .kw.excl { color: var(--alert); background: rgba(177,61,40,0.08); }
-.filter-card .meta { font-size: 12px; color: var(--sub); font-weight: 500; display: flex; flex-wrap: wrap; gap: 12px; }
+.filter-card .meta { font-size: 12px; color: var(--sub); font-weight: 500; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
 .filter-card .meta .match-count { font-family: var(--font-mono); font-weight: 600; color: var(--text); }
+.routing-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.routing-badge.routing-dm {
+  color: var(--positive);
+  background: rgba(86, 122, 63, 0.12);
+  border: 1px solid rgba(86, 122, 63, 0.25);
+}
+.routing-badge.routing-group {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-line);
+}
 .filter-card .actions { display: flex; gap: 8px; }
 
 /* Form panel */
@@ -153,6 +171,17 @@
 }
 .advanced-content { display: none; }
 .advanced-content.open { display: block; }
+
+.form-hint {
+  margin: 14px 0 16px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--positive);
+  background: rgba(86, 122, 63, 0.08);
+  border: 1px solid rgba(86, 122, 63, 0.22);
+  border-radius: var(--radius-sm);
+}
 
 .notify-routing {
   margin-top: 10px;

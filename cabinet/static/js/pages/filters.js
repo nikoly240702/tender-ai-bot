@@ -156,6 +156,9 @@
 
     setSelectedRegions(filter ? (filter.regions || []) : []);
 
+    const hint = byId('form-routing-hint');
+    if (hint) hint.style.display = filter ? 'none' : '';
+
     byId('form-panel').classList.add('open');
     byId('f-name').focus();
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -322,6 +325,21 @@
           const isDefault = !chatIds.length || (chatIds.length === 1 && chatIds[0] === personalId);
           filter.notify_chat_ids = isDefault ? null : chatIds;
         }
+        const card = container.closest('.filter-card');
+        const badge = card ? card.querySelector('.routing-badge') : null;
+        if (badge) {
+          const targets = (filter && filter.notify_chat_ids) || [];
+          badge.classList.remove('routing-dm', 'routing-group');
+          if (!targets.length) {
+            badge.classList.add('routing-dm');
+            badge.textContent = '📩 Только в личку';
+          } else {
+            badge.classList.add('routing-group');
+            badge.textContent = targets.length === 1
+              ? '👥 В группу'
+              : '👥 В ' + targets.length + ' получателей';
+          }
+        }
       } else {
         Toast.show(data.error || 'Ошибка сохранения', 'alert');
       }
@@ -385,6 +403,19 @@
       }
       if (f.law_type) meta.appendChild(el('span', { text: f.law_type === '44' ? '44-ФЗ' : f.law_type === '223' ? '223-ФЗ' : f.law_type }));
       meta.appendChild(el('span', { text: f.is_active ? 'Активен' : 'На паузе' }));
+
+      const routingTargets = f.notify_chat_ids || [];
+      const routingBadge = el('span', { cls: 'routing-badge' });
+      if (!routingTargets.length) {
+        routingBadge.classList.add('routing-dm');
+        routingBadge.textContent = '📩 Только в личку';
+      } else {
+        routingBadge.classList.add('routing-group');
+        routingBadge.textContent = routingTargets.length === 1
+          ? '👥 В группу'
+          : '👥 В ' + routingTargets.length + ' получателей';
+      }
+      meta.appendChild(routingBadge);
       card.appendChild(meta);
 
       const notify = el('div', { cls: 'notify-routing' });
