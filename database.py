@@ -11,7 +11,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, Boolean,
-    DateTime, Text, JSON, ForeignKey, Index, UniqueConstraint
+    DateTime, Text, JSON, ForeignKey, Index, UniqueConstraint, Numeric
 )
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -998,6 +998,138 @@ class DatabaseSession:
 
 
 # ============================================
+# PIPELINE / KANBAN — Team workspace + cards
+# ============================================
+
+class Company(Base):
+    """Команда (company workspace) — родитель карточек pipeline."""
+    __tablename__ = 'companies'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), nullable=False)
+    owner_user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class CompanyMember(Base):
+    """Membership: один user — одна команда (uq_company_members_user)."""
+    __tablename__ = 'company_members'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    role = Column(String(16), nullable=False)
+    joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint('user_id', name='uq_company_members_user'),
+        Index('ix_company_members_company', 'company_id'),
+    )
+
+
+class TeamInvite(Base):
+    """Инвайт-ссылка — токен с TTL и max_uses."""
+    __tablename__ = 'team_invites'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), nullable=False)
+    token = Column(String(64), nullable=False, unique=True)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    max_uses = Column(Integer, default=10, nullable=False)
+    used_count = Column(Integer, default=0, nullable=False)
+
+
+class PipelineCard(Base):
+    """Карточка тендера на доске. Stage и result — см. cabinet/pipeline_service.py."""
+    __tablename__ = 'pipeline_cards'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), nullable=False, index=True)
+    tender_number = Column(String(40), nullable=False, index=True)
+    stage = Column(String(20), nullable=False, default='FOUND')
+    assignee_user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=True)
+    filter_id = Column(Integer, ForeignKey('sniper_filters.id'), nullable=True)
+    source = Column(String(20), nullable=False, default='feed')
+    result = Column(String(10), nullable=True)
+    purchase_price = Column(Numeric(14, 2), nullable=True)
+    sale_price = Column(Numeric(14, 2), nullable=True)
+    ai_summary = Column(Text, nullable=True)
+    ai_recommendation = Column(String(40), nullable=True)
+    ai_enriched_at = Column(DateTime, nullable=True)
+    archived_at = Column(DateTime, nullable=True)
+    data = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint('company_id', 'tender_number', name='uq_pipeline_company_tender'),
+        Index('ix_pipeline_company_stage', 'company_id', 'stage'),
+        Index('ix_pipeline_company_archived', 'company_id', 'archived_at'),
+    )
+
+
+class PipelineCardHistory(Base):
+    """Audit log действий по карточке."""
+    __tablename__ = 'pipeline_card_history'
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    action = Column(String(40), nullable=False)
+    payload = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PipelineCardNote(Base):
+    """Свободные заметки команды на карточке."""
+    __tablename__ = 'pipeline_card_notes'
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PipelineCardFile(Base):
+    """Файл-вложение. Физический файл — в Railway Volume по path."""
+    __tablename__ = 'pipeline_card_files'
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    uploaded_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    filename = Column(String(255), nullable=False)
+    size = Column(Integer, nullable=False)
+    mime_type = Column(String(100), nullable=False)
+    path = Column(String(500), nullable=False)
+    is_generated = Column(Boolean, default=False, nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PipelineCardChecklist(Base):
+    """Чек-лист подзадач на карточке."""
+    __tablename__ = 'pipeline_card_checklist'
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    text = Column(String(500), nullable=False)
+    done = Column(Boolean, default=False, nullable=False)
+    position = Column(Integer, default=0, nullable=False)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    done_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=True)
+    done_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PipelineCardRelation(Base):
+    """Связи между карточками (ручная привязка похожих тендеров)."""
+    __tablename__ = 'pipeline_card_relations'
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    related_card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False)
+    kind = Column(String(40), nullable=False)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint('card_id', 'related_card_id', name='uq_card_relation'),
+    )
+
+
+# ============================================
 # ЭКСПОРТ
 # ============================================
 
@@ -1039,6 +1171,16 @@ __all__ = [
     # Tender-GPT
     'GptSession',
     'GptMessage',
+    # Pipeline / Kanban
+    'Company',
+    'CompanyMember',
+    'TeamInvite',
+    'PipelineCard',
+    'PipelineCardHistory',
+    'PipelineCardNote',
+    'PipelineCardFile',
+    'PipelineCardChecklist',
+    'PipelineCardRelation',
     # Functions
     'init_database',
     'get_session',
