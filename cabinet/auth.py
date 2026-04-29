@@ -118,3 +118,48 @@ def require_auth(handler):
         request['user'] = user
         return await handler(request)
     return wrapper
+
+
+def require_team_member(handler, auto_create_for_pages: bool = True):
+    """Проверяет членство в команде. Кладёт company и role в request.
+
+    auto_create_for_pages=True: для страниц (не /api/) автоматически создаём
+    команду при первом заходе, чтобы новый юзер сразу попадал в свой workspace.
+    """
+    async def wrapper(request):
+        user = await get_current_user(request)
+        if not user:
+            if '/api/' in request.path:
+                return web.json_response({'error': 'Unauthorized'}, status=401)
+            raise web.HTTPFound('/cabinet/login')
+
+        # Импортируем здесь чтобы избежать circular import
+        from cabinet.team_service import (
+            get_company_for_user, get_or_create_company_for_user,
+        )
+        company = await get_company_for_user(user['user_id'])
+        is_api = '/api/' in request.path
+        if not company:
+            if is_api:
+                return web.json_response({'error': 'Not in any team'}, status=403)
+            if auto_create_for_pages:
+                company = await get_or_create_company_for_user(user['user_id'])
+            else:
+                raise web.HTTPFound('/cabinet/pipeline')
+
+        request['user'] = user
+        request['company'] = company
+        request['role'] = (
+            'owner' if company['owner_user_id'] == user['user_id'] else 'member'
+        )
+        return await handler(request)
+    return wrapper
+
+
+def require_owner(handler):
+    """Owner-only — обёртка над require_team_member с проверкой роли."""
+    async def check_then_handle(request):
+        if request.get('role') != 'owner':
+            return web.json_response({'error': 'Owner only'}, status=403)
+        return await handler(request)
+    return require_team_member(check_then_handle)
