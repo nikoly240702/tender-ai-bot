@@ -64,10 +64,16 @@ async def save_profile(request: web.Request) -> web.Response:
 
 @require_auth
 async def get_tenders(request: web.Request) -> web.Response:
-    """GET /cabinet/api/tenders — история тендеров с пагинацией."""
+    """GET /cabinet/api/tenders — история тендеров с пагинацией.
+
+    Помимо страницы тендеров возвращает реальные server-side счётчики:
+      - today_count: уведомлений за последние 24 часа (rolling)
+      - total_count: всего у пользователя в БД
+    Они НЕ совпадают с len(tenders) — последний ограничен limit'ом.
+    """
     user = request['user']
     page = int(request.query.get('page', '1'))
-    limit = min(int(request.query.get('limit', '50')), 100)
+    limit = min(int(request.query.get('limit', '50')), 500)
     offset = (page - 1) * limit
 
     from tender_sniper.database import get_sniper_db
@@ -77,9 +83,13 @@ async def get_tenders(request: web.Request) -> web.Response:
     # Ручная пагинация (adapter возвращает лимитированный список)
     page_tenders = tenders[offset:offset + limit] if offset < len(tenders) else []
 
+    counts = await db.count_user_tenders(user['user_id'], hours=24)
+
     return web.json_response({
         'tenders': page_tenders,
-        'total': len(tenders),
+        'total': counts['total'],          # реальный total в БД (не len списка)
+        'today_count': counts['recent'],   # реальные за 24 часа
+        'total_count': counts['total'],    # alias для ясности на клиенте
         'page': page,
         'limit': limit,
     })

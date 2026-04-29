@@ -29,6 +29,7 @@
 
   let allTenders = [];
   let currentFilter = 'all';
+  let serverCounts = { today: null, total: null };
 
   function applyFilter(tenders, filter) {
     if (filter === 'today') {
@@ -89,12 +90,17 @@
   }
 
   function updateCounts(tenders) {
-    byId('cnt-all').textContent = tenders.length;
-    byId('cnt-today').textContent = applyFilter(tenders, 'today').length;
+    const todayLocal = applyFilter(tenders, 'today').length;
+    const totalLocal = tenders.length;
+    const today = serverCounts.today != null ? serverCounts.today : todayLocal;
+    const total = serverCounts.total != null ? serverCounts.total : totalLocal;
+
+    byId('cnt-all').textContent = total;
+    byId('cnt-today').textContent = today;
     byId('cnt-hot').textContent = applyFilter(tenders, 'hot').length;
     byId('cnt-inwork').textContent = applyFilter(tenders, 'inwork').length;
-    byId('today-count').textContent = applyFilter(tenders, 'today').length;
-    byId('today-total').textContent = tenders.length;
+    byId('today-count').textContent = today;
+    byId('today-total').textContent = today;
     byId('today-hot').textContent = applyFilter(tenders, 'hot').length;
     byId('today-inwork').textContent = applyFilter(tenders, 'inwork').length;
   }
@@ -182,9 +188,13 @@
   });
 
   (async function load() {
-    const data = await window.Cabinet.apiGet('/cabinet/api/tenders');
+    const data = await window.Cabinet.apiGet('/cabinet/api/tenders?limit=500');
     if (!data) return;
     allTenders = data.tenders || [];
+    serverCounts = {
+      today: typeof data.today_count === 'number' ? data.today_count : null,
+      total: typeof data.total_count === 'number' ? data.total_count : null,
+    };
     updateCounts(allTenders);
     renderFeed(applyFilter(allTenders, currentFilter));
   })();

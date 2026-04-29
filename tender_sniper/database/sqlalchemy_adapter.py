@@ -1018,6 +1018,33 @@ class TenderSniperDB:
 
             return tenders
 
+    async def count_user_tenders(self, user_id: int, hours: int = 24) -> Dict[str, int]:
+        """Возвращает реальное число тендеров (всего и за последние N часов)."""
+        async with DatabaseSession() as session:
+            total = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SniperNotificationModel)
+                    .where(SniperNotificationModel.user_id == user_id)
+                )
+            ).scalar() or 0
+
+            since = datetime.utcnow() - timedelta(hours=hours)
+            recent = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SniperNotificationModel)
+                    .where(
+                        and_(
+                            SniperNotificationModel.user_id == user_id,
+                            SniperNotificationModel.sent_at >= since,
+                        )
+                    )
+                )
+            ).scalar() or 0
+
+            return {"total": total, "recent": recent}
+
     async def is_tender_notified(self, tender_number: str, user_id: int) -> bool:
         """Проверка, было ли уже отправлено уведомление о тендере пользователю."""
         async with DatabaseSession() as session:
