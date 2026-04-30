@@ -3,7 +3,7 @@
 {% block title %}Pipeline — Tender Sniper{% endblock %}
 
 {% block page_css %}
-  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=3">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=4">
 {% endblock %}
 
 {% block main %}
@@ -37,9 +37,6 @@
             <div class="kb-card-title">{{ c.data.name or 'Тендер ' + c.tender_number }}</div>
             {% if c.data.price_max %}
               <div class="kb-card-price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</div>
-            {% endif %}
-            {% if c.data.customer %}
-              <div class="kb-card-customer">{{ c.data.customer }}</div>
             {% endif %}
             {% if c.data.deadline %}
               <div class="kb-card-row">

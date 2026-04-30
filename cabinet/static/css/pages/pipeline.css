@@ -218,7 +218,9 @@ body.pipeline-mode .main {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 70%;
+  min-width: 0;
 }
+.kb-card * { word-break: break-word; }
 .kb-card-value.mono { font-family: var(--font-mono); font-size: 11px; }
 .kb-card-footer {
   display: flex;
