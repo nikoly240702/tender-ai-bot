@@ -11,8 +11,10 @@
     'QUOTED': 'Получено КП',
     'SUBMITTED': 'Участвуем',
     'RESULT': 'Результат',
+    'REJECTED': 'Не берём в работу',
   };
-  const NON_RESULT_STAGES = ['FOUND', 'IN_WORK', 'RFQ', 'QUOTED', 'SUBMITTED'];
+  // Стадии для dropdown в модалке (без RESULT — оно через win/lost кнопки)
+  const SELECTABLE_STAGES = ['FOUND', 'IN_WORK', 'RFQ', 'QUOTED', 'SUBMITTED', 'REJECTED'];
 
   const headerEl = document.querySelector('.page-header');
   const teamMembers = headerEl ? JSON.parse(headerEl.dataset.members || '[]') : [];
@@ -96,10 +98,11 @@
           const targetStage = body.dataset.stage;
           const fromCol = evt.from;
           if (targetStage === 'RESULT') {
+            // Возвращаем карточку и спрашиваем результат через модалку
             evt.from.appendChild(card);
             updateCounts();
-            const choice = prompt('Перетащено в «Результат». Введите:\n  won — Победа\n  lost — Проигрыш\n  (или закройте чтобы отменить)');
-            if (choice === 'won' || choice === 'lost') setResult(cardId, choice);
+            const tenderName = card.querySelector('.kb-card-title')?.textContent || ('Карточка #' + cardId);
+            openResultModal(cardId, tenderName);
             return;
           }
           moveCard(cardId, targetStage, fromCol);
@@ -107,6 +110,37 @@
       });
     });
   }
+
+  /* ================ RESULT MODAL ================ */
+
+  const resultModal = document.getElementById('result-modal');
+  const resultClose = document.getElementById('result-modal-close');
+  const resultTender = document.getElementById('result-modal-tender');
+  let pendingResultCardId = null;
+
+  function openResultModal(cardId, tenderName) {
+    pendingResultCardId = cardId;
+    if (resultTender) resultTender.textContent = tenderName;
+    if (resultModal) resultModal.hidden = false;
+  }
+  function closeResultModal() {
+    pendingResultCardId = null;
+    if (resultModal) resultModal.hidden = true;
+  }
+  if (resultClose) resultClose.addEventListener('click', closeResultModal);
+  if (resultModal) {
+    resultModal.addEventListener('click', (e) => {
+      if (e.target === resultModal) closeResultModal();
+    });
+  }
+  const wonBtn = document.getElementById('result-btn-won');
+  const lostBtn = document.getElementById('result-btn-lost');
+  if (wonBtn) wonBtn.addEventListener('click', () => {
+    if (pendingResultCardId) { setResult(pendingResultCardId, 'won'); closeResultModal(); }
+  });
+  if (lostBtn) lostBtn.addEventListener('click', () => {
+    if (pendingResultCardId) { setResult(pendingResultCardId, 'lost'); closeResultModal(); }
+  });
 
   /* ================ MANUAL CREATE ================ */
 
@@ -193,7 +227,7 @@
     // Stage select
     const stageSel = document.getElementById('cm-stage');
     stageSel.replaceChildren();
-    NON_RESULT_STAGES.forEach(s => {
+    SELECTABLE_STAGES.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s;
       opt.textContent = STAGE_LABELS[s];
@@ -578,6 +612,9 @@
       btn.textContent = 'Запустить AI-анализ';
     }
   }
+
+  // Включить fullscreen-режим (sidebar collapsed, no rightrail)
+  document.body.classList.add('pipeline-mode');
 
   initSortable();
   initManualCreate();

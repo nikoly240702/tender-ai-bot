@@ -3,7 +3,7 @@
 {% block title %}Pipeline — Tender Sniper{% endblock %}
 
 {% block page_css %}
-  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=1">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=2">
 {% endblock %}
 
 {% block main %}
@@ -24,7 +24,7 @@
 
 <div class="kb-board">
   {% for stage in stages %}
-    <div class="kb-col {% if stage in ['RFQ', 'QUOTED'] %}supplier{% endif %}" data-stage="{{ stage }}">
+    <div class="kb-col {% if stage in ['RFQ', 'QUOTED'] %}supplier{% elif stage == 'REJECTED' %}rejected{% endif %}" data-stage="{{ stage }}">
       <div class="kb-col-head">
         <span class="kb-col-title">{{ stage_labels[stage] }}</span>
         <span class="kb-count">{{ cards_by_stage[stage]|length }}</span>
@@ -33,16 +33,30 @@
         {% for c in cards_by_stage[stage] %}
           <div class="kb-card{% if c.result == 'won' %} won{% elif c.result == 'lost' %} lost{% endif %}"
                data-card-id="{{ c.id }}" data-tender="{{ c.tender_number }}">
-            <div class="t">{{ c.data.name or 'Тендер ' + c.tender_number }}</div>
-            <div class="row">
-              {% if c.data.price_max %}
-                <span class="price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</span>
-              {% endif %}
-              {% if c.data.deadline %}<span class="due">{{ c.data.deadline }}</span>{% endif %}
-            </div>
-            {% if c.data.customer %}<div class="cust">{{ c.data.customer }}</div>{% endif %}
-            <div class="row footer-row">
-              {% if c.data.region %}<span class="region">{{ c.data.region }}</span>{% endif %}
+            <div class="kb-card-title">{{ c.data.name or 'Тендер ' + c.tender_number }}</div>
+            {% if c.data.price_max %}
+              <div class="kb-card-price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</div>
+            {% endif %}
+            {% if c.data.customer %}
+              <div class="kb-card-row">
+                <span class="kb-card-label">Заказчик</span>
+                <span class="kb-card-value">{{ c.data.customer }}</span>
+              </div>
+            {% endif %}
+            {% if c.data.region %}
+              <div class="kb-card-row">
+                <span class="kb-card-label">Регион</span>
+                <span class="kb-card-value">{{ c.data.region }}</span>
+              </div>
+            {% endif %}
+            {% if c.data.deadline %}
+              <div class="kb-card-row">
+                <span class="kb-card-label">Дедлайн</span>
+                <span class="kb-card-value mono">{{ c.data.deadline }}</span>
+              </div>
+            {% endif %}
+            <div class="kb-card-footer">
+              <span class="kb-card-tender mono">№ {{ c.tender_number }}</span>
               {% if c.assignee_user_id %}
                 <span class="avatar">{{ c.assignee_user_id }}</span>
               {% endif %}
@@ -55,9 +69,21 @@
 </div>
 
 {% include "_modal_card.html" %}
+
+<div class="modal-overlay" id="result-modal" hidden>
+  <div class="modal-window result-modal">
+    <button class="modal-close" id="result-modal-close" aria-label="Закрыть">×</button>
+    <h2>Чем закончилось участие?</h2>
+    <p class="result-modal-sub" id="result-modal-tender">—</p>
+    <div class="result-modal-actions">
+      <button class="btn btn-positive" id="result-btn-won">✓ Выиграно</button>
+      <button class="btn btn-alert" id="result-btn-lost">✕ Проиграно</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block page_js %}
 <script src="/cabinet/static/js/vendor/Sortable.min.js"></script>
-<script src="/cabinet/static/js/pages/pipeline.js?v=1"></script>
+<script src="/cabinet/static/js/pages/pipeline.js?v=2"></script>
 {% endblock %}

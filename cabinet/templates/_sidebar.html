@@ -4,22 +4,22 @@
   <nav>
     <div class="group">
       <div class="group-label">Работа</div>
-      <a href="/cabinet/" {% if active_page == 'dashboard' %}class="active"{% endif %}>
+      <a href="/cabinet/" data-icon="📋" {% if active_page == 'dashboard' %}class="active"{% endif %}>
         <span>Тендеры</span>
         <span class="count">{{ nav_counts.tenders or '' }}</span>
       </a>
-      <a href="/cabinet/pipeline" {% if active_page == 'pipeline' %}class="active"{% endif %}>
+      <a href="/cabinet/pipeline" data-icon="📊" {% if active_page == 'pipeline' %}class="active"{% endif %}>
         <span>Pipeline</span>
         <span class="count">{{ nav_counts.pipeline or '' }}</span>
       </a>
-      <a href="/cabinet/team" {% if active_page == 'team' %}class="active"{% endif %}>
+      <a href="/cabinet/team" data-icon="👥" {% if active_page == 'team' %}class="active"{% endif %}>
         <span>Команда</span>
       </a>
-      <a href="/cabinet/calendar" {% if active_page == 'calendar' %}class="active"{% endif %}>
+      <a href="/cabinet/calendar" data-icon="📅" {% if active_page == 'calendar' %}class="active"{% endif %}>
         <span>Календарь</span>
         <span class="count">{{ nav_counts.calendar or '' }}</span>
       </a>
-      <a href="/cabinet/documents" {% if active_page == 'documents' %}class="active"{% endif %}>
+      <a href="/cabinet/documents" data-icon="📄" {% if active_page == 'documents' %}class="active"{% endif %}>
         <span>Документы</span>
         <span class="count">{{ nav_counts.documents or '' }}</span>
       </a>
@@ -27,30 +27,30 @@
 
     <div class="group">
       <div class="group-label">Источники</div>
-      <a href="/cabinet/filters" {% if active_page == 'filters' %}class="active"{% endif %}>
+      <a href="/cabinet/filters" data-icon="🔧" {% if active_page == 'filters' %}class="active"{% endif %}>
         <span>Фильтры</span>
         <span class="count">{{ nav_counts.filters or '' }}</span>
       </a>
-      <a href="/cabinet/search" {% if active_page == 'search' %}class="active"{% endif %}>
+      <a href="/cabinet/search" data-icon="🔍" {% if active_page == 'search' %}class="active"{% endif %}>
         <span>Поиск</span>
       </a>
-      <a href="/cabinet/gpt" {% if active_page == 'gpt' %}class="active"{% endif %}>
+      <a href="/cabinet/gpt" data-icon="💬" {% if active_page == 'gpt' %}class="active"{% endif %}>
         <span>Tender-GPT</span>
       </a>
     </div>
 
     <div class="group">
       <div class="group-label">Данные</div>
-      <a href="/cabinet/stats" {% if active_page == 'stats' %}class="active"{% endif %}>
+      <a href="/cabinet/stats" data-icon="📈" {% if active_page == 'stats' %}class="active"{% endif %}>
         <span>Статистика</span>
       </a>
-      <a href="/cabinet/profile" {% if active_page == 'profile' %}class="active"{% endif %}>
+      <a href="/cabinet/profile" data-icon="🏢" {% if active_page == 'profile' %}class="active"{% endif %}>
         <span>Профиль</span>
       </a>
-      <a href="/cabinet/settings" {% if active_page == 'settings' %}class="active"{% endif %}>
+      <a href="/cabinet/settings" data-icon="⚙️" {% if active_page == 'settings' %}class="active"{% endif %}>
         <span>Настройки</span>
       </a>
-      <a href="/cabinet/subscription" {% if active_page == 'subscription' %}class="active"{% endif %}>
+      <a href="/cabinet/subscription" data-icon="💳" {% if active_page == 'subscription' %}class="active"{% endif %}>
         <span>Подписка</span>
       </a>
     </div>

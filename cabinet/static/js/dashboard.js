@@ -71,9 +71,80 @@
       const scoreCls = 'score' + (score < 40 ? ' alert' : '');
       right.appendChild(el('div', { cls: scoreCls, text: score + '% совпадение' }));
     }
-    row.appendChild(right);
 
+    // Quick actions (Pipeline + Bitrix24) — без открытия модалки
+    const actions = el('div', { cls: 'quick-actions' });
+    const plBtn = el('button', { cls: 'btn-quick btn-quick-pipeline', text: '→ В работу' });
+    plBtn.title = 'Добавить в Pipeline';
+    plBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      quickAddToPipeline(plBtn, t.number);
+    });
+    actions.appendChild(plBtn);
+
+    const bxQuick = el('button', { cls: 'btn-quick btn-quick-bitrix', text: 'Б24' });
+    bxQuick.title = 'Создать сделку в Битрикс24';
+    bxQuick.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      quickAddToBitrix(bxQuick, t.number);
+    });
+    actions.appendChild(bxQuick);
+    right.appendChild(actions);
+
+    row.appendChild(right);
     return row;
+  }
+
+  async function quickAddToPipeline(btn, tenderNumber) {
+    if (!tenderNumber || btn.disabled) return;
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    try {
+      const r = await fetch('/cabinet/api/pipeline/from-feed/' + encodeURIComponent(tenderNumber), {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        btn.textContent = '✓ В Pipeline';
+        window.Cabinet.Toast.show('✓ Добавлено в Pipeline', 'positive');
+      } else if (r.status === 409) {
+        btn.textContent = '✓ Уже в P';
+        window.Cabinet.Toast.show('Уже в Pipeline (' + (d.stage || '') + ')', 'alert');
+      } else {
+        btn.textContent = orig;
+        btn.disabled = false;
+        window.Cabinet.Toast.show(d.error || 'Ошибка', 'alert');
+      }
+    } catch (e) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      window.Cabinet.Toast.show('Ошибка соединения', 'alert');
+    }
+  }
+
+  async function quickAddToBitrix(btn, tenderNumber) {
+    if (!tenderNumber || btn.disabled) return;
+    const orig = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '⏳';
+    try {
+      const data = await window.Cabinet.apiPost('/cabinet/api/tenders/' + encodeURIComponent(tenderNumber) + '/bitrix24', {});
+      if (data && data.ok) {
+        btn.textContent = '✓ Б24';
+        window.Cabinet.Toast.show('✓ Сделка #' + data.deal_id + ' создана в Битрикс24', 'positive');
+      } else {
+        btn.textContent = orig;
+        btn.disabled = false;
+        window.Cabinet.Toast.show((data && data.error) || 'Ошибка', 'alert');
+      }
+    } catch (e) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      window.Cabinet.Toast.show('Ошибка', 'alert');
+    }
   }
 
   function renderFeed(tenders) {
