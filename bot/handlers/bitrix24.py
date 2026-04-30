@@ -551,9 +551,9 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
             ok = await update_bitrix24_deal_stage(webhook_url, deal_id, stage_id)
             if ok:
                 label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
-                await callback.answer(
-                    f"✅ Сделка #{deal_id} перемещена: «{label}»",
-                    show_alert=True
+                # message.answer не зависит от callback TTL (15 мин)
+                await callback.message.answer(
+                    f"✅ Сделка #{deal_id} перемещена: «{label}»"
                 )
                 if stage_id == STAGE_AI:
                     subscription_tier = user.get('subscription_tier', 'trial')
@@ -561,7 +561,7 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
                         _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
                     )
             else:
-                await callback.answer("❌ Не удалось переместить сделку", show_alert=True)
+                await callback.message.answer("❌ Не удалось переместить сделку")
             return
 
         # Создаём новую сделку на AI-этапе
@@ -590,7 +590,7 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
             await db.mark_notification_bitrix_exported(notification['id'], deal_id)
             await _replace_bitrix_button(callback, tender_number, deal_id, prefix="bitrix_ai")
             label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
-            await callback.answer(f"✅ Сделка #{deal_id} → «{label}»!", show_alert=True)
+            await callback.message.answer(f"✅ Сделка #{deal_id} → «{label}»!")
 
             # Запускаем полный AI анализ документации в фоне
             if stage_id == STAGE_AI:
@@ -599,14 +599,16 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
                     _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
                 )
         else:
-            await callback.answer(
-                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
-                show_alert=True
+            await callback.message.answer(
+                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24)."
             )
 
     except Exception as e:
         logger.error(f"handle_bitrix_ai_export error: {e}", exc_info=True)
-        await callback.answer("Ошибка отправки в Битрикс24", show_alert=True)
+        try:
+            await callback.message.answer("⚠️ Ошибка отправки в Битрикс24")
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("bitrix_"))
@@ -700,22 +702,27 @@ async def handle_bitrix_export(callback: CallbackQuery):
         if deal_id:
             await db.mark_notification_bitrix_exported(notification['id'], deal_id)
             await _replace_bitrix_button(callback, tender_number, deal_id)
+            # Отвечаем через message.answer — callback может быть уже expired
+            # после долгого create_bitrix24_deal (TG TTL ~15 мин на callback query).
             if stage_id == STAGE_LOSE:
-                await callback.answer(
-                    f"⚠️ Сделка #{deal_id} → «Не берем в работу» (дедлайн истёк)",
-                    show_alert=True
+                await callback.message.answer(
+                    f"⚠️ Сделка #{deal_id} → «Не берем в работу» (дедлайн истёк)"
                 )
             else:
-                await callback.answer(f"✅ Сделка #{deal_id} создана в Битрикс24!", show_alert=True)
+                await callback.message.answer(
+                    f"✅ Сделка #{deal_id} создана в Битрикс24!"
+                )
         else:
-            await callback.answer(
-                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
-                show_alert=True
+            await callback.message.answer(
+                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24)."
             )
 
     except Exception as e:
         logger.error(f"handle_bitrix_export error: {e}", exc_info=True)
-        await callback.answer("Ошибка отправки в Битрикс24", show_alert=True)
+        try:
+            await callback.message.answer("⚠️ Ошибка отправки в Битрикс24")
+        except Exception:
+            pass
 
 
 async def _replace_bitrix_button(
