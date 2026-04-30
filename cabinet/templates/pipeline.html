@@ -8,7 +8,7 @@
 
 {% block main %}
 <div class="page-header"
-     data-members='{{ members|tojson|forceescape }}'
+     data-members='{{ members_json|tojson|forceescape }}'
      data-is-owner='{{ "1" if is_owner else "0" }}'
      data-current-user-id='{{ current_user_id }}'>
   <div class="eyebrow">CRM</div>

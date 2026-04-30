@@ -372,6 +372,17 @@ async def pipeline_page(request: web.Request) -> web.Response:
         if c['stage'] in by_stage:
             by_stage[c['stage']].append(c)
 
+    # Упрощённая JSON-safe версия для встраивания в data-attribute (JS)
+    members_json = [
+        {
+            'user_id': m['user_id'],
+            'role': m['role'],
+            'display_name': m.get('display_name', f'User {m["user_id"]}'),
+            'username': m.get('username'),
+        }
+        for m in members
+    ]
+
     return _render_template(
         'pipeline.html', request,
         active_page='pipeline',
@@ -385,6 +396,7 @@ async def pipeline_page(request: web.Request) -> web.Response:
         stage_labels=pipeline_service.STAGE_LABELS,
         cards_by_stage=by_stage,
         members=members,
+        members_json=members_json,
     )
 
 
