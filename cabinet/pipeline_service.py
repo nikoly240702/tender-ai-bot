@@ -117,6 +117,43 @@ def _safe_filename(name: str) -> str:
 # Card CRUD + stage transitions
 # ============================================
 
+async def _build_tender_meta(session, tender_number: str,
+                             user_id_hint: Optional[int] = None) -> Dict:
+    """Собирает meta-данные тендера из sniper_notifications (приоритет user_id_hint,
+    fallback — любая последняя notification по tender_number)."""
+    from database import SniperNotification
+    q = select(SniperNotification).where(SniperNotification.tender_number == tender_number)
+    if user_id_hint is not None:
+        q = q.where(SniperNotification.user_id == user_id_hint)
+    q = q.order_by(SniperNotification.sent_at.desc()).limit(1)
+    notif = await session.scalar(q)
+    if not notif:
+        # Fallback: ищем любую notification по tender_number
+        q2 = select(SniperNotification).where(
+            SniperNotification.tender_number == tender_number
+        ).order_by(SniperNotification.sent_at.desc()).limit(1)
+        notif = await session.scalar(q2)
+    if not notif:
+        return {
+            'name': None, 'customer': None, 'region': None,
+            'price_max': None, 'deadline': None,
+            'url': f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
+        }
+    deadline = None
+    if notif.submission_deadline:
+        deadline = str(notif.submission_deadline)
+    return {
+        'name': notif.tender_name,
+        'customer': notif.tender_customer,
+        'region': notif.tender_region,
+        'price_max': float(notif.tender_price) if notif.tender_price else None,
+        'deadline': deadline,
+        'url': notif.tender_url or f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
+        'filter_name': notif.filter_name,
+        'score': notif.score,
+    }
+
+
 async def create_card_from_tender(
     company_id: int,
     tender_number: str,
@@ -124,9 +161,8 @@ async def create_card_from_tender(
     filter_id: Optional[int] = None,
     source: str = SOURCE_FEED,
 ) -> Dict:
-    """Создаёт карточку в стадии FOUND. Берёт мета из tender_cache.
-    Возвращает {card} или {error: 'already_exists', existing_card}.
-    """
+    """Создаёт карточку в стадии FOUND. Мета берётся из sniper_notifications.
+    Возвращает {card} или {error: 'already_exists', existing_card}."""
     async with DatabaseSession() as session:
         existing = await session.scalar(
             select(PipelineCard).where(
@@ -137,22 +173,9 @@ async def create_card_from_tender(
         if existing:
             return {'error': 'already_exists', 'existing_card': _card_dict(existing)}
 
-        cache = await session.scalar(
-            select(TenderCache).where(TenderCache.tender_number == tender_number)
-        )
-        cache_data: Dict = {}
-        if cache:
-            cache_data = {
-                'name': getattr(cache, 'name', None),
-                'customer': getattr(cache, 'customer', None),
-                'region': getattr(cache, 'region', None),
-                'price_max': float(cache.price) if getattr(cache, 'price', None) is not None else None,
-                'deadline': cache.deadline.isoformat() if getattr(cache, 'deadline', None) else None,
-                'url': f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
-                'law_type': getattr(cache, 'law_type', None),
-            }
+        meta = await _build_tender_meta(session, tender_number, user_id_hint=creator_user_id)
+        sale_price_default = meta.get('price_max')
 
-        sale_price_default = cache_data.get('price_max')
         card = PipelineCard(
             company_id=company_id,
             tender_number=tender_number,
@@ -161,7 +184,7 @@ async def create_card_from_tender(
             filter_id=filter_id,
             source=source,
             sale_price=Decimal(str(sale_price_default)) if sale_price_default else None,
-            data=cache_data,
+            data=meta,
             created_by=creator_user_id,
         )
         session.add(card)
@@ -173,6 +196,71 @@ async def create_card_from_tender(
         session.add(history)
         await session.commit()
         return {'card': _card_dict(card)}
+
+
+async def backfill_card_meta(company_id: int) -> int:
+    """Догрузить data из sniper_notifications для всех карточек команды,
+    у которых data.name пуст (например — старые карточки до этого фикса).
+    Возвращает количество обогащённых."""
+    async with DatabaseSession() as session:
+        result = await session.execute(
+            select(PipelineCard).where(PipelineCard.company_id == company_id)
+        )
+        cards = result.scalars().all()
+        owner_user_id = None
+        if cards:
+            company = await session.get(Company, company_id)
+            owner_user_id = company.owner_user_id if company else None
+
+        updated = 0
+        for card in cards:
+            data = card.data or {}
+            if data.get('name'):
+                continue  # уже заполнено
+            meta = await _build_tender_meta(
+                session, card.tender_number,
+                user_id_hint=card.assignee_user_id or owner_user_id,
+            )
+            if not meta.get('name'):
+                continue  # источника нет
+            # Сливаем существующий data (bitrix_deal_id и т.п.) с новой meta
+            merged = {**meta, **{k: v for k, v in data.items() if v is not None}}
+            merged.update({k: v for k, v in meta.items() if v})
+            card.data = merged
+            if meta.get('price_max') and not card.sale_price:
+                card.sale_price = Decimal(str(meta['price_max']))
+            updated += 1
+        if updated:
+            await session.commit()
+        return updated
+
+
+async def get_last_changes_map(card_ids: List[int]) -> Dict[int, Dict]:
+    """Для каждой карточки возвращает последнюю запись из card_history
+    (кто менял, когда, какое action). Используется для рендера на доске."""
+    if not card_ids:
+        return {}
+    async with DatabaseSession() as session:
+        # Subquery — берём максимальный id history per card
+        from sqlalchemy import desc
+        result = await session.execute(
+            select(PipelineCardHistory)
+            .where(PipelineCardHistory.card_id.in_(card_ids))
+            .order_by(PipelineCardHistory.card_id, desc(PipelineCardHistory.created_at))
+        )
+        seen = set()
+        out: Dict[int, Dict] = {}
+        for h in result.scalars().all():
+            if h.card_id in seen:
+                continue
+            seen.add(h.card_id)
+            out[h.card_id] = {
+                'action': h.action,
+                'user_id': h.user_id,
+                'created_at': h.created_at,
+                'payload': h.payload or {},
+            }
+        return out
 
 
 async def move_card_stage(card_id: int, new_stage: str, by_user_id: int) -> Dict:

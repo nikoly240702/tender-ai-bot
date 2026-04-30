@@ -67,8 +67,10 @@ body.pipeline-mode .main {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
-  min-height: 70vh;
+  /* Фиксированная высота — позволяет скроллу быть в каждой колонке отдельно */
+  height: calc(100vh - 180px);
   overflow-x: auto;
+  overflow-y: hidden;
 }
 .kb-col {
   background: var(--bg-2);
@@ -78,8 +80,10 @@ body.pipeline-mode .main {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 280px;
   min-width: 220px;
+  /* full height колонки — чтобы тело могло скроллиться внутри */
+  height: 100%;
+  min-height: 0;
 }
 .kb-col.supplier {
   background: rgba(74, 106, 140, 0.08);
@@ -116,7 +120,20 @@ body.pipeline-mode .main {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 100px;
+  /* Скролл индивидуально по колонке когда карточек много */
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.kb-col-body::-webkit-scrollbar { width: 6px; }
+.kb-col-body::-webkit-scrollbar-track { background: transparent; }
+.kb-col-body::-webkit-scrollbar-thumb {
+  background: rgba(30, 25, 18, 0.18);
+  border-radius: 3px;
 }
 
 /* ============= CARD ============= */
@@ -156,6 +173,24 @@ body.pipeline-mode .main {
   color: var(--text);
   margin-bottom: 8px;
   letter-spacing: -0.01em;
+}
+.kb-card-customer {
+  font-size: 12px;
+  color: var(--sub);
+  line-height: 1.4;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.kb-card-changed .kb-card-value {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
 }
 .kb-card-row {
   display: flex;

@@ -361,18 +361,69 @@ def _render_template(template_name: str, request: web.Request = None, **context)
 async def pipeline_page(request: web.Request) -> web.Response:
     """Server-render Kanban доски."""
     from cabinet import pipeline_service, team_service
+    from datetime import datetime
     user = request['user']
     company = request['company']
     role = request['role']
+
+    # Backfill meta для карточек у которых data.name пуст (старые без notification-данных)
+    try:
+        await pipeline_service.backfill_card_meta(company['id'])
+    except Exception:
+        pass  # не блокируем рендер на ошибке
+
     cards = await pipeline_service.list_company_cards(company['id'])
     members = await team_service.list_members_with_users(company['id'])
+
+    # Карта user_id → display_name для последних изменений
+    members_by_id = {m['user_id']: m for m in members}
+
+    # Last change history per card — кто и когда последний раз трогал карточку
+    last_changes = await pipeline_service.get_last_changes_map([c['id'] for c in cards])
+
+    # Обогащаем card display-полями
+    now = datetime.utcnow()
+    for c in cards:
+        lc = last_changes.get(c['id'])
+        if lc:
+            uid = lc['user_id']
+            mem = members_by_id.get(uid)
+            c['_last_change_by'] = (mem.get('display_name') if mem else f'User {uid}')
+            c['_last_change_at'] = lc['created_at']
+            # Сколько прошло (минут / часов / дней)
+            delta = now - lc['created_at']
+            if delta.total_seconds() < 60:
+                ago = 'только что'
+            elif delta.total_seconds() < 3600:
+                m = int(delta.total_seconds() // 60)
+                ago = f'{m} мин назад'
+            elif delta.total_seconds() < 86400:
+                h = int(delta.total_seconds() // 3600)
+                ago = f'{h} ч назад'
+            else:
+                d = delta.days
+                ago = f'{d} дн назад'
+            c['_last_change_ago'] = ago
+        else:
+            c['_last_change_by'] = None
+            c['_last_change_at'] = None
+            c['_last_change_ago'] = None
+
+        # assignee display name
+        if c['assignee_user_id']:
+            mem = members_by_id.get(c['assignee_user_id'])
+            c['_assignee_name'] = mem.get('display_name') if mem else f'#{c["assignee_user_id"]}'
+            c['_assignee_initial'] = (c['_assignee_name'] or '?')[0].upper()
+        else:
+            c['_assignee_name'] = None
+            c['_assignee_initial'] = None
 
     by_stage = {s: [] for s in pipeline_service.ALL_STAGES}
     for c in cards:
         if c['stage'] in by_stage:
             by_stage[c['stage']].append(c)
 
-    # Упрощённая JSON-safe версия для встраивания в data-attribute (JS)
+    # JSON-safe для встраивания в data-attribute (JS)
     members_json = [
         {
             'user_id': m['user_id'],

@@ -613,8 +613,25 @@
     }
   }
 
-  // Включить fullscreen-режим (sidebar collapsed, no rightrail)
-  document.body.classList.add('pipeline-mode');
+  // Pipeline-mode: sidebar collapsed по умолчанию, но юзер может раскрыть.
+  // Состояние сохраняется в localStorage между переходами на pipeline.
+  const SIDEBAR_KEY = 'pipeline_sidebar_collapsed';
+  function applySidebarState() {
+    const collapsed = localStorage.getItem(SIDEBAR_KEY) !== 'false';
+    document.body.classList.toggle('pipeline-mode', collapsed);
+    const btn = document.getElementById('btn-toggle-sidebar');
+    if (btn) btn.textContent = collapsed ? '☰ Меню' : '← Свернуть';
+  }
+  applySidebarState();
+
+  const toggleBtn = document.getElementById('btn-toggle-sidebar');
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      const wasCollapsed = document.body.classList.contains('pipeline-mode');
+      localStorage.setItem(SIDEBAR_KEY, wasCollapsed ? 'false' : 'true');
+      applySidebarState();
+    });
+  }
 
   initSortable();
   initManualCreate();

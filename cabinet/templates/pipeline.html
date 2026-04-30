@@ -3,7 +3,7 @@
 {% block title %}Pipeline — Tender Sniper{% endblock %}
 
 {% block page_css %}
-  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=2">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=3">
 {% endblock %}
 
 {% block main %}
@@ -17,6 +17,7 @@
 </div>
 
 <div class="pipeline-actions">
+  <button class="btn btn-ghost" id="btn-toggle-sidebar" title="Развернуть/свернуть меню">☰ Меню</button>
   <a href="/cabinet/pipeline/archive" class="btn btn-ghost">Архив</a>
   <a href="/cabinet/team" class="btn btn-secondary">Команда</a>
   <button class="btn btn-primary" id="btn-create-manual">+ Создать вручную</button>
@@ -38,9 +39,12 @@
               <div class="kb-card-price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</div>
             {% endif %}
             {% if c.data.customer %}
+              <div class="kb-card-customer">{{ c.data.customer }}</div>
+            {% endif %}
+            {% if c.data.deadline %}
               <div class="kb-card-row">
-                <span class="kb-card-label">Заказчик</span>
-                <span class="kb-card-value">{{ c.data.customer }}</span>
+                <span class="kb-card-label">До подачи</span>
+                <span class="kb-card-value mono">{{ c.data.deadline }}</span>
               </div>
             {% endif %}
             {% if c.data.region %}
@@ -49,16 +53,16 @@
                 <span class="kb-card-value">{{ c.data.region }}</span>
               </div>
             {% endif %}
-            {% if c.data.deadline %}
-              <div class="kb-card-row">
-                <span class="kb-card-label">Дедлайн</span>
-                <span class="kb-card-value mono">{{ c.data.deadline }}</span>
+            {% if c._last_change_by %}
+              <div class="kb-card-row kb-card-changed">
+                <span class="kb-card-label">Стадию менял</span>
+                <span class="kb-card-value">{{ c._last_change_by }} · {{ c._last_change_ago }}</span>
               </div>
             {% endif %}
             <div class="kb-card-footer">
               <span class="kb-card-tender mono">№ {{ c.tender_number }}</span>
-              {% if c.assignee_user_id %}
-                <span class="avatar">{{ c.assignee_user_id }}</span>
+              {% if c._assignee_initial %}
+                <span class="avatar" title="{{ c._assignee_name }}">{{ c._assignee_initial }}</span>
               {% endif %}
             </div>
           </div>
@@ -85,5 +89,5 @@
 
 {% block page_js %}
 <script src="/cabinet/static/js/vendor/Sortable.min.js"></script>
-<script src="/cabinet/static/js/pages/pipeline.js?v=2"></script>
+<script src="/cabinet/static/js/pages/pipeline.js?v=3"></script>
 {% endblock %}
