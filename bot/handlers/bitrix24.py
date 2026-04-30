@@ -22,7 +22,27 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+from aiogram.exceptions import TelegramBadRequest
 from tender_sniper.database import get_sniper_db
+
+
+async def _safe_answer(callback: CallbackQuery, text: str, show_alert: bool = True):
+    """Сначала пробует callback.answer (popup в клиенте). Если query expired —
+    fallback на message.answer (отдельное сообщение в чат).
+
+    Это даёт нормальный UX (как раньше — попап без шума в чате) для быстрых
+    операций и не падает с 'query is too old' после долгих HTTP-запросов в
+    Bitrix24 (TTL у TG callback ~15 минут)."""
+    try:
+        await callback.answer(text, show_alert=show_alert)
+    except TelegramBadRequest as e:
+        if 'query is too old' in str(e) or 'query ID is invalid' in str(e):
+            try:
+                await callback.message.answer(text)
+            except Exception:
+                pass
+        else:
+            raise
 
 logger = logging.getLogger(__name__)
 
@@ -551,17 +571,14 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
             ok = await update_bitrix24_deal_stage(webhook_url, deal_id, stage_id)
             if ok:
                 label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
-                # message.answer не зависит от callback TTL (15 мин)
-                await callback.message.answer(
-                    f"✅ Сделка #{deal_id} перемещена: «{label}»"
-                )
+                await _safe_answer(callback, f"✅ Сделка #{deal_id} перемещена: «{label}»")
                 if stage_id == STAGE_AI:
                     subscription_tier = user.get('subscription_tier', 'trial')
                     asyncio.create_task(
                         _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
                     )
             else:
-                await callback.message.answer("❌ Не удалось переместить сделку")
+                await _safe_answer(callback, "❌ Не удалось переместить сделку")
             return
 
         # Создаём новую сделку на AI-этапе
@@ -590,7 +607,7 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
             await db.mark_notification_bitrix_exported(notification['id'], deal_id)
             await _replace_bitrix_button(callback, tender_number, deal_id, prefix="bitrix_ai")
             label = "Новые процедуры с AI" if stage_id == STAGE_AI else "Не берем в работу"
-            await callback.message.answer(f"✅ Сделка #{deal_id} → «{label}»!")
+            await _safe_answer(callback, f"✅ Сделка #{deal_id} → «{label}»!")
 
             # Запускаем полный AI анализ документации в фоне
             if stage_id == STAGE_AI:
@@ -599,14 +616,15 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
                     _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
                 )
         else:
-            await callback.message.answer(
-                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24)."
+            await _safe_answer(
+                callback,
+                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
             )
 
     except Exception as e:
         logger.error(f"handle_bitrix_ai_export error: {e}", exc_info=True)
         try:
-            await callback.message.answer("⚠️ Ошибка отправки в Битрикс24")
+            await _safe_answer(callback, "⚠️ Ошибка отправки в Битрикс24")
         except Exception:
             pass
 
@@ -702,25 +720,23 @@ async def handle_bitrix_export(callback: CallbackQuery):
         if deal_id:
             await db.mark_notification_bitrix_exported(notification['id'], deal_id)
             await _replace_bitrix_button(callback, tender_number, deal_id)
-            # Отвечаем через message.answer — callback может быть уже expired
-            # после долгого create_bitrix24_deal (TG TTL ~15 мин на callback query).
             if stage_id == STAGE_LOSE:
-                await callback.message.answer(
-                    f"⚠️ Сделка #{deal_id} → «Не берем в работу» (дедлайн истёк)"
+                await _safe_answer(
+                    callback,
+                    f"⚠️ Сделка #{deal_id} → «Не берем в работу» (дедлайн истёк)",
                 )
             else:
-                await callback.message.answer(
-                    f"✅ Сделка #{deal_id} создана в Битрикс24!"
-                )
+                await _safe_answer(callback, f"✅ Сделка #{deal_id} создана в Битрикс24!")
         else:
-            await callback.message.answer(
-                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24)."
+            await _safe_answer(
+                callback,
+                "❌ Не удалось создать сделку. Проверьте webhook URL (/bitrix24).",
             )
 
     except Exception as e:
         logger.error(f"handle_bitrix_export error: {e}", exc_info=True)
         try:
-            await callback.message.answer("⚠️ Ошибка отправки в Битрикс24")
+            await _safe_answer(callback, "⚠️ Ошибка отправки в Битрикс24")
         except Exception:
             pass
 
