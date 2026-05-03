@@ -21,6 +21,19 @@ TEMPLATES_DIR = Path(__file__).parent / 'templates'
 STATIC_DIR = Path(__file__).parent / 'static'
 
 
+async def _global_ctx_processor(request):
+    """Глобальный context для всех шаблонов: is_admin_user, ADMIN_USER_ID."""
+    is_admin = False
+    try:
+        user = await get_current_user(request)
+        if user:
+            admin_id = int(os.getenv('ADMIN_USER_ID') or os.getenv('ADMIN_TELEGRAM_ID') or '0')
+            is_admin = bool(admin_id and user.get('telegram_id') == admin_id)
+    except Exception:
+        pass
+    return {'is_admin_user': is_admin}
+
+
 def setup_cabinet_routes(app: web.Application):
     """Регистрация маршрутов кабинета в aiohttp app."""
 
@@ -28,6 +41,7 @@ def setup_cabinet_routes(app: web.Application):
         app,
         loader=jinja2.FileSystemLoader(str(TEMPLATES_DIR)),
         auto_reload=False,
+        context_processors=[_global_ctx_processor, aiohttp_jinja2.request_processor],
     )
     app.router.add_static('/cabinet/static/', path=str(STATIC_DIR), name='cabinet_static')
 

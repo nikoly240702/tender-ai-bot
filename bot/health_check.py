@@ -9,10 +9,71 @@ import logging
 import asyncio
 import os
 from pathlib import Path
-from aiohttp import web
+from aiohttp import web, ClientSession, ClientTimeout
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# REVERSE PROXY → uvicorn admin (127.0.0.1:8081)
+# ============================================
+
+ADMIN_UPSTREAM = os.getenv('ADMIN_UPSTREAM_URL', 'http://127.0.0.1:8081')
+_HOP_HEADERS = {
+    'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+    'te', 'trailers', 'transfer-encoding', 'upgrade', 'host',
+    'content-encoding', 'content-length',
+}
+
+
+async def admin_proxy_handler(request: web.Request) -> web.Response:
+    """Прокси /admin/* → ADMIN_UPSTREAM/*.
+
+    Auth: ничего не проверяем — admin app сам требует HTTPBasic
+    через ADMIN_USERNAME/ADMIN_PASSWORD env vars. Браузер кэширует
+    после первого ввода.
+    """
+    sub_path = request.match_info.get('path', '')
+    target_url = f"{ADMIN_UPSTREAM}/{sub_path}"
+    if request.query_string:
+        target_url += '?' + request.query_string
+
+    headers = {
+        k: v for k, v in request.headers.items()
+        if k.lower() not in _HOP_HEADERS
+    }
+    # X-Forwarded-* — подсказки upstream-у
+    headers['X-Forwarded-Host'] = request.host
+    headers['X-Forwarded-Proto'] = request.scheme
+    headers['X-Forwarded-For'] = request.remote or ''
+
+    body = await request.read() if request.method not in ('GET', 'HEAD') else None
+
+    try:
+        async with ClientSession(timeout=ClientTimeout(total=60)) as session:
+            async with session.request(
+                request.method,
+                target_url,
+                headers=headers,
+                data=body,
+                allow_redirects=False,
+            ) as upstream_resp:
+                resp_body = await upstream_resp.read()
+                resp_headers = {
+                    k: v for k, v in upstream_resp.headers.items()
+                    if k.lower() not in _HOP_HEADERS
+                }
+                return web.Response(
+                    body=resp_body,
+                    status=upstream_resp.status,
+                    headers=resp_headers,
+                )
+    except asyncio.TimeoutError:
+        return web.Response(status=504, text='Admin upstream timeout')
+    except Exception as e:
+        logger.error(f'admin proxy error: {e}', exc_info=True)
+        return web.Response(status=502, text=f'Admin upstream error: {e}')
 
 # Глобальные переменные для отслеживания состояния
 _health_status = {
@@ -462,6 +523,13 @@ async def start_health_check_server(port: int = 8080):
         logger.info("Cabinet routes mounted at /cabinet/*")
     except Exception as e:
         logger.warning(f"Failed to mount cabinet routes: {e}")
+
+    # Admin panel reverse-proxy: /admin/* → uvicorn 127.0.0.1:8081
+    # Admin app требует HTTPBasic auth (ADMIN_USERNAME/PASSWORD из env).
+    app.router.add_route('*', '/admin', admin_proxy_handler)
+    app.router.add_route('*', '/admin/', admin_proxy_handler)
+    app.router.add_route('*', '/admin/{path:.*}', admin_proxy_handler)
+    logger.info(f"Admin proxy mounted at /admin/* → {ADMIN_UPSTREAM}")
 
     runner = web.AppRunner(app)
     await runner.setup()
