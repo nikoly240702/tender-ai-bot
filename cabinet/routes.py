@@ -357,6 +357,43 @@ def _render_template(template_name: str, request: web.Request = None, **context)
 # PIPELINE PAGES
 # ============================================
 
+_RU_MONTHS = (
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+)
+
+
+def _format_deadline_short(value) -> str:
+    """Парсит ISO/datetime и возвращает 'D месяца' (с годом если не текущий).
+    Возвращает '' если не разобралось."""
+    from datetime import datetime, date
+    if not value:
+        return ''
+    dt = None
+    if isinstance(value, (datetime, date)):
+        dt = value
+    elif isinstance(value, str):
+        s = value.strip().replace('T', ' ')
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%d'):
+            try:
+                dt = datetime.strptime(s[:len(fmt) + 2 if '%H' in fmt else len(fmt)], fmt)
+                break
+            except ValueError:
+                continue
+        if dt is None:
+            try:
+                dt = datetime.fromisoformat(s)
+            except ValueError:
+                return value  # fallback — оставляем как было
+    if dt is None:
+        return ''
+    today_year = datetime.utcnow().year
+    month_label = _RU_MONTHS[dt.month - 1]
+    if dt.year == today_year:
+        return f'{dt.day} {month_label}'
+    return f'{dt.day} {month_label} {dt.year}'
+
+
 @require_team_member
 async def pipeline_page(request: web.Request) -> web.Response:
     """Server-render Kanban доски."""
@@ -417,6 +454,9 @@ async def pipeline_page(request: web.Request) -> web.Response:
         else:
             c['_assignee_name'] = None
             c['_assignee_initial'] = None
+
+        # Deadline short (например "8 мая" или "12 мая 2027")
+        c['_deadline_short'] = _format_deadline_short((c.get('data') or {}).get('deadline'))
 
     by_stage = {s: [] for s in pipeline_service.ALL_STAGES}
     for c in cards:

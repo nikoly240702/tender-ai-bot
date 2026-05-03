@@ -26,17 +26,28 @@
             <select id="cm-assignee"></select>
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label>Закупочная цена (₽)</label>
-            <input type="number" id="cm-purchase" placeholder="от поставщика">
+        <div class="prices-block">
+          <div class="prices-block-head">Цены и маржа</div>
+          <div class="prices-grid">
+            <label class="price-field">
+              <span class="price-label">Закупочная (от поставщика)</span>
+              <span class="price-input-wrap">
+                <input type="text" inputmode="decimal" id="cm-purchase"
+                       class="price-input" placeholder="—" autocomplete="off">
+                <span class="price-suffix">₽</span>
+              </span>
+            </label>
+            <label class="price-field">
+              <span class="price-label">Наша цена в заявке</span>
+              <span class="price-input-wrap">
+                <input type="text" inputmode="decimal" id="cm-sale"
+                       class="price-input" placeholder="—" autocomplete="off">
+                <span class="price-suffix">₽</span>
+              </span>
+            </label>
           </div>
-          <div class="form-group">
-            <label>Наша цена в заявке (₽)</label>
-            <input type="number" id="cm-sale">
-          </div>
+          <div id="cm-margin" class="margin-box" hidden></div>
         </div>
-        <div id="cm-margin" class="margin-box" hidden></div>
 
         <div class="card-meta">
           <div><span class="label">Заказчик</span><span id="cm-customer">—</span></div>

@@ -278,13 +278,26 @@
       if (r.ok) Toast.show('✓ Ответственный обновлён', 'positive');
     };
 
-    // Prices
-    document.getElementById('cm-purchase').value = c.purchase_price || '';
-    document.getElementById('cm-sale').value = c.sale_price || '';
+    // Prices: показываем с разделителями тысяч, парсим терпимо к пробелам/запятым
+    const fmtMoney = v => (v == null) ? '' : Math.round(v).toLocaleString('ru-RU');
+    const parseMoney = v => {
+      if (v == null || v === '') return null;
+      const cleaned = String(v).replace(/[^\d.,-]/g, '').replace(/\s/g, '').replace(',', '.');
+      const n = parseFloat(cleaned);
+      return isNaN(n) ? null : n;
+    };
+    document.getElementById('cm-purchase').value = fmtMoney(c.purchase_price);
+    document.getElementById('cm-sale').value = fmtMoney(c.sale_price);
     ['cm-purchase', 'cm-sale'].forEach(id => {
-      document.getElementById(id).onchange = async () => {
-        const purchase = parseFloat(document.getElementById('cm-purchase').value) || null;
-        const sale = parseFloat(document.getElementById('cm-sale').value) || null;
+      const inp = document.getElementById(id);
+      // Live re-format на blur для красоты
+      inp.onblur = () => {
+        const n = parseMoney(inp.value);
+        inp.value = n == null ? '' : fmtMoney(n);
+      };
+      inp.onchange = async () => {
+        const purchase = parseMoney(document.getElementById('cm-purchase').value);
+        const sale = parseMoney(document.getElementById('cm-sale').value);
         await fetch('/cabinet/api/pipeline/cards/' + c.id + '/prices', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
