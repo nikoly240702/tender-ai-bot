@@ -264,6 +264,29 @@ async def main():
     from tender_sniper.jobs.archive_lost_cards import archive_loop
     asyncio.create_task(archive_loop())
 
+    # Admin panel (FastAPI) — запускаем uvicorn в этом же event loop.
+    # Слушает loopback 127.0.0.1:8081, наружу проксируется через
+    # aiohttp /admin/* (см. bot/health_check.py admin_proxy_handler).
+    async def run_admin_uvicorn():
+        try:
+            import uvicorn
+            from tender_sniper.admin.app import app as admin_app
+            config = uvicorn.Config(
+                admin_app,
+                host='127.0.0.1',
+                port=8081,
+                root_path='/admin',
+                log_level='info',
+                lifespan='on',
+            )
+            server = uvicorn.Server(config)
+            logger.info("🛠️  Запуск admin uvicorn на 127.0.0.1:8081 (proxy /admin/*)")
+            await server.serve()
+        except Exception as e:
+            logger.error(f"⚠️  Admin uvicorn падение: {e}", exc_info=True)
+
+    asyncio.create_task(run_admin_uvicorn())
+
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler
     # ============================================
