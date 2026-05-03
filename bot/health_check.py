@@ -524,12 +524,9 @@ async def start_health_check_server(port: int = 8080):
     except Exception as e:
         logger.warning(f"Failed to mount cabinet routes: {e}")
 
-    # Admin panel reverse-proxy: /admin/* → uvicorn 127.0.0.1:8081
-    # Admin app требует HTTPBasic auth (ADMIN_USERNAME/PASSWORD из env).
-    app.router.add_route('*', '/admin', admin_proxy_handler)
-    app.router.add_route('*', '/admin/', admin_proxy_handler)
-    app.router.add_route('*', '/admin/{path:.*}', admin_proxy_handler)
-    logger.info(f"Admin proxy mounted at /admin/* → {ADMIN_UPSTREAM}")
+    # Admin proxy отключён — uvicorn admin не удалось запустить на Railway
+    # (не понятно почему). Кнопка из sidebar убрана. Локально admin работает
+    # через `python scripts/run_admin.py`.
 
     runner = web.AppRunner(app)
     await runner.setup()

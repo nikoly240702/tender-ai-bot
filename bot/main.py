@@ -264,39 +264,6 @@ async def main():
     from tender_sniper.jobs.archive_lost_cards import archive_loop
     asyncio.create_task(archive_loop())
 
-    # Admin panel (FastAPI) — uvicorn запускается в отдельном thread с собственным
-    # event loop. Слушает loopback 127.0.0.1:8081, наружу проксируется через
-    # aiohttp /admin/* (см. bot/health_check.py admin_proxy_handler).
-    # Thread (не subprocess) чтобы не плодить процессы и видеть логи в общем потоке.
-    import threading
-
-    def _run_admin_uvicorn_in_thread():
-        try:
-            import uvicorn
-            from tender_sniper.admin.app import app as admin_app
-            admin_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(admin_loop)
-            config = uvicorn.Config(
-                admin_app,
-                host='127.0.0.1',
-                port=8081,
-                root_path='/admin',
-                log_level='info',
-                lifespan='on',
-                loop='asyncio',
-            )
-            server = uvicorn.Server(config)
-            logger.info("🛠️  Admin uvicorn starting on 127.0.0.1:8081 (thread loop)")
-            admin_loop.run_until_complete(server.serve())
-        except Exception as e:
-            logger.error(f"⚠️  Admin uvicorn thread crashed: {e}", exc_info=True)
-
-    threading.Thread(
-        target=_run_admin_uvicorn_in_thread,
-        daemon=True,
-        name='admin-uvicorn',
-    ).start()
-
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler
     # ============================================
