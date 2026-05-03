@@ -1472,3 +1472,71 @@ async def team_dashboard(request: web.Request) -> web.Response:
         return web.json_response({'error': 'Owner only'}, status=403)
     data = await pipeline_service.team_dashboard(company['id'])
     return web.json_response(data)
+
+
+# ============================================
+# HOLODILNIK SUPPLIER SEARCH API
+# ============================================
+
+from cabinet import holodilnik_service
+
+
+@require_team_member
+async def holodilnik_start_search(request: web.Request) -> web.Response:
+    user = request['user']
+    company = request['company']
+    card_id = int(request.match_info['id'])
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    force = bool(body.get('force', False))
+
+    result = await holodilnik_service.start_search(
+        card_id=card_id,
+        company_id=company['id'],
+        by_user_id=user['user_id'],
+        force=force,
+    )
+    if 'error' in result:
+        return web.json_response(result, status=result.get('status', 400))
+    if result.get('cached'):
+        return web.json_response({'ok': True, 'cached': True, 'results': result['results']})
+    return web.json_response(
+        {'ok': True, 'cached': False, 'task_id': result['task_id']},
+        status=202,
+    )
+
+
+@require_team_member
+async def holodilnik_get_status(request: web.Request) -> web.Response:
+    task_id = request.query.get('task_id', '')
+    if not task_id:
+        return web.json_response({'error': 'task_id required'}, status=400)
+    status = holodilnik_service.get_status(task_id)
+    if not status:
+        return web.json_response({'error': 'Task not found'}, status=404)
+    return web.json_response(status)
+
+
+@require_team_member
+async def holodilnik_toggle_select(request: web.Request) -> web.Response:
+    company = request['company']
+    card_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    position_idx = body.get('position_idx')
+    sku = body.get('sku')
+    selected = bool(body.get('selected', False))
+    if position_idx is None or sku is None:
+        return web.json_response({'error': 'position_idx and sku required'}, status=400)
+
+    result = await holodilnik_service.toggle_selected(
+        card_id, company['id'], int(position_idx), str(sku), selected,
+    )
+    return web.json_response(result, status=200 if result.get('ok') else 400)

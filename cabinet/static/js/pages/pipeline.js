@@ -332,7 +332,14 @@
     // Action buttons
     const supplierBtn = document.getElementById('cm-btn-supplier');
     supplierBtn.hidden = c.stage !== 'RFQ';
-    supplierBtn.onclick = () => Toast.show('Функция в разработке (holodilnik integration)', 'alert');
+    supplierBtn.onclick = () => {
+      if (window.Cabinet && window.Cabinet.Holodilnik) {
+        const tenderName = (c.data && c.data.name) || ('Тендер ' + c.tender_number);
+        window.Cabinet.Holodilnik.open(c.id, tenderName);
+      } else {
+        Toast.show('Holodilnik UI не загружен (обнови страницу)', 'alert');
+      }
+    };
 
     const delBtn = document.getElementById('cm-btn-delete');
     delBtn.hidden = !isOwner;

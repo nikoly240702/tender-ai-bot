@@ -1,0 +1,32 @@
+<div class="modal-overlay" id="hl-modal" hidden>
+  <div class="modal-window hl-window">
+    <button class="modal-close" id="hl-modal-close" aria-label="Закрыть">×</button>
+    <div class="modal-head">
+      <h2>Поставщики · holodilnik.ru</h2>
+      <p class="hl-subtitle" id="hl-subtitle"></p>
+    </div>
+
+    <div class="modal-body">
+      <div id="hl-loading" class="hl-loading">
+        <div class="hl-spinner">⏳</div>
+        <div class="hl-loading-step" id="hl-loading-step">Запускаю поиск…</div>
+        <div class="hl-loading-progress" id="hl-loading-progress">0/?</div>
+      </div>
+
+      <div id="hl-error" class="hl-error" hidden>
+        <strong>Не удалось выполнить поиск</strong>
+        <p class="hl-error-msg" id="hl-error-msg"></p>
+        <button class="btn btn-secondary btn-sm" id="hl-retry-btn">Попробовать снова</button>
+      </div>
+
+      <div id="hl-results" hidden></div>
+    </div>
+
+    <div class="modal-footer hl-footer" id="hl-footer" hidden>
+      <span id="hl-summary">Выбрано 0 · 0 ₽</span>
+      <span style="margin-left: auto"></span>
+      <button class="btn btn-ghost btn-sm" id="hl-rerun-btn">🔄 Заново</button>
+      <button class="btn btn-primary btn-sm" id="hl-copy-skus">📋 Артикулы</button>
+    </div>
+  </div>
+</div>

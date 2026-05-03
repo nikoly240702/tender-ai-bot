@@ -130,6 +130,11 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_delete('/cabinet/api/pipeline/relations/{rid}', api.pipeline_delete_relation)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/ai-enrich', api.pipeline_ai_enrich)
 
+    # Holodilnik supplier search
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/holodilnik-search', api.holodilnik_start_search)
+    app.router.add_get('/cabinet/api/pipeline/cards/{id}/holodilnik-status', api.holodilnik_get_status)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/holodilnik-toggle', api.holodilnik_toggle_select)
+
     # JSON API — Team
     app.router.add_get('/cabinet/api/team/members', api.team_get_members)
     app.router.add_delete('/cabinet/api/team/members/{id}', api.team_remove_member)

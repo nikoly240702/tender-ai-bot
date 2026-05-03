@@ -3,7 +3,7 @@
 {% block title %}Pipeline — Tender Sniper{% endblock %}
 
 {% block page_css %}
-  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=5">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=6">
 {% endblock %}
 
 {% block main %}
@@ -70,6 +70,7 @@
 </div>
 
 {% include "_modal_card.html" %}
+{% include "_modal_holodilnik.html" %}
 
 <div class="modal-overlay" id="result-modal" hidden>
   <div class="modal-window result-modal">
@@ -86,5 +87,6 @@
 
 {% block page_js %}
 <script src="/cabinet/static/js/vendor/Sortable.min.js"></script>
-<script src="/cabinet/static/js/pages/pipeline.js?v=4"></script>
+<script src="/cabinet/static/js/pages/holodilnik.js?v=1"></script>
+<script src="/cabinet/static/js/pages/pipeline.js?v=5"></script>
 {% endblock %}
