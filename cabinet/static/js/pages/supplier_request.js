@@ -114,6 +114,12 @@
     noteDiv.textContent = `${data.matches.length} позиций сопоставлено, ${data.unmatched.length} без матча. Каталог: ${data.catalogue_size} товаров.`;
     estSummary.appendChild(noteDiv);
 
+    // Source banner
+    const srcDiv = document.createElement('div');
+    srcDiv.className = 'sr-source-banner sr-source-' + (data.tz_source || 'unknown');
+    srcDiv.textContent = formatSourceLabel(data.tz_source, data.tz_files_used, data.tz_note);
+    estSummary.appendChild(srcDiv);
+
     // Table
     const thead = document.createElement('thead');
     const trh = document.createElement('tr');
@@ -250,7 +256,33 @@
     meta.className = 'sr-clean-meta-row';
     meta.textContent = (data.tender_name || '') + ' · № ' + (data.tender_number || '');
     cleanMeta.appendChild(meta);
+
+    const srcDiv = document.createElement('div');
+    srcDiv.className = 'sr-source-banner sr-source-' + (data.tz_source || 'unknown');
+    srcDiv.textContent = formatSourceLabel(data.tz_source, data.tz_files_used, data.tz_note);
+    cleanMeta.appendChild(srcDiv);
+
     cleanText.value = data.letter_text || '';
+  }
+
+  function formatSourceLabel(source, filesUsed, note) {
+    const filesCount = (filesUsed || []).length;
+    if (source === 'card_files') {
+      return `📎 Источник ТЗ: ${filesCount} файл(ов) из карточки`;
+    }
+    if (source === 'zakupki') {
+      return `🌐 Источник ТЗ: документация скачана с zakupki.gov.ru (${filesCount} файлов)`;
+    }
+    if (source === 'cache') {
+      return `💾 Источник ТЗ: кэш (последнее скачивание ≤7 дней)`;
+    }
+    if (source === 'fallback_summary') {
+      return `⚠️ Полная документация недоступна — используем AI-summary как fallback. Загрузите ТЗ-файлы в карточку для точности.`;
+    }
+    if (source === 'name_only') {
+      return `⚠️ Доступно только название тендера. Загрузите ТЗ-файлы в карточку (вкладка «Файлы»).`;
+    }
+    return note || `Источник ТЗ: ${source}`;
   }
 
   cleanCopy.addEventListener('click', async () => {

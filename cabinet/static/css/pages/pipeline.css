@@ -925,3 +925,25 @@ body.pipeline-mode .main {
   margin-top: 12px;
   justify-content: flex-end;
 }
+.sr-source-banner {
+  font-size: 11.5px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 14px;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+.sr-source-card_files,
+.sr-source-zakupki,
+.sr-source-cache {
+  background: rgba(86, 122, 63, 0.10);
+  color: var(--positive);
+  border: 1px solid rgba(86, 122, 63, 0.25);
+}
+.sr-source-fallback_summary,
+.sr-source-name_only,
+.sr-source-unknown {
+  background: rgba(180, 140, 40, 0.10);
+  color: #8b6e1c;
+  border: 1px solid rgba(180, 140, 40, 0.30);
+}

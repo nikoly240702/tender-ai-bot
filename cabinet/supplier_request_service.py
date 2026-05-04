@@ -129,6 +129,7 @@ async def estimate_by_own_catalog(card_id: int, company_id: int) -> Dict[str, An
     {
       ok: bool,
       tz_text_used: str,  # что мы использовали как источник ТЗ
+      tz_source: str,
       catalogue_size: int,
       matches: [{tz_position, tz_quantity, qty_int, item, line_total, rationale, confidence}, ...],
       unmatched: [str, ...],
@@ -136,23 +137,17 @@ async def estimate_by_own_catalog(card_id: int, company_id: int) -> Dict[str, An
       currency: 'RUB'
     }
     """
+    # 1. Получаем полный текст ТЗ (приоритет: card files → zakupki → fallback summary/name)
+    from cabinet.tz_text_service import get_full_tz_text
+    tz_result = await get_full_tz_text(card_id, company_id)
+    if not tz_result.get('ok'):
+        return {'ok': False, 'error': tz_result.get('error', 'Не удалось получить ТЗ')}
+    tz_text = tz_result['text']
+    tz_source = tz_result.get('source', 'unknown')
+    tz_note = tz_result.get('note')
+
+    # 2. Загружаем каталог
     async with DatabaseSession() as session:
-        card = await session.scalar(
-            select(PipelineCard).where(
-                PipelineCard.id == card_id,
-                PipelineCard.company_id == company_id,
-            )
-        )
-        if not card:
-            return {'ok': False, 'error': 'Карточка не найдена'}
-
-        # Источник ТЗ — приоритет ai_summary, затем data.name
-        tz_text = (card.ai_summary or '').strip()
-        if not tz_text:
-            data = card.data or {}
-            tz_text = data.get('name') or f'Тендер {card.tender_number}'
-
-        # Каталог: все own_products этой company
         result = await session.execute(
             select(OwnProduct).where(OwnProduct.company_id == company_id)
             .order_by(OwnProduct.category, OwnProduct.id)
@@ -220,6 +215,9 @@ async def estimate_by_own_catalog(card_id: int, company_id: int) -> Dict[str, An
     return {
         'ok': True,
         'tz_text_used': tz_text[:500] + ('…' if len(tz_text) > 500 else ''),
+        'tz_source': tz_source,
+        'tz_note': tz_note,
+        'tz_files_used': tz_result.get('files_used', []),
         'catalogue_size': len(catalogue),
         'matches': matches_out,
         'unmatched': ai_result.get('unmatched', []),
@@ -253,6 +251,15 @@ _CLEAN_REQUEST_PROMPT = """Ты помогаешь подготовить зап
 
 async def generate_clean_request(card_id: int, company_id: int) -> Dict[str, Any]:
     """AI чистит ТЗ от мусора → возвращает текст для рассылки."""
+    # Получаем полный текст ТЗ
+    from cabinet.tz_text_service import get_full_tz_text
+    tz_result = await get_full_tz_text(card_id, company_id)
+    if not tz_result.get('ok'):
+        return {'ok': False, 'error': tz_result.get('error', 'Не удалось получить ТЗ')}
+    tz_text = tz_result['text']
+    tz_source = tz_result.get('source', 'unknown')
+    tz_note = tz_result.get('note')
+
     async with DatabaseSession() as session:
         card = await session.scalar(
             select(PipelineCard).where(
@@ -262,11 +269,6 @@ async def generate_clean_request(card_id: int, company_id: int) -> Dict[str, Any
         )
         if not card:
             return {'ok': False, 'error': 'Карточка не найдена'}
-
-        tz_text = (card.ai_summary or '').strip()
-        if not tz_text:
-            data = card.data or {}
-            tz_text = data.get('name') or f'Тендер {card.tender_number}'
 
     if not tz_text:
         return {'ok': False, 'error': 'Нет данных по тендеру для очистки'}
@@ -302,4 +304,7 @@ async def generate_clean_request(card_id: int, company_id: int) -> Dict[str, Any
         'tender_number': card.tender_number,
         'positions_text': positions,
         'letter_text': full_letter,
+        'tz_source': tz_source,
+        'tz_note': tz_note,
+        'tz_files_used': tz_result.get('files_used', []),
     }
