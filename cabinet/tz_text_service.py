@@ -32,7 +32,10 @@ logger = logging.getLogger(__name__)
 
 CACHE_TTL_DAYS = 7
 DOWNLOAD_DIR = Path('/tmp/tender_downloads')
-MAX_TEXT_CHARS = 30000  # обрезаем чтобы AI-prompt не разрастался
+# 80K хватит для большинства ТЗ (gpt-4o-mini 128K context window).
+# В тендерах часто характеристики в табличной форме после общего описания —
+# обрезаем не слишком рано чтобы их не потерять.
+MAX_TEXT_CHARS = 80000
 SUPPORTED_EXTENSIONS = {'.docx', '.doc', '.pdf', '.xlsx', '.xls', '.rtf', '.txt', '.csv'}
 
 
