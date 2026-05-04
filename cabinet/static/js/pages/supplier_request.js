@@ -81,19 +81,41 @@
       );
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
-        showEstError(data.error || ('HTTP ' + r.status));
+        showEstError(data.error || ('HTTP ' + r.status), data);
         return;
       }
       estLoaded = true;
       renderEstimate(data);
     } catch (e) {
-      showEstError(e.message || 'Ошибка соединения');
+      showEstError(e.message || 'Ошибка соединения', null);
     }
   }
 
-  function showEstError(msg) {
+  function showEstError(msg, data) {
     setEstState('error');
-    estErrorMsg.textContent = msg;
+    estErrorMsg.replaceChildren();
+    const main = document.createElement('div');
+    main.textContent = msg;
+    estErrorMsg.appendChild(main);
+    if (data && data.tz_text_preview) {
+      const previewBlock = buildTzPreviewBlock(data);
+      estErrorMsg.appendChild(previewBlock);
+    }
+  }
+
+  function buildTzPreviewBlock(data) {
+    const wrap = document.createElement('details');
+    wrap.className = 'sr-tz-preview';
+    const summary = document.createElement('summary');
+    const charsTxt = data.tz_text_full_chars
+      ? ` (${data.tz_text_full_chars} символов)` : '';
+    summary.textContent = '🔍 Что AI получил на вход' + charsTxt;
+    wrap.appendChild(summary);
+    const pre = document.createElement('pre');
+    pre.className = 'sr-tz-preview-text';
+    pre.textContent = data.tz_text_preview || '(пусто)';
+    wrap.appendChild(pre);
+    return wrap;
   }
   estRetry.addEventListener('click', loadEstimate);
 
@@ -114,11 +136,18 @@
     noteDiv.textContent = `${data.matches.length} позиций сопоставлено, ${data.unmatched.length} без матча. Каталог: ${data.catalogue_size} товаров.`;
     estSummary.appendChild(noteDiv);
 
-    // Source banner
+    // Source banner + tz preview
     const srcDiv = document.createElement('div');
     srcDiv.className = 'sr-source-banner sr-source-' + (data.tz_source || 'unknown');
     srcDiv.textContent = formatSourceLabel(data.tz_source, data.tz_files_used, data.tz_note);
     estSummary.appendChild(srcDiv);
+    if (data.tz_text_preview) estSummary.appendChild(buildTzPreviewBlock(data));
+    if (data.no_data_reason) {
+      const reasonDiv = document.createElement('div');
+      reasonDiv.className = 'sr-source-banner sr-source-fallback_summary';
+      reasonDiv.textContent = '⚠️ AI: ' + data.no_data_reason;
+      estSummary.appendChild(reasonDiv);
+    }
 
     // Table
     const thead = document.createElement('thead');
@@ -232,19 +261,25 @@
       );
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.ok) {
-        showCleanError(data.error || ('HTTP ' + r.status));
+        showCleanError(data.error || ('HTTP ' + r.status), data);
         return;
       }
       cleanLoaded = true;
       renderClean(data);
     } catch (e) {
-      showCleanError(e.message || 'Ошибка соединения');
+      showCleanError(e.message || 'Ошибка соединения', null);
     }
   }
 
-  function showCleanError(msg) {
+  function showCleanError(msg, data) {
     setCleanState('error');
-    cleanErrorMsg.textContent = msg;
+    cleanErrorMsg.replaceChildren();
+    const main = document.createElement('div');
+    main.textContent = msg;
+    cleanErrorMsg.appendChild(main);
+    if (data && data.tz_text_preview) {
+      cleanErrorMsg.appendChild(buildTzPreviewBlock(data));
+    }
   }
   cleanRetry.addEventListener('click', loadClean);
   cleanRerun.addEventListener('click', loadClean);
@@ -261,6 +296,8 @@
     srcDiv.className = 'sr-source-banner sr-source-' + (data.tz_source || 'unknown');
     srcDiv.textContent = formatSourceLabel(data.tz_source, data.tz_files_used, data.tz_note);
     cleanMeta.appendChild(srcDiv);
+
+    if (data.tz_text_preview) cleanMeta.appendChild(buildTzPreviewBlock(data));
 
     cleanText.value = data.letter_text || '';
   }
