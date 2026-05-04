@@ -108,8 +108,13 @@ async def _ai_keyword_rewrite(tz_position: str) -> Dict[str, Any]:
 # ============================================
 
 async def _fetch_holodilnik_search(query: str) -> bytes:
-    """GET /search/?text=<query> с браузерным User-Agent. Возвращает raw bytes."""
-    encoded = urllib.parse.quote(query)
+    """GET /search/?text=<query> с браузерным User-Agent. Возвращает raw bytes.
+
+    ВАЖНО: holodilnik.ru ожидает URL-encoded строку в cp1251 (старый стек).
+    При UTF-8 он возвращает 400 Bad Request.
+    """
+    # Encode в cp1251 перед URL-quoting. Для latin это no-op.
+    encoded = urllib.parse.quote(query.encode('cp1251', errors='replace'))
     url = f'{HOLODILNIK_BASE}/search/?text={encoded}'
     timeout = aiohttp.ClientTimeout(total=20)
     async with aiohttp.ClientSession(
