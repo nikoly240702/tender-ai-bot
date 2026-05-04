@@ -267,20 +267,20 @@
 
   function formatSourceLabel(source, filesUsed, note) {
     const filesCount = (filesUsed || []).length;
-    if (source === 'card_files') {
-      return `📎 Источник ТЗ: ${filesCount} файл(ов) из карточки`;
-    }
     if (source === 'zakupki') {
-      return `🌐 Источник ТЗ: документация скачана с zakupki.gov.ru (${filesCount} файлов)`;
+      return `🌐 Источник ТЗ: документация автоматически скачана с zakupki.gov.ru (${filesCount} файлов)`;
+    }
+    if (source === 'card_files') {
+      return `📎 Источник ТЗ: ${filesCount} файл(ов) загружено вручную в карточку`;
     }
     if (source === 'cache') {
       return `💾 Источник ТЗ: кэш (последнее скачивание ≤7 дней)`;
     }
     if (source === 'fallback_summary') {
-      return `⚠️ Полная документация недоступна — используем AI-summary как fallback. Загрузите ТЗ-файлы в карточку для точности.`;
+      return `⚠️ Не удалось скачать документацию с zakupki — используем AI-summary как fallback. Можно вручную загрузить ТЗ во вкладку «Файлы».`;
     }
     if (source === 'name_only') {
-      return `⚠️ Доступно только название тендера. Загрузите ТЗ-файлы в карточку (вкладка «Файлы»).`;
+      return `⚠️ Не удалось скачать документацию с zakupki, AI-summary тоже пуст. Загрузите ТЗ-файлы вручную (вкладка «Файлы»).`;
     }
     return note || `Источник ТЗ: ${source}`;
   }

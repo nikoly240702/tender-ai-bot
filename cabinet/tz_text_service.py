@@ -1,8 +1,11 @@
 """Получение полного текста ТЗ для карточки pipeline.
 
 Приоритет источников:
-1. Файлы загруженные в карточку (pipeline_card_files) — DOCX/PDF/XLSX/TXT
-2. Документация тендера с zakupki.gov.ru (скачивается на лету)
+1. Документация тендера с zakupki.gov.ru (скачивается на лету) — основной путь
+2. Файлы загруженные вручную в карточку (pipeline_card_files) — fallback
+   когда zakupki недоступен или вернул пустой набор
+3. card.ai_summary — финальный fallback
+4. Только название тендера — крайний случай
 
 Результат кэшируется в card.data.tz_full = {text, source, fetched_at,
 expires_at, files_used} на 7 дней. Для принудительного обновления —
@@ -184,20 +187,27 @@ async def get_full_tz_text(card_id: int, company_id: int,
         tender_url = (card.data or {}).get('url') or ''
         tender_number = card.tender_number
 
-    # 1. Try card files first
-    text, files_used = await _get_text_from_card_files(card_id)
-    source = None
-    if text and len(text.strip()) >= 200:
-        source = 'card_files'
-    else:
-        # 2. Try zakupki download
-        if tender_url and tender_number:
-            text, filenames = await asyncio.to_thread(
-                _download_and_extract_from_zakupki, tender_url, tender_number,
-            )
-            if text and len(text.strip()) >= 200:
-                source = 'zakupki'
-                files_used = [{'filename': f, 'source': 'zakupki'} for f in filenames]
+    text = ''
+    files_used: List[Dict] = []
+    source: Optional[str] = None
+
+    # 1. Try zakupki download FIRST (основной путь)
+    if tender_url and tender_number:
+        zk_text, filenames = await asyncio.to_thread(
+            _download_and_extract_from_zakupki, tender_url, tender_number,
+        )
+        if zk_text and len(zk_text.strip()) >= 200:
+            text = zk_text
+            source = 'zakupki'
+            files_used = [{'filename': f, 'source': 'zakupki'} for f in filenames]
+
+    # 2. Fallback: файлы загруженные в карточку
+    if not text:
+        cf_text, cf_files = await _get_text_from_card_files(card_id)
+        if cf_text and len(cf_text.strip()) >= 200:
+            text = cf_text
+            source = 'card_files'
+            files_used = cf_files
 
     if not text or len(text.strip()) < 200:
         # Fallback: ai_summary, потом просто name
