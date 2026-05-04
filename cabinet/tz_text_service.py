@@ -93,58 +93,87 @@ async def _get_text_from_card_files(card_id: int) -> Tuple[str, List[Dict]]:
 # Source 2: download from zakupki
 # ============================================
 
+_PRIORITY_TYPES = ('tz', 'description', 'other')  # ТЗ важнее проекта контракта
+_DOC_TITLE_PRIORITY_KEYWORDS = (
+    'описание объекта закупки', 'техническое задание', 'тз ',
+    'характеристик', 'спецификац',
+)
+_SKIP_TITLE_KEYWORDS = (
+    'обоснование нмцк', 'обоснование начальной', 'требования к содержанию',
+    'требования к составу заявки',
+)
+
+
+def _doc_priority_score(doc: Dict) -> int:
+    """Чем меньше — тем раньше скачиваем. ТЗ-подобные документы первыми."""
+    title = (doc.get('title') or '').lower()
+    if any(kw in title for kw in _SKIP_TITLE_KEYWORDS):
+        return 9999  # skip-кандидаты в конец
+    if any(kw in title for kw in _DOC_TITLE_PRIORITY_KEYWORDS):
+        return 0
+    if doc.get('type') == 'contract':
+        return 50  # проект контракта — после ТЗ
+    return 10
+
+
 def _download_and_extract_from_zakupki(tender_url: str, tender_number: str) -> Tuple[str, List[str]]:
     """Sync функция. Качает документы тендера с zakupki, извлекает текст.
-    Возвращает (combined_text, list_of_filenames)."""
+    Возвращает (combined_text, list_of_filenames).
+    Приоритет файлов: ТЗ/описание объекта закупки → проект контракта → остальное.
+    """
+    logger.info(f'[tz] zakupki download start: tender={tender_number}')
     try:
         from src.parsers.zakupki_document_downloader import ZakupkiDocumentDownloader
         from src.document_processor.text_extractor import TextExtractor
     except Exception as e:
-        logger.error(f'cannot import downloader/extractor: {e}')
+        logger.error(f'[tz] cannot import downloader/extractor: {e}')
         return '', []
 
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     downloader = ZakupkiDocumentDownloader(download_dir=DOWNLOAD_DIR)
 
     try:
-        documents = downloader.get_tender_documents(tender_url, tender_number)
+        result = downloader.download_documents(tender_url, tender_number)
     except Exception as e:
-        logger.warning(f'zakupki get_tender_documents failed: {e}')
+        logger.warning(f'[tz] zakupki download_documents failed: {e}', exc_info=True)
         return '', []
 
-    if not documents:
+    files = result.get('files') if isinstance(result, dict) else None
+    if not files:
+        logger.warning(f'[tz] zakupki returned 0 files for {tender_number}')
         return '', []
 
-    try:
-        downloaded = downloader.download_documents(documents, tender_number)
-    except Exception as e:
-        logger.warning(f'zakupki download_documents failed: {e}')
-        return '', []
+    # Сортируем по приоритету так чтобы ТЗ оказался впереди
+    sorted_files = sorted(files, key=lambda f: _doc_priority_score(f))
+    logger.info(
+        f'[tz] zakupki got {len(files)} files, priority order: '
+        + ', '.join((f.get('title') or '?')[:40] for f in sorted_files[:5])
+    )
 
     parts: List[str] = []
     filenames: List[str] = []
-    for d in downloaded[:10]:  # лимит 10 файлов на тендер
-        path = d.get('local_path') or d.get('path') or d.get('file_path')
-        if not path:
-            continue
-        if not Path(path).exists():
+    for d in sorted_files[:10]:
+        path = d.get('path') or d.get('local_path') or d.get('file_path')
+        if not path or not Path(path).exists():
             continue
         ext = Path(path).suffix.lower()
         if ext not in SUPPORTED_EXTENSIONS:
+            logger.debug(f'[tz] skip unsupported {path}')
             continue
         try:
-            result = TextExtractor.extract_text(path)
-            text = result.get('text') if isinstance(result, dict) else str(result or '')
+            extracted = TextExtractor.extract_text(path)
+            text = extracted.get('text') if isinstance(extracted, dict) else str(extracted or '')
         except Exception as e:
-            logger.warning(f'TextExtractor failed for {path}: {e}')
+            logger.warning(f'[tz] TextExtractor failed for {path}: {e}')
             continue
         if not text or len(text.strip()) < 50:
             continue
-        fname = Path(path).name
-        parts.append(f'=== {fname} ===\n{text.strip()}')
-        filenames.append(fname)
+        title = d.get('title') or Path(path).name
+        parts.append(f'=== {title} ===\n{text.strip()}')
+        filenames.append(title)
 
     combined = '\n\n'.join(parts)
+    logger.info(f'[tz] zakupki done: {len(filenames)} files extracted, total {len(combined)} chars')
     return combined[:MAX_TEXT_CHARS], filenames
 
 
