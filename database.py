@@ -1129,6 +1129,32 @@ class PipelineCardRelation(Base):
     )
 
 
+class OwnProduct(Base):
+    """Каталог товаров команды от своих поставщиков (для оценки стоимости тендера).
+
+    Используется для AI-матчинга позиций ТЗ с нашим прайсом и автоматической
+    оценки маржи. Категория позволяет фильтровать (siz, electronics, ...).
+    """
+    __tablename__ = 'own_products'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
+    category = Column(String(40), nullable=False, default='siz')
+    name = Column(String(300), nullable=False)
+    sizes = Column(String(200), nullable=True)         # 'XS,S,M,L,XL'
+    params = Column(Text, nullable=True)               # 'вес 3.2г, плотность 30г, белая'
+    pack = Column(String(120), nullable=True)          # '50 пар (=100шт)'
+    price = Column(Numeric(12, 2), nullable=True)      # numeric цена за единицу
+    price_unit = Column(String(40), nullable=True)     # 'упак 50 пар' / 'пара' / 'шт' / 'кг' / '100шт'
+    price_text = Column(String(120), nullable=True)    # raw как в прайсе ('200 руб/упак 50 пар')
+    notes = Column(Text, nullable=True)
+    source = Column(String(40), nullable=True)         # 'ИМПОРТ' / 'РФ' / etc.
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        Index('ix_own_products_company_category', 'company_id', 'category'),
+    )
+
+
 # ============================================
 # ЭКСПОРТ
 # ============================================
@@ -1181,6 +1207,7 @@ __all__ = [
     'PipelineCardFile',
     'PipelineCardChecklist',
     'PipelineCardRelation',
+    'OwnProduct',
     # Functions
     'init_database',
     'get_session',

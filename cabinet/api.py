@@ -1521,6 +1521,31 @@ async def holodilnik_get_status(request: web.Request) -> web.Response:
     return web.json_response(status)
 
 
+# ============================================
+# SUPPLIER REQUEST / OWN CATALOGUE ESTIMATE
+# ============================================
+
+from cabinet import supplier_request_service
+
+
+@require_team_member
+async def supplier_estimate(request: web.Request) -> web.Response:
+    """POST /cabinet/api/pipeline/cards/:id/estimate-own — AI-оценка по своему каталогу."""
+    company = request['company']
+    card_id = int(request.match_info['id'])
+    result = await supplier_request_service.estimate_by_own_catalog(card_id, company['id'])
+    return web.json_response(result, status=200 if result.get('ok') else 400)
+
+
+@require_team_member
+async def supplier_clean_request(request: web.Request) -> web.Response:
+    """POST /cabinet/api/pipeline/cards/:id/clean-request — AI-очистка ТЗ для рассылки."""
+    company = request['company']
+    card_id = int(request.match_info['id'])
+    result = await supplier_request_service.generate_clean_request(card_id, company['id'])
+    return web.json_response(result, status=200 if result.get('ok') else 400)
+
+
 @require_team_member
 async def holodilnik_toggle_select(request: web.Request) -> web.Response:
     company = request['company']

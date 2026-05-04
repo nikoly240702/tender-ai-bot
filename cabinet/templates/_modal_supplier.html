@@ -1,0 +1,55 @@
+<div class="modal-overlay" id="sr-modal" hidden>
+  <div class="modal-window sr-window">
+    <button class="modal-close" id="sr-modal-close" aria-label="Закрыть">×</button>
+    <div class="modal-head">
+      <h2>Запрос поставщикам</h2>
+      <p class="hl-subtitle" id="sr-subtitle"></p>
+    </div>
+
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-sr-tab="estimate">Оценка по своему каталогу</button>
+      <button class="modal-tab" data-sr-tab="clean">Запрос внешним поставщикам</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Estimate tab -->
+      <section class="tab-pane active" data-sr-tab="estimate">
+        <div class="sr-loading" id="sr-est-loading">
+          <div class="hl-spinner">⏳</div>
+          <div class="hl-loading-step">AI сравнивает позиции ТЗ с нашим каталогом…</div>
+        </div>
+        <div class="hl-error" id="sr-est-error" hidden>
+          <strong>Не удалось оценить</strong>
+          <p class="hl-error-msg" id="sr-est-error-msg"></p>
+          <button class="btn btn-secondary btn-sm" id="sr-est-retry">Повторить</button>
+        </div>
+        <div id="sr-est-results" hidden>
+          <div class="sr-est-summary" id="sr-est-summary"></div>
+          <table class="sr-est-table" id="sr-est-table"></table>
+          <div class="sr-est-unmatched" id="sr-est-unmatched"></div>
+        </div>
+      </section>
+
+      <!-- Clean request tab -->
+      <section class="tab-pane" data-sr-tab="clean">
+        <div class="sr-loading" id="sr-clean-loading">
+          <div class="hl-spinner">⏳</div>
+          <div class="hl-loading-step">AI очищает ТЗ от КТРУ/ГОСТ/ссылок на 44-ФЗ…</div>
+        </div>
+        <div class="hl-error" id="sr-clean-error" hidden>
+          <strong>Не удалось очистить ТЗ</strong>
+          <p class="hl-error-msg" id="sr-clean-error-msg"></p>
+          <button class="btn btn-secondary btn-sm" id="sr-clean-retry">Повторить</button>
+        </div>
+        <div id="sr-clean-results" hidden>
+          <div class="sr-clean-meta" id="sr-clean-meta"></div>
+          <textarea id="sr-clean-text" class="sr-clean-text" rows="14"></textarea>
+          <div class="sr-clean-actions">
+            <button class="btn btn-primary btn-sm" id="sr-clean-copy">📋 Скопировать письмо</button>
+            <button class="btn btn-ghost btn-sm" id="sr-clean-rerun">🔄 Сгенерировать заново</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>

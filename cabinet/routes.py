@@ -135,6 +135,10 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/api/pipeline/cards/{id}/holodilnik-status', api.holodilnik_get_status)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/holodilnik-toggle', api.holodilnik_toggle_select)
 
+    # Supplier request: оценка по своему каталогу + очистка ТЗ
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/estimate-own', api.supplier_estimate)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/clean-request', api.supplier_clean_request)
+
     # JSON API — Team
     app.router.add_get('/cabinet/api/team/members', api.team_get_members)
     app.router.add_delete('/cabinet/api/team/members/{id}', api.team_remove_member)

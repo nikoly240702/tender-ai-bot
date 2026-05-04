@@ -341,6 +341,19 @@
       }
     };
 
+    const requestBtn = document.getElementById('cm-btn-request');
+    if (requestBtn) {
+      requestBtn.hidden = c.stage !== 'RFQ';
+      requestBtn.onclick = () => {
+        if (window.Cabinet && window.Cabinet.SupplierRequest) {
+          const tenderName = (c.data && c.data.name) || ('Тендер ' + c.tender_number);
+          window.Cabinet.SupplierRequest.open(c.id, tenderName);
+        } else {
+          Toast.show('Supplier UI не загружен (обнови страницу)', 'alert');
+        }
+      };
+    }
+
     const delBtn = document.getElementById('cm-btn-delete');
     delBtn.hidden = !isOwner;
     delBtn.onclick = async () => {
