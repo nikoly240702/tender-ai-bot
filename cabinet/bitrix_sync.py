@@ -296,16 +296,22 @@ def _extract_tender_number_from_deal(deal: Dict[str, Any]) -> str:
 
 
 async def _fetch_all_deals(webhook: str) -> List[Dict[str, Any]]:
-    """Берёт все сделки через crm.deal.list с пагинацией."""
+    """Берёт все сделки через crm.deal.list с пагинацией.
+
+    Передаём select[]=*&select[]=UF_* — иначе Bitrix возвращает только
+    базовые поля без кастомных UF_*.
+    """
     if not webhook.endswith('/'):
         webhook += '/'
     deals: List[Dict[str, Any]] = []
     start = 0
+    base_params = [('select[]', '*'), ('select[]', 'UF_*')]
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
         for _ in range(200):  # safety: до 100K сделок
+            params = base_params + [('start', str(start))]
             try:
                 async with session.get(f'{webhook}crm.deal.list',
-                                       params={'start': start}) as resp:
+                                       params=params) as resp:
                     data = await resp.json()
             except Exception as e:
                 logger.error(f'[bitrix-import] fetch error: {e}')
