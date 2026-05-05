@@ -30,7 +30,7 @@
 
     // Bitrix24
     const bx = byId('bx-webhook');
-    if (bx) bx.value = s.bitrix24_webhook || '';
+    if (bx) bx.value = s.bitrix24_webhook_url || s.bitrix24_webhook || '';
     const bxT = byId('toggle-bitrix');
     if (bxT) bxT.classList.toggle('on', !!s.bitrix24_enabled);
   }

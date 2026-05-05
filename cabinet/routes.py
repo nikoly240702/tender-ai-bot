@@ -139,6 +139,9 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/estimate-own', api.supplier_estimate)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/clean-request', api.supplier_clean_request)
 
+    # Импорт сделок Bitrix24 → pipeline
+    app.router.add_post('/cabinet/api/pipeline/bitrix-import', api.pipeline_bitrix_import)
+
     # JSON API — Team
     app.router.add_get('/cabinet/api/team/members', api.team_get_members)
     app.router.add_delete('/cabinet/api/team/members/{id}', api.team_remove_member)

@@ -688,8 +688,13 @@ async def get_settings(request: web.Request) -> web.Response:
         'filters_limit': user_info.get('filters_limit', 3),
         'notifications_limit': user_info.get('notifications_limit', 15),
         'sheets_configured': bool(sheets_config),
-        'bitrix24_webhook': data.get('bitrix24_webhook', ''),
-        'bitrix24_enabled': bool(data.get('bitrix24_enabled', False)),
+        # Бот хранит ключ как bitrix24_webhook_url, fallback на старый bitrix24_webhook.
+        # Если webhook задан и явно не выключен — считаем интеграцию включённой.
+        'bitrix24_webhook_url': data.get('bitrix24_webhook_url') or data.get('bitrix24_webhook', ''),
+        'bitrix24_enabled': bool(
+            data.get('bitrix24_enabled', True)
+            and (data.get('bitrix24_webhook_url') or data.get('bitrix24_webhook'))
+        ),
     })
 
 
@@ -985,8 +990,11 @@ async def save_bitrix24_settings(request: web.Request) -> web.Response:
         return web.json_response({'error': 'User not found'}, status=404)
 
     current = user_info.get('data') or {}
-    current['bitrix24_webhook'] = webhook_url
+    # Пишем под тем же ключом что и бот (bitrix24_webhook_url) — единый источник правды.
+    current['bitrix24_webhook_url'] = webhook_url
     current['bitrix24_enabled'] = enabled
+    # Чистим старый ключ, чтобы не было рассинхрона
+    current.pop('bitrix24_webhook', None)
     await db.update_user_json_data(user['user_id'], current)
 
     return web.json_response({'ok': True})
@@ -999,7 +1007,8 @@ async def test_bitrix24_settings(request: web.Request) -> web.Response:
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
     user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
-    webhook = (user_info.get('data') or {}).get('bitrix24_webhook', '')
+    _data = user_info.get('data') or {}
+    webhook = _data.get('bitrix24_webhook_url') or _data.get('bitrix24_webhook', '')
     if not webhook:
         return web.json_response({'error': 'Webhook не настроен'}, status=400)
 
@@ -1021,8 +1030,9 @@ async def export_tender_to_bitrix24(request: web.Request) -> web.Response:
     user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
     user_data = user_info.get('data') or {}
 
-    webhook = user_data.get('bitrix24_webhook', '')
-    enabled = user_data.get('bitrix24_enabled', False)
+    webhook = user_data.get('bitrix24_webhook_url') or user_data.get('bitrix24_webhook', '')
+    # enabled по умолчанию True если webhook есть (бот не выставляет этот флаг)
+    enabled = bool(user_data.get('bitrix24_enabled', True))
     if not webhook or not enabled:
         return web.json_response(
             {'error': 'Битрикс24 не настроен. Зайдите в Настройки → Интеграции.'},
@@ -1544,6 +1554,20 @@ async def supplier_clean_request(request: web.Request) -> web.Response:
     card_id = int(request.match_info['id'])
     result = await supplier_request_service.generate_clean_request(card_id, company['id'])
     return web.json_response(result, status=200 if result.get('ok') else 400)
+
+
+@require_owner
+async def pipeline_bitrix_import(request: web.Request) -> web.Response:
+    """POST /cabinet/api/pipeline/bitrix-import — импорт всех сделок Bitrix → карточки.
+
+    Только владелец команды. Идемпотентен. Возвращает счётчики.
+    """
+    company = request['company']
+    from cabinet.bitrix_sync import import_deals_to_pipeline
+    result = await import_deals_to_pipeline(company['id'])
+    if 'error' in result:
+        return web.json_response(result, status=400)
+    return web.json_response({'ok': True, **result})
 
 
 @require_team_member

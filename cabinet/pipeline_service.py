@@ -195,7 +195,13 @@ async def create_card_from_tender(
         )
         session.add(history)
         await session.commit()
-        return {'card': _card_dict(card)}
+        new_card_id = card.id
+        new_card_dict = _card_dict(card)
+
+    # Bitrix24 sync — best-effort, не блокирует возврат карточки
+    from cabinet.bitrix_sync import push_card_created, fire_and_forget
+    fire_and_forget(push_card_created(new_card_id))
+    return {'card': new_card_dict}
 
 
 async def backfill_card_meta(company_id: int) -> int:
@@ -281,7 +287,10 @@ async def move_card_stage(card_id: int, new_stage: str, by_user_id: int) -> Dict
         )
         session.add(history)
         await session.commit()
-        return {'ok': True, 'card': _card_dict(card)}
+        out = _card_dict(card)
+    from cabinet.bitrix_sync import push_stage_changed, fire_and_forget
+    fire_and_forget(push_stage_changed(card_id, new_stage))
+    return {'ok': True, 'card': out}
 
 
 async def set_card_result(card_id: int, result: str, by_user_id: int) -> Dict:
@@ -301,7 +310,10 @@ async def set_card_result(card_id: int, result: str, by_user_id: int) -> Dict:
         )
         session.add(history)
         await session.commit()
-        return {'ok': True, 'card': _card_dict(card)}
+        out = _card_dict(card)
+    from cabinet.bitrix_sync import push_result_set, fire_and_forget
+    fire_and_forget(push_result_set(card_id, result))
+    return {'ok': True, 'card': out}
 
 
 async def set_assignee(card_id: int, assignee_user_id: int, by_user_id: int) -> Dict:
