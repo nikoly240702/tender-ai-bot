@@ -285,13 +285,27 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
     повторный запуск пропускает уже импортированные (UNIQUE на tender_number).
     Возвращает {imported, skipped, errors, total}.
     """
+    logger.info(f'[bitrix-import] START company_id={company_id}')
     webhook = await _get_company_webhook(company_id)
     if not webhook:
+        logger.warning(f'[bitrix-import] no webhook for company {company_id}')
         return {'imported': 0, 'skipped': 0, 'errors': 0, 'total': 0,
-                'error': 'webhook не настроен'}
+                'error': 'Webhook Bitrix24 не настроен. Проверьте Настройки → Интеграции.'}
+    logger.info(f'[bitrix-import] webhook ok, host={webhook[:50]}...')
 
     deals = await _fetch_all_deals(webhook)
     logger.info(f'[bitrix-import] fetched {len(deals)} deals for company {company_id}')
+    if deals:
+        sample = deals[0]
+        logger.info(
+            f'[bitrix-import] sample deal #{sample.get("ID")}: '
+            f'TITLE={(sample.get("TITLE") or "")[:60]}, '
+            f'STAGE_ID={sample.get("STAGE_ID")}, '
+            f'UF_CRM_TENDER_NUMBER={sample.get("UF_CRM_TENDER_NUMBER")}'
+        )
+    if not deals:
+        return {'imported': 0, 'skipped': 0, 'errors': 0, 'total': 0,
+                'error': 'Bitrix24 не вернул ни одной сделки. Проверьте права у webhook (нужен CRM).'}
 
     imported = skipped = errors = 0
 
