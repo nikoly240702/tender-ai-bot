@@ -255,6 +255,46 @@ def _extract_tender_number(text: str) -> str:
     return m.group() if m else ''
 
 
+def _extract_tender_number_from_deal(deal: Dict[str, Any]) -> str:
+    """Ищет regNumber в нескольких местах сделки: явное UF-поле,
+    URL (regNumber=...), TITLE, COMMENTS и любые UF_CRM_* строковые значения.
+    Поля у разных порталов могут называться по-разному, поэтому делаем
+    максимально широкий поиск.
+    """
+    direct = (deal.get('UF_CRM_TENDER_NUMBER')
+              or deal.get('UF_CRM_TENDER_NUM')
+              or deal.get('UF_CRM_NUMBER')
+              or deal.get('UF_CRM_REG_NUMBER'))
+    if direct:
+        s = str(direct).strip()
+        if re.fullmatch(r'\d{19,20}', s):
+            return s
+
+    # regNumber=... в URL-полях
+    for key, value in deal.items():
+        if not value or not isinstance(value, str):
+            continue
+        m = re.search(r'regNumber=(\d{19,20})', value)
+        if m:
+            return m.group(1)
+
+    # 19-20значное число в TITLE/COMMENTS
+    for key in ('TITLE', 'COMMENTS', 'SOURCE_DESCRIPTION'):
+        v = deal.get(key)
+        if isinstance(v, str):
+            m = re.search(r'\b\d{19,20}\b', v)
+            if m:
+                return m.group()
+
+    # последний шанс — скан всех строковых значений
+    for value in deal.values():
+        if isinstance(value, str):
+            m = re.search(r'\b\d{19,20}\b', value)
+            if m:
+                return m.group()
+    return ''
+
+
 async def _fetch_all_deals(webhook: str) -> List[Dict[str, Any]]:
     """Берёт все сделки через crm.deal.list с пагинацией."""
     if not webhook.endswith('/'):
@@ -297,12 +337,18 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
     logger.info(f'[bitrix-import] fetched {len(deals)} deals for company {company_id}')
     if deals:
         sample = deals[0]
+        uf_keys = [k for k in sample.keys() if k.startswith('UF_')]
         logger.info(
             f'[bitrix-import] sample deal #{sample.get("ID")}: '
             f'TITLE={(sample.get("TITLE") or "")[:60]}, '
             f'STAGE_ID={sample.get("STAGE_ID")}, '
-            f'UF_CRM_TENDER_NUMBER={sample.get("UF_CRM_TENDER_NUMBER")}'
+            f'UF_keys={uf_keys}'
         )
+        # Покажу значения UF-полей на первой сделке — увидим где лежит номер
+        for k in uf_keys[:15]:
+            v = sample.get(k)
+            if v:
+                logger.info(f'[bitrix-import]   {k}={str(v)[:120]}')
     if not deals:
         return {'imported': 0, 'skipped': 0, 'errors': 0, 'total': 0,
                 'error': 'Bitrix24 не вернул ни одной сделки. Проверьте права у webhook (нужен CRM).'}
@@ -316,16 +362,16 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
                     'error': 'company not found'}
         owner_user_id = company.owner_user_id
 
+    no_number_samples: List[str] = []
     for deal in deals:
         try:
-            tender_number = (
-                deal.get('UF_CRM_TENDER_NUMBER')
-                or _extract_tender_number(
-                    (deal.get('TITLE') or '') + ' ' + (deal.get('COMMENTS') or '')
-                )
-            )
+            tender_number = _extract_tender_number_from_deal(deal)
             if not tender_number:
                 # Без номера тендера не можем сделать UNIQUE-ключ
+                if len(no_number_samples) < 3:
+                    no_number_samples.append(
+                        f'#{deal.get("ID")} TITLE={(deal.get("TITLE") or "")[:60]}'
+                    )
                 skipped += 1
                 continue
 
@@ -430,5 +476,9 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
 
     logger.info(f'[bitrix-import] done company={company_id} '
                 f'imported={imported} skipped={skipped} errors={errors}')
+    if no_number_samples:
+        logger.warning(
+            f'[bitrix-import] no tender_number samples: {no_number_samples}'
+        )
     return {'imported': imported, 'skipped': skipped, 'errors': errors,
             'total': len(deals)}
