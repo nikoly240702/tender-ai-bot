@@ -561,7 +561,17 @@ class InstantSearch:
             # поэтому ВСЕГДА проверяем что тендер содержит хотя бы одно ключевое слово
 
             def check_keyword_match(tender_text: str, keywords_list: List[str]) -> Optional[str]:
-                """Проверяет, содержит ли тендер хотя бы одно ключевое слово."""
+                """Проверяет содержит ли тендер ключевое слово.
+
+                Главное: для одиночных слов используем границу слова (\b),
+                иначе короткое «фен» матчится во «фенацетин», «батарей» в
+                «батарейк» и т.п. — это давало кучу мусорных совпадений.
+
+                - фраза (есть пробел) → подстрока (фразу случайно не поймать)
+                - одиночное слово ≤4 → строгий \bword\b
+                - одиночное слово ≥5 → \bword (морфология: «батарейка»→«батарейки»)
+                """
+                import re as _re
                 tender_lower = tender_text.lower()
 
                 for kw in keywords_list:
@@ -573,25 +583,42 @@ class InstantSearch:
                                                           'для', 'нужд', 'оказание', 'выполнение'}:
                         continue
 
-                    # Прямое вхождение (регистронезависимо)
-                    if kw_lower in tender_lower:
-                        return kw
-
-                    # Для латинских брендов также проверяем варианты транслитерации
-                    if kw.isascii():
-                        # Генерируем кириллические варианты
-                        cyrillic_variants = Transliterator.generate_variants(kw)
-                        for variant in cyrillic_variants:
-                            if variant.lower() != kw_lower and variant.lower() in tender_lower:
+                    if ' ' in kw_lower:
+                        # Многословная фраза («тарелка столовая»): подстрока ок
+                        if kw_lower in tender_lower:
+                            return kw
+                    else:
+                        # Одиночное слово: границы слова, чтобы не ловить
+                        # подстроки вроде «фен» в «фенацетин».
+                        try:
+                            if len(kw_lower) <= 4:
+                                pattern = r'\b' + _re.escape(kw_lower) + r'\b'
+                            else:
+                                pattern = r'\b' + _re.escape(kw_lower)
+                            if _re.search(pattern, tender_lower, _re.UNICODE):
+                                return kw
+                        except _re.error:
+                            if kw_lower in tender_lower:
                                 return kw
 
-                    # Проверяем корень слова (для русской морфологии)
-                    if len(kw_lower) >= 5 and not kw.isascii():
-                        root = kw_lower[:max(5, len(kw_lower) - 2)]
-                        if root in tender_lower:
-                            return kw
+                    # Латинские бренды: транслитерация (тоже через границы слова)
+                    if kw.isascii():
+                        cyrillic_variants = Transliterator.generate_variants(kw)
+                        for variant in cyrillic_variants:
+                            v_low = variant.lower()
+                            if v_low == kw_lower:
+                                continue
+                            try:
+                                v_pattern = (r'\b' + _re.escape(v_low) + r'\b'
+                                             if len(v_low) <= 4
+                                             else r'\b' + _re.escape(v_low))
+                                if _re.search(v_pattern, tender_lower, _re.UNICODE):
+                                    return kw
+                            except _re.error:
+                                if v_low in tender_lower:
+                                    return kw
 
-                    # Проверяем известные синонимы
+                    # Известные синонимы (тоже через границу слова)
                     synonyms_map = {
                         'linux': ['линукс', 'ubuntu', 'убунту', 'debian', 'centos', 'redhat', 'astra', 'астра', 'альт'],
                         'линукс': ['linux', 'ubuntu', 'убунту', 'debian', 'centos', 'redhat', 'astra', 'астра'],
@@ -604,8 +631,16 @@ class InstantSearch:
                         'антивирус': ['касперский', 'dr.web', 'eset', 'антивирусн'],
                     }
                     for synonym in synonyms_map.get(kw_lower, []):
-                        if synonym in tender_lower:
-                            return kw
+                        s_low = synonym.lower()
+                        try:
+                            s_pattern = (r'\b' + _re.escape(s_low) + r'\b'
+                                         if len(s_low) <= 4
+                                         else r'\b' + _re.escape(s_low))
+                            if _re.search(s_pattern, tender_lower, _re.UNICODE):
+                                return kw
+                        except _re.error:
+                            if s_low in tender_lower:
+                                return kw
 
                 return None
 
@@ -614,7 +649,17 @@ class InstantSearch:
             keywords_to_check = original_keywords if original_keywords else search_queries
 
             for tender in search_results:
-                tender_text = f"{tender.get('name', '')} {tender.get('summary', '')} {tender.get('description', '')}"
+                # Матчим только по названию + краткому summary, БЕЗ description.
+                # description — это длинный кусок тендерной документации, где
+                # случайно встречаются общие фразы типа «средство дезинфицирующее»
+                # «медаль памятная», что давало кучу нерелевантных совпадений
+                # для тендеров с другим товаром.
+                name_text = tender.get('name', '') or ''
+                summary_text = tender.get('summary', '') or ''
+                tender_text = f"{name_text} {summary_text}".strip()
+                if not tender_text:
+                    # fallback: если RSS не отдал name/summary — последний шанс
+                    tender_text = tender.get('description', '') or ''
                 matched_kw = check_keyword_match(tender_text, keywords_to_check)
                 if matched_kw:
                     tender['_matched_original_keyword'] = matched_kw
