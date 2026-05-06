@@ -488,3 +488,198 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
         )
     return {'imported': imported, 'skipped': skipped, 'errors': errors,
             'total': len(deals)}
+
+
+# ============================================
+# Pull: периодическое отслеживание изменений в Bitrix
+# ============================================
+
+# Bitrix STAGE_ID → (pipeline stage, result). Только эти стадии вытягиваем
+# обратно — для остальных промежуточных шагов (RFQ/QUOTED/SUBMITTED) Bitrix
+# не источник правды.
+#
+# Внимание: REJECTED → LOSE при push, но при pull мы трактуем LOSE как
+# result=lost. Если карточка уже REJECTED — стадию не трогаем (см. логику ниже).
+_PULL_STAGE_MAP: Dict[str, Dict[str, Any]] = {
+    'NEW': {'stage': 'FOUND', 'result': None},
+    'UC_OZCYR2': {'stage': 'IN_WORK', 'result': None},
+    'WON': {'stage': 'RESULT', 'result': 'won'},
+    'LOSE': {'stage': 'RESULT', 'result': 'lost'},
+}
+
+
+async def _get_last_sync_at(company_id: int) -> Optional[str]:
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return None
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return None
+        return (owner.data or {}).get('last_bitrix_sync_at')
+
+
+async def _set_last_sync_at(company_id: int, iso_str: str) -> None:
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return
+        data = dict(owner.data or {})
+        data['last_bitrix_sync_at'] = iso_str
+        owner.data = data
+        flag_modified(owner, 'data')
+        await session.commit()
+
+
+async def _fetch_modified_deals(webhook: str, since_iso: Optional[str]) -> List[Dict[str, Any]]:
+    """Сделки изменённые после since_iso (или все, если None).
+
+    Bitrix формат для DATE_MODIFY: YYYY-MM-DDTHH:MM:SS+TZ. ISO от datetime.utcnow
+    Bitrix принимает.
+    """
+    if not webhook.endswith('/'):
+        webhook += '/'
+    deals: List[Dict[str, Any]] = []
+    start = 0
+    base_params: List[tuple] = [('select[]', '*'), ('select[]', 'UF_*')]
+    if since_iso:
+        base_params.append(('filter[>DATE_MODIFY]', since_iso))
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+        for _ in range(200):
+            params = base_params + [('start', str(start))]
+            try:
+                async with session.get(f'{webhook}crm.deal.list', params=params) as resp:
+                    data = await resp.json()
+            except Exception as e:
+                logger.error(f'[bitrix-pull] fetch error: {e}')
+                break
+            page = data.get('result') or []
+            if not page:
+                break
+            deals.extend(page)
+            if 'next' not in data:
+                break
+            start = data['next']
+    return deals
+
+
+async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
+    """Опрашивает Bitrix на изменения и обновляет стадии карточек pipeline.
+
+    Идемпотентно. Возвращает {checked, updated, errors, since}.
+    Карточка обновляется только если у неё есть bitrix_deal_id и текущая
+    стадия в Bitrix отличается от того, что у нас.
+    """
+    from datetime import datetime as _dt
+    logger.info(f'[bitrix-pull] START company={company_id}')
+    webhook = await _get_company_webhook(company_id)
+    if not webhook:
+        return {'checked': 0, 'updated': 0, 'errors': 0,
+                'error': 'webhook не настроен'}
+
+    # Owner используется как «системный» актёр для записи в history,
+    # т.к. user_id NOT NULL.
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        owner_user_id = company.owner_user_id if company else None
+    if not owner_user_id:
+        return {'checked': 0, 'updated': 0, 'errors': 0,
+                'error': 'company not found'}
+
+    since = await _get_last_sync_at(company_id)
+    # Отметка, на которую сдвинем после успешной синки. Снимаем её ДО запроса
+    # чтобы не пропустить deals изменённые во время выполнения.
+    next_since = _dt.utcnow().replace(microsecond=0).isoformat()
+    deals = await _fetch_modified_deals(webhook, since)
+    logger.info(f'[bitrix-pull] since={since} → fetched {len(deals)} modified deals')
+
+    updated = errors = 0
+    for deal in deals:
+        try:
+            deal_id = deal.get('ID')
+            if not deal_id:
+                continue
+            stage_id = deal.get('STAGE_ID')
+            mapping = _PULL_STAGE_MAP.get(stage_id)
+            if not mapping:
+                continue  # промежуточная стадия — не трогаем
+
+            async with DatabaseSession() as session:
+                # Ищем по bitrix_deal_id в card.data (JSONB) — через ->> astext
+                # стабильно сравниваем независимо от того, как Python положил
+                # значение (int/str — в JSONB всё равно сериализуется одинаково).
+                card = await session.scalar(
+                    select(PipelineCard).where(
+                        PipelineCard.company_id == company_id,
+                        PipelineCard.data['bitrix_deal_id'].astext == str(deal_id),
+                    )
+                )
+                if not card:
+                    continue
+
+                target_stage = mapping['stage']
+                target_result = mapping['result']
+
+                # Если пользователь у нас уже пометил как REJECTED, а в Bitrix
+                # пришло LOSE — оставляем REJECTED как более точное.
+                if card.stage == 'REJECTED' and stage_id == 'LOSE':
+                    continue
+
+                stage_changed = card.stage != target_stage
+                result_changed = (target_result is not None and card.result != target_result)
+                if not (stage_changed or result_changed):
+                    continue
+
+                old_stage, old_result = card.stage, card.result
+                card.stage = target_stage
+                if target_result is not None:
+                    card.result = target_result
+                card.updated_at = _dt.utcnow()
+                history = PipelineCardHistory(
+                    card_id=card.id, user_id=owner_user_id,
+                    action='bitrix_pull',
+                    payload={
+                        'from_stage': old_stage, 'to_stage': target_stage,
+                        'from_result': old_result, 'to_result': target_result,
+                        'bitrix_stage_id': stage_id,
+                        'bitrix_deal_id': deal_id,
+                    },
+                )
+                session.add(history)
+                await session.commit()
+                updated += 1
+        except Exception as e:
+            logger.error(f'[bitrix-pull] deal {deal.get("ID","?")}: {e}', exc_info=True)
+            errors += 1
+
+    await _set_last_sync_at(company_id, next_since)
+    logger.info(f'[bitrix-pull] done company={company_id} '
+                f'checked={len(deals)} updated={updated} errors={errors}')
+    return {'checked': len(deals), 'updated': updated, 'errors': errors,
+            'since': since, 'next_since': next_since}
+
+
+async def pull_changes_for_all_companies() -> Dict[str, Any]:
+    """Опрашивает все команды у которых настроен Bitrix-webhook."""
+    async with DatabaseSession() as session:
+        rows = await session.execute(select(Company))
+        companies = list(rows.scalars().all())
+
+    total_updated = 0
+    total_checked = 0
+    company_count = 0
+    for c in companies:
+        webhook = await _get_company_webhook(c.id)
+        if not webhook:
+            continue
+        company_count += 1
+        try:
+            result = await pull_changes_from_bitrix(c.id)
+            total_checked += result.get('checked', 0)
+            total_updated += result.get('updated', 0)
+        except Exception as e:
+            logger.error(f'[bitrix-pull-all] company={c.id}: {e}', exc_info=True)
+    return {'companies': company_count, 'checked': total_checked, 'updated': total_updated}

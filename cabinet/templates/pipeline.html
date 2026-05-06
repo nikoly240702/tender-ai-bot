@@ -20,6 +20,7 @@
   <button class="btn btn-ghost" id="btn-toggle-sidebar" title="Развернуть/свернуть меню">☰ Меню</button>
   <a href="/cabinet/pipeline/archive" class="btn btn-ghost">Архив</a>
   <a href="/cabinet/team" class="btn btn-secondary">Команда</a>
+  <button class="btn btn-ghost" id="btn-bitrix-pull" title="Подтянуть актуальные статусы из Bitrix24">🔄 Синхр. с Bitrix</button>
   {% if is_owner %}
     <button class="btn btn-ghost" id="btn-bitrix-import" title="Перенести все сделки из Bitrix24 в pipeline">↘ Импорт из Bitrix24</button>
   {% endif %}
@@ -93,5 +94,5 @@
 <script src="/cabinet/static/js/vendor/Sortable.min.js"></script>
 <script src="/cabinet/static/js/pages/holodilnik.js?v=1"></script>
 <script src="/cabinet/static/js/pages/supplier_request.js?v=4"></script>
-<script src="/cabinet/static/js/pages/pipeline.js?v=7"></script>
+<script src="/cabinet/static/js/pages/pipeline.js?v=8"></script>
 {% endblock %}

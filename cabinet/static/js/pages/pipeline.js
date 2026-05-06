@@ -200,6 +200,37 @@
     });
   }
 
+  function initBitrixPull() {
+    const btn = document.getElementById('btn-bitrix-pull');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Синхронизирую…';
+      try {
+        const r = await fetch('/cabinet/api/pipeline/bitrix-pull', {
+          method: 'POST', credentials: 'same-origin',
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) {
+          if (d.updated > 0) {
+            Toast.show(`✓ Обновлено карточек: ${d.updated} (проверено ${d.checked})`, 'positive');
+            setTimeout(() => window.location.reload(), 1000);
+          } else {
+            Toast.show(`Изменений нет (проверено ${d.checked})`, 'positive');
+          }
+        } else {
+          Toast.show(d.error || 'Ошибка синхронизации', 'alert');
+        }
+      } catch (e) {
+        Toast.show('Сетевая ошибка', 'alert');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+  }
+
   /* ================ MODAL ================ */
 
   function openModal(cardId) {
@@ -701,4 +732,5 @@
   initSortable();
   initManualCreate();
   initBitrixImport();
+  initBitrixPull();
 })();

@@ -141,6 +141,8 @@ def setup_cabinet_routes(app: web.Application):
 
     # Импорт сделок Bitrix24 → pipeline
     app.router.add_post('/cabinet/api/pipeline/bitrix-import', api.pipeline_bitrix_import)
+    # Pull-синхронизация: подтянуть изменения статусов из Bitrix
+    app.router.add_post('/cabinet/api/pipeline/bitrix-pull', api.pipeline_bitrix_pull)
 
     # JSON API — Team
     app.router.add_get('/cabinet/api/team/members', api.team_get_members)

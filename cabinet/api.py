@@ -1556,6 +1556,19 @@ async def supplier_clean_request(request: web.Request) -> web.Response:
     return web.json_response(result, status=200 if result.get('ok') else 400)
 
 
+@require_team_member
+async def pipeline_bitrix_pull(request: web.Request) -> web.Response:
+    """POST /cabinet/api/pipeline/bitrix-pull — ручной запуск pull-синхронизации
+    статусов из Bitrix. Доступен любому члену команды.
+    """
+    company = request['company']
+    from cabinet.bitrix_sync import pull_changes_from_bitrix
+    result = await pull_changes_from_bitrix(company['id'])
+    if 'error' in result:
+        return web.json_response(result, status=400)
+    return web.json_response({'ok': True, **result})
+
+
 @require_owner
 async def pipeline_bitrix_import(request: web.Request) -> web.Response:
     """POST /cabinet/api/pipeline/bitrix-import — импорт всех сделок Bitrix → карточки.
