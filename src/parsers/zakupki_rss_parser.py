@@ -19,6 +19,83 @@ from bs4 import BeautifulSoup
 
 _log = logging.getLogger(__name__)
 
+
+# ============================================================
+# Title sanity helpers — RSS иногда отдаёт "название" вида
+# "2026-02638" (внутренний номер заказчика) или "Электронный
+# формуляр №…". Если это случается, пробуем вытащить читаемое
+# описание из summary.
+# ============================================================
+
+_JUNK_TITLE_PATTERNS = [
+    re.compile(r'^[\d\W_]+$'),               # одни цифры/спецсимволы
+    re.compile(r'^\d{4}-\d{3,}'),            # «2026-02638…»
+    re.compile(r'^№?\s*[\d\.\-/]+\s*$'),     # «№ 123/45»
+    re.compile(r'^электронн\w*\s+формуляр', re.I),
+    re.compile(r'^формуляр\b', re.I),
+    re.compile(r'^извещени\w*\s+о\s+(закупке|проведении)', re.I),
+    re.compile(r'^уведомление\b', re.I),
+]
+
+
+def _looks_like_junk_title(title: str) -> bool:
+    if not title:
+        return True
+    t = title.strip()
+    if len(t) < 15:
+        return True
+    for p in _JUNK_TITLE_PATTERNS:
+        if p.search(t):
+            return True
+    return False
+
+
+def _fallback_name_from_summary(summary: str) -> Optional[str]:
+    """Достаёт читаемое название из summary. Сначала пробует список
+    RSS-полей со «Наименованием/Объектом/Предметом», потом — первое
+    длинное предложение без бюрократии.
+    """
+    if not summary:
+        return None
+    extra_patterns = [
+        r'<strong>Наименование закупки:\s*</strong>([^<]+)',
+        r'<strong>Предмет закупки:\s*</strong>([^<]+)',
+        r'<strong>Описание:\s*</strong>([^<]+)',
+        r'<strong>Описание объекта закупки:\s*</strong>([^<]+)',
+        r'<strong>Наименование контракта:\s*</strong>([^<]+)',
+    ]
+    for pat in extra_patterns:
+        m = re.search(pat, summary, re.IGNORECASE)
+        if m:
+            text = html.unescape(re.sub(r'\s+', ' ', m.group(1)).strip())
+            if len(text) >= 15:
+                return text
+
+    # Plain text fallback: вырубаем теги и берём первое осмысленное предложение
+    plain = re.sub(r'<[^>]+>', ' ', summary)
+    plain = html.unescape(re.sub(r'\s+', ' ', plain)).strip()
+    if not plain:
+        return None
+    # Отрезаем известную бюрократию
+    bureau_prefixes = (
+        'в соответствии с', 'осуществляемая в соответствии',
+        'статьи 93', 'закона № 44', 'закона №44', 'частью 12',
+    )
+    sentences = re.split(r'(?<=[\.\!\?])\s+', plain)
+    for s in sentences:
+        s_clean = s.strip(' .;:-')
+        if len(s_clean) < 25:
+            continue
+        low = s_clean.lower()
+        if any(low.startswith(b) for b in bureau_prefixes):
+            continue
+        # Стараемся не вернуть кусок «Цена: 1 234 руб»
+        if re.match(r'^(цена|стоимость|сумма)\b', low):
+            continue
+        return s_clean[:300]
+    return None
+
+
 # Отключаем предупреждения SSL (для zakupki.gov.ru)
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 try:
@@ -691,6 +768,13 @@ class ZakupkiRSSParser:
             if purchase_object:
                 # Декодируем HTML entities в объекте закупки
                 tender['name'] = html.unescape(purchase_object)
+            elif _looks_like_junk_title(tender['name']):
+                # RSS отдал какой-то идентификатор/номер вместо нормального
+                # названия — попробуем вытащить из summary первый длинный
+                # осмысленный кусок текста.
+                fallback = _fallback_name_from_summary(summary)
+                if fallback:
+                    tender['name'] = fallback
 
             # Извлекаем тип закупки из summary для client-side фильтрации
             tender_type = self._extract_tender_type(summary)

@@ -5,10 +5,38 @@
 Используется в уведомлениях, поиске и других местах.
 """
 
+import re
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+
+# «Мусорные» названия которые RSS иногда отдаёт вместо нормального
+# имени тендера: внутренние номера заказчика, «Электронный формуляр», и т.п.
+_JUNK_NAME_PATTERNS = [
+    re.compile(r'^[\d\W_]+$'),
+    re.compile(r'^\d{4}-\d{3,}'),
+    re.compile(r'^№?\s*[\d\.\-/]+\s*$'),
+    re.compile(r'^электронн\w*\s+формуляр', re.I),
+    re.compile(r'^формуляр\b', re.I),
+    re.compile(r'^извещени\w*\s+о\s+(закупке|проведении)', re.I),
+    re.compile(r'^уведомление\b', re.I),
+]
+
+
+def _looks_like_junk_name(name: str) -> bool:
+    if not name:
+        return True
+    t = name.strip()
+    if len(t) < 15:
+        return True
+    return any(p.search(t) for p in _JUNK_NAME_PATTERNS)
+
+
+def _clean_text(s: str) -> str:
+    s = re.sub(r'<[^>]+>', ' ', s or '')
+    return re.sub(r'\s+', ' ', s).strip()
 
 
 def format_tender_card(
@@ -54,7 +82,18 @@ def _build_text(
         score_emoji = "📌"
 
     # Название (ai_simple_name уже может быть подставлено в tender['name'] до вызова)
-    name = tender.get('name', 'Без названия')
+    name = tender.get('name') or ''
+    # Защита от «мусорных» названий типа «2026-02638» или «Электронный
+    # формуляр №037310…» — иногда RSS отдаёт идентификатор вместо имени.
+    if _looks_like_junk_name(name):
+        # Пробуем summary / description как fallback
+        for alt_key in ('summary', 'description', 'tender_name'):
+            alt = tender.get(alt_key) or ''
+            if alt and not _looks_like_junk_name(alt):
+                name = _clean_text(alt)[:200]
+                break
+        else:
+            name = 'Тендер №' + (tender.get('number') or '—')
 
     # Цена
     price = tender.get('price')
