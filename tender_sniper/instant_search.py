@@ -648,6 +648,52 @@ class InstantSearch:
             filtered_results = []
             keywords_to_check = original_keywords if original_keywords else search_queries
 
+            # Анти-сервисные префиксы — отбрасываем тендеры на услуги/работы/
+            # ТО, если в фильтре пользователя нет таких ключей (а у Николая
+            # все фильтры исключительно «поставка товаров»).
+            SERVICE_PREFIXES = (
+                'оказание услуг', 'выполнение услуг',
+                'выполнение работ', 'выполнения работ',
+                'оказание услуги',
+                'техническое обслуживание', 'техобслуживание',
+                'сервисное обслуживание',
+                'обслуживание оборудования', 'обслуживание системы',
+                'ремонт и обслуживание', 'обслуживание и ремонт',
+                'текущий ремонт', 'капитальный ремонт',
+                'выполнение комплекса работ',
+                'на оказание услуг', 'на выполнение работ',
+                'оказании услуг', 'выполнении работ',
+                'выполнение пусконаладочных', 'пусконаладочные работы',
+                'демонтаж', 'монтажные работы',
+                'диагностика', 'поверка',
+            )
+
+            def _filter_allows_services(kws: list[str]) -> bool:
+                """True если в keywords явно есть слова про услуги/работы/ремонт —
+                значит пользователь сам хочет такие тендеры."""
+                joined = ' '.join((kws or [])).lower()
+                return any(t in joined for t in (
+                    'услуг', 'работ', 'обслуживан', 'ремонт',
+                    'монтаж', 'установк', 'демонтаж', 'диагностик',
+                    'поверк', 'наладк',
+                ))
+
+            filter_allows_services = _filter_allows_services(keywords_to_check)
+
+            def _is_service_tender(name: str) -> bool:
+                low = (name or '').lower().strip()
+                # стартует с сервисного маркера
+                for p in SERVICE_PREFIXES:
+                    if low.startswith(p):
+                        return True
+                # «на … услуг/работ» в первых ~120 символах названия
+                head = low[:140]
+                if 'оказание услуг' in head or 'выполнение работ' in head:
+                    return True
+                if 'техническое обслуживание' in head or 'техобслуживание' in head:
+                    return True
+                return False
+
             for tender in search_results:
                 # Матчим только по названию + краткому summary, БЕЗ description.
                 # description — это длинный кусок тендерной документации, где
@@ -656,6 +702,15 @@ class InstantSearch:
                 # для тендеров с другим товаром.
                 name_text = tender.get('name', '') or ''
                 summary_text = tender.get('summary', '') or ''
+
+                # Анти-сервисный фильтр: если фильтр про товары (нет 'услуг/
+                # работ/обслуживан' в keywords), а тендер начинается со
+                # «Техническое обслуживание/Оказание услуг/Выполнение работ» —
+                # пропускаем.
+                if not filter_allows_services and _is_service_tender(name_text):
+                    logger.debug(f"   ⛔ Сервисный тендер (фильтр на товары): {name_text[:80]}")
+                    continue
+
                 tender_text = f"{name_text} {summary_text}".strip()
                 if not tender_text:
                     # fallback: если RSS не отдал name/summary — последний шанс
