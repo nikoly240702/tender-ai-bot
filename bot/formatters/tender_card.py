@@ -22,6 +22,8 @@ _JUNK_NAME_PATTERNS = [
     re.compile(r'^формуляр\b', re.I),
     re.compile(r'^извещени\w*\s+о\s+(закупке|проведении)', re.I),
     re.compile(r'^уведомление\b', re.I),
+    re.compile(r'^(ФГБОУ|ГБОУ|ГАУЗ|ГБУ|МБУ|МКУ|ФГУП|ГУП|МУП|ФКУ|ФГБУ|АО|ООО|ПАО|ИП|ОГБУЗ|ГБУЗ|КГБУЗ)\b', re.I),
+    re.compile(r'^(ГОСУДАРСТВЕН|МУНИЦИПАЛЬ|ФЕДЕРАЛЬН|КОМИТЕТ|ДЕПАРТАМЕНТ|МИНИСТЕРСТВ|АДМИНИСТРАЦ|УПРАВЛЕНИ[ЕЯ]|КАЗЕНН)', re.I),
 ]
 
 
@@ -81,19 +83,22 @@ def _build_text(
     else:
         score_emoji = "📌"
 
-    # Название (ai_simple_name уже может быть подставлено в tender['name'] до вызова)
     name = tender.get('name') or ''
-    # Защита от «мусорных» названий типа «2026-02638» или «Электронный
-    # формуляр №037310…» — иногда RSS отдаёт идентификатор вместо имени.
     if _looks_like_junk_name(name):
-        # Пробуем summary / description как fallback
-        for alt_key in ('summary', 'description', 'tender_name'):
-            alt = tender.get(alt_key) or ''
-            if alt and not _looks_like_junk_name(alt):
-                name = _clean_text(alt)[:200]
-                break
+        ai_summary = match_info.get('ai_summary', '')
+        ai_reason = match_info.get('ai_reason', '')
+        if ai_summary and len(ai_summary) >= 15:
+            name = ai_summary[:120]
+        elif ai_reason and len(ai_reason) >= 10:
+            name = ai_reason[:120]
         else:
-            name = 'Тендер №' + (tender.get('number') or '—')
+            for alt_key in ('summary', 'description', 'tender_name'):
+                alt = tender.get(alt_key) or ''
+                if alt and not _looks_like_junk_name(alt):
+                    name = _clean_text(alt)[:200]
+                    break
+            else:
+                name = 'Тендер №' + (tender.get('number') or '—')
 
     # Цена
     price = tender.get('price')
