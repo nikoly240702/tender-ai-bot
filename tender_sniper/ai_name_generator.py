@@ -6,6 +6,7 @@ AI Name Generator для тендеров.
 """
 
 import os
+import re
 import sys
 import logging
 import hashlib
@@ -128,7 +129,12 @@ class TenderNameGenerator:
             'timestamp': datetime.now()
         }
 
-    # Типы процедур — мусорные префиксы в порядке убывания длины
+    _ORG_NAME_RE = re.compile(
+        r'^(ФГБОУ|ГБОУ|ГАУЗ|ГБУ|МБУ|МКУ|ФГУП|ГУП|МУП|ФКУ|ФГБУ|АО|ООО|ПАО|ИП|ОГБУЗ|ГБУЗ|КГБУЗ'
+        r'|ГОСУДАРСТВЕН|МУНИЦИПАЛЬ|ФЕДЕРАЛЬН|КОМИТЕТ|ДЕПАРТАМЕНТ|МИНИСТЕРСТВ|АДМИНИСТРАЦ|УПРАВЛЕНИ[ЕЯ]|КАЗЕНН)',
+        re.I,
+    )
+
     _PROCEDURE_PREFIXES = [
         'конкурс с ограниченным участием',
         'электронный аукцион',
@@ -203,8 +209,9 @@ class TenderNameGenerator:
         if cleaned != original_name:
             original_name = cleaned
 
-        # Если название уже короткое и нормальное (и не мусорное) — возвращаем как есть
-        if not is_garbage and len(original_name) <= max_length:
+        is_org_name = bool(self._ORG_NAME_RE.search(original_name.strip()))
+
+        if not is_garbage and not is_org_name and len(original_name) <= max_length:
             return original_name
 
         # Проверяем кэш
