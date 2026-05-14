@@ -608,13 +608,10 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
                 continue  # промежуточная стадия — не трогаем
 
             async with DatabaseSession() as session:
-                # Ищем по bitrix_deal_id в card.data (JSONB) — через ->> astext
-                # стабильно сравниваем независимо от того, как Python положил
-                # значение (int/str — в JSONB всё равно сериализуется одинаково).
                 card = await session.scalar(
                     select(PipelineCard).where(
                         PipelineCard.company_id == company_id,
-                        PipelineCard.data['bitrix_deal_id'].astext == str(deal_id),
+                        PipelineCard.data['bitrix_deal_id'].as_string() == str(deal_id),
                     )
                 )
                 if not card:

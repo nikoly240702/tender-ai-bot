@@ -595,14 +595,22 @@ class EngagementScheduler:
                     notif_count=notif_count,
                 )
 
-                await bot.send_message(
-                    user.telegram_id,
-                    text,
-                    reply_markup=keyboard,
-                    parse_mode="HTML",
-                )
+                try:
+                    await bot.send_message(
+                        user.telegram_id,
+                        text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML",
+                    )
+                    sent_count += 1
+                except Exception as send_err:
+                    err_msg = str(send_err)
+                    if 'blocked by the user' in err_msg or 'chat not found' in err_msg:
+                        pass
+                    else:
+                        logger.warning(f"Реактивация для {user.telegram_id}: {send_err}")
+                        continue
 
-                # Логируем событие
                 async with DatabaseSession() as session:
                     session.add(ReactivationEvent(
                         user_id=user.id,
@@ -610,7 +618,6 @@ class EngagementScheduler:
                         message_variant=segment,
                     ))
 
-                sent_count += 1
                 await asyncio.sleep(0.15)
 
             except Exception as e:
