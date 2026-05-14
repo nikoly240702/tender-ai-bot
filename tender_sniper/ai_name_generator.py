@@ -129,9 +129,15 @@ class TenderNameGenerator:
             'timestamp': datetime.now()
         }
 
-    _ORG_NAME_RE = re.compile(
-        r'^(ФГБОУ|ГБОУ|ГАУЗ|ГБУ|МБУ|МКУ|ФГУП|ГУП|МУП|ФКУ|ФГБУ|АО|ООО|ПАО|ИП|ОГБУЗ|ГБУЗ|КГБУЗ'
-        r'|ГОСУДАРСТВЕН|МУНИЦИПАЛЬ|ФЕДЕРАЛЬН|КОМИТЕТ|ДЕПАРТАМЕНТ|МИНИСТЕРСТВ|АДМИНИСТРАЦ|УПРАВЛЕНИ[ЕЯ]|КАЗЕНН)',
+    _JUNK_RE = re.compile(
+        r'^('
+        r'ФГБОУ|ГБОУ|ГАУЗ|ГБУ|МБУ|МКУ|ФГУП|ГУП|МУП|ФКУ|ФГБУ|АО|ООО|ПАО|ИП|ОГБУЗ|ГБУЗ|КГБУЗ'
+        r'|ГОСУДАРСТВЕН|МУНИЦИПАЛЬ|ФЕДЕРАЛЬН|КОМИТЕТ|ДЕПАРТАМЕНТ|МИНИСТЕРСТВ|АДМИНИСТРАЦ|УПРАВЛЕНИ[ЕЯ]|КАЗЕНН'
+        r'|ЭЛЕКТРОНН\w*\s+ФОРМУЛЯР'
+        r'|ФОРМУЛЯР'
+        r'|ИЗВЕЩЕНИ\w*\s+О\s+(ЗАКУПКЕ|ПРОВЕДЕНИИ)'
+        r'|УВЕДОМЛЕНИЕ'
+        r')',
         re.I,
     )
 
@@ -200,7 +206,8 @@ class TenderNameGenerator:
         if not original_name or not original_name.strip():
             return "Без названия"
 
-        # Сначала пытаемся вырезать мусорный префикс ("Электронный аукцион №...")
+        original_name = re.sub(r'^[А-ЯA-Z]{1,4}[\-_]\d{2,6}[_\s]+', '', original_name).strip()
+
         cleaned = self._strip_procedure_prefix(original_name)
 
         is_garbage = self._is_only_procedure_number(original_name)
@@ -209,7 +216,7 @@ class TenderNameGenerator:
         if cleaned != original_name:
             original_name = cleaned
 
-        is_org_name = bool(self._ORG_NAME_RE.search(original_name.strip()))
+        is_org_name = bool(self._JUNK_RE.search(original_name.strip()))
 
         if not is_garbage and not is_org_name and len(original_name) <= max_length:
             return original_name
