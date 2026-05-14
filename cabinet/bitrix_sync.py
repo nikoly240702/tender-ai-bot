@@ -608,12 +608,18 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
                 continue  # промежуточная стадия — не трогаем
 
             async with DatabaseSession() as session:
-                card = await session.scalar(
-                    select(PipelineCard).where(
-                        PipelineCard.company_id == company_id,
-                        PipelineCard.data.op('->>')('bitrix_deal_id') == str(deal_id),
-                    )
+                result = await session.execute(
+                    text(
+                        "SELECT id FROM pipeline_cards "
+                        "WHERE company_id = :cid AND data->>'bitrix_deal_id' = :did "
+                        "LIMIT 1"
+                    ),
+                    {'cid': company_id, 'did': str(deal_id)},
                 )
+                row = result.first()
+                card = None
+                if row:
+                    card = await session.get(PipelineCard, row[0])
                 if not card:
                     continue
 
