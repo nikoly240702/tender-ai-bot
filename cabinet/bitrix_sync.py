@@ -611,10 +611,11 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
                 result = await session.execute(
                     text(
                         "SELECT id FROM pipeline_cards "
-                        "WHERE company_id = :cid AND data->>'bitrix_deal_id' = :did "
+                        "WHERE company_id = :cid "
+                        "AND data::text LIKE :pattern "
                         "LIMIT 1"
                     ),
-                    {'cid': company_id, 'did': str(deal_id)},
+                    {'cid': company_id, 'pattern': f'%"bitrix_deal_id": {deal_id}%'},
                 )
                 row = result.first()
                 card = None
