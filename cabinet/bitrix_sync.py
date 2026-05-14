@@ -20,7 +20,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-from sqlalchemy import select, cast, String
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -611,7 +611,7 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
                 card = await session.scalar(
                     select(PipelineCard).where(
                         PipelineCard.company_id == company_id,
-                        cast(PipelineCard.data['bitrix_deal_id'], String) == str(deal_id),
+                        PipelineCard.data.op('->>')('bitrix_deal_id') == str(deal_id),
                     )
                 )
                 if not card:
