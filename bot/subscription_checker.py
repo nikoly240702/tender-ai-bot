@@ -101,8 +101,10 @@ class SubscriptionChecker:
                 )
                 users = result.scalars().all()
 
-            # Проактивно истекаем trial без даты окончания
+            # Проактивно даунгрейдим trial без даты окончания
             async with DatabaseSession() as expire_session:
+                from sqlalchemy import update as sa_update
+
                 no_expiry_result = await expire_session.execute(
                     select(SniperUser).where(
                         and_(
@@ -114,7 +116,6 @@ class SubscriptionChecker:
                 no_expiry_users = no_expiry_result.scalars().all()
 
                 if no_expiry_users:
-                    from sqlalchemy import update as sa_update
                     no_expiry_ids = [u.id for u in no_expiry_users]
                     await expire_session.execute(
                         sa_update(SniperUser)
@@ -122,6 +123,27 @@ class SubscriptionChecker:
                         .values(subscription_tier='expired')
                     )
                     logger.info(f"🔄 Проактивно истекли trial без даты: {len(no_expiry_ids)} пользователей")
+
+                # Проактивно даунгрейдим trial/подписки с истёкшей датой
+                expired_result = await expire_session.execute(
+                    select(SniperUser).where(
+                        and_(
+                            SniperUser.subscription_tier.in_(['trial', 'basic', 'starter', 'pro', 'premium']),
+                            SniperUser.trial_expires_at.isnot(None),
+                            SniperUser.trial_expires_at < now
+                        )
+                    )
+                )
+                expired_users = expired_result.scalars().all()
+
+                if expired_users:
+                    expired_ids = [u.id for u in expired_users]
+                    await expire_session.execute(
+                        sa_update(SniperUser)
+                        .where(SniperUser.id.in_(expired_ids))
+                        .values(subscription_tier='expired')
+                    )
+                    logger.info(f"🔄 Проактивно даунгрейднуты истёкшие подписки: {len(expired_ids)} пользователей")
 
             notified_count = 0
 
