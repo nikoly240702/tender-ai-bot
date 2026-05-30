@@ -129,6 +129,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/relations', api.pipeline_add_relation)
     app.router.add_delete('/cabinet/api/pipeline/relations/{rid}', api.pipeline_delete_relation)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/ai-enrich', api.pipeline_ai_enrich)
+    app.router.add_get('/cabinet/api/pipeline/export', api.pipeline_export_csv)
 
     # Holodilnik supplier search
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/holodilnik-search', api.holodilnik_start_search)
@@ -486,10 +487,31 @@ async def pipeline_page(request: web.Request) -> web.Response:
         # Deadline short (например "8 мая" или "12 мая 2027")
         c['_deadline_short'] = _format_deadline_short((c.get('data') or {}).get('deadline'))
 
+        # Deadline urgency
+        deadline_raw = (c.get('data') or {}).get('deadline')
+        c['_deadline_urgent'] = ''
+        if deadline_raw:
+            try:
+                dl = datetime.fromisoformat(str(deadline_raw)[:10]) if isinstance(deadline_raw, str) else deadline_raw
+                days_left = (dl - now.replace(hour=0, minute=0, second=0, microsecond=0)).days
+                if days_left < 0:
+                    c['_deadline_urgent'] = 'overdue'
+                elif days_left <= 3:
+                    c['_deadline_urgent'] = 'critical'
+                elif days_left <= 7:
+                    c['_deadline_urgent'] = 'warning'
+            except (ValueError, TypeError):
+                pass
+
     by_stage = {s: [] for s in pipeline_service.ALL_STAGES}
     for c in cards:
         if c['stage'] in by_stage:
             by_stage[c['stage']].append(c)
+
+    stage_sums = {}
+    for stage, stage_cards in by_stage.items():
+        total = sum((c.get('data') or {}).get('price_max') or 0 for c in stage_cards)
+        stage_sums[stage] = total
 
     # JSON-safe для встраивания в data-attribute (JS)
     members_json = [
@@ -514,6 +536,7 @@ async def pipeline_page(request: web.Request) -> web.Response:
         stages=pipeline_service.ALL_STAGES,
         stage_labels=pipeline_service.STAGE_LABELS,
         cards_by_stage=by_stage,
+        stage_sums=stage_sums,
         members=members,
         members_json=members_json,
     )

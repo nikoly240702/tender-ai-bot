@@ -41,7 +41,7 @@
 
   function updateCounts() {
     document.querySelectorAll('.kb-col').forEach(col => {
-      const cnt = col.querySelectorAll('.kb-card').length;
+      const cnt = col.querySelectorAll('.kb-card:not([style*="display: none"])').length;
       const badge = col.querySelector('.kb-count');
       if (badge) badge.textContent = cnt;
     });
@@ -393,17 +393,6 @@
     document.getElementById('cm-ai-run').onclick = () => runAi(c.id);
 
     // Action buttons
-    const supplierBtn = document.getElementById('cm-btn-supplier');
-    supplierBtn.hidden = c.stage !== 'RFQ';
-    supplierBtn.onclick = () => {
-      if (window.Cabinet && window.Cabinet.Holodilnik) {
-        const tenderName = (c.data && c.data.name) || ('Тендер ' + c.tender_number);
-        window.Cabinet.Holodilnik.open(c.id, tenderName);
-      } else {
-        Toast.show('Holodilnik UI не загружен (обнови страницу)', 'alert');
-      }
-    };
-
     const requestBtn = document.getElementById('cm-btn-request');
     if (requestBtn) {
       requestBtn.hidden = c.stage !== 'RFQ';
@@ -709,6 +698,30 @@
     }
   }
 
+  /* ================ FILTERS ================ */
+
+  function initFilters() {
+    const searchInput = document.getElementById('pipeline-search');
+    const assigneeSelect = document.getElementById('pipeline-filter-assignee');
+    if (!searchInput) return;
+
+    function applyFilters() {
+      const q = (searchInput.value || '').toLowerCase().trim();
+      const assigneeId = assigneeSelect ? assigneeSelect.value : '';
+      document.querySelectorAll('.kb-card').forEach(card => {
+        const title = (card.querySelector('.kb-card-title')?.textContent || '').toLowerCase();
+        const tender = (card.dataset.tender || '').toLowerCase();
+        const matchText = !q || title.includes(q) || tender.includes(q);
+        const matchAssignee = !assigneeId || card.dataset.assignee === assigneeId;
+        card.style.display = (matchText && matchAssignee) ? '' : 'none';
+      });
+      updateCounts();
+    }
+
+    searchInput.addEventListener('input', applyFilters);
+    if (assigneeSelect) assigneeSelect.addEventListener('change', applyFilters);
+  }
+
   // Pipeline-mode: sidebar collapsed по умолчанию, но юзер может раскрыть.
   // Состояние сохраняется в localStorage между переходами на pipeline.
   const SIDEBAR_KEY = 'pipeline_sidebar_collapsed';
@@ -733,4 +746,5 @@
   initManualCreate();
   initBitrixImport();
   initBitrixPull();
+  initFilters();
 })();

@@ -3,7 +3,7 @@
 {% block title %}Pipeline — Tender Sniper{% endblock %}
 
 {% block page_css %}
-  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=9">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=10">
 {% endblock %}
 
 {% block main %}
@@ -24,7 +24,18 @@
   {% if is_owner %}
     <button class="btn btn-ghost" id="btn-bitrix-import" title="Перенести все сделки из Bitrix24 в pipeline">↘ Импорт из Bitrix24</button>
   {% endif %}
+  <a href="/cabinet/api/pipeline/export" class="btn btn-ghost" download>📥 Экспорт CSV</a>
   <button class="btn btn-primary" id="btn-create-manual">+ Создать вручную</button>
+</div>
+
+<div class="pipeline-filters">
+  <input type="text" id="pipeline-search" class="filter-input" placeholder="Поиск по номеру или названию…">
+  <select id="pipeline-filter-assignee" class="filter-select">
+    <option value="">Все ответственные</option>
+    {% for m in members %}
+      <option value="{{ m.user_id }}">{{ m.display_name or 'User ' ~ m.user_id }}</option>
+    {% endfor %}
+  </select>
 </div>
 
 <div class="kb-board">
@@ -32,18 +43,23 @@
     <div class="kb-col {% if stage in ['RFQ', 'QUOTED'] %}supplier{% elif stage == 'REJECTED' %}rejected{% endif %}" data-stage="{{ stage }}">
       <div class="kb-col-head">
         <span class="kb-col-title">{{ stage_labels[stage] }}</span>
-        <span class="kb-count">{{ cards_by_stage[stage]|length }}</span>
+        <div class="kb-col-stats">
+          <span class="kb-count">{{ cards_by_stage[stage]|length }}</span>
+          {% if stage_sums[stage] %}
+            <span class="kb-sum">{{ '{:,.0f}'.format(stage_sums[stage]).replace(',', ' ') }} ₽</span>
+          {% endif %}
+        </div>
       </div>
       <div class="kb-col-body" data-stage="{{ stage }}">
         {% for c in cards_by_stage[stage] %}
           <div class="kb-card{% if c.result == 'won' %} won{% elif c.result == 'lost' %} lost{% endif %}"
-               data-card-id="{{ c.id }}" data-tender="{{ c.tender_number }}">
+               data-card-id="{{ c.id }}" data-tender="{{ c.tender_number }}" data-assignee="{{ c.assignee_user_id or '' }}">
             <div class="kb-card-title">{{ c.data.name or 'Тендер ' + c.tender_number }}</div>
             {% if c.data.price_max %}
               <div class="kb-card-price">{{ '{:,.0f}'.format(c.data.price_max).replace(',', ' ') }} ₽</div>
             {% endif %}
             {% if c._deadline_short %}
-              <div class="kb-card-row">
+              <div class="kb-card-row{% if c._deadline_urgent %} deadline-{{ c._deadline_urgent }}{% endif %}">
                 <span class="kb-card-label">Подача</span>
                 <span class="kb-card-value">{{ c._deadline_short }}</span>
               </div>
@@ -92,7 +108,6 @@
 
 {% block page_js %}
 <script src="/cabinet/static/js/vendor/Sortable.min.js"></script>
-<script src="/cabinet/static/js/pages/holodilnik.js?v=1"></script>
 <script src="/cabinet/static/js/pages/supplier_request.js?v=4"></script>
-<script src="/cabinet/static/js/pages/pipeline.js?v=8"></script>
+<script src="/cabinet/static/js/pages/pipeline.js?v=10"></script>
 {% endblock %}

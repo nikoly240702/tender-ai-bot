@@ -507,6 +507,14 @@ _PULL_STAGE_MAP: Dict[str, Dict[str, Any]] = {
     'LOSE': {'stage': 'RESULT', 'result': 'lost'},
 }
 
+# Stage ordering for anti-rollback logic: pipeline is source of truth
+# for forward progress. If pipeline card is at a later stage than what
+# Bitrix reports, we keep the pipeline stage.
+_STAGE_ORDER = {
+    'FOUND': 0, 'IN_WORK': 1, 'RFQ': 2, 'QUOTED': 3,
+    'SUBMITTED': 4, 'RESULT': 5, 'REJECTED': 5,
+}
+
 
 async def _get_last_sync_at(company_id: int) -> Optional[str]:
     async with DatabaseSession() as session:
@@ -626,6 +634,12 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
 
                 target_stage = mapping['stage']
                 target_result = mapping['result']
+
+                # Don't rollback: if pipeline card is at a later stage, keep it
+                current_idx = _STAGE_ORDER.get(card.stage, 0)
+                target_idx = _STAGE_ORDER.get(target_stage, 0)
+                if target_idx < current_idx:
+                    continue
 
                 # Если пользователь у нас уже пометил как REJECTED, а в Bitrix
                 # пришло LOSE — оставляем REJECTED как более точное.

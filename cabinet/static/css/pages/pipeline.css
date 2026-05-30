@@ -59,6 +59,35 @@ body.pipeline-mode .main {
 }
 .pipeline-actions .btn-primary { margin-left: auto; }
 
+.pipeline-filters {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.filter-input {
+  flex: 1;
+  max-width: 340px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: var(--font-ui);
+}
+.filter-input::placeholder { color: var(--muted); }
+.filter-input:focus { border-color: var(--accent-line); outline: none; }
+.filter-select {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-family: var(--font-ui);
+  min-width: 180px;
+}
+
 .kb-board {
   display: grid;
   grid-template-columns: repeat(7, minmax(220px, 1fr));
@@ -108,6 +137,11 @@ body.pipeline-mode .main {
 }
 .kb-col.supplier .kb-col-head { color: #4a6a8c; }
 .kb-col.rejected .kb-col-head { color: #786456; }
+.kb-col-stats {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .kb-count {
   background: var(--bg-raised);
   color: var(--text);
@@ -115,6 +149,12 @@ body.pipeline-mode .main {
   border-radius: 4px;
   padding: 2px 7px;
   font-size: 11px;
+}
+.kb-sum {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 .kb-col-body {
   display: flex;
@@ -251,6 +291,14 @@ body.pipeline-mode .main {
 
 .sortable-ghost { opacity: 0.4; }
 .sortable-drag { box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18); }
+
+/* Deadline urgency */
+.kb-card-row.deadline-critical { background: rgba(220, 60, 40, 0.08); border-radius: 3px; }
+.kb-card-row.deadline-critical .kb-card-value { color: var(--alert); font-weight: 600; }
+.kb-card-row.deadline-warning { background: rgba(200, 160, 40, 0.08); border-radius: 3px; }
+.kb-card-row.deadline-warning .kb-card-value { color: #b8860b; font-weight: 600; }
+.kb-card-row.deadline-overdue { background: rgba(220, 60, 40, 0.12); border-radius: 3px; }
+.kb-card-row.deadline-overdue .kb-card-value { color: var(--alert); font-weight: 700; text-decoration: line-through; }
 
 /* ============= RESULT MODAL (Win/Lost dialog) ============= */
 .result-modal {

@@ -330,7 +330,36 @@ async def set_assignee(card_id: int, assignee_user_id: int, by_user_id: int) -> 
         )
         session.add(history)
         await session.commit()
-        return {'ok': True, 'card': _card_dict(card)}
+        out = _card_dict(card)
+
+    # Notify assigned user via Telegram (fire-and-forget)
+    if assignee_user_id != by_user_id:
+        async def _notify_assignee():
+            try:
+                async with DatabaseSession() as s:
+                    assigned = await s.get(SniperUser, assignee_user_id)
+                    card_obj = await s.get(PipelineCard, card_id)
+                    if not assigned or not assigned.telegram_id:
+                        return
+                    card_name = (card_obj.data or {}).get('name', f'Тендер {card_obj.tender_number}') if card_obj else '?'
+                from aiogram import Bot
+                bot = Bot(token=os.environ.get('BOT_TOKEN', ''))
+                await bot.send_message(
+                    assigned.telegram_id,
+                    f"📌 Вам назначена карточка в Pipeline:\n<b>{card_name}</b>\n\nОткройте кабинет для подробностей.",
+                    parse_mode="HTML",
+                )
+                await bot.session.close()
+            except Exception as e:
+                logger.warning(f'Failed to notify assignee {assignee_user_id}: {e}')
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_notify_assignee())
+        except RuntimeError:
+            pass
+
+    return {'ok': True, 'card': out}
 
 
 async def set_prices(card_id: int, purchase_price: Optional[float],

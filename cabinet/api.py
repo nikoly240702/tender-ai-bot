@@ -1415,6 +1415,46 @@ async def pipeline_ai_enrich(request: web.Request) -> web.Response:
     return web.json_response(result, status=202)
 
 
+@require_team_member
+async def pipeline_export_csv(request: web.Request) -> web.Response:
+    import csv
+    company = request['company']
+    cards = await pipeline_service.list_company_cards(company['id'], include_archived=True)
+
+    output = io.StringIO()
+    # BOM for Excel
+    output.write('﻿')
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow([
+        'Номер тендера', 'Название', 'Стадия', 'Результат',
+        'Заказчик', 'Регион', 'НМЦ', 'Закупочная', 'Наша цена',
+        'Дедлайн', 'Ответственный', 'Создана',
+    ])
+
+    for c in cards:
+        d = c.get('data') or {}
+        writer.writerow([
+            c.get('tender_number', ''),
+            d.get('name', ''),
+            c.get('stage', ''),
+            c.get('result', '') or '',
+            d.get('customer', ''),
+            d.get('region', ''),
+            d.get('price_max', '') or '',
+            c.get('purchase_price', '') or '',
+            c.get('sale_price', '') or '',
+            d.get('deadline', '') or '',
+            c.get('assignee_user_id', '') or '',
+            str(c.get('created_at', ''))[:10] if c.get('created_at') else '',
+        ])
+
+    return web.Response(
+        body=output.getvalue().encode('utf-8-sig'),
+        content_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename="pipeline.csv"'},
+    )
+
+
 # ============================================
 # TEAM API
 # ============================================
