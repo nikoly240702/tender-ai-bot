@@ -608,30 +608,22 @@ async def show_my_filters(callback: CallbackQuery):
             )
             return
 
-        # Формируем список фильтров
-        filters_text = "📋 <b>Ваши фильтры мониторинга</b>\n\n"
+        # Формируем список фильтров (компактный вид — детали по клику)
+        active_count = sum(1 for f in filters if f.get('is_active', True))
+        total_matches = sum(f.get('match_count', 0) for f in filters)
+        filters_text = (
+            f"📋 <b>Ваши фильтры мониторинга</b>\n\n"
+            f"Всего: {len(filters)} · Активных: {active_count} · Совпадений: {total_matches}\n\n"
+        )
 
         keyboard_buttons = []
         for i, f in enumerate(filters, 1):
             is_active = f.get('is_active', True)
             status_icon = "✅" if is_active else "⏸️"
-            keywords = f.get('keywords', [])
-            price_range = ""
-            if f.get('price_min') or f.get('price_max'):
-                price_min = f"{f['price_min']:,}" if f.get('price_min') else "0"
-                price_max = f"{f['price_max']:,}" if f.get('price_max') else "∞"
-                price_range = f"{price_min} - {price_max} ₽"
+            matches = f.get('match_count', 0)
 
-            filters_text += (
-                f"{i}. {status_icon} <b>{f['name']}</b>\n"
-                f"   🔑 {', '.join(keywords[:3])}\n"
-            )
-            if price_range:
-                filters_text += f"   💰 {price_range}\n"
+            filters_text += f"{i}. {status_icon} <b>{f['name']}</b> — {matches} совп.\n"
 
-            filters_text += f"   📊 Совпадений: {f.get('match_count', 0)}\n\n"
-
-            # Кнопки для каждого фильтра
             btn_prefix = "📝" if is_active else "⏸️"
             keyboard_buttons.append([
                 InlineKeyboardButton(
@@ -723,30 +715,22 @@ async def show_my_filters_message(message: Message):
             )
             return
 
-        # Формируем список фильтров
-        filters_text = "📋 <b>Ваши фильтры мониторинга</b>\n\n"
+        # Формируем список фильтров (компактный вид — детали по клику)
+        active_count = sum(1 for f in filters if f.get('is_active', True))
+        total_matches = sum(f.get('match_count', 0) for f in filters)
+        filters_text = (
+            f"📋 <b>Ваши фильтры мониторинга</b>\n\n"
+            f"Всего: {len(filters)} · Активных: {active_count} · Совпадений: {total_matches}\n\n"
+        )
 
         keyboard_buttons = []
         for i, f in enumerate(filters, 1):
             is_active = f.get('is_active', True)
             status_icon = "✅" if is_active else "⏸️"
-            keywords = f.get('keywords', [])
-            price_range = ""
-            if f.get('price_min') or f.get('price_max'):
-                price_min = f"{f['price_min']:,}" if f.get('price_min') else "0"
-                price_max = f"{f['price_max']:,}" if f.get('price_max') else "∞"
-                price_range = f"{price_min} - {price_max} ₽"
+            matches = f.get('match_count', 0)
 
-            filters_text += (
-                f"{i}. {status_icon} <b>{f['name']}</b>\n"
-                f"   🔑 {', '.join(keywords[:3])}\n"
-            )
-            if price_range:
-                filters_text += f"   💰 {price_range}\n"
+            filters_text += f"{i}. {status_icon} <b>{f['name']}</b> — {matches} совп.\n"
 
-            filters_text += f"   📊 Совпадений: {f.get('match_count', 0)}\n\n"
-
-            # Кнопки для каждого фильтра
             btn_prefix = "📝" if is_active else "⏸️"
             keyboard_buttons.append([
                 InlineKeyboardButton(
