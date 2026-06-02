@@ -1847,16 +1847,18 @@ async def _show_filters(
         )
         return
 
-    lines = ["📋 <b>Мои фильтры</b>\n"]
+    active_count = sum(1 for f in filters if f.get('is_active', True))
+    total_matches = sum(f.get('match_count', 0) for f in filters)
+    lines = [f"📋 <b>Мои фильтры</b>\n\nВсего: {len(filters)} · Активных: {active_count} · Совпадений: {total_matches}\n"]
 
     keyboard = []
     for i, f in enumerate(filters, 1):
         fid = f.get('id')
         status = "🟢" if f.get('is_active') else "🔴"
         name = f.get('name', 'Без названия')
-        kw = ", ".join(f.get('keywords', [])[:3]) if f.get('keywords') else "—"
+        matches = f.get('match_count', 0)
 
-        lines.append(f"{i}. {status} <b>{name}</b>\n   🔑 {kw}")
+        lines.append(f"{i}. {status} <b>{name}</b> — {matches} совп.")
 
         keyboard.append([
             {"type": "callback", "text": f"{status} {i}. {name[:30]}", "payload": f"fv_{fid}"},
