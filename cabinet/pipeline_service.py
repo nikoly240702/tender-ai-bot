@@ -63,6 +63,14 @@ TEAM_FILE_QUOTA = 1024 * 1024 * 1024  # 1 GB
 ARCHIVE_AGE_DAYS = 90
 
 
+def _auto_claim(card: 'PipelineCard', by_user_id: int) -> bool:
+    """Assign card to user if unassigned. Returns True if claimed."""
+    if card.assignee_user_id is None:
+        card.assignee_user_id = by_user_id
+        return True
+    return False
+
+
 def _decimal_to_float(value) -> Optional[float]:
     if value is None:
         return None
@@ -180,7 +188,7 @@ async def create_card_from_tender(
             company_id=company_id,
             tender_number=tender_number,
             stage=STAGE_FOUND,
-            assignee_user_id=creator_user_id,
+            assignee_user_id=None,
             filter_id=filter_id,
             source=source,
             sale_price=Decimal(str(sale_price_default)) if sale_price_default else None,
@@ -281,6 +289,7 @@ async def move_card_stage(card_id: int, new_stage: str, by_user_id: int) -> Dict
             return {'ok': True, 'card': _card_dict(card), 'unchanged': True}
         card.stage = new_stage
         card.updated_at = datetime.utcnow()
+        _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card.id, user_id=by_user_id, action='stage_changed',
             payload={'from': old_stage, 'to': new_stage},
@@ -303,6 +312,7 @@ async def set_card_result(card_id: int, result: str, by_user_id: int) -> Dict:
         card.stage = STAGE_RESULT
         card.result = result
         card.updated_at = datetime.utcnow()
+        _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card.id, user_id=by_user_id,
             action='won' if result == RESULT_WON else 'lost',
@@ -373,6 +383,7 @@ async def set_prices(card_id: int, purchase_price: Optional[float],
         if sale_price is not None:
             card.sale_price = Decimal(str(sale_price))
         card.updated_at = datetime.utcnow()
+        _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card_id, user_id=by_user_id, action='price_set',
             payload={'purchase': purchase_price, 'sale': sale_price},
@@ -450,6 +461,9 @@ async def add_note(card_id: int, text: str, by_user_id: int) -> Dict:
     if not text:
         return {'ok': False, 'error': 'Заметка пуста'}
     async with DatabaseSession() as session:
+        card = await session.get(PipelineCard, card_id)
+        if card:
+            _auto_claim(card, by_user_id)
         note = PipelineCardNote(card_id=card_id, user_id=by_user_id, text=text)
         session.add(note)
         history = PipelineCardHistory(
