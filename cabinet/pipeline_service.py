@@ -289,7 +289,7 @@ async def move_card_stage(card_id: int, new_stage: str, by_user_id: int) -> Dict
             return {'ok': True, 'card': _card_dict(card), 'unchanged': True}
         card.stage = new_stage
         card.updated_at = datetime.utcnow()
-        _auto_claim(card, by_user_id)
+        claimed = _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card.id, user_id=by_user_id, action='stage_changed',
             payload={'from': old_stage, 'to': new_stage},
@@ -297,8 +297,10 @@ async def move_card_stage(card_id: int, new_stage: str, by_user_id: int) -> Dict
         session.add(history)
         await session.commit()
         out = _card_dict(card)
-    from cabinet.bitrix_sync import push_stage_changed, fire_and_forget
+    from cabinet.bitrix_sync import push_stage_changed, push_assignee_changed, fire_and_forget
     fire_and_forget(push_stage_changed(card_id, new_stage))
+    if claimed:
+        fire_and_forget(push_assignee_changed(card_id, by_user_id))
     return {'ok': True, 'card': out}
 
 
@@ -312,7 +314,7 @@ async def set_card_result(card_id: int, result: str, by_user_id: int) -> Dict:
         card.stage = STAGE_RESULT
         card.result = result
         card.updated_at = datetime.utcnow()
-        _auto_claim(card, by_user_id)
+        claimed = _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card.id, user_id=by_user_id,
             action='won' if result == RESULT_WON else 'lost',
@@ -321,8 +323,10 @@ async def set_card_result(card_id: int, result: str, by_user_id: int) -> Dict:
         session.add(history)
         await session.commit()
         out = _card_dict(card)
-    from cabinet.bitrix_sync import push_result_set, fire_and_forget
+    from cabinet.bitrix_sync import push_result_set, push_assignee_changed, fire_and_forget
     fire_and_forget(push_result_set(card_id, result))
+    if claimed:
+        fire_and_forget(push_assignee_changed(card_id, by_user_id))
     return {'ok': True, 'card': out}
 
 
@@ -369,6 +373,9 @@ async def set_assignee(card_id: int, assignee_user_id: int, by_user_id: int) -> 
         except RuntimeError:
             pass
 
+    from cabinet.bitrix_sync import push_assignee_changed, fire_and_forget
+    fire_and_forget(push_assignee_changed(card_id, assignee_user_id))
+
     return {'ok': True, 'card': out}
 
 
@@ -383,13 +390,16 @@ async def set_prices(card_id: int, purchase_price: Optional[float],
         if sale_price is not None:
             card.sale_price = Decimal(str(sale_price))
         card.updated_at = datetime.utcnow()
-        _auto_claim(card, by_user_id)
+        claimed = _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card_id, user_id=by_user_id, action='price_set',
             payload={'purchase': purchase_price, 'sale': sale_price},
         )
         session.add(history)
         await session.commit()
+        if claimed:
+            from cabinet.bitrix_sync import push_assignee_changed, fire_and_forget
+            fire_and_forget(push_assignee_changed(card_id, by_user_id))
         return {'ok': True, 'card': _card_dict(card)}
 
 
@@ -460,10 +470,11 @@ async def add_note(card_id: int, text: str, by_user_id: int) -> Dict:
     text = (text or '').strip()
     if not text:
         return {'ok': False, 'error': 'Заметка пуста'}
+    claimed = False
     async with DatabaseSession() as session:
         card = await session.get(PipelineCard, card_id)
         if card:
-            _auto_claim(card, by_user_id)
+            claimed = _auto_claim(card, by_user_id)
         note = PipelineCardNote(card_id=card_id, user_id=by_user_id, text=text)
         session.add(note)
         history = PipelineCardHistory(
@@ -471,6 +482,9 @@ async def add_note(card_id: int, text: str, by_user_id: int) -> Dict:
         )
         session.add(history)
         await session.commit()
+        if claimed:
+            from cabinet.bitrix_sync import push_assignee_changed, fire_and_forget
+            fire_and_forget(push_assignee_changed(card_id, by_user_id))
         return {'ok': True, 'note': {
             'id': note.id, 'text': note.text, 'user_id': note.user_id,
             'created_at': note.created_at.isoformat() if note.created_at else None,

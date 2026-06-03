@@ -191,6 +191,26 @@ async def _run_ai_analysis_background(
         logger.debug(f"Bitrix24 background AI for deal {deal_id}: {e}")
 
 
+async def update_bitrix24_deal_assignee(webhook_url: str, deal_id: str, bitrix_user_id: int) -> bool:
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+    endpoint = webhook_url + 'crm.deal.update.json'
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.post(endpoint, json={
+                'id': deal_id,
+                'fields': {'ASSIGNED_BY_ID': bitrix_user_id},
+            }) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return bool(data.get('result'))
+                logger.warning(f"update_assignee HTTP {resp.status}")
+                return False
+    except Exception as e:
+        logger.error(f"update_bitrix24_deal_assignee error: {e}")
+        return False
+
+
 async def update_bitrix24_deal_stage(webhook_url: str, deal_id: str, stage_id: str) -> bool:
     """
     Перемещает сделку на указанный этап через crm.deal.update.
@@ -263,21 +283,7 @@ def _map_ai_rec_enum(ai_recommendation: str) -> int:
 # Ключ: подстрока имени фильтра (lowercase)
 # Значение: {'assigned': bitrix24_user_id, 'observers': [user_ids]}
 
-FILTER_ASSIGNEE_MAP = [
-    # Анастасия Жулькова (ID=21)
-    {'match': 'мебель', 'assigned': 21},
-    {'match': 'компы', 'assigned': 21},
-    {'match': 'комп', 'assigned': 21},
-    {'match': 'орг. техника', 'assigned': 21, 'observers': [17]},  # Мария (17) наблюдатель
-
-    # Мария Логинова (ID=17)
-    {'match': 'разное', 'assigned': 17},
-    {'match': 'сборная прочее', 'assigned': 17},
-
-    # Николай Логинов (ID=15)
-    {'match': 'бумага', 'assigned': 15},
-    {'match': 'канцеляр', 'assigned': 15},
-]
+FILTER_ASSIGNEE_MAP: list = []
 
 # Администратор (ID=1) и Олег Гордеев (ID=19) видят всё через права CRM
 BITRIX24_FULL_ACCESS_USERS = [1, 19]

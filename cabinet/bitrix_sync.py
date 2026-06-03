@@ -213,6 +213,36 @@ async def push_result_set(card_id: int, result: str) -> None:
         logger.error(f'[bitrix] push_result_set error card={card_id}: {e}', exc_info=True)
 
 
+async def push_assignee_changed(card_id: int, assignee_user_id: int) -> None:
+    """Обновить ASSIGNED_BY_ID сделки в Bitrix когда кто-то берёт карточку."""
+    try:
+        async with DatabaseSession() as session:
+            card = await session.get(PipelineCard, card_id)
+            if not card:
+                return
+            data = card.data or {}
+            deal_id = data.get('bitrix_deal_id')
+            company_id = card.company_id
+            if not deal_id:
+                return
+            user = await session.get(SniperUser, assignee_user_id)
+            if not user:
+                return
+            user_data = user.data or {}
+            bitrix_id = user_data.get('bitrix_user_id')
+        if not bitrix_id:
+            logger.debug(f'[bitrix] user {assignee_user_id} has no bitrix_user_id mapping')
+            return
+        webhook = await _get_company_webhook(company_id)
+        if not webhook:
+            return
+        from bot.handlers.bitrix24 import update_bitrix24_deal_assignee
+        ok = await update_bitrix24_deal_assignee(webhook, str(deal_id), int(bitrix_id))
+        logger.info(f'[bitrix] card {card_id} → deal {deal_id} assignee={bitrix_id} ok={ok}')
+    except Exception as e:
+        logger.error(f'[bitrix] push_assignee_changed error card={card_id}: {e}', exc_info=True)
+
+
 def fire_and_forget(coro) -> None:
     """Запустить корутину как background task с защитой от warn про unawaited."""
     try:
