@@ -178,6 +178,9 @@ class InstantSearch:
                     # Запускаем RSS и HTML параллельно для максимального покрытия
                     loop = asyncio.get_event_loop()
 
+                    from datetime import datetime as _dt, timedelta as _td
+                    _date_from = (_dt.utcnow() - _td(days=3)).strftime('%d.%m.%Y')
+
                     rss_future = loop.run_in_executor(
                         None,
                         functools.partial(
@@ -191,6 +194,7 @@ class InstantSearch:
                             law_type=law_type,
                             purchase_stage=effective_purchase_stage,
                             purchase_method=purchase_method,
+                            date_from=_date_from,
                         )
                     )
 
@@ -207,6 +211,7 @@ class InstantSearch:
                             law_type=law_type,
                             purchase_stage=effective_purchase_stage,
                             purchase_method=purchase_method,
+                            date_from=_date_from,
                         )
                     )
 

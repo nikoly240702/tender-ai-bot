@@ -509,6 +509,7 @@ class ZakupkiRSSParser:
         law_type: Optional[str] = None,
         purchase_stage: Optional[str] = None,
         purchase_method: Optional[str] = None,
+        date_from: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Fallback: парсинг HTML-страницы поиска вместо RSS.
@@ -522,6 +523,7 @@ class ZakupkiRSSParser:
                 keywords=keywords, price_min=price_min, price_max=price_max,
                 regions=regions, tender_type=tender_type, law_type=law_type,
                 purchase_stage=purchase_stage, purchase_method=purchase_method,
+                date_from=date_from,
             )
             html_url = rss_url.replace('/rss.html?', '/results.html?')
             html_url += '&recordsPerPage=_50&pageNumber=1'
