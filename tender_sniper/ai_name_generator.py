@@ -237,24 +237,20 @@ class TenderNameGenerator:
         try:
             logger.info(f"🤖 Генерация короткого названия через {self.provider}...")
 
-            system_prompt = """Ты - эксперт по государственным закупкам.
-Твоя задача - создавать сверхкороткие, понятные названия для тендеров: 3-5 слов.
+            system_prompt = """Ты сокращаешь названия тендеров до 3-5 слов.
 
-СТРОГО УБИРАЙ:
-- Тип процедуры: "Электронный аукцион", "Запрос котировок", "Открытый конкурс" и т.п.
-- Номера лотов и закупок: "Р-30", "лот 4", "реестровый номер", коды вроде "2025-12345"
-- Годы: 2024, 2025, 2026 и любые другие
-- Юридические ссылки: "в соответствии с ч.1 ст.93 44-ФЗ", "согласно Федеральному закону"
-- Бюрократические формулировки: "для нужд", "в целях обеспечения", "осуществляемая в рамках"
-- Названия организаций-заказчиков
+ГЛАВНОЕ ПРАВИЛО: используй ТОЛЬКО слова из оригинального названия. НИКОГДА не придумывай новые слова, не интерпретируй, не фантазируй. Если название уже короткое — верни как есть.
 
-ОСТАВЛЯЙ ТОЛЬКО: суть — ЧТО покупают/делают (3-5 ключевых слов).
+УБИРАЙ: тип процедуры, номера, годы, юридические ссылки, "для нужд", "в целях обеспечения", названия организаций.
 
 Примеры:
 "Электронный аукцион №0372200015125000456 на поставку компьютерного оборудования для нужд ГБОУ" → "Компьютерное оборудование"
 "Запрос котировок лот 3 Р-45 оказание услуг по уборке помещений 2025" → "Уборка помещений"
+"Поставка оконных блоков" → "Поставка оконных блоков"
 "Поставка медицинских изделий (перчатки латексные) для ГАУЗ" → "Медицинские перчатки"
 "Капитальный ремонт фасада здания административного корпуса" → "Капремонт фасада здания"
+
+ЗАПРЕЩЕНО: "Поставка оконных блоков" → "Робот-мойщик окон" (это ВЫДУМКА, слов "робот" и "мойщик" нет в оригинале!)
 
 Отвечай ТОЛЬКО названием (3-5 слов), без пояснений и кавычек."""
 
@@ -283,6 +279,10 @@ class TenderNameGenerator:
             generated_name = self.llm.generate(system_prompt, user_prompt)
             generated_name = generated_name.strip().strip('"').strip("'")
 
+            if not self._validate_no_hallucination(generated_name, original_name, tender_data):
+                logger.warning(f"⚠️ Галлюцинация: '{generated_name}' не из '{original_name[:60]}'. Fallback.")
+                return self._fallback_short_name(original_name, max_length)
+
             # Проверяем длину и обрезаем если нужно
             if len(generated_name) > max_length:
                 generated_name = generated_name[:max_length-3] + "..."
@@ -296,6 +296,44 @@ class TenderNameGenerator:
         except Exception as e:
             logger.error(f"❌ Ошибка генерации названия: {e}")
             return self._fallback_short_name(original_name, max_length)
+
+    _STOP_WORDS = {
+        'и', 'в', 'на', 'по', 'для', 'с', 'от', 'из', 'к', 'до', 'о', 'об',
+        'не', 'а', 'но', 'или', 'за', 'при', 'без', 'под', 'над', 'между',
+        'через', 'после', 'перед', 'около', 'у', 'со', 'во', 'ко',
+        'нужд', 'целях', 'рамках', 'также', 'иных', 'иного', 'т.п.',
+    }
+
+    def _validate_no_hallucination(
+        self,
+        generated: str,
+        original_name: str,
+        tender_data: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        source_text = original_name.lower()
+        if tender_data:
+            summary = tender_data.get('summary', '') or ''
+            description = tender_data.get('description', '') or ''
+            source_text += ' ' + summary.lower() + ' ' + description.lower()
+
+        source_text = re.sub(r'<[^>]+>', ' ', source_text)
+        source_words = set(re.findall(r'[а-яёa-z]{3,}', source_text))
+
+        gen_words = set(re.findall(r'[а-яёa-z]{3,}', generated.lower()))
+        gen_words -= self._STOP_WORDS
+
+        if not gen_words:
+            return True
+
+        def _same_root(a: str, b: str) -> bool:
+            if a in b or b in a:
+                return True
+            prefix = min(len(a), len(b), 5)
+            return prefix >= 4 and a[:prefix] == b[:prefix]
+
+        matched = sum(1 for w in gen_words if any(_same_root(w, sw) for sw in source_words))
+        ratio = matched / len(gen_words)
+        return ratio >= 0.5
 
     def _fallback_short_name(self, original_name: str, max_length: int) -> str:
         """

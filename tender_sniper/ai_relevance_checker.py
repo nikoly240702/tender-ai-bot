@@ -390,6 +390,27 @@ class AIRelevanceChecker:
                 'quota_remaining': -1
             }
 
+    @staticmethod
+    def _validate_simple_name(simple_name: str, tender_name: str, tender_description: str = '') -> bool:
+        import re as _re
+        source = (tender_name + ' ' + (tender_description or '')).lower()
+        source = _re.sub(r'<[^>]+>', ' ', source)
+        source_words = set(_re.findall(r'[а-яёa-z]{3,}', source))
+
+        stop = {'и', 'в', 'на', 'по', 'для', 'с', 'от', 'из', 'к', 'до', 'о',
+                'не', 'а', 'но', 'или', 'за', 'при', 'без', 'под', 'над'}
+        gen_words = set(_re.findall(r'[а-яёa-z]{3,}', simple_name.lower())) - stop
+        if not gen_words:
+            return True
+        def _same_root(a, b):
+            if a in b or b in a:
+                return True
+            prefix = min(len(a), len(b), 5)
+            return prefix >= 4 and a[:prefix] == b[:prefix]
+
+        matched = sum(1 for w in gen_words if any(_same_root(w, sw) for sw in source_words))
+        return (matched / len(gen_words)) >= 0.5
+
     async def _call_ai_check(
         self,
         tender_name: str,
@@ -457,7 +478,7 @@ class AIRelevanceChecker:
   "relevant" (bool), "confidence" (0-100), "reason" (строка на русском).
 
 Если relevant=true — добавь дополнительные поля:
-  "simple_name": краткое название тендера 3-5 слов (без юридических формулировок, без номеров, без годов),
+  "simple_name": краткое название тендера 3-5 слов. ВАЖНО: используй ТОЛЬКО слова из оригинального названия тендера. НЕ ПРИДУМЫВАЙ новые слова, НЕ ИНТЕРПРЕТИРУЙ, НЕ ФАНТАЗИРУЙ. Просто сократи исходное название, убрав юридические формулировки, номера, годы, организации. Пример: "Поставка оконных блоков" → "Поставка оконных блоков" (оставь как есть, если уже короткое),
   "summary": 1-2 предложения о сути закупки,
   "key_requirements": массив из 1-3 ключевых требований (пусто если неизвестно),
   "risks": массив из 0-3 рисков (срочные сроки, узкие требования, поставка партиями/по заявкам заказчика на протяжении года с оплатой после всех поставок, и т.п.),
@@ -465,7 +486,7 @@ class AIRelevanceChecker:
   "recommendation": "Рекомендуется" | "Под вопросом" | "Не рекомендуется"
 
 Пример для relevant=true:
-{{"relevant": true, "confidence": 82, "reason": "поставка компьютерного оборудования", "simple_name": "Компьютеры для школы", "summary": "Поставка ПК и мониторов для нужд образования.", "key_requirements": ["Windows 11", "SSD 256 ГБ"], "risks": [], "estimated_competition": "средняя", "recommendation": "Рекомендуется"}}
+{{"relevant": true, "confidence": 82, "reason": "поставка компьютерного оборудования", "simple_name": "Компьютерное оборудование", "summary": "Поставка ПК и мониторов для нужд образования.", "key_requirements": ["Windows 11", "SSD 256 ГБ"], "risks": [], "estimated_competition": "средняя", "recommendation": "Рекомендуется"}}
 
 Пример для relevant=false:
 {{"relevant": false, "confidence": 5, "reason": "услуга, не товар"}}"""
@@ -522,7 +543,11 @@ class AIRelevanceChecker:
 
             # Расширенные поля — только если тендер релевантен
             if is_relevant:
-                result['simple_name'] = str(data.get('simple_name', ''))
+                raw_simple = str(data.get('simple_name', ''))
+                if raw_simple and not self._validate_simple_name(raw_simple, tender_name, tender_description):
+                    logger.warning(f"   ⚠️ simple_name галлюцинация: '{raw_simple}' (оригинал: '{tender_name[:50]}')")
+                    raw_simple = ''
+                result['simple_name'] = raw_simple
                 result['summary'] = str(data.get('summary', ''))
                 result['key_requirements'] = [str(r) for r in data.get('key_requirements', []) if r][:3]
                 result['risks'] = [str(r) for r in data.get('risks', []) if r][:2]
