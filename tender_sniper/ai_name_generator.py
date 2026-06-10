@@ -8,6 +8,7 @@ AI Name Generator для тендеров.
 import os
 import re
 import sys
+import html
 import logging
 import hashlib
 from pathlib import Path
@@ -16,6 +17,8 @@ from datetime import datetime, timedelta
 
 # Добавляем корневую директорию в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from tender_sniper.procedure_titles import is_procedure_type_only
 
 try:
     from src.analyzers.llm_adapter import LLMFactory
@@ -152,6 +155,16 @@ class TenderNameGenerator:
         'конкурс',
     ]
 
+    # "в электронной форме" / "в эл. форме" — это часть НАЗВАНИЯ ТИПА процедуры,
+    # а не предмет закупки. Никогда не должно становиться названием тендера.
+    _FORM_SUFFIX_RE = re.compile(r'^в\s+эл(?:ектронн\w+|\.?)\s+форме\b', re.I)
+
+    def _is_procedure_type_only(self, name: str) -> bool:
+        """True, если название — ТОЛЬКО тип процедуры (способ определения
+        поставщика) без указания предмета закупки.
+        Примеры: «Запрос котировок в электронной форме», «Электронный аукцион»."""
+        return is_procedure_type_only(name)
+
     def _strip_procedure_prefix(self, name: str) -> str:
         """
         Вырезает мусорный префикс типа 'Электронный аукцион №...' из начала.
@@ -159,24 +172,80 @@ class TenderNameGenerator:
         иначе возвращает исходное название.
         """
         import re
+
+        # Строка целиком — это тип процедуры без предмета: не выдумываем «огрызок»,
+        # возвращаем как есть (предмет подставит summary / _is_only_procedure_number).
+        if self._is_procedure_type_only(name):
+            return name
+
         lower = name.lower().strip()
 
         for prefix in self._PROCEDURE_PREFIXES:
             if not lower.startswith(prefix):
                 continue
 
-            # Вырезаем: тип процедуры + необязательный №/# + номер + разделитель
+            # Вырезаем: тип процедуры + необязательный «в электронной форме» + №/номер
             tail = name[len(prefix):].strip()
-            # Убираем "№XXXXXXXX" или "#XXXXXX" в начале tail
-            tail = re.sub(r'^[№#]?\s*[\w\d/\-]+', '', tail).strip()
+            # «в электронной форме» — часть типа процедуры, а не предмет
+            tail = self._FORM_SUFFIX_RE.sub('', tail).strip()
+            # Убираем только реальный номер «№XXXX» / «#XXXX» (начинается с цифры),
+            # не съедая первое осмысленное слово предмета закупки
+            tail = re.sub(r'^[№#]?\s*\d[\w\d/\-]*', '', tail).strip()
             # Убираем лидирующие разделители (- / : — –)
             tail = re.sub(r'^[\-–—:/,\.]+', '', tail).strip()
+            # Ещё раз «в электронной форме», если он стоял после номера
+            tail = self._FORM_SUFFIX_RE.sub('', tail).strip()
 
             if len(tail) >= 10:
                 # Первую букву делаем заглавной
                 return tail[0].upper() + tail[1:]
 
+            return name  # после очистки осталась пустота → это чистый тип процедуры
+
         return name  # Не нашли паттерн — возвращаем оригинал
+
+    # Источники реального предмета закупки в summary (приоритет — сверху вниз)
+    _OBJECT_PATTERNS = [
+        r'Наименование объекта закупки:\s*</strong>\s*([^<]+)',
+        r'<strong>\s*Объект закупки:\s*</strong>\s*([^<]+)',
+        r'Объект закупки:\s*</strong>\s*([^<]+)',
+        r'<strong>\s*Предмет (?:контракта|закупки):\s*</strong>\s*([^<]+)',
+        r'Наименование закупки:\s*</strong>\s*([^<]+)',
+        r'<strong>\s*Краткое описание:\s*</strong>\s*([^<]+)',
+        r'Наименование товара[^:<]*:\s*</strong>\s*([^<]+)',
+    ]
+
+    _BUREAU_PHRASES = (
+        'в соответствии с', 'осуществляемая в соответствии',
+        'статьи 93', 'закона № 44', 'закона №44', 'частью 12',
+    )
+
+    def _extract_object_from_summary(
+        self, tender_data: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Достаёт реальный предмет закупки из summary тендера.
+        Возвращает None, если предмет не найден или сам является мусором
+        (тип процедуры / бюрократия). Это детерминированно и не галлюцинирует."""
+        if not tender_data:
+            return None
+        summary = tender_data.get('summary') or ''
+        if not summary:
+            return None
+
+        for pattern in self._OBJECT_PATTERNS:
+            m = re.search(pattern, summary, re.IGNORECASE)
+            if not m:
+                continue
+            text = html.unescape(re.sub(r'\s+', ' ', m.group(1)).strip())
+            low = text.lower()
+            if len(text) < 8:
+                continue
+            if any(p in low for p in self._BUREAU_PHRASES):
+                continue
+            if self._is_procedure_type_only(text):
+                continue
+            return text
+        return None
 
     def _is_only_procedure_number(self, name: str) -> bool:
         """True, если название — ТОЛЬКО тип процедуры + номер, без описания."""
@@ -208,9 +277,23 @@ class TenderNameGenerator:
 
         original_name = re.sub(r'^[А-ЯA-Z]{1,4}[\-_]\d{2,6}[_\s]+', '', original_name).strip()
 
-        cleaned = self._strip_procedure_prefix(original_name)
+        is_garbage = (
+            self._is_only_procedure_number(original_name)
+            or self._is_procedure_type_only(original_name)
+        )
 
-        is_garbage = self._is_only_procedure_number(original_name)
+        # Если название бесполезное (только тип процедуры / бюрократия),
+        # детерминированно подставляем реальный предмет закупки из summary.
+        # Это убирает названия вида «Запрос котировок в электронной форме»
+        # и при этом не галлюцинирует — берём ровно то, что в карточке тендера.
+        if is_garbage or self._JUNK_RE.search(original_name.strip()):
+            real_object = self._extract_object_from_summary(tender_data)
+            if real_object:
+                original_name = real_object
+                is_garbage = self._is_only_procedure_number(original_name) or \
+                    self._is_procedure_type_only(original_name)
+
+        cleaned = self._strip_procedure_prefix(original_name)
 
         # Если после очистки префикса стало короче — используем очищенное
         if cleaned != original_name:

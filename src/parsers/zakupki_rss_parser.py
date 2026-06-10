@@ -40,11 +40,18 @@ _JUNK_TITLE_PATTERNS = [
 ]
 
 
+# Строка состоит ТОЛЬКО из типа процедуры (способ определения поставщика),
+# без предмета закупки. Единый источник правды — tender_sniper.procedure_titles.
+from tender_sniper.procedure_titles import is_procedure_type_only as _is_procedure_type_only
+
+
 def _looks_like_junk_title(title: str) -> bool:
     if not title:
         return True
     t = title.strip()
     if len(t) < 15:
+        return True
+    if _is_procedure_type_only(t):
         return True
     for p in _JUNK_TITLE_PATTERNS:
         if p.search(t):
@@ -1101,7 +1108,10 @@ class ZakupkiRSSParser:
                 'закона № 44-фз',
                 'закона №44-фз'
             ]
-            is_bureaucratic = any(indicator in current_name.lower() for indicator in bureaucratic_indicators)
+            is_bureaucratic = (
+                any(indicator in current_name.lower() for indicator in bureaucratic_indicators)
+                or _is_procedure_type_only(current_name)
+            )
 
             if is_bureaucratic:
                 _log.debug(f"   ⚠️ Обнаружено бюрократическое название, попытка заменить...")

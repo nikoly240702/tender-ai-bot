@@ -27,6 +27,8 @@ from tender_sniper.config import is_tender_sniper_enabled, is_component_enabled
 from tender_sniper.instant_search import InstantSearch
 from tender_sniper.monitoring import send_error_to_telegram
 from tender_sniper.ai_name_generator import generate_tender_name  # AI генератор названий
+from tender_sniper.tender_name_resolver import resolve_tender_name  # единый резолвер названия
+from tender_sniper.procedure_titles import is_procedure_type_only
 from bot.config import BotConfig  # Для проверки админа
 import json
 
@@ -451,17 +453,17 @@ class TenderSniperService:
 
                         tender = notif['tender']
 
-                        # Генерируем AI-название ОДИН РАЗ (для уведомления и БД)
-                        # Если AI-чекер уже вернул short name — используем его, иначе генерируем
-                        original_name = tender.get('name', '')
-                        ai_simple_name = notif['match_info'].get('ai_simple_name', '')
-                        if ai_simple_name:
-                            short_name = ai_simple_name
-                        else:
+                        # Каноническое название ОДИН РАЗ — для уведомления, БД,
+                        # кабинета и Bitrix. Строго предмет закупки, не тип процедуры.
+                        # Единый резолвер: сырое имя → объект из summary →
+                        # ai_simple_name → ai_summary → описание → номер.
+                        short_name = resolve_tender_name(
+                            tender, notif.get('match_info'), max_length=120
+                        )
+                        # Если резолвер вернул длинное «сырое» имя — поджимаем через AI
+                        if len(short_name) > 80 and not is_procedure_type_only(short_name):
                             short_name = generate_tender_name(
-                                original_name,
-                                tender_data=tender,
-                                max_length=80
+                                short_name, tender_data=tender, max_length=80
                             )
                         # Заменяем название в тендере на короткое
                         tender['name'] = short_name

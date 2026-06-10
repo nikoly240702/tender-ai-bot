@@ -11,29 +11,11 @@ from typing import Dict, Any, Optional, Tuple
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-
-# «Мусорные» названия которые RSS иногда отдаёт вместо нормального
-# имени тендера: внутренние номера заказчика, «Электронный формуляр», и т.п.
-_JUNK_NAME_PATTERNS = [
-    re.compile(r'^[\d\W_]+$'),
-    re.compile(r'^\d{4}-\d{3,}'),
-    re.compile(r'^№?\s*[\d\.\-/]+\s*$'),
-    re.compile(r'^электронн\w*\s+формуляр', re.I),
-    re.compile(r'^формуляр\b', re.I),
-    re.compile(r'^извещени\w*\s+о\s+(закупке|проведении)', re.I),
-    re.compile(r'^уведомление\b', re.I),
-    re.compile(r'^(ФГБОУ|ГБОУ|ГАУЗ|ГБУ|МБУ|МКУ|ФГУП|ГУП|МУП|ФКУ|ФГБУ|АО|ООО|ПАО|ИП|ОГБУЗ|ГБУЗ|КГБУЗ)\b', re.I),
-    re.compile(r'^(ГОСУДАРСТВЕН|МУНИЦИПАЛЬ|ФЕДЕРАЛЬН|КОМИТЕТ|ДЕПАРТАМЕНТ|МИНИСТЕРСТВ|АДМИНИСТРАЦ|УПРАВЛЕНИ[ЕЯ]|КАЗЕНН)', re.I),
-]
-
-
-def _looks_like_junk_name(name: str) -> bool:
-    if not name:
-        return True
-    t = name.strip()
-    if len(t) < 15:
-        return True
-    return any(p.search(t) for p in _JUNK_NAME_PATTERNS)
+# Единый резолвер названия (тот же, что в кабинете/Bitrix — одно имя везде)
+from tender_sniper.tender_name_resolver import (
+    resolve_tender_name as _resolve_tender_name,
+    looks_like_junk_name as _looks_like_junk_name,
+)
 
 
 def _clean_text(s: str) -> str:
@@ -83,22 +65,7 @@ def _build_text(
     else:
         score_emoji = "📌"
 
-    name = tender.get('name') or ''
-    if _looks_like_junk_name(name):
-        ai_summary = match_info.get('ai_summary', '')
-        ai_reason = match_info.get('ai_reason', '')
-        if ai_summary and len(ai_summary) >= 15:
-            name = ai_summary[:120]
-        elif ai_reason and len(ai_reason) >= 10:
-            name = ai_reason[:120]
-        else:
-            for alt_key in ('summary', 'description', 'tender_name'):
-                alt = tender.get(alt_key) or ''
-                if alt and not _looks_like_junk_name(alt):
-                    name = _clean_text(alt)[:200]
-                    break
-            else:
-                name = 'Тендер №' + (tender.get('number') or '—')
+    name = _resolve_tender_name(tender, match_info)
 
     # Цена
     price = tender.get('price')
