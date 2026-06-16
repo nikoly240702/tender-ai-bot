@@ -289,6 +289,19 @@ FILTER_ASSIGNEE_MAP: list = []
 BITRIX24_FULL_ACCESS_USERS = [1, 19]
 
 
+def build_deal_title(filter_name: str, tender_name: str, tender_number: str) -> str:
+    """Заголовок сделки Bitrix: '[Фильтр] Название'.
+
+    Имя фильтра идёт префиксом, чтобы на канбане сразу было видно, по какому
+    фильтру пришло совпадение (проще распределять процедуры между менеджерами).
+    Усекается до 255 символов (ограничение TITLE в Bitrix).
+    """
+    base = (tender_name or '').strip() or f'Тендер № {tender_number}'
+    fn = (filter_name or '').strip()
+    title = f'[{fn}] {base}' if fn else base
+    return title[:255]
+
+
 def _get_assignee_for_filter(filter_name: str) -> dict:
     """
     Определяет ответственного по имени фильтра.
@@ -347,7 +360,7 @@ async def create_bitrix24_deal(
     assignee = _get_assignee_for_filter(filter_name)
 
     fields: dict = {
-        'TITLE': (tender_name[:255] if tender_name else f'Тендер № {tender_number}'),
+        'TITLE': build_deal_title(filter_name, tender_name, tender_number),
         'OPPORTUNITY': tender_price or 0,
         'CURRENCY_ID': 'RUB',
         'SOURCE_ID': 'WEB',
@@ -412,6 +425,7 @@ async def create_simple_bitrix24_deal(
     tender_customer: str,
     tender_region: str,
     submission_deadline: str = '',
+    filter_name: str = '',
 ) -> Optional[int]:
     """
     Минимальная сделка в Битрикс24 для обычных юзеров кабинета.
@@ -428,7 +442,7 @@ async def create_simple_bitrix24_deal(
     ] if p)
 
     fields: dict = {
-        'TITLE': (tender_name[:255] if tender_name else f'Тендер № {tender_number}'),
+        'TITLE': build_deal_title(filter_name, tender_name, tender_number),
         'OPPORTUNITY': tender_price or 0,
         'CURRENCY_ID': 'RUB',
         'SOURCE_ID': 'WEB',

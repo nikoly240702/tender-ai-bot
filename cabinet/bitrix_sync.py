@@ -150,6 +150,7 @@ async def push_card_created(card_id: int) -> Optional[int]:
                 tender_customer=customer,
                 tender_region=region,
                 submission_deadline=deadline,
+                filter_name=filter_name,
             )
 
         if deal_id:
