@@ -2729,22 +2729,22 @@ async def undo_skip_tender(callback: CallbackQuery):
             await db.unhide_tender(user['id'], tender_number)
             logger.info(f"Пользователь {callback.from_user.id} отменил пропуск тендера {tender_number}")
 
-        # Восстанавливаем кнопки — берём URL из уведомления
+        # Восстанавливаем ПОЛНЫЙ набор кнопок карточки (включая «В Б24» / «В Б24 + AI»),
+        # переиспользуя тот же билдер, что и при отправке уведомления.
+        from bot.formatters.tender_card import _build_keyboard
+
         notification = await db.get_notification_by_tender(user['id'], tender_number) if user else None
         tender_url = notification.get('tender_url', '') if notification else ''
+        tier = user.get('subscription_tier', 'trial') if user else 'trial'
 
-        restored_buttons = []
-        if tender_url:
-            restored_buttons.append([InlineKeyboardButton(text="📄 Открыть на zakupki.gov.ru", url=tender_url)])
-        restored_buttons.append([
-            InlineKeyboardButton(text="✅ Интересно", callback_data=safe_callback_data("interested", tender_number)),
-            InlineKeyboardButton(text="📊 В таблицу", callback_data=safe_callback_data("sheets", tender_number)),
-            InlineKeyboardButton(text="❌ Пропустить", callback_data=safe_callback_data("skip", tender_number)),
-        ])
-
-        await callback.message.edit_reply_markup(
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=restored_buttons)
+        # _build_keyboard читает из tender только 'number' и 'url' — этого достаточно,
+        # чтобы восстановить все действия карточки один-в-один.
+        restored_keyboard = _build_keyboard(
+            {'number': tender_number, 'url': tender_url},
+            subscription_tier=tier,
         )
+
+        await callback.message.edit_reply_markup(reply_markup=restored_keyboard)
     except Exception as e:
         logger.error(f"Ошибка undo_skip: {e}", exc_info=True)
 
