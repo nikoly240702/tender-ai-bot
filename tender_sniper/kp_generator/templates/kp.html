@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8"><style>{{ css }}</style></head>
+<body>
+  <table class="head"><tr>
+    <td class="seller">
+      <div>{{ seller.name }}</div>
+      <div>ИНН {{ seller.inn }}{% if seller.kpp %}, КПП {{ seller.kpp }}{% endif %}</div>
+      <div>{{ seller.address }}</div>
+      <div>Тел. {{ seller.phone }}</div>
+      <div>{{ seller.email }} |</div>
+    </td>
+    <td class="recipient">
+      <div>Куда: {{ recipient.kuda }}</div>
+      <div>Тел.: {{ recipient.tel }}</div>
+      <div>Кому: {{ recipient.komu }}</div>
+    </td>
+  </tr></table>
+
+  <h1>КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ № {{ number }}</h1>
+
+  <table class="items">
+    <thead><tr>
+      <th>№</th><th>Наименование</th><th>Предлагаемое наименование</th>
+      <th>Ед.<br>изм.</th><th>Кол-во</th>
+      <th>Цена за ед.,<br>RUB {{ vat_suffix }}</th>
+      <th>Сумма,<br>RUB {{ vat_suffix }}</th><th>Срок<br>поставки</th>
+    </tr></thead>
+    <tbody>
+    {% for it in items %}
+      <tr>
+        <td class="c">{{ loop.index }}</td>
+        <td>{{ it.name }}</td><td>{{ it.proposed_name }}</td>
+        <td class="c">{{ it.unit }}</td><td class="c">{{ it.qty_str }}</td>
+        <td class="r">{{ it.price_str }}</td><td class="r">{{ it.sum_str }}</td>
+        <td class="c">{{ it.delivery or delivery_time }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <table class="totals"><tr><td>
+    {% if vat_mode == 'vat20' %}
+      Итого: {{ total_str }}<br>в т.ч. НДС 20%: {{ vat_str }}
+    {% else %}
+      Всего без НДС: {{ total_str }}
+    {% endif %}
+  </td></tr></table>
+
+  <div class="terms">
+    <div>Срок действия данного предложения {{ validity_days }} календарных дней.</div>
+    <div>Условия оплаты: {{ payment_terms }}</div>
+    <div>Условия доставки: {{ delivery_terms }}</div>
+    <div>Цены действительны при полном объеме закупки. Срок поставки указан без учета праздничных выходных.</div>
+  </div>
+  <hr>
+  <div class="sign">С наилучшими пожеланиями,<br>{{ signer_name }}</div>
+</body></html>

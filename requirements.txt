@@ -87,3 +87,6 @@ langgraph>=0.2.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0
 tiktoken>=0.7.0
+
+# KP Generator - PDF rendering (added 2026-07-17)
+weasyprint==66.0
