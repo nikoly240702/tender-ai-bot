@@ -7,10 +7,10 @@ from .models import KPData
 _TPL_DIR = Path(__file__).parent / "templates"
 _env = Environment(loader=FileSystemLoader(str(_TPL_DIR)),
                    autoescape=select_autoescape(["html"]))
+_CSS = (_TPL_DIR / "kp.css").read_text(encoding="utf-8")
 
 
 def _qty_str(q):
-    q = q.normalize()
     return str(q.to_integral_value()) if q == q.to_integral_value() else format_money(q)
 
 
@@ -23,9 +23,8 @@ def render_kp_pdf(kp: KPData) -> bytes:
         "sum_str": format_money(it.sum), "delivery": it.delivery,
     } for it in kp.items]
 
-    css = (_TPL_DIR / "kp.css").read_text(encoding="utf-8")
     html = _env.get_template("kp.html").render(
-        css=css, seller=kp.seller, recipient=kp.recipient, number=kp.number,
+        css=_CSS, seller=kp.seller, recipient=kp.recipient, number=kp.number,
         vat_mode=kp.vat_mode, vat_suffix=vat_suffix, delivery_time=kp.delivery_time,
         items=items_ctx, total_str=format_money(totals.total),
         vat_str=format_money(totals.vat_amount) if totals.vat_amount is not None else "",
