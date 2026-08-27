@@ -474,6 +474,38 @@ async def _create_card_from_deal(
     return card
 
 
+async def _diff_and_log_field_changes(
+    session, card: PipelineCard, deal: Dict[str, Any], owner_user_id: int,
+) -> None:
+    """Сравнивает отслеживаемые поля со снимком в card.data['bitrix_snapshot'],
+    пишет по одной записи истории на каждое изменённое поле (кроме STAGE_ID —
+    им занимается _pull_stage_update, и ASSIGNED_BY_ID — им _sync_assignee_from_deal).
+    Обновляет снимок в конце независимо от того, было ли изменение.
+    """
+    data = dict(card.data or {})
+    old_snapshot = data.get('bitrix_snapshot') or {}
+    new_snapshot = _snapshot_from_deal(deal)
+
+    for field in _TRACKED_DEAL_FIELDS:
+        if field in ('STAGE_ID', 'ASSIGNED_BY_ID'):
+            continue
+        if field not in old_snapshot:
+            continue  # первое наблюдение поля — не считаем изменением
+        old_val = old_snapshot.get(field)
+        new_val = new_snapshot.get(field)
+        if old_val == new_val:
+            continue
+        session.add(PipelineCardHistory(
+            card_id=card.id, user_id=owner_user_id,
+            action='bitrix_field_changed',
+            payload={'field': field, 'old': old_val, 'new': new_val},
+        ))
+
+    data['bitrix_snapshot'] = new_snapshot
+    card.data = data
+    flag_modified(card, 'data')
+
+
 async def _fetch_all_deals(webhook: str) -> List[Dict[str, Any]]:
     """Берёт все сделки через crm.deal.list с пагинацией.
 
