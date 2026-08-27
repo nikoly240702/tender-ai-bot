@@ -516,6 +516,9 @@ async def _sync_assignee_from_deal(
     """
     from database import CompanyMember
 
+    if 'ASSIGNED_BY_ID' not in deal:
+        return  # malformed/partial deal dict — do not treat as "assignee cleared"
+
     new_assigned = deal.get('ASSIGNED_BY_ID')
     data = dict(card.data or {})
     old_snapshot = data.get('bitrix_snapshot') or {}

@@ -225,3 +225,26 @@ async def test_sync_assignee_no_change_is_noop(db, card_factory):
             select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
         )).scalars().all()
         assert [h for h in rows if h.action == 'bitrix_field_changed' and h.payload.get('field') == 'ASSIGNED_BY_ID'] == []
+
+
+@pytest.mark.asyncio
+async def test_sync_assignee_missing_key_in_deal_is_noop(db, card_factory):
+    """Malformed/partial deal dict without ASSIGNED_BY_ID at all must not be
+    treated as "assignee cleared to None" — no history entry, no mutation."""
+    card_id = await card_factory(data={'bitrix_snapshot': {'ASSIGNED_BY_ID': 1}})
+    new_deal = {'ID': '700'}  # no ASSIGNED_BY_ID key at all
+
+    async with FakeDatabaseSession.factory() as s:
+        card_before = await s.get(PipelineCard, card_id)
+        original_assignee = card_before.assignee_user_id
+        await bitrix_sync._sync_assignee_from_deal(s, 1, card_before, new_deal, owner_user_id=1)
+        await s.commit()
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.assignee_user_id == original_assignee
+        assert 'bitrix_assigned_name' not in (card.data or {})
+        rows = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        assert [h for h in rows if h.action == 'bitrix_field_changed' and h.payload.get('field') == 'ASSIGNED_BY_ID'] == []
