@@ -1913,7 +1913,7 @@ git commit -m "feat(bitrix): poll deal comments every 90s, demote full poll to h
 - Test: `tests/unit/test_bitrix_inbound_settings_api.py`
 
 **Interfaces:**
-- Consumes: `cabinet.bitrix_sync.get_or_create_inbound_secret`, `cabinet.bitrix_sync.rotate_inbound_secret`, `cabinet.auth.require_owner`, `bot.config.WEBAPP_BASE_URL`.
+- Consumes: `cabinet.bitrix_sync.get_or_create_inbound_secret`, `cabinet.bitrix_sync.rotate_inbound_secret`, `cabinet.auth.require_owner`, `bot.config.BotConfig.WEBAPP_BASE_URL`.
 - Produces: `get_bitrix_inbound_settings(request) -> web.Response`, `rotate_bitrix_inbound_secret(request) -> web.Response`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1943,7 +1943,7 @@ async def test_get_bitrix_inbound_settings_returns_url_with_secret(monkeypatch):
     async def fake_secret(company_id):
         return 'abc123'
     monkeypatch.setattr('cabinet.bitrix_sync.get_or_create_inbound_secret', fake_secret)
-    monkeypatch.setattr('bot.config.WEBAPP_BASE_URL', 'https://example.app')
+    monkeypatch.setattr('bot.config.BotConfig.WEBAPP_BASE_URL', 'https://example.app')
 
     request = make_mocked_request('GET', '/cabinet/api/settings/bitrix-inbound')
     request['company'] = {'id': 5, 'owner_user_id': 1}
@@ -1957,7 +1957,7 @@ async def test_rotate_bitrix_inbound_secret_returns_new_url(monkeypatch):
     async def fake_rotate(company_id):
         return 'new-secret'
     monkeypatch.setattr('cabinet.bitrix_sync.rotate_inbound_secret', fake_rotate)
-    monkeypatch.setattr('bot.config.WEBAPP_BASE_URL', 'https://example.app')
+    monkeypatch.setattr('bot.config.BotConfig.WEBAPP_BASE_URL', 'https://example.app')
 
     request = make_mocked_request('POST', '/cabinet/api/settings/bitrix-inbound/rotate')
     request['company'] = {'id': 5, 'owner_user_id': 1}
@@ -1981,11 +1981,11 @@ Expected: FAIL с `AttributeError: module 'cabinet.api' has no attribute '_get_b
 async def _get_bitrix_inbound_settings_impl(request: web.Request) -> web.Response:
     company = request['company']
     from cabinet.bitrix_sync import get_or_create_inbound_secret
-    from bot.config import WEBAPP_BASE_URL
+    from bot.config import BotConfig
     secret = await get_or_create_inbound_secret(company['id'])
     if not secret:
         return web.json_response({'error': 'company not found'}, status=404)
-    url = f"{WEBAPP_BASE_URL}/webhook/bitrix24/events?c={company['id']}&t={secret}"
+    url = f"{BotConfig.WEBAPP_BASE_URL}/webhook/bitrix24/events?c={company['id']}&t={secret}"
     return web.json_response({'ok': True, 'url': url})
 
 
@@ -2000,11 +2000,11 @@ async def get_bitrix_inbound_settings(request: web.Request) -> web.Response:
 async def _rotate_bitrix_inbound_secret_impl(request: web.Request) -> web.Response:
     company = request['company']
     from cabinet.bitrix_sync import rotate_inbound_secret
-    from bot.config import WEBAPP_BASE_URL
+    from bot.config import BotConfig
     secret = await rotate_inbound_secret(company['id'])
     if not secret:
         return web.json_response({'error': 'company not found'}, status=404)
-    url = f"{WEBAPP_BASE_URL}/webhook/bitrix24/events?c={company['id']}&t={secret}"
+    url = f"{BotConfig.WEBAPP_BASE_URL}/webhook/bitrix24/events?c={company['id']}&t={secret}"
     return web.json_response({'ok': True, 'url': url})
 
 
