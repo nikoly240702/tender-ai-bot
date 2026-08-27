@@ -164,3 +164,64 @@ async def test_diff_skips_field_never_seen_before(db, card_factory):
             select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
         )).scalars().all()
         assert [h for h in rows if h.action == 'bitrix_field_changed'] == []
+
+
+@pytest.mark.asyncio
+async def test_sync_assignee_maps_known_bitrix_user(db, card_factory):
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        from database import CompanyMember
+        member = SniperUser(telegram_id=333, data={'bitrix_user_id': 42})
+        s.add(member); await s.flush()
+        s.add(CompanyMember(company_id=company_id, user_id=member.id, role='member'))
+        await s.commit()
+        member_id = member.id
+
+    card_id = await card_factory(data={'bitrix_snapshot': {'ASSIGNED_BY_ID': 1}})
+    new_deal = {'ID': '700', 'ASSIGNED_BY_ID': 42}
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        await bitrix_sync._sync_assignee_from_deal(s, company_id, card, new_deal, owner_user_id=1)
+        await s.commit()
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.assignee_user_id == member_id
+        rows = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        assert any(h.action == 'bitrix_field_changed' and h.payload['field'] == 'ASSIGNED_BY_ID' for h in rows)
+
+
+@pytest.mark.asyncio
+async def test_sync_assignee_unknown_bitrix_user_keeps_assignee_but_stores_name(db, card_factory):
+    company_id = db
+    card_id = await card_factory(data={'bitrix_snapshot': {'ASSIGNED_BY_ID': 1}})
+    new_deal = {'ID': '700', 'ASSIGNED_BY_ID': 999, 'ASSIGNED_BY_NAME': 'Партнёр'}
+
+    async with FakeDatabaseSession.factory() as s:
+        card_before = await s.get(PipelineCard, card_id)
+        original_assignee = card_before.assignee_user_id
+        await bitrix_sync._sync_assignee_from_deal(s, company_id, card_before, new_deal, owner_user_id=1)
+        await s.commit()
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.assignee_user_id == original_assignee  # не тронуто
+        assert card.data.get('bitrix_assigned_name') == 'Партнёр'
+
+
+@pytest.mark.asyncio
+async def test_sync_assignee_no_change_is_noop(db, card_factory):
+    card_id = await card_factory(data={'bitrix_snapshot': {'ASSIGNED_BY_ID': 1}})
+    new_deal = {'ID': '700', 'ASSIGNED_BY_ID': 1}
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        await bitrix_sync._sync_assignee_from_deal(s, 1, card, new_deal, owner_user_id=1)
+        await s.commit()
+    async with FakeDatabaseSession.factory() as s:
+        rows = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        assert [h for h in rows if h.action == 'bitrix_field_changed' and h.payload.get('field') == 'ASSIGNED_BY_ID'] == []

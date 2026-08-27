@@ -506,6 +506,54 @@ async def _diff_and_log_field_changes(
     flag_modified(card, 'data')
 
 
+async def _sync_assignee_from_deal(
+    session, company_id: int, card: PipelineCard, deal: Dict[str, Any], owner_user_id: int,
+) -> None:
+    """Отражает смену ответственного в Bitrix. Если новый ASSIGNED_BY_ID
+    сопоставляется с sniper_users этой компании (по data['bitrix_user_id']) —
+    обновляет assignee_user_id. Если нет — оставляет assignee_user_id как есть
+    (FK-целостность) и только сохраняет отображаемое имя для UI.
+    """
+    from database import CompanyMember
+
+    new_assigned = deal.get('ASSIGNED_BY_ID')
+    data = dict(card.data or {})
+    old_snapshot = data.get('bitrix_snapshot') or {}
+    old_assigned = old_snapshot.get('ASSIGNED_BY_ID')
+
+    if 'ASSIGNED_BY_ID' not in old_snapshot or old_assigned == new_assigned:
+        return
+
+    matched_user_id: Optional[int] = None
+    members = (await session.execute(
+        select(CompanyMember).where(CompanyMember.company_id == company_id)
+    )).scalars().all()
+    candidate_ids = {m.user_id for m in members}
+    owner = await session.get(SniperUser, owner_user_id)
+    if owner:
+        candidate_ids.add(owner.id)
+    for user_id in candidate_ids:
+        user = await session.get(SniperUser, user_id)
+        if user and (user.data or {}).get('bitrix_user_id') == new_assigned:
+            matched_user_id = user.id
+            break
+
+    if matched_user_id:
+        card.assignee_user_id = matched_user_id
+        data.pop('bitrix_assigned_name', None)
+    else:
+        display_name = deal.get('ASSIGNED_BY_NAME') or f'Bitrix user #{new_assigned}'
+        data['bitrix_assigned_name'] = display_name
+
+    session.add(PipelineCardHistory(
+        card_id=card.id, user_id=owner_user_id,
+        action='bitrix_field_changed',
+        payload={'field': 'ASSIGNED_BY_ID', 'old': old_assigned, 'new': new_assigned},
+    ))
+    card.data = data
+    flag_modified(card, 'data')
+
+
 async def _fetch_all_deals(webhook: str) -> List[Dict[str, Any]]:
     """Берёт все сделки через crm.deal.list с пагинацией.
 
