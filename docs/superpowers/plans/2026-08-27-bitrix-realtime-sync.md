@@ -753,15 +753,27 @@ git commit -m "refactor(bitrix): extract card-from-deal creation into shared hel
 
 ---
 
-### Task 5: Вынести stage-mapping логику из `pull_changes_from_bitrix`
+### Task 5: Вынести stage-mapping логику из `pull_changes_from_bitrix` + исправить непортируемый поиск карточки
+
+**Ruling (added after Task 3's characterization run):** Task 3's characterization tests revealed
+that `pull_changes_from_bitrix`'s card lookup uses Postgres-only `data::text LIKE` raw SQL
+(`cabinet/bitrix_sync.py:704-719` at the time of this ruling). This works in production (Postgres)
+but (a) fails outright under SQLite — every pull silently degrades to a no-op counted as an
+`error`, defeating this plan's whole test strategy for this function, and (b) is a latent
+correctness bug even on Postgres: the pattern `%"bitrix_deal_id": 900%` has no closing-quote
+boundary, so it can false-positive match deal id `9000`, `9001`, etc. This task's scope is
+expanded to fix this now (rather than in Task 6, where it was originally planned) — `Produces`
+below adds `_find_card_by_bitrix_deal_id`, moved up from what was Task 6. Task 6 will consume it
+as already-defined rather than redefining it.
 
 **Files:**
 - Modify: `cabinet/bitrix_sync.py`
 
 **Interfaces:**
 - Produces: `_pull_stage_update(card: PipelineCard, stage_id: str) -> Optional[Dict[str, Any]]` — мутирует `card.stage`/`card.result` на месте, если применимо, и возвращает payload для истории; иначе `None` и `card` не тронута.
+- Produces: `_find_card_by_bitrix_deal_id(session, company_id: int, deal_id: str) -> Optional[PipelineCard]` — портируемый (SQLite+Postgres) поиск карточки компании по `data['bitrix_deal_id']`, сравнением в Python вместо raw-SQL JSON-каста. Заменяет собой блок `text("SELECT id FROM pipeline_cards WHERE company_id = :cid AND data::text LIKE :pattern LIMIT 1")` внутри `pull_changes_from_bitrix`.
 
-- [ ] **Step 1: Add the helper**
+- [ ] **Step 1: Add the helpers**
 
 ```python
 # cabinet/bitrix_sync.py — добавить перед "async def pull_changes_from_bitrix"
@@ -802,13 +814,33 @@ def _pull_stage_update(card: PipelineCard, stage_id: str) -> Optional[Dict[str, 
         'from_result': old_result, 'to_result': target_result,
         'bitrix_stage_id': stage_id,
     }
+
+
+async def _find_card_by_bitrix_deal_id(session, company_id: int, deal_id: str) -> Optional[PipelineCard]:
+    """Ищет карточку компании по data['bitrix_deal_id'] сравнением в Python —
+    портируемо между SQLite (тесты) и Postgres (прод), без JSON-операторов, и
+    без риска подстрокового ложняка (`900` не совпадёт с `9000`).
+    """
+    rows = await session.execute(
+        select(PipelineCard).where(PipelineCard.company_id == company_id)
+    )
+    deal_id_str = str(deal_id)
+    for card in rows.scalars().all():
+        if str((card.data or {}).get('bitrix_deal_id', '')) == deal_id_str:
+            return card
+    return None
 ```
 
-- [ ] **Step 2: Refactor `pull_changes_from_bitrix` to use it**
+- [ ] **Step 2: Refactor `pull_changes_from_bitrix` to use both helpers**
 
-Внутри `for deal in deals:` заменить блок от `target_stage = mapping['stage']` до `updated += 1` (текущие строки ~666-702) на:
+Внутри `for deal in deals:` заменить блок от `async with DatabaseSession() as session:` (текущие строки ~704-719, включая старый raw-SQL lookup через `text(...)`) до `updated += 1` (текущая строка ~702, после рефакторинга ниже) на:
 
 ```python
+            async with DatabaseSession() as session:
+                card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
+                if not card:
+                    continue
+
                 update_payload = _pull_stage_update(card, stage_id)
                 if update_payload is None:
                     continue
@@ -825,30 +857,50 @@ def _pull_stage_update(card: PipelineCard, stage_id: str) -> Optional[Dict[str, 
                 updated += 1
 ```
 
-(Строка `mapping = _PULL_STAGE_MAP.get(stage_id)` и последующий `if not mapping: continue` перед этим блоком удаляются — теперь эта проверка внутри `_pull_stage_update`.)
+(Строка `mapping = _PULL_STAGE_MAP.get(stage_id)` и последующий `if not mapping: continue`,
+которые в текущем коде идут ПЕРЕД блоком `async with DatabaseSession()`, удаляются — эта проверка
+теперь внутри `_pull_stage_update`. Убедиться, что `text` остаётся импортированным в файле, даже
+если это был единственный вызов `text(...)` в файле — на момент этой правки использование `text`
+для сырого SQL в файле больше не остаётся нигде; если линтер/`pyflakes` пожалуется на неиспользуемый
+импорт `text` из `sqlalchemy`, убрать его из строки импорта тоже можно, но это не обязательно для
+корректности.)
 
-- [ ] **Step 3: Run characterization tests to confirm no behavior change**
+- [ ] **Step 3: Run characterization tests to confirm the bug is fixed and nothing else regressed**
 
 Run: `pytest tests/unit/test_bitrix_sync_characterization.py tests/unit/test_bitrix_sync_events.py -v`
-Expected: PASS
+Expected: PASS, **including** `test_pull_updates_stage_for_mapped_stage_and_ignores_unmapped` and
+`test_pull_does_not_rollback_further_along_card` from Task 3 — these were failing/vacuous against
+the pre-refactor code specifically because of the bug this step fixes (see the ruling above the
+Files section). If Task 3's implementer updated either test's assertions to characterize the
+pre-fix buggy behavior (e.g. asserting `errors == 1`/`updated == 0`), revert that test back to
+asserting the originally-intended behavior (`updated == 1`, or the card not rolled back) as part of
+this step — the whole point of this fix is to make that original intent true again.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add cabinet/bitrix_sync.py
-git commit -m "refactor(bitrix): extract anti-rollback stage mapping into shared helper"
+git add cabinet/bitrix_sync.py tests/unit/test_bitrix_sync_characterization.py
+git commit -m "refactor(bitrix): extract anti-rollback stage mapping + fix non-portable card lookup"
 ```
 
 ---
 
-### Task 6: Диффер полей + поиск карточки по bitrix_deal_id
+### Task 6: Диффер полей (+ прямые unit-тесты на поиск карточки из Task 5)
+
+**Note (post-Task-3-ruling):** `_find_card_by_bitrix_deal_id` is now implemented in Task 5
+(moved there to fix a Postgres-only raw-SQL bug that Task 3's characterization run surfaced —
+see the ruling at the top of Task 5). It already exists in `cabinet/bitrix_sync.py` by the time
+this task runs. This task still adds direct unit tests for it below (using this file's nicer
+`card_factory` fixture, which didn't exist yet when Task 5 ran) alongside the new diff logic —
+that is intentional extra coverage, not a redo of Task 5's work.
 
 **Files:**
 - Modify: `cabinet/bitrix_sync.py`
 - Test: `tests/unit/test_bitrix_sync_events.py` (дополнить)
 
 **Interfaces:**
-- Produces: `_find_card_by_bitrix_deal_id(session, company_id: int, deal_id: str) -> Optional[PipelineCard]`, `_diff_and_log_field_changes(session, card: PipelineCard, deal: dict, owner_user_id: int) -> None`.
+- Consumes: `_find_card_by_bitrix_deal_id` (already produced by Task 5).
+- Produces: `_diff_and_log_field_changes(session, card: PipelineCard, deal: dict, owner_user_id: int) -> None`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -944,29 +996,22 @@ async def test_diff_skips_field_never_seen_before(db, card_factory):
         assert [h for h in rows if h.action == 'bitrix_field_changed'] == []
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [ ] **Step 2: Run tests to verify they fail (partially)**
 
-Run: `pytest tests/unit/test_bitrix_sync_events.py -v -k diff or find_card`
-Expected: FAIL с `AttributeError` на `_find_card_by_bitrix_deal_id`/`_diff_and_log_field_changes`
+Run: `pytest tests/unit/test_bitrix_sync_events.py -v -k "diff or find_card"`
+Expected: the two `find_card` tests PASS immediately (`_find_card_by_bitrix_deal_id` already
+exists from Task 5) — that is correct and expected, not a problem. The two `diff` tests FAIL with
+`AttributeError` on `_diff_and_log_field_changes` (not yet implemented). If all four tests fail,
+Task 5 did not land correctly — stop and report NEEDS_CONTEXT rather than reimplementing
+`_find_card_by_bitrix_deal_id` yourself.
 
 - [ ] **Step 3: Implement**
 
+`_find_card_by_bitrix_deal_id` already exists in `cabinet/bitrix_sync.py` (added by Task 5,
+right after `_pull_stage_update`) — do not redefine it. Only add `_diff_and_log_field_changes`:
+
 ```python
 # cabinet/bitrix_sync.py — добавить рядом с _create_card_from_deal (после него):
-
-
-async def _find_card_by_bitrix_deal_id(session, company_id: int, deal_id: str) -> Optional[PipelineCard]:
-    """Ищет карточку компании по data['bitrix_deal_id'] сравнением в Python —
-    портируемо между SQLite (тесты) и Postgres (прод), без JSON-операторов.
-    """
-    rows = await session.execute(
-        select(PipelineCard).where(PipelineCard.company_id == company_id)
-    )
-    deal_id_str = str(deal_id)
-    for card in rows.scalars().all():
-        if str((card.data or {}).get('bitrix_deal_id', '')) == deal_id_str:
-            return card
-    return None
 
 
 async def _diff_and_log_field_changes(
@@ -1169,7 +1214,7 @@ git commit -m "feat(bitrix): sync assignee changes from Bitrix with safe fallbac
 - Test: `tests/unit/test_bitrix_sync_events.py` (дополнить)
 
 **Interfaces:**
-- Consumes: `get_bitrix24_deal` (Task 1), `get_or_create_inbound_secret`/`verify_inbound_secret` (Task 2), `_create_card_from_deal` (Task 4), `_pull_stage_update` (Task 5), `_find_card_by_bitrix_deal_id`, `_diff_and_log_field_changes` (Task 6), `_sync_assignee_from_deal` (Task 7).
+- Consumes: `get_bitrix24_deal` (Task 1), `get_or_create_inbound_secret`/`verify_inbound_secret` (Task 2), `_create_card_from_deal` (Task 4), `_pull_stage_update`/`_find_card_by_bitrix_deal_id` (Task 5), `_diff_and_log_field_changes` (Task 6), `_sync_assignee_from_deal` (Task 7).
 - Produces: `handle_deal_event(company_id: int, event: str, deal_id: str) -> None`.
 
 - [ ] **Step 1: Write the failing tests**
