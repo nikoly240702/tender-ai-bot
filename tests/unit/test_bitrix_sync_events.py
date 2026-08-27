@@ -248,3 +248,113 @@ async def test_sync_assignee_missing_key_in_deal_is_noop(db, card_factory):
             select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
         )).scalars().all()
         assert [h for h in rows if h.action == 'bitrix_field_changed' and h.payload.get('field') == 'ASSIGNED_BY_ID'] == []
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_add_creates_card(db, monkeypatch):
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        company = await s.get(Company, company_id)
+        owner = await s.get(SniperUser, company.owner_user_id)
+        data = dict(owner.data or {})
+        data['bitrix24_webhook_url'] = 'https://x.bitrix24.ru/rest/1/tok/'
+        data['bitrix24_enabled'] = True
+        owner.data = data
+        flag_modified(owner, 'data')
+        await s.commit()
+
+    async def fake_get_deal(webhook, deal_id):
+        return {'ID': deal_id, 'STAGE_ID': 'NEW', 'TITLE': 'Новая сделка', 'COMMENTS': 'Тендер 9999999999999999999'}
+    monkeypatch.setattr('bot.handlers.bitrix24.get_bitrix24_deal', fake_get_deal)
+
+    await bitrix_sync.handle_deal_event(company_id, 'ONCRMDEALADD', '111')
+
+    async with FakeDatabaseSession.factory() as s:
+        card = (await s.execute(
+            select(PipelineCard).where(PipelineCard.company_id == company_id)
+        )).scalar_one()
+        assert card.data['bitrix_deal_id'] == '111'
+        history = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card.id)
+        )).scalars().all()
+        assert any(h.action == 'card_created_from_bitrix' for h in history)
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_update_diffs_existing_card(db, card_factory, monkeypatch):
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        company = await s.get(Company, company_id)
+        owner = await s.get(SniperUser, company.owner_user_id)
+        data = dict(owner.data or {})
+        data['bitrix24_webhook_url'] = 'https://x.bitrix24.ru/rest/1/tok/'
+        data['bitrix24_enabled'] = True
+        owner.data = data
+        flag_modified(owner, 'data')
+        await s.commit()
+
+    card_id = await card_factory(bitrix_deal_id='222')
+
+    async def fake_get_deal(webhook, deal_id):
+        return {
+            'ID': '222', 'STAGE_ID': 'NEW', 'TITLE': 'Обновлённое имя',
+            'OPPORTUNITY': '999999', 'UF_CRM_TENDER_CUSTOMER': 'Заказчик А',
+            'UF_CRM_TENDER_REGION': 'Москва', 'CLOSEDATE': '2026-09-01', 'ASSIGNED_BY_ID': 1,
+        }
+    monkeypatch.setattr('bot.handlers.bitrix24.get_bitrix24_deal', fake_get_deal)
+
+    await bitrix_sync.handle_deal_event(company_id, 'ONCRMDEALUPDATE', '222')
+
+    async with FakeDatabaseSession.factory() as s:
+        history = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        changed = {h.payload['field'] for h in history if h.action == 'bitrix_field_changed'}
+        assert 'TITLE' in changed and 'OPPORTUNITY' in changed
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_delete_archives_card(db, card_factory, monkeypatch):
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        company = await s.get(Company, company_id)
+        owner = await s.get(SniperUser, company.owner_user_id)
+        data = dict(owner.data or {})
+        data['bitrix24_webhook_url'] = 'https://x.bitrix24.ru/rest/1/tok/'
+        data['bitrix24_enabled'] = True
+        owner.data = data
+        flag_modified(owner, 'data')
+        await s.commit()
+
+    card_id = await card_factory(bitrix_deal_id='333')
+
+    await bitrix_sync.handle_deal_event(company_id, 'ONCRMDEALDELETE', '333')
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.archived_at is not None
+        history = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        assert any(h.action == 'bitrix_deal_deleted' for h in history)
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_no_webhook_configured_is_noop(db):
+    company_id = db  # владелец без bitrix24_webhook_url
+    await bitrix_sync.handle_deal_event(company_id, 'ONCRMDEALUPDATE', '444')
+    async with FakeDatabaseSession.factory() as s:
+        count = (await s.execute(select(PipelineCard))).scalars().all()
+        assert count == []
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_unknown_event_is_noop(db, monkeypatch):
+    company_id = db
+    called = {'n': 0}
+    async def fake_get_deal(webhook, deal_id):
+        called['n'] += 1
+        return {}
+    monkeypatch.setattr('bot.handlers.bitrix24.get_bitrix24_deal', fake_get_deal)
+    await bitrix_sync.handle_deal_event(company_id, 'ONSOMETHINGELSE', '555')
+    assert called['n'] == 0

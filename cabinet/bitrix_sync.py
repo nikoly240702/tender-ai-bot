@@ -17,6 +17,7 @@ import asyncio
 import logging
 import re
 import secrets
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -923,3 +924,92 @@ async def pull_changes_for_all_companies() -> Dict[str, Any]:
         except Exception as e:
             logger.error(f'[bitrix-pull-all] company={c.id}: {e}', exc_info=True)
     return {'companies': company_count, 'checked': total_checked, 'updated': total_updated}
+
+
+# ============================================
+# Inbound: Bitrix webhook event → pipeline
+# ============================================
+
+_HANDLED_EVENTS = {'ONCRMDEALADD', 'ONCRMDEALUPDATE', 'ONCRMDEALMOVETOCATEGORY', 'ONCRMDEALDELETE'}
+
+
+async def _handle_deal_deleted(company_id: int, deal_id: str, owner_user_id: int) -> None:
+    async with DatabaseSession() as session:
+        card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
+        if not card or card.archived_at:
+            return
+        card.archived_at = datetime.utcnow()
+        session.add(PipelineCardHistory(
+            card_id=card.id, user_id=owner_user_id,
+            action='bitrix_deal_deleted',
+            payload={'bitrix_deal_id': deal_id},
+        ))
+        await session.commit()
+
+
+async def handle_deal_event(company_id: int, event: str, deal_id: str) -> None:
+    """Обрабатывает одно событие исходящего вебхука Bitrix для сделки.
+    Best-effort: любая ошибка логируется и не пробрасывается дальше.
+    """
+    event = (event or '').upper()
+    if event not in _HANDLED_EVENTS:
+        return
+    try:
+        webhook = await _get_company_webhook(company_id)
+        if not webhook:
+            return
+
+        async with DatabaseSession() as session:
+            company = await session.get(Company, company_id)
+            owner_user_id = company.owner_user_id if company else None
+        if not owner_user_id:
+            return
+
+        if event == 'ONCRMDEALDELETE':
+            await _handle_deal_deleted(company_id, deal_id, owner_user_id)
+            return
+
+        from bot.handlers.bitrix24 import get_bitrix24_deal
+        deal = await get_bitrix24_deal(webhook, deal_id)
+        if not deal:
+            logger.warning(f'[bitrix-event] deal {deal_id} not found via API (event={event})')
+            return
+
+        tender_number = _extract_tender_number_from_deal(deal)
+
+        async with DatabaseSession() as session:
+            card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
+            if not card:
+                if not tender_number:
+                    logger.warning(f'[bitrix-event] deal {deal_id} has no tender number, skip create')
+                    return
+                cache = await session.scalar(
+                    select(TenderCache).where(TenderCache.tender_number == tender_number)
+                )
+                try:
+                    await _create_card_from_deal(
+                        session, company_id, owner_user_id, tender_number,
+                        deal, cache, source='bitrix_event',
+                        history_action='card_created_from_bitrix',
+                    )
+                    await session.commit()
+                except IntegrityError:
+                    await session.rollback()
+                return
+
+            stage_id = deal.get('STAGE_ID')
+            update_payload = _pull_stage_update(card, stage_id) if stage_id else None
+            if update_payload:
+                update_payload['bitrix_deal_id'] = deal_id
+                session.add(PipelineCardHistory(
+                    card_id=card.id, user_id=owner_user_id,
+                    action='bitrix_pull', payload=update_payload,
+                ))
+
+            await _diff_and_log_field_changes(session, card, deal, owner_user_id)
+            await _sync_assignee_from_deal(session, company_id, card, deal, owner_user_id)
+            card.updated_at = datetime.utcnow()
+            await session.commit()
+        logger.info(f'[bitrix-event] company={company_id} event={event} deal={deal_id} processed')
+    except Exception as e:
+        logger.error(f'[bitrix-event] error company={company_id} event={event} deal={deal_id}: {e}', exc_info=True)
