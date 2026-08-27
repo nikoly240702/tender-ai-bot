@@ -382,6 +382,98 @@ def _extract_tender_number_from_deal(deal: Dict[str, Any]) -> str:
     return ''
 
 
+_TRACKED_DEAL_FIELDS = [
+    'TITLE', 'OPPORTUNITY', 'UF_CRM_TENDER_CUSTOMER',
+    'UF_CRM_TENDER_REGION', 'CLOSEDATE', 'ASSIGNED_BY_ID', 'STAGE_ID',
+]
+
+
+def _snapshot_from_deal(deal: Dict[str, Any]) -> Dict[str, Any]:
+    """Срез отслеживаемых полей сделки — для diff при следующем событии."""
+    return {f: deal.get(f) for f in _TRACKED_DEAL_FIELDS}
+
+
+def _build_card_data_from_deal(
+    deal: Dict[str, Any], cache: Optional[TenderCache], tender_number: str,
+) -> Dict[str, Any]:
+    """Собирает card.data из сделки Bitrix (+ фолбэк на TenderCache).
+    Вынесено из import_deals_to_pipeline без изменения поведения.
+    """
+    opportunity = deal.get('OPPORTUNITY')
+    try:
+        sale_price = float(opportunity) if opportunity else None
+    except (TypeError, ValueError):
+        sale_price = None
+    cache_price = float(cache.price) if (cache and getattr(cache, 'price', None)) else None
+    final_price = cache_price or sale_price
+
+    deadline_raw = deal.get('CLOSEDATE') or ''
+    if cache and getattr(cache, 'deadline', None):
+        deadline_str = cache.deadline.isoformat()
+    else:
+        deadline_str = (deadline_raw or '')[:10] or None
+
+    return {
+        'name': (getattr(cache, 'name', None) if cache else None)
+                or (deal.get('TITLE') or '')[:255],
+        'customer': (getattr(cache, 'customer', None) if cache else None)
+                    or deal.get('UF_CRM_TENDER_CUSTOMER') or '',
+        'region': (getattr(cache, 'region', None) if cache else None)
+                  or deal.get('UF_CRM_TENDER_REGION') or '',
+        'price_max': final_price,
+        'deadline': deadline_str,
+        'url': deal.get('UF_CRM_TENDER_URL')
+               or f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
+        'bitrix_deal_id': deal.get('ID'),
+        'bitrix_stage': deal.get('STAGE_ID', 'NEW'),
+        'bitrix_opportunity': opportunity,
+        'bitrix_snapshot': _snapshot_from_deal(deal),
+    }
+
+
+async def _create_card_from_deal(
+    session, company_id: int, owner_user_id: int, tender_number: str,
+    deal: Dict[str, Any], cache: Optional[TenderCache], source: str,
+    history_action: str,
+) -> PipelineCard:
+    """Создаёт PipelineCard + запись истории из сделки Bitrix. Не коммитит —
+    вызывающий код решает, когда коммитить (нужно для try/except IntegrityError
+    в bulk-импорте).
+    """
+    bitrix_stage = deal.get('STAGE_ID', 'NEW')
+    new_stage = _IMPORT_STAGE_MAP.get(bitrix_stage, 'IN_WORK')
+    result = None
+    if bitrix_stage == 'LOSE':
+        result = 'lost'
+    elif bitrix_stage == 'WON':
+        result = 'won'
+
+    card_data = _build_card_data_from_deal(deal, cache, tender_number)
+    final_price = card_data.get('price_max')
+
+    card = PipelineCard(
+        company_id=company_id,
+        tender_number=tender_number,
+        stage=new_stage,
+        assignee_user_id=owner_user_id,
+        source=source,
+        result=result,
+        sale_price=Decimal(str(final_price)) if final_price else None,
+        ai_summary=deal.get('UF_CRM_AI_SUMMARY'),
+        ai_recommendation=(deal.get('UF_CRM_AI_RECOMMENDATION') or '')[:40] or None,
+        data=card_data,
+        created_by=owner_user_id,
+    )
+    session.add(card)
+    await session.flush()
+    session.add(PipelineCardHistory(
+        card_id=card.id, user_id=owner_user_id,
+        action=history_action,
+        payload={'bitrix_deal_id': deal.get('ID'), 'original_stage': bitrix_stage},
+    ))
+    return card
+
+
 async def _fetch_all_deals(webhook: str) -> List[Dict[str, Any]]:
     """Берёт все сделки через crm.deal.list с пагинацией.
 
@@ -499,64 +591,11 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
                     skipped += 1
                     continue
 
-                # Собираем data
-                opportunity = deal.get('OPPORTUNITY')
-                try:
-                    sale_price = float(opportunity) if opportunity else None
-                except (TypeError, ValueError):
-                    sale_price = None
-                if cache:
-                    cache_price = float(cache.price) if getattr(cache, 'price', None) else None
-                else:
-                    cache_price = None
-                final_price = cache_price or sale_price
-
-                deadline_raw = deal.get('CLOSEDATE') or ''
-                if cache and getattr(cache, 'deadline', None):
-                    deadline_str = cache.deadline.isoformat()
-                else:
-                    deadline_str = (deadline_raw or '')[:10] or None
-
-                card_data = {
-                    'name': (getattr(cache, 'name', None) if cache else None)
-                            or (deal.get('TITLE') or '')[:255],
-                    'customer': (getattr(cache, 'customer', None) if cache else None)
-                                or deal.get('UF_CRM_TENDER_CUSTOMER') or '',
-                    'region': (getattr(cache, 'region', None) if cache else None)
-                              or deal.get('UF_CRM_TENDER_REGION') or '',
-                    'price_max': final_price,
-                    'deadline': deadline_str,
-                    'url': deal.get('UF_CRM_TENDER_URL')
-                           or f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
-                    'bitrix_deal_id': deal.get('ID'),
-                    'bitrix_stage': bitrix_stage,
-                    'bitrix_opportunity': opportunity,
-                }
-
-                card = PipelineCard(
-                    company_id=company_id,
-                    tender_number=tender_number,
-                    stage=new_stage,
-                    assignee_user_id=owner_user_id,
-                    source='bitrix_import',
-                    result=result,
-                    sale_price=Decimal(str(final_price)) if final_price else None,
-                    ai_summary=deal.get('UF_CRM_AI_SUMMARY'),
-                    ai_recommendation=(deal.get('UF_CRM_AI_RECOMMENDATION') or '')[:40] or None,
-                    data=card_data,
-                    created_by=owner_user_id,
+                card = await _create_card_from_deal(
+                    session, company_id, owner_user_id, tender_number,
+                    deal, cache, source='bitrix_import',
+                    history_action='imported_from_bitrix',
                 )
-                session.add(card)
-                await session.flush()
-                history = PipelineCardHistory(
-                    card_id=card.id, user_id=owner_user_id,
-                    action='imported_from_bitrix',
-                    payload={
-                        'bitrix_deal_id': deal.get('ID'),
-                        'original_stage': bitrix_stage,
-                    },
-                )
-                session.add(history)
                 try:
                     await session.commit()
                     imported += 1
