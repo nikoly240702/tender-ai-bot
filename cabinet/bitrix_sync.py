@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import secrets
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -69,6 +70,61 @@ async def _get_company_webhook(company_id: int) -> Optional[str]:
         if not webhook or not enabled:
             return None
         return webhook.strip()
+
+
+async def get_or_create_inbound_secret(company_id: int) -> Optional[str]:
+    """Секрет для проверки входящих событий Bitrix (в URL исходящего вебхука).
+    Генерируется один раз при первом обращении, дальше стабилен.
+    """
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return None
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return None
+        data = dict(owner.data or {})
+        secret = data.get('bitrix_inbound_secret')
+        if secret:
+            return secret
+        secret = secrets.token_urlsafe(24)
+        data['bitrix_inbound_secret'] = secret
+        owner.data = data
+        flag_modified(owner, 'data')
+        await session.commit()
+        return secret
+
+
+async def rotate_inbound_secret(company_id: int) -> Optional[str]:
+    """Перегенерировать секрет (например, при подозрении на утечку)."""
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return None
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return None
+        data = dict(owner.data or {})
+        secret = secrets.token_urlsafe(24)
+        data['bitrix_inbound_secret'] = secret
+        owner.data = data
+        flag_modified(owner, 'data')
+        await session.commit()
+        return secret
+
+
+async def verify_inbound_secret(company_id: int, secret: str) -> bool:
+    if not secret:
+        return False
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return False
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return False
+        stored = (owner.data or {}).get('bitrix_inbound_secret')
+        return bool(stored) and stored == secret
 
 
 # ============================================
