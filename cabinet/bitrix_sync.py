@@ -1013,3 +1013,74 @@ async def handle_deal_event(company_id: int, event: str, deal_id: str) -> None:
         logger.info(f'[bitrix-event] company={company_id} event={event} deal={deal_id} processed')
     except Exception as e:
         logger.error(f'[bitrix-event] error company={company_id} event={event} deal={deal_id}: {e}', exc_info=True)
+
+
+# ============================================
+# Comments: periodic poll (no push event exists for this in Bitrix)
+# ============================================
+
+async def sync_comments_for_company(company_id: int) -> Dict[str, int]:
+    """Подтягивает новые комментарии ленты Bitrix для всех активных карточек
+    компании, у которых есть привязка к сделке. Возвращает {checked, added}.
+    """
+    webhook = await _get_company_webhook(company_id)
+    if not webhook:
+        return {'checked': 0, 'added': 0}
+
+    async with DatabaseSession() as session:
+        rows = await session.execute(
+            select(PipelineCard).where(
+                PipelineCard.company_id == company_id,
+                PipelineCard.archived_at.is_(None),
+            )
+        )
+        cards = [c for c in rows.scalars().all() if (c.data or {}).get('bitrix_deal_id')]
+
+    if not cards:
+        return {'checked': 0, 'added': 0}
+
+    deal_since = {
+        str(c.data['bitrix_deal_id']): int(c.data.get('bitrix_last_comment_id') or 0)
+        for c in cards
+    }
+
+    from bot.handlers.bitrix24 import batch_list_deal_comments
+    try:
+        comments_by_deal = await batch_list_deal_comments(webhook, deal_since)
+    except Exception as e:
+        logger.error(f'[bitrix-comments] company={company_id} batch error: {e}', exc_info=True)
+        return {'checked': len(cards), 'added': 0}
+
+    added = 0
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        owner_user_id = company.owner_user_id if company else None
+        for card_stub in cards:
+            deal_id = str(card_stub.data['bitrix_deal_id'])
+            new_comments = comments_by_deal.get(deal_id) or []
+            if not new_comments:
+                continue
+            card = await session.get(PipelineCard, card_stub.id)
+            data = dict(card.data or {})
+            max_id = int(data.get('bitrix_last_comment_id') or 0)
+            for comment in new_comments:
+                session.add(PipelineCardHistory(
+                    card_id=card.id, user_id=owner_user_id,
+                    action='bitrix_comment',
+                    payload={
+                        'author': comment.get('AUTHOR_ID'),
+                        'text': comment.get('COMMENT'),
+                        'created': comment.get('CREATED'),
+                    },
+                ))
+                added += 1
+                try:
+                    max_id = max(max_id, int(comment.get('ID')))
+                except (TypeError, ValueError):
+                    pass
+            data['bitrix_last_comment_id'] = max_id
+            card.data = data
+            flag_modified(card, 'data')
+        await session.commit()
+
+    return {'checked': len(cards), 'added': added}
