@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -642,6 +642,57 @@ _STAGE_ORDER = {
 }
 
 
+def _pull_stage_update(card: PipelineCard, stage_id: str) -> Optional[Dict[str, Any]]:
+    """Anti-rollback обновление стадии/результата карточки по стадии из Bitrix.
+    Мутирует card на месте если нужно применить изменение; возвращает payload
+    для записи в историю, или None если применять нечего.
+    """
+    mapping = _PULL_STAGE_MAP.get(stage_id)
+    if not mapping:
+        return None  # промежуточная стадия — не трогаем
+
+    target_stage = mapping['stage']
+    target_result = mapping['result']
+
+    current_idx = _STAGE_ORDER.get(card.stage, 0)
+    target_idx = _STAGE_ORDER.get(target_stage, 0)
+    if target_idx < current_idx:
+        return None
+
+    if card.stage == 'REJECTED' and stage_id == 'LOSE':
+        return None
+
+    stage_changed = card.stage != target_stage
+    result_changed = (target_result is not None and card.result != target_result)
+    if not (stage_changed or result_changed):
+        return None
+
+    old_stage, old_result = card.stage, card.result
+    card.stage = target_stage
+    if target_result is not None:
+        card.result = target_result
+    return {
+        'from_stage': old_stage, 'to_stage': target_stage,
+        'from_result': old_result, 'to_result': target_result,
+        'bitrix_stage_id': stage_id,
+    }
+
+
+async def _find_card_by_bitrix_deal_id(session, company_id: int, deal_id: str) -> Optional[PipelineCard]:
+    """Ищет карточку компании по data['bitrix_deal_id'] сравнением в Python —
+    портируемо между SQLite (тесты) и Postgres (прод), без JSON-операторов, и
+    без риска подстрокового ложняка (`900` не совпадёт с `9000`).
+    """
+    rows = await session.execute(
+        select(PipelineCard).where(PipelineCard.company_id == company_id)
+    )
+    deal_id_str = str(deal_id)
+    for card in rows.scalars().all():
+        if str((card.data or {}).get('bitrix_deal_id', '')) == deal_id_str:
+            return card
+    return None
+
+
 async def _get_last_sync_at(company_id: int) -> Optional[str]:
     async with DatabaseSession() as session:
         company = await session.get(Company, company_id)
@@ -737,60 +788,22 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
             if not deal_id:
                 continue
             stage_id = deal.get('STAGE_ID')
-            mapping = _PULL_STAGE_MAP.get(stage_id)
-            if not mapping:
-                continue  # промежуточная стадия — не трогаем
 
             async with DatabaseSession() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT id FROM pipeline_cards "
-                        "WHERE company_id = :cid "
-                        "AND data::text LIKE :pattern "
-                        "LIMIT 1"
-                    ),
-                    {'cid': company_id, 'pattern': f'%"bitrix_deal_id": {deal_id}%'},
-                )
-                row = result.first()
-                card = None
-                if row:
-                    card = await session.get(PipelineCard, row[0])
+                card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
                 if not card:
                     continue
 
-                target_stage = mapping['stage']
-                target_result = mapping['result']
-
-                # Don't rollback: if pipeline card is at a later stage, keep it
-                current_idx = _STAGE_ORDER.get(card.stage, 0)
-                target_idx = _STAGE_ORDER.get(target_stage, 0)
-                if target_idx < current_idx:
+                update_payload = _pull_stage_update(card, stage_id)
+                if update_payload is None:
                     continue
 
-                # Если пользователь у нас уже пометил как REJECTED, а в Bitrix
-                # пришло LOSE — оставляем REJECTED как более точное.
-                if card.stage == 'REJECTED' and stage_id == 'LOSE':
-                    continue
-
-                stage_changed = card.stage != target_stage
-                result_changed = (target_result is not None and card.result != target_result)
-                if not (stage_changed or result_changed):
-                    continue
-
-                old_stage, old_result = card.stage, card.result
-                card.stage = target_stage
-                if target_result is not None:
-                    card.result = target_result
                 card.updated_at = _dt.utcnow()
+                update_payload['bitrix_deal_id'] = deal_id
                 history = PipelineCardHistory(
                     card_id=card.id, user_id=owner_user_id,
                     action='bitrix_pull',
-                    payload={
-                        'from_stage': old_stage, 'to_stage': target_stage,
-                        'from_result': old_result, 'to_result': target_result,
-                        'bitrix_stage_id': stage_id,
-                        'bitrix_deal_id': deal_id,
-                    },
+                    payload=update_payload,
                 )
                 session.add(history)
                 await session.commit()
