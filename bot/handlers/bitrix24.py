@@ -11,7 +11,7 @@
 import logging
 import asyncio
 from datetime import datetime, date
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List, Any
 
 import aiohttp
 from aiogram import Router, F
@@ -236,6 +236,80 @@ async def update_bitrix24_deal_stage(webhook_url: str, deal_id: str, stage_id: s
         logger.error(f"update_bitrix24_deal_stage error: {e}")
         return False
 
+
+async def get_bitrix24_deal(webhook_url: str, deal_id: str) -> Optional[dict]:
+    """Возвращает актуальные поля сделки через crm.deal.get, или None при ошибке."""
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+    endpoint = webhook_url + 'crm.deal.get.json'
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.post(endpoint, json={'id': deal_id}) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get('result')
+                logger.warning(f"get_bitrix24_deal HTTP {resp.status}")
+                return None
+    except Exception as e:
+        logger.error(f"get_bitrix24_deal error: {e}")
+        return None
+
+
+async def list_deal_timeline_comments(webhook_url: str, deal_id: str, since_id: int = 0) -> List[dict]:
+    """Комментарии ленты сделки. since_id>0 — только с ID больше указанного."""
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+    endpoint = webhook_url + 'crm.timeline.comment.list.json'
+    params = [('filter[ENTITY_ID]', deal_id), ('filter[ENTITY_TYPE]', 'deal')]
+    if since_id:
+        params.append(('filter[>ID]', str(since_id)))
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            async with session.get(endpoint, params=params) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data.get('result') or []
+                logger.warning(f"list_deal_timeline_comments HTTP {resp.status}")
+                return []
+    except Exception as e:
+        logger.error(f"list_deal_timeline_comments error: {e}")
+        return []
+
+
+async def batch_list_deal_comments(webhook_url: str, deal_since: Dict[str, int]) -> Dict[str, List[dict]]:
+    """Батчем (Bitrix `batch` method, до 50 подзапросов за раз) тянет новые
+    комментарии для набора сделок. deal_since: {deal_id: since_id}.
+    Возвращает {deal_id: [новые комментарии]} — отсутствующие/ошибочные сделки
+    просто не попадают в результат (best-effort).
+    """
+    if not deal_since:
+        return {}
+    if not webhook_url.endswith('/'):
+        webhook_url += '/'
+    endpoint = webhook_url + 'batch.json'
+    results: Dict[str, List[dict]] = {}
+    items = list(deal_since.items())
+    for i in range(0, len(items), 50):
+        chunk = items[i:i + 50]
+        cmd: Dict[str, str] = {}
+        for deal_id, since_id in chunk:
+            query = f'filter[ENTITY_ID]={deal_id}&filter[ENTITY_TYPE]=deal'
+            if since_id:
+                query += f'&filter[>ID]={since_id}'
+            cmd[str(deal_id)] = f'crm.timeline.comment.list?{query}'
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=20)) as session:
+                async with session.post(endpoint, json={'halt': 0, 'cmd': cmd}) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"batch_list_deal_comments HTTP {resp.status}")
+                        continue
+                    data = await resp.json()
+                    batch_result = (data.get('result') or {}).get('result') or {}
+                    for deal_id, _ in chunk:
+                        results[str(deal_id)] = batch_result.get(str(deal_id)) or []
+        except Exception as e:
+            logger.error(f"batch_list_deal_comments error: {e}")
+    return results
 
 
 # Маппинг закона → ID перечисления в Битрикс24
