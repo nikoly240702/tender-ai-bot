@@ -96,6 +96,70 @@ async def test_sync_comments_no_new_comments_no_history(setup, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sync_comments_first_observation_seeds_cursor_without_history(setup, monkeypatch):
+    """Fix 3: a card that has NEVER been comment-synced (no bitrix_last_comment_id
+    key at all) must not have its entire historical comment backlog dumped into
+    PipelineCardHistory on the first run — only the cursor should be seeded."""
+    company_id, card_id, owner_id, factory = setup
+    async with factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        data = dict(card.data or {})
+        data.pop('bitrix_last_comment_id', None)
+        card.data = data
+        flag_modified(card, 'data')
+        await s.commit()
+
+    async def fake_batch(webhook, deal_since):
+        assert deal_since == {'55': 0}
+        return {'55': [
+            {'ID': '10', 'AUTHOR_ID': '7', 'COMMENT': 'A', 'CREATED': '2026-08-27T10:00:00'},
+            {'ID': '12', 'AUTHOR_ID': '7', 'COMMENT': 'B', 'CREATED': '2026-08-27T11:00:00'},
+            {'ID': '11', 'AUTHOR_ID': '7', 'COMMENT': 'C', 'CREATED': '2026-08-27T12:00:00'},
+        ]}
+    monkeypatch.setattr('bot.handlers.bitrix24.batch_list_deal_comments', fake_batch)
+
+    result = await bitrix_sync.sync_comments_for_company(company_id)
+    assert result == {'checked': 1, 'added': 0}
+
+    async with factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.data['bitrix_last_comment_id'] == 12
+        history = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        assert [h for h in history if h.action == 'bitrix_comment'] == []
+
+
+@pytest.mark.asyncio
+async def test_sync_comments_previously_synced_zero_cursor_logs_all(setup, monkeypatch):
+    """Card WITH bitrix_last_comment_id=0 already present (synced before, nothing
+    existed yet) — this is a real "been through this before" state, distinct from
+    "never synced". New comments must be logged normally."""
+    company_id, card_id, owner_id, factory = setup
+    # fixture card already has data={'bitrix_deal_id': '55', 'bitrix_last_comment_id': 0}
+
+    async def fake_batch(webhook, deal_since):
+        assert deal_since == {'55': 0}
+        return {'55': [
+            {'ID': '10', 'AUTHOR_ID': '7', 'COMMENT': 'A', 'CREATED': '2026-08-27T10:00:00'},
+            {'ID': '12', 'AUTHOR_ID': '7', 'COMMENT': 'B', 'CREATED': '2026-08-27T11:00:00'},
+            {'ID': '11', 'AUTHOR_ID': '7', 'COMMENT': 'C', 'CREATED': '2026-08-27T12:00:00'},
+        ]}
+    monkeypatch.setattr('bot.handlers.bitrix24.batch_list_deal_comments', fake_batch)
+
+    result = await bitrix_sync.sync_comments_for_company(company_id)
+    assert result == {'checked': 1, 'added': 3}
+
+    async with factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.data['bitrix_last_comment_id'] == 12
+        history = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        assert len([h for h in history if h.action == 'bitrix_comment']) == 3
+
+
+@pytest.mark.asyncio
 async def test_sync_comments_skips_archived_cards(setup, monkeypatch):
     company_id, card_id, owner_id, factory = setup
     async with factory() as s:

@@ -195,6 +195,32 @@ async def test_sync_assignee_maps_known_bitrix_user(db, card_factory):
 
 
 @pytest.mark.asyncio
+async def test_sync_assignee_matches_despite_str_int_mismatch(db, card_factory):
+    """Fix 4: bitrix_user_id stored as int, ASSIGNED_BY_ID arriving as str (or
+    vice versa) must still match — both sides are str()-normalized."""
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        from database import CompanyMember
+        member = SniperUser(telegram_id=334, data={'bitrix_user_id': 42})  # int
+        s.add(member); await s.flush()
+        s.add(CompanyMember(company_id=company_id, user_id=member.id, role='member'))
+        await s.commit()
+        member_id = member.id
+
+    card_id = await card_factory(data={'bitrix_snapshot': {'ASSIGNED_BY_ID': 1}})
+    new_deal = {'ID': '700', 'ASSIGNED_BY_ID': '42'}  # str from Bitrix API
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        await bitrix_sync._sync_assignee_from_deal(s, company_id, card, new_deal, owner_user_id=1)
+        await s.commit()
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.assignee_user_id == member_id
+
+
+@pytest.mark.asyncio
 async def test_sync_assignee_unknown_bitrix_user_keeps_assignee_but_stores_name(db, card_factory):
     company_id = db
     card_id = await card_factory(data={'bitrix_snapshot': {'ASSIGNED_BY_ID': 1}})
@@ -358,3 +384,92 @@ async def test_handle_deal_event_unknown_event_is_noop(db, monkeypatch):
     monkeypatch.setattr('bot.handlers.bitrix24.get_bitrix24_deal', fake_get_deal)
     await bitrix_sync.handle_deal_event(company_id, 'ONSOMETHINGELSE', '555')
     assert called['n'] == 0
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_backfills_bitrix_deal_id_on_existing_card_without_link(
+    db, card_factory, monkeypatch
+):
+    """Fix 1: a PipelineCard exists for the tender number (created via some other
+    path, e.g. the tender-monitoring feed) but has no bitrix_deal_id yet. An
+    incoming Bitrix event for a deal matching that tender number must backfill
+    bitrix_deal_id onto the EXISTING card, not attempt a doomed duplicate create."""
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        company = await s.get(Company, company_id)
+        owner = await s.get(SniperUser, company.owner_user_id)
+        data = dict(owner.data or {})
+        data['bitrix24_webhook_url'] = 'https://x.bitrix24.ru/rest/1/tok/'
+        data['bitrix24_enabled'] = True
+        owner.data = data
+        flag_modified(owner, 'data')
+        await s.commit()
+
+    tender_number = '9999999999999999999'
+    card_id = await card_factory(
+        bitrix_deal_id=None, tender_number=tender_number,
+        data={'bitrix_snapshot': {}},
+    )
+
+    async def fake_get_deal(webhook, deal_id):
+        return {
+            'ID': deal_id, 'STAGE_ID': 'NEW', 'TITLE': 'Сделка из Bitrix',
+            'COMMENTS': f'Тендер {tender_number}',
+        }
+    monkeypatch.setattr('bot.handlers.bitrix24.get_bitrix24_deal', fake_get_deal)
+
+    await bitrix_sync.handle_deal_event(company_id, 'ONCRMDEALADD', '888')
+
+    async with FakeDatabaseSession.factory() as s:
+        cards = (await s.execute(
+            select(PipelineCard).where(PipelineCard.company_id == company_id)
+        )).scalars().all()
+        assert len(cards) == 1  # no duplicate card created
+        card = cards[0]
+        assert card.id == card_id
+        assert card.data['bitrix_deal_id'] == '888'
+        assert card.data.get('bitrix_snapshot', {}).get('STAGE_ID') == 'NEW'
+
+
+@pytest.mark.asyncio
+async def test_handle_deal_event_logs_unmapped_stage_move_without_changing_pipeline_stage(
+    db, card_factory, monkeypatch
+):
+    """Fix 2: a Bitrix stage move to something outside _PULL_STAGE_MAP (e.g. an
+    intermediate stage like EXECUTING) must be logged as a bitrix_field_changed
+    history entry for visibility, but must NOT touch card.stage itself."""
+    company_id = db
+    async with FakeDatabaseSession.factory() as s:
+        company = await s.get(Company, company_id)
+        owner = await s.get(SniperUser, company.owner_user_id)
+        data = dict(owner.data or {})
+        data['bitrix24_webhook_url'] = 'https://x.bitrix24.ru/rest/1/tok/'
+        data['bitrix24_enabled'] = True
+        owner.data = data
+        flag_modified(owner, 'data')
+        await s.commit()
+
+    card_id = await card_factory(
+        bitrix_deal_id='321', stage='IN_WORK',
+        data={'bitrix_snapshot': {'STAGE_ID': 'NEW'}},
+    )
+
+    async def fake_get_deal(webhook, deal_id):
+        return {'ID': '321', 'STAGE_ID': 'EXECUTING'}
+    monkeypatch.setattr('bot.handlers.bitrix24.get_bitrix24_deal', fake_get_deal)
+
+    await bitrix_sync.handle_deal_event(company_id, 'ONCRMDEALUPDATE', '321')
+
+    async with FakeDatabaseSession.factory() as s:
+        card = await s.get(PipelineCard, card_id)
+        assert card.stage == 'IN_WORK'  # Pipeline's own stage untouched
+        history = (await s.execute(
+            select(PipelineCardHistory).where(PipelineCardHistory.card_id == card_id)
+        )).scalars().all()
+        matches = [
+            h for h in history
+            if h.action == 'bitrix_field_changed' and h.payload.get('field') == 'STAGE_ID'
+        ]
+        assert len(matches) == 1
+        assert matches[0].payload['old'] == 'NEW'
+        assert matches[0].payload['new'] == 'EXECUTING'

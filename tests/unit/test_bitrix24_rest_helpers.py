@@ -78,14 +78,33 @@ async def test_batch_list_deal_comments_maps_by_deal_id():
 @pytest.mark.asyncio
 async def test_batch_list_deal_comments_chunks_over_50():
     deal_since = {str(i): 0 for i in range(75)}
-    calls = []
 
-    def _payload_for_chunk(chunk_size):
-        return {'result': {'result': {str(i): [] for i in range(chunk_size)}}}
+    def _payload_for_keys(keys, marker):
+        # disjoint key ranges + a distinguishing marker per chunk, so the test
+        # fails if only the first HTTP call were ever consumed (chunking
+        # silently not happening) instead of trivially passing either way.
+        return {'result': {'result': {k: [{'ID': marker}] for k in keys}}}
+
+    chunk1_keys = [str(i) for i in range(50)]
+    chunk2_keys = [str(i) for i in range(50, 75)]
 
     with aioresponses() as m:
-        # первый батч — 50 сделок, второй — оставшиеся 25
-        m.post(WEBHOOK + 'batch.json', payload=_payload_for_chunk(50))
-        m.post(WEBHOOK + 'batch.json', payload=_payload_for_chunk(25))
+        # первый батч — сделки 0..49, второй — оставшиеся 50..74
+        m.post(WEBHOOK + 'batch.json', payload=_payload_for_keys(chunk1_keys, 'chunk1'))
+        m.post(WEBHOOK + 'batch.json', payload=_payload_for_keys(chunk2_keys, 'chunk2'))
         result = await batch_list_deal_comments(WEBHOOK, deal_since)
-    assert len(result) >= 50  # обе пачки учтены (ключи из двух ответов объединяются в результат ниже)
+
+    # Exactly 2 HTTP calls to batch.json — proves chunking actually happened.
+    batch_calls = [
+        calls for (method, url), calls in m.requests.items()
+        if method == 'POST' and str(url).endswith('batch.json')
+    ]
+    assert sum(len(c) for c in batch_calls) == 2
+
+    # All 75 keys present, each mapped to the correct (disjoint) chunk payload —
+    # would fail if only one chunk's worth of keys came back.
+    assert set(result.keys()) == {str(i) for i in range(75)}
+    for k in chunk1_keys:
+        assert result[k] == [{'ID': 'chunk1'}]
+    for k in chunk2_keys:
+        assert result[k] == [{'ID': 'chunk2'}]

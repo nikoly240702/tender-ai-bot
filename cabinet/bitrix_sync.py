@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import re
 import secrets
@@ -125,7 +126,7 @@ async def verify_inbound_secret(company_id: int, secret: str) -> bool:
         if not owner:
             return False
         stored = (owner.data or {}).get('bitrix_inbound_secret')
-        return bool(stored) and stored == secret
+        return bool(stored) and hmac.compare_digest(stored, secret)
 
 
 # ============================================
@@ -525,7 +526,12 @@ async def _sync_assignee_from_deal(
     old_snapshot = data.get('bitrix_snapshot') or {}
     old_assigned = old_snapshot.get('ASSIGNED_BY_ID')
 
-    if 'ASSIGNED_BY_ID' not in old_snapshot or old_assigned == new_assigned:
+    # Bitrix's API may return numeric fields as strings; str()-normalize both
+    # sides so a str/int mismatch never silently defeats the comparison.
+    def _s(v):
+        return str(v) if v is not None else None
+
+    if 'ASSIGNED_BY_ID' not in old_snapshot or _s(old_assigned) == _s(new_assigned):
         return
 
     matched_user_id: Optional[int] = None
@@ -538,7 +544,7 @@ async def _sync_assignee_from_deal(
         candidate_ids.add(owner.id)
     for user_id in candidate_ids:
         user = await session.get(SniperUser, user_id)
-        if user and (user.data or {}).get('bitrix_user_id') == new_assigned:
+        if user and _s((user.data or {}).get('bitrix_user_id')) == _s(new_assigned):
             matched_user_id = user.id
             break
 
@@ -983,6 +989,35 @@ async def handle_deal_event(company_id: int, event: str, deal_id: str) -> None:
                 if not tender_number:
                     logger.warning(f'[bitrix-event] deal {deal_id} has no tender number, skip create')
                     return
+
+                # A PipelineCard may already exist for this tender number
+                # (created some other way — the tender-monitoring feed, or a
+                # Bitrix push that failed before the deal_id got stored) but
+                # without a bitrix_deal_id yet. Backfill the link onto it
+                # instead of attempting a doomed duplicate create that would
+                # just hit the uq_pipeline_company_tender constraint every
+                # time this event repeats, permanently losing the link.
+                existing = await session.scalar(
+                    select(PipelineCard).where(
+                        PipelineCard.company_id == company_id,
+                        PipelineCard.tender_number == tender_number,
+                    )
+                )
+                if existing:
+                    existing_data = dict(existing.data or {})
+                    if not existing_data.get('bitrix_deal_id'):
+                        existing_data['bitrix_deal_id'] = deal_id
+                        existing_data['bitrix_stage'] = deal.get('STAGE_ID', 'NEW')
+                        existing_data['bitrix_snapshot'] = _snapshot_from_deal(deal)
+                        existing.data = existing_data
+                        flag_modified(existing, 'data')
+                        await session.commit()
+                        logger.info(
+                            f'[bitrix-event] backfilled bitrix_deal_id={deal_id} onto '
+                            f'existing card {existing.id} (tender {tender_number})'
+                        )
+                    return
+
                 cache = await session.scalar(
                     select(TenderCache).where(TenderCache.tender_number == tender_number)
                 )
@@ -1005,6 +1040,17 @@ async def handle_deal_event(company_id: int, event: str, deal_id: str) -> None:
                     card_id=card.id, user_id=owner_user_id,
                     action='bitrix_pull', payload=update_payload,
                 ))
+            elif stage_id and stage_id not in _PULL_STAGE_MAP:
+                # Genuinely unmapped Bitrix stage (not just anti-rollback
+                # declining a mapped one) — Pipeline's own stage vocabulary
+                # doesn't cover it, but the move should still be visible.
+                old_stage_id = ((card.data or {}).get('bitrix_snapshot') or {}).get('STAGE_ID')
+                if old_stage_id != stage_id:
+                    session.add(PipelineCardHistory(
+                        card_id=card.id, user_id=owner_user_id,
+                        action='bitrix_field_changed',
+                        payload={'field': 'STAGE_ID', 'old': old_stage_id, 'new': stage_id},
+                    ))
 
             await _diff_and_log_field_changes(session, card, deal, owner_user_id)
             await _sync_assignee_from_deal(session, company_id, card, deal, owner_user_id)
@@ -1043,6 +1089,17 @@ async def sync_comments_for_company(company_id: int) -> Dict[str, int]:
         str(c.data['bitrix_deal_id']): int(c.data.get('bitrix_last_comment_id') or 0)
         for c in cards
     }
+    # "Never synced" (key absent) must NOT be treated the same as "synced
+    # before, cursor happens to be 0" (key present with value 0) — the former
+    # would otherwise dump a deal's entire historical comment log into
+    # PipelineCardHistory on its very first sync. These cards still get
+    # fetched (since_id=0, so we learn the current max id) but their
+    # comments are only used to seed the cursor, never logged as history.
+    first_observation = {
+        str(c.data['bitrix_deal_id'])
+        for c in cards
+        if 'bitrix_last_comment_id' not in (c.data or {})
+    }
 
     from bot.handlers.bitrix24 import batch_list_deal_comments
     try:
@@ -1058,22 +1115,24 @@ async def sync_comments_for_company(company_id: int) -> Dict[str, int]:
         for card_stub in cards:
             deal_id = str(card_stub.data['bitrix_deal_id'])
             new_comments = comments_by_deal.get(deal_id) or []
-            if not new_comments:
+            is_first_observation = deal_id in first_observation
+            if not new_comments and not is_first_observation:
                 continue
             card = await session.get(PipelineCard, card_stub.id)
             data = dict(card.data or {})
             max_id = int(data.get('bitrix_last_comment_id') or 0)
             for comment in new_comments:
-                session.add(PipelineCardHistory(
-                    card_id=card.id, user_id=owner_user_id,
-                    action='bitrix_comment',
-                    payload={
-                        'author': comment.get('AUTHOR_ID'),
-                        'text': comment.get('COMMENT'),
-                        'created': comment.get('CREATED'),
-                    },
-                ))
-                added += 1
+                if not is_first_observation:
+                    session.add(PipelineCardHistory(
+                        card_id=card.id, user_id=owner_user_id,
+                        action='bitrix_comment',
+                        payload={
+                            'author': comment.get('AUTHOR_ID'),
+                            'text': comment.get('COMMENT'),
+                            'created': comment.get('CREATED'),
+                        },
+                    ))
+                    added += 1
                 try:
                     max_id = max(max_id, int(comment.get('ID')))
                 except (TypeError, ValueError):
