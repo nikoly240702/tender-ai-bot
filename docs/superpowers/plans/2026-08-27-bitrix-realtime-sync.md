@@ -1913,7 +1913,7 @@ git commit -m "feat(bitrix): poll deal comments every 90s, demote full poll to h
 - Test: `tests/unit/test_bitrix_inbound_settings_api.py`
 
 **Interfaces:**
-- Consumes: `cabinet.bitrix_sync.get_or_create_inbound_secret`, `cabinet.bitrix_sync.rotate_inbound_secret`, `cabinet.auth.require_owner`, `bot.config.BotConfig.WEBAPP_BASE_URL`.
+- Consumes: `cabinet.bitrix_sync.get_or_create_inbound_secret`, `cabinet.bitrix_sync.rotate_inbound_secret`, `cabinet.auth.require_team_member` (GET — view-only, see ruling below), `cabinet.auth.require_owner` (POST /rotate), `bot.config.BotConfig.WEBAPP_BASE_URL`.
 - Produces: `get_bitrix_inbound_settings(request) -> web.Response`, `rotate_bitrix_inbound_secret(request) -> web.Response`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1989,10 +1989,13 @@ async def _get_bitrix_inbound_settings_impl(request: web.Request) -> web.Respons
     return web.json_response({'ok': True, 'url': url})
 
 
-@require_owner
+@require_team_member
 async def get_bitrix_inbound_settings(request: web.Request) -> web.Response:
     """GET /cabinet/api/settings/bitrix-inbound — URL для исходящего вебхука Bitrix.
-    Генерирует секрет при первом обращении.
+    Генерирует секрет при первом обращении. Доступно любому члену команды —
+    только просмотр URL, не мутация (см. ruling после Task 12's review: та же
+    логика "просмотр/pull — любому, мутация/import — только owner", что уже
+    использует pipeline_bitrix_pull vs pipeline_bitrix_import в этом файле).
     """
     return await _get_bitrix_inbound_settings_impl(request)
 
