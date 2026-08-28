@@ -63,3 +63,6 @@ Thumbs.db
 
 # Superpowers brainstorming
 .superpowers/
+
+# Git worktrees (subagent-driven-development isolation)
+.worktrees/

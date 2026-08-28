@@ -14,13 +14,16 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import re
+import secrets
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -69,6 +72,61 @@ async def _get_company_webhook(company_id: int) -> Optional[str]:
         if not webhook or not enabled:
             return None
         return webhook.strip()
+
+
+async def get_or_create_inbound_secret(company_id: int) -> Optional[str]:
+    """Секрет для проверки входящих событий Bitrix (в URL исходящего вебхука).
+    Генерируется один раз при первом обращении, дальше стабилен.
+    """
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return None
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return None
+        data = dict(owner.data or {})
+        secret = data.get('bitrix_inbound_secret')
+        if secret:
+            return secret
+        secret = secrets.token_urlsafe(24)
+        data['bitrix_inbound_secret'] = secret
+        owner.data = data
+        flag_modified(owner, 'data')
+        await session.commit()
+        return secret
+
+
+async def rotate_inbound_secret(company_id: int) -> Optional[str]:
+    """Перегенерировать секрет (например, при подозрении на утечку)."""
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return None
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return None
+        data = dict(owner.data or {})
+        secret = secrets.token_urlsafe(24)
+        data['bitrix_inbound_secret'] = secret
+        owner.data = data
+        flag_modified(owner, 'data')
+        await session.commit()
+        return secret
+
+
+async def verify_inbound_secret(company_id: int, secret: str) -> bool:
+    if not secret:
+        return False
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return False
+        owner = await session.get(SniperUser, company.owner_user_id)
+        if not owner:
+            return False
+        stored = (owner.data or {}).get('bitrix_inbound_secret')
+        return bool(stored) and hmac.compare_digest(stored, secret)
 
 
 # ============================================
@@ -326,6 +384,186 @@ def _extract_tender_number_from_deal(deal: Dict[str, Any]) -> str:
     return ''
 
 
+_TRACKED_DEAL_FIELDS = [
+    'TITLE', 'OPPORTUNITY', 'UF_CRM_TENDER_CUSTOMER',
+    'UF_CRM_TENDER_REGION', 'CLOSEDATE', 'ASSIGNED_BY_ID', 'STAGE_ID',
+]
+
+
+def _snapshot_from_deal(deal: Dict[str, Any]) -> Dict[str, Any]:
+    """Срез отслеживаемых полей сделки — для diff при следующем событии."""
+    return {f: deal.get(f) for f in _TRACKED_DEAL_FIELDS}
+
+
+def _build_card_data_from_deal(
+    deal: Dict[str, Any], cache: Optional[TenderCache], tender_number: str,
+) -> Dict[str, Any]:
+    """Собирает card.data из сделки Bitrix (+ фолбэк на TenderCache).
+    Вынесено из import_deals_to_pipeline без изменения поведения.
+    """
+    opportunity = deal.get('OPPORTUNITY')
+    try:
+        sale_price = float(opportunity) if opportunity else None
+    except (TypeError, ValueError):
+        sale_price = None
+    cache_price = float(cache.price) if (cache and getattr(cache, 'price', None)) else None
+    final_price = cache_price or sale_price
+
+    deadline_raw = deal.get('CLOSEDATE') or ''
+    if cache and getattr(cache, 'deadline', None):
+        deadline_str = cache.deadline.isoformat()
+    else:
+        deadline_str = (deadline_raw or '')[:10] or None
+
+    return {
+        'name': (getattr(cache, 'name', None) if cache else None)
+                or (deal.get('TITLE') or '')[:255],
+        'customer': (getattr(cache, 'customer', None) if cache else None)
+                    or deal.get('UF_CRM_TENDER_CUSTOMER') or '',
+        'region': (getattr(cache, 'region', None) if cache else None)
+                  or deal.get('UF_CRM_TENDER_REGION') or '',
+        'price_max': final_price,
+        'deadline': deadline_str,
+        'url': deal.get('UF_CRM_TENDER_URL')
+               or f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
+        'bitrix_deal_id': deal.get('ID'),
+        'bitrix_stage': deal.get('STAGE_ID', 'NEW'),
+        'bitrix_opportunity': opportunity,
+        'bitrix_snapshot': _snapshot_from_deal(deal),
+    }
+
+
+async def _create_card_from_deal(
+    session, company_id: int, owner_user_id: int, tender_number: str,
+    deal: Dict[str, Any], cache: Optional[TenderCache], source: str,
+    history_action: str,
+) -> PipelineCard:
+    """Создаёт PipelineCard + запись истории из сделки Bitrix. Не коммитит —
+    вызывающий код решает, когда коммитить (нужно для try/except IntegrityError
+    в bulk-импорте).
+    """
+    bitrix_stage = deal.get('STAGE_ID', 'NEW')
+    new_stage = _IMPORT_STAGE_MAP.get(bitrix_stage, 'IN_WORK')
+    result = None
+    if bitrix_stage == 'LOSE':
+        result = 'lost'
+    elif bitrix_stage == 'WON':
+        result = 'won'
+
+    card_data = _build_card_data_from_deal(deal, cache, tender_number)
+    final_price = card_data.get('price_max')
+
+    card = PipelineCard(
+        company_id=company_id,
+        tender_number=tender_number,
+        stage=new_stage,
+        assignee_user_id=owner_user_id,
+        source=source,
+        result=result,
+        sale_price=Decimal(str(final_price)) if final_price else None,
+        ai_summary=deal.get('UF_CRM_AI_SUMMARY'),
+        ai_recommendation=(deal.get('UF_CRM_AI_RECOMMENDATION') or '')[:40] or None,
+        data=card_data,
+        created_by=owner_user_id,
+    )
+    session.add(card)
+    await session.flush()
+    session.add(PipelineCardHistory(
+        card_id=card.id, user_id=owner_user_id,
+        action=history_action,
+        payload={'bitrix_deal_id': deal.get('ID'), 'original_stage': bitrix_stage},
+    ))
+    return card
+
+
+async def _diff_and_log_field_changes(
+    session, card: PipelineCard, deal: Dict[str, Any], owner_user_id: int,
+) -> None:
+    """Сравнивает отслеживаемые поля со снимком в card.data['bitrix_snapshot'],
+    пишет по одной записи истории на каждое изменённое поле (кроме STAGE_ID —
+    им занимается _pull_stage_update, и ASSIGNED_BY_ID — им _sync_assignee_from_deal).
+    Обновляет снимок в конце независимо от того, было ли изменение.
+    """
+    data = dict(card.data or {})
+    old_snapshot = data.get('bitrix_snapshot') or {}
+    new_snapshot = _snapshot_from_deal(deal)
+
+    for field in _TRACKED_DEAL_FIELDS:
+        if field in ('STAGE_ID', 'ASSIGNED_BY_ID'):
+            continue
+        if field not in old_snapshot:
+            continue  # первое наблюдение поля — не считаем изменением
+        old_val = old_snapshot.get(field)
+        new_val = new_snapshot.get(field)
+        if old_val == new_val:
+            continue
+        session.add(PipelineCardHistory(
+            card_id=card.id, user_id=owner_user_id,
+            action='bitrix_field_changed',
+            payload={'field': field, 'old': old_val, 'new': new_val},
+        ))
+
+    data['bitrix_snapshot'] = new_snapshot
+    card.data = data
+    flag_modified(card, 'data')
+
+
+async def _sync_assignee_from_deal(
+    session, company_id: int, card: PipelineCard, deal: Dict[str, Any], owner_user_id: int,
+) -> None:
+    """Отражает смену ответственного в Bitrix. Если новый ASSIGNED_BY_ID
+    сопоставляется с sniper_users этой компании (по data['bitrix_user_id']) —
+    обновляет assignee_user_id. Если нет — оставляет assignee_user_id как есть
+    (FK-целостность) и только сохраняет отображаемое имя для UI.
+    """
+    from database import CompanyMember
+
+    if 'ASSIGNED_BY_ID' not in deal:
+        return  # malformed/partial deal dict — do not treat as "assignee cleared"
+
+    new_assigned = deal.get('ASSIGNED_BY_ID')
+    data = dict(card.data or {})
+    old_snapshot = data.get('bitrix_snapshot') or {}
+    old_assigned = old_snapshot.get('ASSIGNED_BY_ID')
+
+    # Bitrix's API may return numeric fields as strings; str()-normalize both
+    # sides so a str/int mismatch never silently defeats the comparison.
+    def _s(v):
+        return str(v) if v is not None else None
+
+    if 'ASSIGNED_BY_ID' not in old_snapshot or _s(old_assigned) == _s(new_assigned):
+        return
+
+    matched_user_id: Optional[int] = None
+    members = (await session.execute(
+        select(CompanyMember).where(CompanyMember.company_id == company_id)
+    )).scalars().all()
+    candidate_ids = {m.user_id for m in members}
+    owner = await session.get(SniperUser, owner_user_id)
+    if owner:
+        candidate_ids.add(owner.id)
+    for user_id in candidate_ids:
+        user = await session.get(SniperUser, user_id)
+        if user and _s((user.data or {}).get('bitrix_user_id')) == _s(new_assigned):
+            matched_user_id = user.id
+            break
+
+    if matched_user_id:
+        card.assignee_user_id = matched_user_id
+        data.pop('bitrix_assigned_name', None)
+    else:
+        display_name = deal.get('ASSIGNED_BY_NAME') or f'Bitrix user #{new_assigned}'
+        data['bitrix_assigned_name'] = display_name
+
+    session.add(PipelineCardHistory(
+        card_id=card.id, user_id=owner_user_id,
+        action='bitrix_field_changed',
+        payload={'field': 'ASSIGNED_BY_ID', 'old': old_assigned, 'new': new_assigned},
+    ))
+    card.data = data
+    flag_modified(card, 'data')
+
+
 async def _fetch_all_deals(webhook: str) -> List[Dict[str, Any]]:
     """Берёт все сделки через crm.deal.list с пагинацией.
 
@@ -443,64 +681,11 @@ async def import_deals_to_pipeline(company_id: int) -> Dict[str, int]:
                     skipped += 1
                     continue
 
-                # Собираем data
-                opportunity = deal.get('OPPORTUNITY')
-                try:
-                    sale_price = float(opportunity) if opportunity else None
-                except (TypeError, ValueError):
-                    sale_price = None
-                if cache:
-                    cache_price = float(cache.price) if getattr(cache, 'price', None) else None
-                else:
-                    cache_price = None
-                final_price = cache_price or sale_price
-
-                deadline_raw = deal.get('CLOSEDATE') or ''
-                if cache and getattr(cache, 'deadline', None):
-                    deadline_str = cache.deadline.isoformat()
-                else:
-                    deadline_str = (deadline_raw or '')[:10] or None
-
-                card_data = {
-                    'name': (getattr(cache, 'name', None) if cache else None)
-                            or (deal.get('TITLE') or '')[:255],
-                    'customer': (getattr(cache, 'customer', None) if cache else None)
-                                or deal.get('UF_CRM_TENDER_CUSTOMER') or '',
-                    'region': (getattr(cache, 'region', None) if cache else None)
-                              or deal.get('UF_CRM_TENDER_REGION') or '',
-                    'price_max': final_price,
-                    'deadline': deadline_str,
-                    'url': deal.get('UF_CRM_TENDER_URL')
-                           or f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
-                    'bitrix_deal_id': deal.get('ID'),
-                    'bitrix_stage': bitrix_stage,
-                    'bitrix_opportunity': opportunity,
-                }
-
-                card = PipelineCard(
-                    company_id=company_id,
-                    tender_number=tender_number,
-                    stage=new_stage,
-                    assignee_user_id=owner_user_id,
-                    source='bitrix_import',
-                    result=result,
-                    sale_price=Decimal(str(final_price)) if final_price else None,
-                    ai_summary=deal.get('UF_CRM_AI_SUMMARY'),
-                    ai_recommendation=(deal.get('UF_CRM_AI_RECOMMENDATION') or '')[:40] or None,
-                    data=card_data,
-                    created_by=owner_user_id,
+                card = await _create_card_from_deal(
+                    session, company_id, owner_user_id, tender_number,
+                    deal, cache, source='bitrix_import',
+                    history_action='imported_from_bitrix',
                 )
-                session.add(card)
-                await session.flush()
-                history = PipelineCardHistory(
-                    card_id=card.id, user_id=owner_user_id,
-                    action='imported_from_bitrix',
-                    payload={
-                        'bitrix_deal_id': deal.get('ID'),
-                        'original_stage': bitrix_stage,
-                    },
-                )
-                session.add(history)
                 try:
                     await session.commit()
                     imported += 1
@@ -545,6 +730,57 @@ _STAGE_ORDER = {
     'FOUND': 0, 'IN_WORK': 1, 'RFQ': 2, 'QUOTED': 3,
     'SUBMITTED': 4, 'RESULT': 5, 'REJECTED': 5,
 }
+
+
+def _pull_stage_update(card: PipelineCard, stage_id: str) -> Optional[Dict[str, Any]]:
+    """Anti-rollback обновление стадии/результата карточки по стадии из Bitrix.
+    Мутирует card на месте если нужно применить изменение; возвращает payload
+    для записи в историю, или None если применять нечего.
+    """
+    mapping = _PULL_STAGE_MAP.get(stage_id)
+    if not mapping:
+        return None  # промежуточная стадия — не трогаем
+
+    target_stage = mapping['stage']
+    target_result = mapping['result']
+
+    current_idx = _STAGE_ORDER.get(card.stage, 0)
+    target_idx = _STAGE_ORDER.get(target_stage, 0)
+    if target_idx < current_idx:
+        return None
+
+    if card.stage == 'REJECTED' and stage_id == 'LOSE':
+        return None
+
+    stage_changed = card.stage != target_stage
+    result_changed = (target_result is not None and card.result != target_result)
+    if not (stage_changed or result_changed):
+        return None
+
+    old_stage, old_result = card.stage, card.result
+    card.stage = target_stage
+    if target_result is not None:
+        card.result = target_result
+    return {
+        'from_stage': old_stage, 'to_stage': target_stage,
+        'from_result': old_result, 'to_result': target_result,
+        'bitrix_stage_id': stage_id,
+    }
+
+
+async def _find_card_by_bitrix_deal_id(session, company_id: int, deal_id: str) -> Optional[PipelineCard]:
+    """Ищет карточку компании по data['bitrix_deal_id'] сравнением в Python —
+    портируемо между SQLite (тесты) и Postgres (прод), без JSON-операторов, и
+    без риска подстрокового ложняка (`900` не совпадёт с `9000`).
+    """
+    rows = await session.execute(
+        select(PipelineCard).where(PipelineCard.company_id == company_id)
+    )
+    deal_id_str = str(deal_id)
+    for card in rows.scalars().all():
+        if str((card.data or {}).get('bitrix_deal_id', '')) == deal_id_str:
+            return card
+    return None
 
 
 async def _get_last_sync_at(company_id: int) -> Optional[str]:
@@ -642,60 +878,22 @@ async def pull_changes_from_bitrix(company_id: int) -> Dict[str, int]:
             if not deal_id:
                 continue
             stage_id = deal.get('STAGE_ID')
-            mapping = _PULL_STAGE_MAP.get(stage_id)
-            if not mapping:
-                continue  # промежуточная стадия — не трогаем
 
             async with DatabaseSession() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT id FROM pipeline_cards "
-                        "WHERE company_id = :cid "
-                        "AND data::text LIKE :pattern "
-                        "LIMIT 1"
-                    ),
-                    {'cid': company_id, 'pattern': f'%"bitrix_deal_id": {deal_id}%'},
-                )
-                row = result.first()
-                card = None
-                if row:
-                    card = await session.get(PipelineCard, row[0])
+                card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
                 if not card:
                     continue
 
-                target_stage = mapping['stage']
-                target_result = mapping['result']
-
-                # Don't rollback: if pipeline card is at a later stage, keep it
-                current_idx = _STAGE_ORDER.get(card.stage, 0)
-                target_idx = _STAGE_ORDER.get(target_stage, 0)
-                if target_idx < current_idx:
+                update_payload = _pull_stage_update(card, stage_id)
+                if update_payload is None:
                     continue
 
-                # Если пользователь у нас уже пометил как REJECTED, а в Bitrix
-                # пришло LOSE — оставляем REJECTED как более точное.
-                if card.stage == 'REJECTED' and stage_id == 'LOSE':
-                    continue
-
-                stage_changed = card.stage != target_stage
-                result_changed = (target_result is not None and card.result != target_result)
-                if not (stage_changed or result_changed):
-                    continue
-
-                old_stage, old_result = card.stage, card.result
-                card.stage = target_stage
-                if target_result is not None:
-                    card.result = target_result
                 card.updated_at = _dt.utcnow()
+                update_payload['bitrix_deal_id'] = deal_id
                 history = PipelineCardHistory(
                     card_id=card.id, user_id=owner_user_id,
                     action='bitrix_pull',
-                    payload={
-                        'from_stage': old_stage, 'to_stage': target_stage,
-                        'from_result': old_result, 'to_result': target_result,
-                        'bitrix_stage_id': stage_id,
-                        'bitrix_deal_id': deal_id,
-                    },
+                    payload=update_payload,
                 )
                 session.add(history)
                 await session.commit()
@@ -732,3 +930,216 @@ async def pull_changes_for_all_companies() -> Dict[str, Any]:
         except Exception as e:
             logger.error(f'[bitrix-pull-all] company={c.id}: {e}', exc_info=True)
     return {'companies': company_count, 'checked': total_checked, 'updated': total_updated}
+
+
+# ============================================
+# Inbound: Bitrix webhook event → pipeline
+# ============================================
+
+_HANDLED_EVENTS = {'ONCRMDEALADD', 'ONCRMDEALUPDATE', 'ONCRMDEALMOVETOCATEGORY', 'ONCRMDEALDELETE'}
+
+
+async def _handle_deal_deleted(company_id: int, deal_id: str, owner_user_id: int) -> None:
+    async with DatabaseSession() as session:
+        card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
+        if not card or card.archived_at:
+            return
+        card.archived_at = datetime.utcnow()
+        session.add(PipelineCardHistory(
+            card_id=card.id, user_id=owner_user_id,
+            action='bitrix_deal_deleted',
+            payload={'bitrix_deal_id': deal_id},
+        ))
+        await session.commit()
+
+
+async def handle_deal_event(company_id: int, event: str, deal_id: str) -> None:
+    """Обрабатывает одно событие исходящего вебхука Bitrix для сделки.
+    Best-effort: любая ошибка логируется и не пробрасывается дальше.
+    """
+    event = (event or '').upper()
+    if event not in _HANDLED_EVENTS:
+        return
+    try:
+        webhook = await _get_company_webhook(company_id)
+        if not webhook:
+            return
+
+        async with DatabaseSession() as session:
+            company = await session.get(Company, company_id)
+            owner_user_id = company.owner_user_id if company else None
+        if not owner_user_id:
+            return
+
+        if event == 'ONCRMDEALDELETE':
+            await _handle_deal_deleted(company_id, deal_id, owner_user_id)
+            return
+
+        from bot.handlers.bitrix24 import get_bitrix24_deal
+        deal = await get_bitrix24_deal(webhook, deal_id)
+        if not deal:
+            logger.warning(f'[bitrix-event] deal {deal_id} not found via API (event={event})')
+            return
+
+        tender_number = _extract_tender_number_from_deal(deal)
+
+        async with DatabaseSession() as session:
+            card = await _find_card_by_bitrix_deal_id(session, company_id, deal_id)
+            if not card:
+                if not tender_number:
+                    logger.warning(f'[bitrix-event] deal {deal_id} has no tender number, skip create')
+                    return
+
+                # A PipelineCard may already exist for this tender number
+                # (created some other way — the tender-monitoring feed, or a
+                # Bitrix push that failed before the deal_id got stored) but
+                # without a bitrix_deal_id yet. Backfill the link onto it
+                # instead of attempting a doomed duplicate create that would
+                # just hit the uq_pipeline_company_tender constraint every
+                # time this event repeats, permanently losing the link.
+                existing = await session.scalar(
+                    select(PipelineCard).where(
+                        PipelineCard.company_id == company_id,
+                        PipelineCard.tender_number == tender_number,
+                    )
+                )
+                if existing:
+                    existing_data = dict(existing.data or {})
+                    if not existing_data.get('bitrix_deal_id'):
+                        existing_data['bitrix_deal_id'] = deal_id
+                        existing_data['bitrix_stage'] = deal.get('STAGE_ID', 'NEW')
+                        existing_data['bitrix_snapshot'] = _snapshot_from_deal(deal)
+                        existing.data = existing_data
+                        flag_modified(existing, 'data')
+                        await session.commit()
+                        logger.info(
+                            f'[bitrix-event] backfilled bitrix_deal_id={deal_id} onto '
+                            f'existing card {existing.id} (tender {tender_number})'
+                        )
+                    return
+
+                cache = await session.scalar(
+                    select(TenderCache).where(TenderCache.tender_number == tender_number)
+                )
+                try:
+                    await _create_card_from_deal(
+                        session, company_id, owner_user_id, tender_number,
+                        deal, cache, source='bitrix_event',
+                        history_action='card_created_from_bitrix',
+                    )
+                    await session.commit()
+                except IntegrityError:
+                    await session.rollback()
+                return
+
+            stage_id = deal.get('STAGE_ID')
+            update_payload = _pull_stage_update(card, stage_id) if stage_id else None
+            if update_payload:
+                update_payload['bitrix_deal_id'] = deal_id
+                session.add(PipelineCardHistory(
+                    card_id=card.id, user_id=owner_user_id,
+                    action='bitrix_pull', payload=update_payload,
+                ))
+            elif stage_id and stage_id not in _PULL_STAGE_MAP:
+                # Genuinely unmapped Bitrix stage (not just anti-rollback
+                # declining a mapped one) — Pipeline's own stage vocabulary
+                # doesn't cover it, but the move should still be visible.
+                old_stage_id = ((card.data or {}).get('bitrix_snapshot') or {}).get('STAGE_ID')
+                if old_stage_id != stage_id:
+                    session.add(PipelineCardHistory(
+                        card_id=card.id, user_id=owner_user_id,
+                        action='bitrix_field_changed',
+                        payload={'field': 'STAGE_ID', 'old': old_stage_id, 'new': stage_id},
+                    ))
+
+            await _diff_and_log_field_changes(session, card, deal, owner_user_id)
+            await _sync_assignee_from_deal(session, company_id, card, deal, owner_user_id)
+            card.updated_at = datetime.utcnow()
+            await session.commit()
+        logger.info(f'[bitrix-event] company={company_id} event={event} deal={deal_id} processed')
+    except Exception as e:
+        logger.error(f'[bitrix-event] error company={company_id} event={event} deal={deal_id}: {e}', exc_info=True)
+
+
+# ============================================
+# Comments: periodic poll (no push event exists for this in Bitrix)
+# ============================================
+
+async def sync_comments_for_company(company_id: int) -> Dict[str, int]:
+    """Подтягивает новые комментарии ленты Bitrix для всех активных карточек
+    компании, у которых есть привязка к сделке. Возвращает {checked, added}.
+    """
+    webhook = await _get_company_webhook(company_id)
+    if not webhook:
+        return {'checked': 0, 'added': 0}
+
+    async with DatabaseSession() as session:
+        rows = await session.execute(
+            select(PipelineCard).where(
+                PipelineCard.company_id == company_id,
+                PipelineCard.archived_at.is_(None),
+            )
+        )
+        cards = [c for c in rows.scalars().all() if (c.data or {}).get('bitrix_deal_id')]
+
+    if not cards:
+        return {'checked': 0, 'added': 0}
+
+    deal_since = {
+        str(c.data['bitrix_deal_id']): int(c.data.get('bitrix_last_comment_id') or 0)
+        for c in cards
+    }
+    # "Never synced" (key absent) must NOT be treated the same as "synced
+    # before, cursor happens to be 0" (key present with value 0) — the former
+    # would otherwise dump a deal's entire historical comment log into
+    # PipelineCardHistory on its very first sync. These cards still get
+    # fetched (since_id=0, so we learn the current max id) but their
+    # comments are only used to seed the cursor, never logged as history.
+    first_observation = {
+        str(c.data['bitrix_deal_id'])
+        for c in cards
+        if 'bitrix_last_comment_id' not in (c.data or {})
+    }
+
+    from bot.handlers.bitrix24 import batch_list_deal_comments
+    try:
+        comments_by_deal = await batch_list_deal_comments(webhook, deal_since)
+    except Exception as e:
+        logger.error(f'[bitrix-comments] company={company_id} batch error: {e}', exc_info=True)
+        return {'checked': len(cards), 'added': 0}
+
+    added = 0
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        owner_user_id = company.owner_user_id if company else None
+        for card_stub in cards:
+            deal_id = str(card_stub.data['bitrix_deal_id'])
+            new_comments = comments_by_deal.get(deal_id) or []
+            is_first_observation = deal_id in first_observation
+            if not new_comments and not is_first_observation:
+                continue
+            card = await session.get(PipelineCard, card_stub.id)
+            data = dict(card.data or {})
+            max_id = int(data.get('bitrix_last_comment_id') or 0)
+            for comment in new_comments:
+                if not is_first_observation:
+                    session.add(PipelineCardHistory(
+                        card_id=card.id, user_id=owner_user_id,
+                        action='bitrix_comment',
+                        payload={
+                            'author': comment.get('AUTHOR_ID'),
+                            'text': comment.get('COMMENT'),
+                            'created': comment.get('CREATED'),
+                        },
+                    ))
+                    added += 1
+                try:
+                    max_id = max(max_id, int(comment.get('ID')))
+                except (TypeError, ValueError):
+                    pass
+            data['bitrix_last_comment_id'] = max_id
+            card.data = data
+            flag_modified(card, 'data')
+        await session.commit()
+
+    return {'checked': len(cards), 'added': added}

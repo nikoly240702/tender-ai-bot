@@ -1,5 +1,8 @@
-"""Background job: каждые 5 мин подтягиваем изменения статусов из Bitrix24
+"""Background job: раз в час подтягиваем изменения статусов из Bitrix24
 во все pipeline-команды у которых настроен webhook.
+
+Сетка безопасности на случай пропущенной доставки вебхука — основной путь
+теперь событийный (см. PULL_INTERVAL_SECONDS ниже).
 
 Запускается из bot/main.py.
 """
@@ -10,7 +13,9 @@ from cabinet import bitrix_sync
 
 logger = logging.getLogger(__name__)
 
-PULL_INTERVAL_SECONDS = 300  # 5 минут
+PULL_INTERVAL_SECONDS = 3600  # 1 час — теперь это сетка безопасности,
+# основной путь — событийный (bot/health_check.py::bitrix24_events_handler)
+# + отдельный поллинг комментариев (tender_sniper/jobs/bitrix_comment_sync.py)
 START_DELAY_SECONDS = 90     # отложенный старт чтобы не дублироваться при rolling deploy
 
 

@@ -80,6 +80,20 @@
     <button class="btn btn-secondary" id="bx-test">Проверить соединение</button>
   </div>
   <p class="desc" id="bx-status" style="margin-top:10px"></p>
+
+  <div class="setting-row" style="margin-top:20px;border-top:1px solid var(--line);padding-top:16px;">
+    <div style="flex:1">
+      <div class="label">Обратный синк из Bitrix (real-time)</div>
+      <div class="hint">
+        Вставьте этот URL в Bitrix: Разработчикам → Другое → Исходящий вебхук.
+        Отметьте события: «Создание сделки», «Изменение сделки», «Удаление сделки», «Смена направления (воронки)».
+      </div>
+      <input type="text" id="bx-inbound-url" readonly style="width:100%;margin-top:8px;padding:10px 12px;border-radius:var(--radius-sm);background:var(--bg);border:1px solid var(--line);color:var(--text);font-family:var(--font-mono);font-size:12px;">
+    </div>
+  </div>
+  <div class="pause-actions">
+    <button class="btn btn-secondary" id="bx-inbound-rotate">Сгенерировать заново</button>
+  </div>
 </div>
 
 <div class="settings-section">
@@ -94,5 +108,5 @@
 {% endblock %}
 
 {% block page_js %}
-<script src="/cabinet/static/js/pages/settings.js?v=8"></script>
+<script src="/cabinet/static/js/pages/settings.js?v=9"></script>
 {% endblock %}

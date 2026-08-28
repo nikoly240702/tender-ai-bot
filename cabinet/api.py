@@ -1019,6 +1019,45 @@ async def test_bitrix24_settings(request: web.Request) -> web.Response:
     return web.json_response({'error': msg or 'Не удалось подключиться'}, status=400)
 
 
+from cabinet.auth import require_owner, require_team_member
+
+
+async def _get_bitrix_inbound_settings_impl(request: web.Request) -> web.Response:
+    company = request['company']
+    from cabinet.bitrix_sync import get_or_create_inbound_secret
+    from bot.config import BotConfig
+    secret = await get_or_create_inbound_secret(company['id'])
+    if not secret:
+        return web.json_response({'error': 'company not found'}, status=404)
+    url = f"{BotConfig.WEBAPP_BASE_URL}/webhook/bitrix24/events?c={company['id']}&t={secret}"
+    return web.json_response({'ok': True, 'url': url})
+
+
+@require_team_member
+async def get_bitrix_inbound_settings(request: web.Request) -> web.Response:
+    """GET /cabinet/api/settings/bitrix-inbound — URL для исходящего вебхука Bitrix (view-only).
+    Доступен любому члену команды. Генерирует секрет при первом обращении.
+    """
+    return await _get_bitrix_inbound_settings_impl(request)
+
+
+async def _rotate_bitrix_inbound_secret_impl(request: web.Request) -> web.Response:
+    company = request['company']
+    from cabinet.bitrix_sync import rotate_inbound_secret
+    from bot.config import BotConfig
+    secret = await rotate_inbound_secret(company['id'])
+    if not secret:
+        return web.json_response({'error': 'company not found'}, status=404)
+    url = f"{BotConfig.WEBAPP_BASE_URL}/webhook/bitrix24/events?c={company['id']}&t={secret}"
+    return web.json_response({'ok': True, 'url': url})
+
+
+@require_owner
+async def rotate_bitrix_inbound_secret(request: web.Request) -> web.Response:
+    """POST /cabinet/api/settings/bitrix-inbound/rotate — перегенерировать секрет."""
+    return await _rotate_bitrix_inbound_secret_impl(request)
+
+
 @require_auth
 async def export_tender_to_bitrix24(request: web.Request) -> web.Response:
     """POST /cabinet/api/tenders/{tender_number}/bitrix24 — создать сделку из тендера."""

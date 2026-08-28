@@ -264,9 +264,13 @@ async def main():
     from tender_sniper.jobs.archive_lost_cards import archive_loop
     asyncio.create_task(archive_loop())
 
-    # Pipeline: pull-синхронизация статусов из Bitrix24 (каждые 5 мин)
+    # Pipeline: pull-синхронизация статусов из Bitrix24 (раз в час, сетка безопасности)
     from tender_sniper.jobs.bitrix_pull_sync import pull_loop as bitrix_pull_loop
     asyncio.create_task(bitrix_pull_loop())
+
+    # Pipeline: поллинг новых комментариев ленты Bitrix24 (каждые ~90 сек)
+    from tender_sniper.jobs.bitrix_comment_sync import comment_sync_loop
+    asyncio.create_task(comment_sync_loop())
 
     # ============================================
     # PRODUCTION: Graceful Shutdown Handler

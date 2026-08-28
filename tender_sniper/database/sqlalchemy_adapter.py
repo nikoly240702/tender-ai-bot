@@ -29,6 +29,7 @@ from database import (
     GoogleSheetsConfig as GoogleSheetsConfigModel,
     CacheEntry as CacheEntryModel,
     CompanyProfile as CompanyProfileModel,
+    CommercialProposal as CommercialProposalModel,
     GeneratedDocument as GeneratedDocumentModel,
     WebSession as WebSessionModel,
     get_session,
@@ -2935,6 +2936,33 @@ class TenderSniperDB:
                 await session.flush()
 
             return profile.id
+
+    async def next_kp_number(self, user_id: int) -> str:
+        """Атомарно инкрементит kp_counter профиля и возвращает следующий номер КП."""
+        async with DatabaseSession() as session:
+            result = await session.execute(
+                select(CompanyProfileModel).where(CompanyProfileModel.user_id == user_id)
+            )
+            profile = result.scalar_one_or_none()
+            if profile is None:
+                profile = CompanyProfileModel(user_id=user_id, kp_counter=0)
+                session.add(profile)
+                await session.flush()
+            profile.kp_counter = (profile.kp_counter or 0) + 1
+            prefix = profile.kp_number_prefix or "КП"
+            number = f"{prefix}-{profile.kp_counter}"
+            await session.commit()
+            return number
+
+    async def save_commercial_proposal(self, user_id: int, data: dict) -> int:
+        """Сохраняет коммерческое предложение и возвращает его id."""
+        async with DatabaseSession() as session:
+            proposal = CommercialProposalModel(user_id=user_id, **data)
+            session.add(proposal)
+            await session.flush()
+            pid = proposal.id
+            await session.commit()
+            return pid
 
     async def check_profile_completeness(self, user_id: int) -> bool:
         """Проверка заполненности профиля (минимальные обязательные поля)."""

@@ -742,6 +742,14 @@ class CompanyProfile(Base):
     licenses_text = Column(Text, nullable=True)  # Описание лицензий
     experience_description = Column(Text, nullable=True)  # Описание опыта
 
+    # Настройки генератора КП
+    kp_number_prefix = Column(String(20), nullable=True)      # напр. ИПХИС
+    kp_counter = Column(Integer, default=0, nullable=False)   # последний выданный номер
+    kp_default_validity_days = Column(Integer, default=15, nullable=False)
+    kp_default_payment_terms = Column(Text, nullable=True)
+    kp_default_delivery_terms = Column(Text, nullable=True)
+    kp_signer_name = Column(String(255), nullable=True)
+
     is_complete = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -773,6 +781,26 @@ class GeneratedDocument(Base):
     __table_args__ = (
         Index('ix_generated_docs_user_tender', 'user_id', 'tender_number'),
     )
+
+
+class CommercialProposal(Base):
+    """Коммерческое предложение (КП), сгенерированное через /kp."""
+    __tablename__ = 'commercial_proposals'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    number = Column(String(100), nullable=False)
+    recipient_kuda = Column(String(500), nullable=True)
+    recipient_komu = Column(String(500), nullable=True)
+    recipient_tel = Column(String(100), nullable=True)
+    vat_mode = Column(String(10), default='none', nullable=False)  # none | vat20
+    delivery_time = Column(String(255), nullable=True)
+    items = Column(JSON, default=list)   # [{name, proposed_name, unit, qty, price, sum, delivery}]
+    total = Column(Float, nullable=False, default=0)
+    vat_amount = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("SniperUser")
 
 
 class GptSession(Base):

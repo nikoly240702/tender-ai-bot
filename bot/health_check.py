@@ -493,6 +493,46 @@ async def bitrix24_analyze_handler(request):
     return web.json_response({'ok': True, 'deal_id': deal_id})
 
 
+async def bitrix24_events_handler(request):
+    """
+    POST /webhook/bitrix24/events?c=<company_id>&t=<secret>
+
+    Приёмник «исходящего вебхука» Bitrix24 (Разработчикам → Другое →
+    Исходящий вебхук) на события OnCrmDealAdd/Update/Delete/MoveToCategory.
+
+    Тело — application/x-www-form-urlencoded с PHP-стиль ключами:
+    event=ONCRMDEALUPDATE&data[FIELDS][ID]=42&auth[domain]=...
+    aiohttp не разворачивает квадратные скобки — читаем как литеральные ключи.
+    """
+    company_id_raw = request.query.get('c', '')
+    secret = request.query.get('t', '')
+    if not company_id_raw:
+        return web.json_response({'error': 'company id required'}, status=400)
+    try:
+        company_id = int(company_id_raw)
+    except ValueError:
+        return web.json_response({'error': 'invalid company id'}, status=400)
+
+    from cabinet.bitrix_sync import verify_inbound_secret
+    if not await verify_inbound_secret(company_id, secret):
+        return web.json_response({'error': 'Unauthorized'}, status=401)
+
+    try:
+        form = await request.post()
+    except Exception:
+        form = {}
+
+    event = str(form.get('event') or '').strip()
+    deal_id = str(form.get('data[FIELDS][ID]') or '').strip()
+
+    if not event or not deal_id:
+        return web.json_response({'error': 'event and deal id required'}, status=400)
+
+    from cabinet.bitrix_sync import handle_deal_event
+    asyncio.create_task(handle_deal_event(company_id, event, deal_id))
+    return web.json_response({'ok': True})
+
+
 async def start_health_check_server(port: int = 8080):
     """
     Запуск health check HTTP сервера.
@@ -512,6 +552,9 @@ async def start_health_check_server(port: int = 8080):
 
     # Битрикс24 → AI анализ документации
     app.router.add_post('/webhook/bitrix24/analyze', bitrix24_analyze_handler)
+
+    # Битрикс24 → real-time события по сделкам (исходящий вебхук)
+    app.router.add_post('/webhook/bitrix24/events', bitrix24_events_handler)
 
     # Корневой endpoint — лендинг
     app.router.add_get('/', landing_handler)

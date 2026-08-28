@@ -33,6 +33,13 @@
     if (bx) bx.value = s.bitrix24_webhook_url || s.bitrix24_webhook || '';
     const bxT = byId('toggle-bitrix');
     if (bxT) bxT.classList.toggle('on', !!s.bitrix24_enabled);
+
+    // Bitrix24 inbound webhook
+    const bxInboundUrl = byId('bx-inbound-url');
+    if (bxInboundUrl) {
+      const inbound = await apiGet('/cabinet/api/settings/bitrix-inbound');
+      if (inbound && inbound.ok) bxInboundUrl.value = inbound.url;
+    }
   }
 
   function tierLabel(t) {
@@ -114,6 +121,27 @@
           status.style.color = 'var(--positive)';
         } else {
           status.textContent = '';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    });
+  }
+
+  const bxInboundRotate = byId('bx-inbound-rotate');
+  if (bxInboundRotate) {
+    bxInboundRotate.addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      if (btn.disabled) return;
+      const orig = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '⏳ Генерируем…';
+      try {
+        const data = await apiPost('/cabinet/api/settings/bitrix-inbound/rotate', {});
+        if (data && data.ok) {
+          byId('bx-inbound-url').value = data.url;
+          Toast.show('✓ Новый URL сгенерирован — обновите его в Bitrix', 'positive');
         }
       } finally {
         btn.disabled = false;
