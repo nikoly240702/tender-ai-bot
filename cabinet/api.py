@@ -1019,7 +1019,7 @@ async def test_bitrix24_settings(request: web.Request) -> web.Response:
     return web.json_response({'error': msg or 'Не удалось подключиться'}, status=400)
 
 
-from cabinet.auth import require_owner
+from cabinet.auth import require_owner, require_team_member
 
 
 async def _get_bitrix_inbound_settings_impl(request: web.Request) -> web.Response:
@@ -1033,10 +1033,10 @@ async def _get_bitrix_inbound_settings_impl(request: web.Request) -> web.Respons
     return web.json_response({'ok': True, 'url': url})
 
 
-@require_owner
+@require_team_member
 async def get_bitrix_inbound_settings(request: web.Request) -> web.Response:
-    """GET /cabinet/api/settings/bitrix-inbound — URL для исходящего вебхука Bitrix.
-    Генерирует секрет при первом обращении.
+    """GET /cabinet/api/settings/bitrix-inbound — URL для исходящего вебхука Bitrix (view-only).
+    Доступен любому члену команды. Генерирует секрет при первом обращении.
     """
     return await _get_bitrix_inbound_settings_impl(request)
 
