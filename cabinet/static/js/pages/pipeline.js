@@ -637,6 +637,17 @@
     });
   }
 
+  const _FIELD_LABELS = {
+    TITLE: 'Название', OPPORTUNITY: 'Сумма', UF_CRM_TENDER_CUSTOMER: 'Заказчик',
+    UF_CRM_TENDER_REGION: 'Регион', CLOSEDATE: 'Срок', ASSIGNED_BY_ID: 'Ответственный',
+  };
+
+  function _fmtFieldValue(field, v) {
+    if (v === null || v === undefined || v === '') return '—';
+    if (field === 'OPPORTUNITY') return fmtPrice(Number(v));
+    return String(v);
+  }
+
   function formatHistoryAction(h) {
     const map = {
       'created': 'создал карточку',
@@ -653,6 +664,14 @@
       'checklist_done': 'отметил пункт выполненным',
       'imported_from_bitrix': 'импортирован из Bitrix24',
       'related_added': 'связал с другим тендером',
+      'bitrix_pull': `Bitrix: стадия → «${h.payload.to_stage || ''}»`,
+      'bitrix_field_changed': (() => {
+        const label = _FIELD_LABELS[h.payload.field] || h.payload.field;
+        return `Bitrix изменил «${label}»: ${_fmtFieldValue(h.payload.field, h.payload.old)} → ${_fmtFieldValue(h.payload.field, h.payload.new)}`;
+      })(),
+      'bitrix_comment': `💬 Bitrix (${h.payload.author || '?'}): ${h.payload.text || ''}`,
+      'bitrix_deal_deleted': '🗑 Сделка удалена в Bitrix — карточка перенесена в архив',
+      'card_created_from_bitrix': `➕ Карточка создана из Bitrix (сделка #${h.payload.bitrix_deal_id || ''})`,
     };
     return map[h.action] || h.action;
   }
