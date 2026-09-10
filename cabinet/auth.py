@@ -133,11 +133,10 @@ def require_team_member(handler, auto_create_for_pages: bool = True):
                 return web.json_response({'error': 'Unauthorized'}, status=401)
             raise web.HTTPFound('/cabinet/login')
 
-        # Импортируем здесь чтобы избежать circular import
         from cabinet.team_service import (
-            get_company_for_user, get_or_create_company_for_user,
+            get_active_company, get_or_create_company_for_user,
         )
-        company = await get_company_for_user(user['user_id'])
+        company = await get_active_company(user['user_id'], user.get('session_token'))
         is_api = '/api/' in request.path
         if not company:
             if is_api:
