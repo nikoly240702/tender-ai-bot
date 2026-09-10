@@ -132,6 +132,7 @@ class SniperFilter(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     keywords = Column(JSON, nullable=False)  # List[str]
     exclude_keywords = Column(JSON, default=list)  # List[str]
@@ -191,6 +192,7 @@ class SniperNotification(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(Integer, ForeignKey('sniper_users.id', ondelete='CASCADE'), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), nullable=True, index=True)
     filter_id = Column(Integer, ForeignKey('sniper_filters.id', ondelete='SET NULL'), nullable=True, index=True)
     filter_name = Column(String(255), nullable=True)
     tender_number = Column(String(100), nullable=False, index=True)
@@ -850,6 +852,7 @@ class WebSession(Base):
     expires_at = Column(DateTime, nullable=False)
     last_used = Column(DateTime, default=datetime.utcnow)
     ip_address = Column(String(45), nullable=True)
+    active_company_id = Column(Integer, ForeignKey('companies.id'), nullable=True)
 
     # Relationships
     user = relationship("SniperUser")
@@ -1047,7 +1050,7 @@ class CompanyMember(Base):
     role = Column(String(16), nullable=False)
     joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     __table_args__ = (
-        UniqueConstraint('user_id', name='uq_company_members_user'),
+        UniqueConstraint('user_id', 'company_id', name='uq_company_members_user_company'),
         Index('ix_company_members_company', 'company_id'),
     )
 
