@@ -64,4 +64,26 @@
       <div class="tier">{{ user_tier or '' }}</div>
     </div>
   </div>
+
+  {% if workspaces %}
+  <div class="workspace-switcher">
+    <select id="workspace-select" onchange="switchWorkspace(this.value)">
+      {% for w in workspaces %}
+      <option value="{{ w.id }}" {% if w.id == active_company_id %}selected{% endif %}>{{ w.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <script>
+    async function switchWorkspace(companyId) {
+      const res = await fetch('/cabinet/api/company/switch', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({company_id: parseInt(companyId, 10)}),
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    }
+  </script>
+  {% endif %}
 </aside>

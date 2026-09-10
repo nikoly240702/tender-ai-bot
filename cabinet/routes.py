@@ -22,16 +22,29 @@ STATIC_DIR = Path(__file__).parent / 'static'
 
 
 async def _global_ctx_processor(request):
-    """Глобальный context для всех шаблонов: is_admin_user, ADMIN_USER_ID."""
+    """Глобальный context для всех шаблонов: is_admin_user, ADMIN_USER_ID, workspaces."""
     is_admin = False
+    workspaces = []
+    active_company_id = None
     try:
         user = await get_current_user(request)
         if user:
             admin_id = int(os.getenv('ADMIN_USER_ID') or os.getenv('ADMIN_TELEGRAM_ID') or '0')
             is_admin = bool(admin_id and user.get('telegram_id') == admin_id)
+
+            from cabinet.team_service import list_companies_for_user, get_active_company
+            memberships = await list_companies_for_user(user['user_id'])
+            if len(memberships) > 1:
+                workspaces = memberships
+                active = await get_active_company(user['user_id'], user.get('session_token'))
+                active_company_id = active['id'] if active else None
     except Exception:
         pass
-    return {'is_admin_user': is_admin}
+    return {
+        'is_admin_user': is_admin,
+        'workspaces': workspaces,
+        'active_company_id': active_company_id,
+    }
 
 
 def setup_cabinet_routes(app: web.Application):
@@ -153,6 +166,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/team/invites', api.team_create_invite)
     app.router.add_delete('/cabinet/api/team/invites/{id}', api.team_revoke_invite)
     app.router.add_get('/cabinet/api/team/dashboard', api.team_dashboard)
+    app.router.add_post('/cabinet/api/company/switch', api.company_switch)
 
     logger.info("Cabinet routes registered at /cabinet/*")
 
@@ -170,9 +184,13 @@ async def login_page(request: web.Request) -> web.Response:
     return _render_template('login.html', request)
 
 
-@require_auth
+@require_team_member
 async def dashboard_page(request: web.Request) -> web.Response:
-    """Главная страница кабинета — лента тендеров."""
+    """Главная страница кабинета — лента тендеров.
+
+    require_team_member: лента (/cabinet/api/tenders) теперь company-scoped
+    и отдаёт 403 юзеру без компании — декоратор автосоздаёт её при заходе.
+    """
     user = request['user']
     return _render_template(
         'dashboard.html',
@@ -210,9 +228,14 @@ async def documents_page(request: web.Request) -> web.Response:
     )
 
 
-@require_auth
+@require_team_member
 async def filters_page(request: web.Request) -> web.Response:
-    """Страница фильтров."""
+    """Страница фильтров.
+
+    require_team_member (а не require_auth): API фильтров company-scoped и
+    отдаёт 403 «Not in any team» юзеру без компании. Декоратор на самой
+    странице автосоздаёт компанию при первом заходе — как pipeline_page.
+    """
     user = request['user']
     return _render_template(
         'filters.html',
@@ -238,9 +261,13 @@ async def search_page(request: web.Request) -> web.Response:
     )
 
 
-@require_auth
+@require_team_member
 async def stats_page(request: web.Request) -> web.Response:
-    """Страница статистики."""
+    """Страница статистики.
+
+    require_team_member: /cabinet/api/stats теперь company-scoped и отдаёт
+    403 юзеру без компании — декоратор автосоздаёт её при заходе.
+    """
     user = request['user']
     return _render_template(
         'stats.html', request,

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from aiohttp import web
 from typing import Dict, Any
 
-from .auth import require_auth
+from .auth import require_auth, require_team_member
 
 logger = logging.getLogger(__name__)
 
@@ -62,28 +62,31 @@ async def save_profile(request: web.Request) -> web.Response:
 # TENDERS API
 # ============================================
 
-@require_auth
+@require_team_member
 async def get_tenders(request: web.Request) -> web.Response:
     """GET /cabinet/api/tenders — история тендеров с пагинацией.
 
+    Лента company-scoped: любой член команды видит уведомления по общим
+    фильтрам компании (см. spec multi-workspace), а не только свои личные.
+
     Помимо страницы тендеров возвращает реальные server-side счётчики:
       - today_count: уведомлений за последние 24 часа (rolling)
-      - total_count: всего у пользователя в БД
+      - total_count: всего у компании в БД
     Они НЕ совпадают с len(tenders) — последний ограничен limit'ом.
     """
-    user = request['user']
+    company = request['company']
     page = int(request.query.get('page', '1'))
     limit = min(int(request.query.get('limit', '50')), 500)
     offset = (page - 1) * limit
 
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
-    tenders = await db.get_user_tenders(user['user_id'], limit=limit + offset)
+    tenders = await db.get_company_tenders(company['id'], limit=limit + offset)
 
     # Ручная пагинация (adapter возвращает лимитированный список)
     page_tenders = tenders[offset:offset + limit] if offset < len(tenders) else []
 
-    counts = await db.count_user_tenders(user['user_id'], hours=24)
+    counts = await db.count_company_tenders(company['id'], hours=24)
 
     return web.json_response({
         'tenders': page_tenders,
@@ -249,22 +252,22 @@ async def generate_documents(request: web.Request) -> web.Response:
 # FILTERS API
 # ============================================
 
-@require_auth
+@require_team_member
 async def get_filters(request: web.Request) -> web.Response:
-    """GET /cabinet/api/filters — фильтры пользователя."""
-    user = request['user']
+    """GET /cabinet/api/filters — фильтры компании."""
+    company = request['company']
     active_only_param = request.query.get('active_only', 'true').lower()
     active_only = active_only_param not in ('false', '0', 'no')
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
-    filters = await db.get_user_filters(user['user_id'], active_only=active_only)
+    filters = await db.get_company_filters(company['id'], active_only=active_only)
     return web.json_response({'filters': filters})
 
 
-@require_auth
+@require_team_member
 async def update_filter(request: web.Request) -> web.Response:
     """PUT/POST /cabinet/api/filters/:id — обновление фильтра."""
-    user = request['user']
+    company = request['company']
     filter_id = int(request.match_info['id'])
 
     try:
@@ -275,12 +278,10 @@ async def update_filter(request: web.Request) -> web.Response:
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
-    # Проверяем что фильтр принадлежит пользователю
     filter_data = await db.get_filter_by_id(filter_id)
-    if not filter_data or filter_data.get('user_id') != user['user_id']:
+    if not filter_data or filter_data.get('company_id') != company['id']:
         return web.json_response({'error': 'Filter not found'}, status=404)
 
-    # Допустимые поля для обновления
     allowed = {'name', 'keywords', 'exclude_keywords', 'price_min', 'price_max',
                'regions', 'law_type', 'is_active', 'tender_types', 'ai_intent'}
     filtered = {k: v for k, v in data.items() if k in allowed}
@@ -293,10 +294,11 @@ async def update_filter(request: web.Request) -> web.Response:
 # FILTERS CRUD (новые эндпоинты)
 # ============================================
 
-@require_auth
+@require_team_member
 async def create_filter(request: web.Request) -> web.Response:
     """POST /cabinet/api/filters/create — создание нового фильтра."""
     user = request['user']
+    company = request['company']
     try:
         data = await request.json()
     except Exception:
@@ -313,10 +315,9 @@ async def create_filter(request: web.Request) -> web.Response:
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
-    # Проверяем лимит фильтров
     user_info = await db.get_user_by_telegram_id(user['telegram_id'])
     filters_limit = user_info.get('filters_limit', 3) if user_info else 3
-    existing = await db.get_user_filters(user['user_id'], active_only=False)
+    existing = await db.get_company_filters(company['id'], active_only=False)
     active_count = sum(1 for f in existing if f.get('is_active') and not f.get('deleted_at'))
     if active_count >= filters_limit:
         return web.json_response({'error': f'Достигнут лимит фильтров ({filters_limit})'}, status=400)
@@ -327,6 +328,7 @@ async def create_filter(request: web.Request) -> web.Response:
 
     filter_id = await db.create_filter(
         user_id=user['user_id'],
+        company_id=company['id'],
         name=name,
         keywords=keywords,
         exclude_keywords=exclude_kw,
@@ -338,41 +340,40 @@ async def create_filter(request: web.Request) -> web.Response:
         is_active=True,
     )
 
-    # Сохраняем ai_intent если передан
     if data.get('ai_intent') and filter_id:
         await db.update_filter(filter_id, ai_intent=data['ai_intent'])
 
     return web.json_response({'ok': True, 'filter_id': filter_id})
 
 
-@require_auth
+@require_team_member
 async def delete_filter(request: web.Request) -> web.Response:
     """DELETE /cabinet/api/filters/:id — мягкое удаление фильтра."""
-    user = request['user']
+    company = request['company']
     filter_id = int(request.match_info['id'])
 
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
     filter_data = await db.get_filter_by_id(filter_id)
-    if not filter_data or filter_data.get('user_id') != user['user_id']:
+    if not filter_data or filter_data.get('company_id') != company['id']:
         return web.json_response({'error': 'Filter not found'}, status=404)
 
     await db.delete_filter(filter_id)
     return web.json_response({'ok': True})
 
 
-@require_auth
+@require_team_member
 async def toggle_filter(request: web.Request) -> web.Response:
     """POST /cabinet/api/filters/:id/toggle — переключить is_active."""
-    user = request['user']
+    company = request['company']
     filter_id = int(request.match_info['id'])
 
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
     filter_data = await db.get_filter_by_id(filter_id)
-    if not filter_data or filter_data.get('user_id') != user['user_id']:
+    if not filter_data or filter_data.get('company_id') != company['id']:
         return web.json_response({'error': 'Filter not found'}, status=404)
 
     new_state = not filter_data.get('is_active', True)
@@ -380,17 +381,18 @@ async def toggle_filter(request: web.Request) -> web.Response:
     return web.json_response({'ok': True, 'is_active': new_state})
 
 
-@require_auth
+@require_team_member
 async def get_filter_notify_targets(request: web.Request) -> web.Response:
     """GET /cabinet/api/filters/:id/notify-targets — куда направляются уведомления."""
     user = request['user']
+    company = request['company']
     filter_id = int(request.match_info['id'])
 
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
     filter_data = await db.get_filter_by_id(filter_id)
-    if not filter_data or filter_data.get('user_id') != user['user_id']:
+    if not filter_data or filter_data.get('company_id') != company['id']:
         return web.json_response({'error': 'Filter not found'}, status=404)
 
     current_targets = filter_data.get('notify_chat_ids') or []
@@ -416,7 +418,7 @@ async def get_filter_notify_targets(request: web.Request) -> web.Response:
     })
 
 
-@require_auth
+@require_team_member
 async def update_filter_notify_targets(request: web.Request) -> web.Response:
     """POST /cabinet/api/filters/:id/notify-targets — сохранить таргеты.
 
@@ -426,6 +428,7 @@ async def update_filter_notify_targets(request: web.Request) -> web.Response:
     отправит в личку). Это согласуется с логикой Telegram-handler-а в sniper.py.
     """
     user = request['user']
+    company = request['company']
     filter_id = int(request.match_info['id'])
 
     try:
@@ -446,7 +449,7 @@ async def update_filter_notify_targets(request: web.Request) -> web.Response:
     db = await get_sniper_db()
 
     filter_data = await db.get_filter_by_id(filter_id)
-    if not filter_data or filter_data.get('user_id') != user['user_id']:
+    if not filter_data or filter_data.get('company_id') != company['id']:
         return web.json_response({'error': 'Filter not found'}, status=404)
 
     user_tg_id = user['telegram_id']
@@ -553,20 +556,21 @@ async def search_tenders(request: web.Request) -> web.Response:
 # STATS API
 # ============================================
 
-@require_auth
+@require_team_member
 async def get_stats(request: web.Request) -> web.Response:
-    """GET /cabinet/api/stats — статистика пользователя."""
+    """GET /cabinet/api/stats — статистика компании (общая для всей команды)."""
     user = request['user']
+    company = request['company']
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
-    stats = await db.get_user_stats(user['user_id'])
+    stats = await db.get_company_stats(company['id'], user_id=user['user_id'])
 
     # Последние 10 тендеров
-    recent = await db.get_user_tenders(user['user_id'], limit=10)
+    recent = await db.get_company_tenders(company['id'], limit=10)
 
     # Топ фильтры: фильтры с количеством уведомлений
-    all_tenders = await db.get_user_tenders(user['user_id'], limit=500)
+    all_tenders = await db.get_company_tenders(company['id'], limit=500)
     filter_counts: Dict[str, int] = {}
     for t in all_tenders:
         fn = t.get('filter_name') or 'Без фильтра'
@@ -1145,6 +1149,32 @@ async def pipeline_create_manual(request: web.Request) -> web.Response:
 
 
 @require_team_member
+async def company_switch(request: web.Request) -> web.Response:
+    """POST /cabinet/api/company/switch — переключить активный воркспейс."""
+    user = request['user']
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+
+    try:
+        company_id = int(data.get('company_id'))
+    except (TypeError, ValueError):
+        return web.json_response({'error': 'company_id required'}, status=400)
+
+    from cabinet.team_service import list_companies_for_user
+    companies = await list_companies_for_user(user['user_id'])
+    if not any(c['id'] == company_id for c in companies):
+        return web.json_response({'error': 'Not a member of this company'}, status=403)
+
+    from tender_sniper.database import get_sniper_db
+    db = await get_sniper_db()
+    await db.set_session_active_company(user['session_token'], company_id)
+
+    return web.json_response({'ok': True, 'company_id': company_id})
+
+
+@require_team_member
 async def pipeline_get_card(request: web.Request) -> web.Response:
     company = request['company']
     card_id = int(request.match_info['id'])
@@ -1479,7 +1509,8 @@ async def team_remove_member(request: web.Request) -> web.Response:
 @require_team_member
 async def team_leave(request: web.Request) -> web.Response:
     user = request['user']
-    result = await team_service.leave_team(user['user_id'])
+    company = request['company']
+    result = await team_service.leave_team(user['user_id'], company['id'])
     return web.json_response(result, status=200 if result['ok'] else 400)
 
 

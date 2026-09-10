@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
 
 from database import (
-    DatabaseSession, Company, SniperUser,
+    DatabaseSession, Company, CompanyMember, SniperUser,
     PipelineCard, PipelineCardHistory, TenderCache,
 )
 
@@ -55,11 +55,32 @@ async def _get_company_webhook(company_id: int) -> Optional[str]:
     """Возвращает webhook владельца команды (или None если не настроен).
 
     Кабинет хранит webhook в data владельца компании — единая точка для всей команды.
+
+    ВАЖНО (multi-workspace): webhook лежит в личном data владельца и не привязан
+    к конкретной компании. Поэтому вторая (изолированная) компания того же
+    владельца унаследовала бы тот же портал Bitrix и сливала бы туда свои
+    карточки. Чтобы этого не было, синк разрешён ТОЛЬКО для первой (самой
+    старой по joined_at) компании владельца. Для юзеров с одной компанией
+    (обычный случай) поведение не меняется.
     """
     async with DatabaseSession() as session:
         company = await session.get(Company, company_id)
         if not company:
             return None
+
+        primary_membership = await session.scalar(
+            select(CompanyMember)
+            .where(CompanyMember.user_id == company.owner_user_id)
+            .order_by(CompanyMember.joined_at)
+            .limit(1)
+        )
+        if not primary_membership or primary_membership.company_id != company_id:
+            logger.debug(
+                f'[bitrix] company {company_id} is not the primary workspace of '
+                f'owner {company.owner_user_id} — Bitrix sync disabled'
+            )
+            return None
+
         owner = await session.get(SniperUser, company.owner_user_id)
         if not owner:
             return None

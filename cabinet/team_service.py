@@ -57,10 +57,11 @@ def _invite_dict(invite: TeamInvite) -> Dict:
 
 
 async def get_company_for_user(user_id: int) -> Optional[Dict]:
-    """Возвращает company юзера или None если не в команде."""
+    """Возвращает первую (по вступлению) компанию юзера или None."""
     async with DatabaseSession() as session:
         membership = await session.scalar(
             select(CompanyMember).where(CompanyMember.user_id == user_id)
+            .order_by(CompanyMember.joined_at).limit(1)
         )
         if not membership:
             return None
@@ -84,6 +85,68 @@ async def get_or_create_company_for_user(user_id: int) -> Dict:
         session.add(member)
         await session.commit()
         return _company_dict(company)
+
+
+async def list_companies_for_user(user_id: int) -> List[Dict]:
+    """Все компании юзера, по порядку вступления (обычно одна)."""
+    async with DatabaseSession() as session:
+        result = await session.execute(
+            select(CompanyMember, Company)
+            .join(Company, Company.id == CompanyMember.company_id)
+            .where(CompanyMember.user_id == user_id)
+            .order_by(CompanyMember.joined_at)
+        )
+        out = []
+        for member, company in result.all():
+            d = _company_dict(company)
+            d['role'] = member.role
+            out.append(d)
+        return out
+
+
+def _pick_active_company(companies: List[Dict], active_company_id: Optional[int]) -> Optional[Dict]:
+    """0 -> None. 1 -> она же (`companies` is the only membership, zero
+    behavior change for single-company users). >1 -> active_company_id if
+    it matches a membership, else the oldest (companies[0], since
+    list_companies_for_user orders by joined_at ascending)."""
+    if not companies:
+        return None
+    if len(companies) == 1:
+        return companies[0]
+    if active_company_id is not None:
+        for c in companies:
+            if c['id'] == active_company_id:
+                return c
+    return companies[0]
+
+
+async def get_active_company(user_id: int, session_token: Optional[str]) -> Optional[Dict]:
+    """Активная компания для сессии. Для юзеров с одним членством —
+    всегда оно, без похода в web_sessions."""
+    companies = await list_companies_for_user(user_id)
+    active_company_id = None
+    if session_token and len(companies) > 1:
+        from tender_sniper.database import get_sniper_db
+        db = await get_sniper_db()
+        ws = await db.get_web_session(session_token)
+        active_company_id = ws.get('active_company_id') if ws else None
+    return _pick_active_company(companies, active_company_id)
+
+
+async def add_member_to_company(company_id: int, user_id: int, role: str = 'member') -> Dict:
+    """Добавляет юзера в компанию напрямую, минуя проверку «уже в одной
+    команде» из accept_invite. Используется только для бутстрапа второго
+    воркспейса — владелец должен состоять сразу в двух компаниях, а
+    accept_invite намеренно продолжает блокировать это для всех остальных."""
+    async with DatabaseSession() as session:
+        member = CompanyMember(company_id=company_id, user_id=user_id, role=role)
+        session.add(member)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            return {'ok': False, 'error': 'Уже состоит в этой компании'}
+    return {'ok': True}
 
 
 async def list_members(company_id: int) -> List[Dict]:
@@ -248,11 +311,18 @@ async def remove_member(company_id: int, target_user_id: int, by_user_id: int) -
         return {'ok': True}
 
 
-async def leave_team(user_id: int) -> Dict:
-    """Member выходит из команды. Owner не может."""
+async def leave_team(user_id: int, company_id: int) -> Dict:
+    """Member выходит из указанной команды. Owner не может.
+
+    company_id обязателен: юзер может состоять в нескольких компаниях
+    (multi-workspace), и без явного скоупа можно удалить не то членство.
+    """
     async with DatabaseSession() as session:
         membership = await session.scalar(
-            select(CompanyMember).where(CompanyMember.user_id == user_id)
+            select(CompanyMember).where(
+                CompanyMember.user_id == user_id,
+                CompanyMember.company_id == company_id,
+            )
         )
         if not membership:
             return {'ok': False, 'error': 'Вы не в команде'}
