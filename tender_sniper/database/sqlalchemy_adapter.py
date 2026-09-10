@@ -32,6 +32,7 @@ from database import (
     CommercialProposal as CommercialProposalModel,
     GeneratedDocument as GeneratedDocumentModel,
     WebSession as WebSessionModel,
+    CompanyMember as CompanyMemberModel,
     get_session,
     DatabaseSession
 )
@@ -416,11 +417,12 @@ class TenderSniperDB:
     # FILTERS
     # ============================================
 
-    async def create_filter(self, user_id: int, name: str, **kwargs) -> int:
+    async def create_filter(self, user_id: int, name: str, company_id: int = None, **kwargs) -> int:
         """Создание фильтра."""
         async with DatabaseSession() as session:
             filter_obj = SniperFilterModel(
                 user_id=user_id,
+                company_id=company_id,
                 name=name,
                 keywords=kwargs.get('keywords', []),
                 exclude_keywords=kwargs.get('exclude_keywords', []),
@@ -473,6 +475,22 @@ class TenderSniperDB:
     async def get_active_filters(self, user_id: int) -> List[Dict[str, Any]]:
         """Алиас для get_user_filters (для обратной совместимости)."""
         return await self.get_user_filters(user_id, active_only=True)
+
+    async def get_company_filters(self, company_id: int, active_only: bool = True) -> List[Dict[str, Any]]:
+        """Фильтры компании (для кабинета — видны всем членам команды)."""
+        async with DatabaseSession() as session:
+            query = select(SniperFilterModel).where(
+                and_(
+                    SniperFilterModel.company_id == company_id,
+                    SniperFilterModel.deleted_at.is_(None),
+                )
+            )
+            if active_only:
+                query = query.where(SniperFilterModel.is_active == True)
+
+            result = await session.execute(query.order_by(SniperFilterModel.created_at.desc()))
+            filters = result.scalars().all()
+            return [self._filter_to_dict(f) for f in filters]
 
     async def get_filter_by_id(self, filter_id: int) -> Optional[Dict[str, Any]]:
         """Получение фильтра по ID."""
@@ -677,6 +695,7 @@ class TenderSniperDB:
         return {
             'id': filter_obj.id,
             'user_id': filter_obj.user_id,
+            'company_id': getattr(filter_obj, 'company_id', None),
             'name': filter_obj.name,
             'keywords': safe_list(filter_obj.keywords),
             'exclude_keywords': safe_list(filter_obj.exclude_keywords),
@@ -938,9 +957,25 @@ class TenderSniperDB:
                 if submission_deadline and submission_deadline.tzinfo is not None:
                     submission_deadline = submission_deadline.replace(tzinfo=None)
 
+            resolved_company_id = None
+            if filter_id:
+                filter_row = await session.get(SniperFilterModel, filter_id)
+                if filter_row:
+                    resolved_company_id = filter_row.company_id
+            if resolved_company_id is None:
+                membership = await session.scalar(
+                    select(CompanyMemberModel)
+                    .where(CompanyMemberModel.user_id == user_id)
+                    .order_by(CompanyMemberModel.joined_at)
+                    .limit(1)
+                )
+                if membership:
+                    resolved_company_id = membership.company_id
+
             try:
               notification = SniperNotificationModel(
                 user_id=user_id,
+                company_id=resolved_company_id,
                 filter_id=filter_id,
                 filter_name=filter_name,
                 tender_number=tender_data.get('number', ''),
@@ -3118,7 +3153,17 @@ class TenderSniperDB:
                 'session_token': ws.session_token,
                 'expires_at': ws.expires_at.isoformat() if ws.expires_at else None,
                 'ip_address': ws.ip_address,
+                'active_company_id': ws.active_company_id,
             }
+
+    async def set_session_active_company(self, session_token: str, company_id: int) -> None:
+        """Сохраняет выбранный воркспейс для мультикомпанийного юзера."""
+        async with DatabaseSession() as session:
+            await session.execute(
+                update(WebSessionModel)
+                .where(WebSessionModel.session_token == session_token)
+                .values(active_company_id=company_id)
+            )
 
     async def delete_web_session(self, session_token: str):
         """Удаление веб-сессии (logout)."""
