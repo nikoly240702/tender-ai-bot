@@ -311,11 +311,18 @@ async def remove_member(company_id: int, target_user_id: int, by_user_id: int) -
         return {'ok': True}
 
 
-async def leave_team(user_id: int) -> Dict:
-    """Member выходит из команды. Owner не может."""
+async def leave_team(user_id: int, company_id: int) -> Dict:
+    """Member выходит из указанной команды. Owner не может.
+
+    company_id обязателен: юзер может состоять в нескольких компаниях
+    (multi-workspace), и без явного скоупа можно удалить не то членство.
+    """
     async with DatabaseSession() as session:
         membership = await session.scalar(
-            select(CompanyMember).where(CompanyMember.user_id == user_id)
+            select(CompanyMember).where(
+                CompanyMember.user_id == user_id,
+                CompanyMember.company_id == company_id,
+            )
         )
         if not membership:
             return {'ok': False, 'error': 'Вы не в команде'}

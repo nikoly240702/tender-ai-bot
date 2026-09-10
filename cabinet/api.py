@@ -62,28 +62,31 @@ async def save_profile(request: web.Request) -> web.Response:
 # TENDERS API
 # ============================================
 
-@require_auth
+@require_team_member
 async def get_tenders(request: web.Request) -> web.Response:
     """GET /cabinet/api/tenders — история тендеров с пагинацией.
 
+    Лента company-scoped: любой член команды видит уведомления по общим
+    фильтрам компании (см. spec multi-workspace), а не только свои личные.
+
     Помимо страницы тендеров возвращает реальные server-side счётчики:
       - today_count: уведомлений за последние 24 часа (rolling)
-      - total_count: всего у пользователя в БД
+      - total_count: всего у компании в БД
     Они НЕ совпадают с len(tenders) — последний ограничен limit'ом.
     """
-    user = request['user']
+    company = request['company']
     page = int(request.query.get('page', '1'))
     limit = min(int(request.query.get('limit', '50')), 500)
     offset = (page - 1) * limit
 
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
-    tenders = await db.get_user_tenders(user['user_id'], limit=limit + offset)
+    tenders = await db.get_company_tenders(company['id'], limit=limit + offset)
 
     # Ручная пагинация (adapter возвращает лимитированный список)
     page_tenders = tenders[offset:offset + limit] if offset < len(tenders) else []
 
-    counts = await db.count_user_tenders(user['user_id'], hours=24)
+    counts = await db.count_company_tenders(company['id'], hours=24)
 
     return web.json_response({
         'tenders': page_tenders,
@@ -553,20 +556,21 @@ async def search_tenders(request: web.Request) -> web.Response:
 # STATS API
 # ============================================
 
-@require_auth
+@require_team_member
 async def get_stats(request: web.Request) -> web.Response:
-    """GET /cabinet/api/stats — статистика пользователя."""
+    """GET /cabinet/api/stats — статистика компании (общая для всей команды)."""
     user = request['user']
+    company = request['company']
     from tender_sniper.database import get_sniper_db
     db = await get_sniper_db()
 
-    stats = await db.get_user_stats(user['user_id'])
+    stats = await db.get_company_stats(company['id'], user_id=user['user_id'])
 
     # Последние 10 тендеров
-    recent = await db.get_user_tenders(user['user_id'], limit=10)
+    recent = await db.get_company_tenders(company['id'], limit=10)
 
     # Топ фильтры: фильтры с количеством уведомлений
-    all_tenders = await db.get_user_tenders(user['user_id'], limit=500)
+    all_tenders = await db.get_company_tenders(company['id'], limit=500)
     filter_counts: Dict[str, int] = {}
     for t in all_tenders:
         fn = t.get('filter_name') or 'Без фильтра'
@@ -1505,7 +1509,8 @@ async def team_remove_member(request: web.Request) -> web.Response:
 @require_team_member
 async def team_leave(request: web.Request) -> web.Response:
     user = request['user']
-    result = await team_service.leave_team(user['user_id'])
+    company = request['company']
+    result = await team_service.leave_team(user['user_id'], company['id'])
     return web.json_response(result, status=200 if result['ok'] else 400)
 
 

@@ -226,8 +226,11 @@ class SniperNotification(Base):
         Index('ix_sniper_notifications_tender', 'tender_number'),
         # Составной индекс для is_tender_notified() - ускоряет проверку дубликатов
         Index('ix_sniper_notifications_user_tender', 'user_id', 'tender_number'),
-        # Unique constraint — предотвращает дубли уведомлений (один тендер = одно уведомление на пользователя)
-        UniqueConstraint('user_id', 'tender_number', name='uq_notification_user_tender'),
+        # Unique constraint — предотвращает дубли уведомлений.
+        # company_id входит в ключ: один и тот же юзер может администрировать
+        # несколько изолированных workspace'ов с копиями одних фильтров —
+        # каждая компания должна получить своё уведомление по тендеру.
+        UniqueConstraint('user_id', 'company_id', 'tender_number', name='uq_notification_user_company_tender'),
     )
 
 

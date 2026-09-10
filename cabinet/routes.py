@@ -184,9 +184,13 @@ async def login_page(request: web.Request) -> web.Response:
     return _render_template('login.html', request)
 
 
-@require_auth
+@require_team_member
 async def dashboard_page(request: web.Request) -> web.Response:
-    """Главная страница кабинета — лента тендеров."""
+    """Главная страница кабинета — лента тендеров.
+
+    require_team_member: лента (/cabinet/api/tenders) теперь company-scoped
+    и отдаёт 403 юзеру без компании — декоратор автосоздаёт её при заходе.
+    """
     user = request['user']
     return _render_template(
         'dashboard.html',
@@ -224,9 +228,14 @@ async def documents_page(request: web.Request) -> web.Response:
     )
 
 
-@require_auth
+@require_team_member
 async def filters_page(request: web.Request) -> web.Response:
-    """Страница фильтров."""
+    """Страница фильтров.
+
+    require_team_member (а не require_auth): API фильтров company-scoped и
+    отдаёт 403 «Not in any team» юзеру без компании. Декоратор на самой
+    странице автосоздаёт компанию при первом заходе — как pipeline_page.
+    """
     user = request['user']
     return _render_template(
         'filters.html',
@@ -252,9 +261,13 @@ async def search_page(request: web.Request) -> web.Response:
     )
 
 
-@require_auth
+@require_team_member
 async def stats_page(request: web.Request) -> web.Response:
-    """Страница статистики."""
+    """Страница статистики.
+
+    require_team_member: /cabinet/api/stats теперь company-scoped и отдаёт
+    403 юзеру без компании — декоратор автосоздаёт её при заходе.
+    """
     user = request['user']
     return _render_template(
         'stats.html', request,

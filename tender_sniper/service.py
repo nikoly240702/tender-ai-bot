@@ -309,6 +309,10 @@ class TenderSniperService:
                 filter_id = filter_data['id']
                 filter_name = filter_data['name']
                 user_id = filter_data['user_id']
+                # Workspace фильтра — дедуп уведомлений идёт в его рамках,
+                # чтобы копии фильтра в разных компаниях одного владельца
+                # не «съедали» уведомления друг друга.
+                filter_company_id = filter_data.get('company_id')
                 telegram_id = filter_data.get('telegram_id')
                 subscription_tier = filter_data.get('subscription_tier', 'trial')
 
@@ -364,7 +368,9 @@ class TenderSniperService:
                             pass
 
                     # Проверяем, не отправляли ли уже (БД)
-                    already_notified = await self.db.is_tender_notified(tender_number, user_id)
+                    already_notified = await self.db.is_tender_notified(
+                        tender_number, user_id, company_id=filter_company_id
+                    )
                     if already_notified:
                         continue
 

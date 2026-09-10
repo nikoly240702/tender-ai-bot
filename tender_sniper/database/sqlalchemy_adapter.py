@@ -418,11 +418,28 @@ class TenderSniperDB:
     # ============================================
 
     async def create_filter(self, user_id: int, name: str, company_id: int = None, **kwargs) -> int:
-        """Создание фильтра."""
+        """Создание фильтра.
+
+        company_id не передан (боты TG/Max создают фильтры по user_id) —
+        резолвим сам из первой (самой старой) компании юзера, иначе фильтр
+        с company_id=NULL пропадёт из company-scoped списка в кабинете.
+        Тот же фолбэк, что в save_notification. Если компании нет — NULL.
+        """
         async with DatabaseSession() as session:
+            resolved_company_id = company_id
+            if resolved_company_id is None:
+                membership = await session.scalar(
+                    select(CompanyMemberModel)
+                    .where(CompanyMemberModel.user_id == user_id)
+                    .order_by(CompanyMemberModel.joined_at)
+                    .limit(1)
+                )
+                if membership:
+                    resolved_company_id = membership.company_id
+
             filter_obj = SniperFilterModel(
                 user_id=user_id,
-                company_id=company_id,
+                company_id=resolved_company_id,
                 name=name,
                 keywords=kwargs.get('keywords', []),
                 exclude_keywords=kwargs.get('exclude_keywords', []),
@@ -1081,16 +1098,87 @@ class TenderSniperDB:
 
             return {"total": total, "recent": recent}
 
-    async def is_tender_notified(self, tender_number: str, user_id: int) -> bool:
-        """Проверка, было ли уже отправлено уведомление о тендере пользователю."""
+    async def get_company_tenders(self, company_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+        """Тендеры (уведомления) компании — общая лента для всей команды.
+
+        Sibling к get_user_tenders: та же форма результата, но фильтрация
+        по company_id. Кабинет company-scoped, бот — по-прежнему user-scoped.
+        """
         async with DatabaseSession() as session:
             result = await session.execute(
-                select(SniperNotificationModel).where(
-                    and_(
-                        SniperNotificationModel.tender_number == tender_number,
-                        SniperNotificationModel.user_id == user_id
+                select(SniperNotificationModel)
+                .where(SniperNotificationModel.company_id == company_id)
+                .order_by(SniperNotificationModel.sent_at.desc())
+                .limit(limit)
+            )
+            notifications = result.scalars().all()
+
+            return [{
+                'number': n.tender_number,
+                'name': n.tender_name,
+                'price': n.tender_price,
+                'url': n.tender_url,
+                'region': n.tender_region,
+                'customer_name': n.tender_customer,
+                'filter_name': n.filter_name,
+                'score': n.score,
+                'published_date': n.published_date.isoformat() if n.published_date else None,
+                'submission_deadline': n.submission_deadline.isoformat() if n.submission_deadline else None,
+                'source': n.tender_source,
+                'sent_at': n.sent_at.isoformat() if n.sent_at else None
+            } for n in notifications]
+
+    async def count_company_tenders(self, company_id: int, hours: int = 24) -> Dict[str, int]:
+        """Sibling к count_user_tenders — счётчики по компании."""
+        async with DatabaseSession() as session:
+            total = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SniperNotificationModel)
+                    .where(SniperNotificationModel.company_id == company_id)
+                )
+            ).scalar() or 0
+
+            since = datetime.utcnow() - timedelta(hours=hours)
+            recent = (
+                await session.execute(
+                    select(func.count())
+                    .select_from(SniperNotificationModel)
+                    .where(
+                        and_(
+                            SniperNotificationModel.company_id == company_id,
+                            SniperNotificationModel.sent_at >= since,
+                        )
                     )
                 )
+            ).scalar() or 0
+
+            return {"total": total, "recent": recent}
+
+    async def is_tender_notified(
+        self,
+        tender_number: str,
+        user_id: int,
+        company_id: Optional[int] = None,
+    ) -> bool:
+        """Проверка, было ли уже отправлено уведомление о тендере пользователю.
+
+        company_id (если передан) сужает проверку до конкретного workspace:
+        один юзер может администрировать несколько изолированных компаний
+        с копиями одних фильтров, и каждая должна получить своё уведомление.
+        company_id=None — старое поведение (по user_id + tender_number),
+        для вызывающих, которые ещё не знают компанию.
+        """
+        async with DatabaseSession() as session:
+            conditions = [
+                SniperNotificationModel.tender_number == tender_number,
+                SniperNotificationModel.user_id == user_id,
+            ]
+            if company_id is not None:
+                conditions.append(SniperNotificationModel.company_id == company_id)
+
+            result = await session.execute(
+                select(SniperNotificationModel).where(and_(*conditions))
             )
             return result.first() is not None
 
@@ -1178,6 +1266,63 @@ class TenderSniperDB:
                 )
             )
             active_filters = filters_result.scalar() or 0
+
+            return {
+                'notifications_today': notifications_today,
+                'total_notifications': total_notifications,
+                'total_matches': total_notifications,  # алиас для совместимости
+                'active_filters': active_filters,
+                'notifications_limit': notifications_limit
+            }
+
+    async def get_company_stats(self, company_id: int, user_id: Optional[int] = None) -> Dict[str, Any]:
+        """Sibling к get_user_stats — статистика по компании (общая для команды).
+
+        notifications_limit остаётся персональным (это лимит подписки
+        смотрящего юзера), поэтому берётся по user_id, если он передан.
+        """
+        async with DatabaseSession() as session:
+            notifications_limit = 15
+            if user_id is not None:
+                user = (
+                    await session.execute(
+                        select(SniperUserModel).where(SniperUserModel.id == user_id)
+                    )
+                ).scalar_one_or_none()
+                if user:
+                    notifications_limit = user.notifications_limit
+
+            total_notifications = (
+                await session.execute(
+                    select(func.count()).select_from(SniperNotificationModel).where(
+                        SniperNotificationModel.company_id == company_id
+                    )
+                )
+            ).scalar() or 0
+
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            notifications_today = (
+                await session.execute(
+                    select(func.count()).select_from(SniperNotificationModel).where(
+                        and_(
+                            SniperNotificationModel.company_id == company_id,
+                            SniperNotificationModel.sent_at >= today_start
+                        )
+                    )
+                )
+            ).scalar() or 0
+
+            active_filters = (
+                await session.execute(
+                    select(func.count()).select_from(SniperFilterModel).where(
+                        and_(
+                            SniperFilterModel.company_id == company_id,
+                            SniperFilterModel.deleted_at.is_(None),
+                            SniperFilterModel.is_active == True
+                        )
+                    )
+                )
+            ).scalar() or 0
 
             return {
                 'notifications_today': notifications_today,
