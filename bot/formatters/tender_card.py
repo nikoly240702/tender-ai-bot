@@ -230,6 +230,12 @@ def _build_keyboard(
                 callback_data=safe_callback_data("bitrix_ai", tender_number)
             ),
         ])
+        buttons.append([
+            InlineKeyboardButton(
+                text="🗂 Взять в работу",
+                callback_data=safe_callback_data("take_work", tender_number)
+            ),
+        ])
 
         # AI-кнопки
         if subscription_tier in ('pro', 'premium'):
