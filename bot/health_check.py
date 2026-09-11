@@ -5,6 +5,7 @@ Health Check endpoint для мониторинга и Railway/Docker.
 Поднимает простой HTTP сервер для проверки здоровья приложения.
 """
 
+import gzip
 import logging
 import asyncio
 import os
@@ -13,6 +14,35 @@ from aiohttp import web, ClientSession, ClientTimeout
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================
+# GZIP COMPRESSION — большие JSON-ответы (кабинет отдаёт списки
+# фильтров/тендеров, которые могут весить сотни КБ несжатыми) гораздо
+# устойчивее к обрывам на нестабильном соединении в сжатом виде.
+# ============================================
+
+_GZIP_MIN_SIZE = 1024  # не сжимаем мелкие ответы — там овехэд не окупается
+
+
+@web.middleware
+async def gzip_middleware(request: web.Request, handler):
+    response = await handler(request)
+
+    if not isinstance(response, web.Response):
+        return response
+    if response.body is None or len(response.body) < _GZIP_MIN_SIZE:
+        return response
+    if response.headers.get('Content-Encoding'):
+        return response
+    if 'gzip' not in request.headers.get('Accept-Encoding', ''):
+        return response
+
+    compressed = gzip.compress(response.body)
+    response.body = compressed
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Content-Length'] = str(len(compressed))
+    return response
 
 
 # ============================================
@@ -500,7 +530,7 @@ async def start_health_check_server(port: int = 8080):
     Args:
         port: Порт для health check endpoint (default: 8080)
     """
-    app = web.Application()
+    app = web.Application(middlewares=[gzip_middleware])
 
     # Регистрируем endpoints
     app.router.add_get('/health', health_check_handler)
