@@ -84,7 +84,20 @@ async def handle_take_work(callback: CallbackQuery):
             return
 
         from cabinet.team_service import get_active_company
-        company = await get_active_company(user['id'], None)
+
+        company = None
+        # В групповом чате компания резолвится по самой группе (у неё
+        # свой SniperUser-профиль с ровно одним членством), а не по
+        # нажавшему — иначе для юзера, состоящего сразу в нескольких
+        # командах, карточка всегда падала бы в его самую старую
+        # компанию, независимо от того, в какой группе он нажал кнопку.
+        if callback.message.chat.type in ('group', 'supergroup'):
+            group_user = await db.get_user_by_telegram_id(callback.message.chat.id)
+            if group_user:
+                company = await get_active_company(group_user['id'], None)
+
+        if not company:
+            company = await get_active_company(user['id'], None)
         if not company:
             await callback.answer(
                 "Вы не состоите ни в одной команде кабинета. "
