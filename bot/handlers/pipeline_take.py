@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 router = Router(name="pipeline_take")
 
 
-async def _safe_answer(callback: CallbackQuery, text: str, show_alert: bool = True):
+async def _safe_answer(callback: CallbackQuery, text: str, show_alert: bool = False):
     """См. bot/handlers/bitrix24.py::_safe_answer — тот же паттерн."""
     try:
         await callback.answer(text, show_alert=show_alert)
@@ -70,7 +70,7 @@ async def handle_take_work(callback: CallbackQuery):
     data = callback.data
 
     if data.startswith("take_done_"):
-        await callback.answer("✅ Уже в пайплайне", show_alert=True)
+        await callback.answer("✅ Уже в пайплайне")
         return
 
     tender_number = data[len("take_work_"):]
