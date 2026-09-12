@@ -3,10 +3,16 @@ set -e
 
 echo "=== ENTRYPOINT START ==="
 echo "Python: $(python --version 2>&1)"
+echo "SERVICE_ROLE: ${SERVICE_ROLE:-web}"
 
 if [ -z "$DATABASE_URL" ]; then
     echo "ERROR: DATABASE_URL not set"
     exit 1
+fi
+
+if [ "${SERVICE_ROLE:-web}" = "worker" ]; then
+    echo "[entrypoint] Starting worker (tender matching) on 0.0.0.0:8080..."
+    exec python -u -m tender_sniper.worker_main 2>&1
 fi
 
 # 1. Запускаем uvicorn admin в фоне (loopback 127.0.0.1:8081).
