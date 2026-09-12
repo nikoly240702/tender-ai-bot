@@ -3,7 +3,10 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python -m bot.main"
+# startCommand намеренно не задан: команду запуска определяет ENTRYPOINT
+# Docker-образа (docker-entrypoint.sh), который ветвится по SERVICE_ROLE
+# (web → bot.main, worker → tender_sniper.worker_main). Задать startCommand
+# здесь = молча перекрыть это ветвление для всех сервисов из этого репо.
 healthcheckPath = "/health"
 healthcheckTimeout = 120
 restartPolicyType = "ON_FAILURE"

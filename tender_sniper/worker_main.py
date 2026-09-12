@@ -109,9 +109,13 @@ async def main():
 
     sniper_service = None
     sniper_task = None
+    # Ошибка инициализации мэтчинга. Не бросаем её прямо здесь: ниже есть
+    # try/finally с обязательной очисткой (stop сервиса, health check runner,
+    # flush Sentry) — поэтому пробрасываем уже ИЗ ТЕЛА того try.
+    init_error = None
     if not is_tender_sniper_enabled():
         logger.warning("⚠️  Tender Sniper отключен в конфигурации — worker простаивает")
-        update_health_status("sniper_service", "disabled")
+        update_health_status("worker_matching", "disabled")
     else:
         try:
             logger.info("🎯 Инициализация Tender Sniper Service...")
@@ -130,14 +134,22 @@ async def main():
 
             sniper_task = asyncio.create_task(run_sniper())
             logger.info("✅ Tender Sniper Service запущен")
-            update_health_status("sniper_service", "ok")
+            update_health_status("worker_matching", "ok")
         except Exception as e:
             logger.error(f"❌ Не удалось запустить Tender Sniper: {e}", exc_info=True)
-            update_health_status("sniper_service", f"error: {e}")
+            update_health_status("worker_matching", f"error: {e}")
             capture_exception(e, level="fatal", tags={"component": "worker_main"})
             await send_error_to_telegram(e, context="Запуск worker (tender_sniper.worker_main)")
+            init_error = e
 
     try:
+        if init_error is not None:
+            # Мэтчинг не поднялся — падаем, чтобы Railway перезапустил сервис.
+            # Простаивать «живым, но без мэтчинга» нельзя: health check тогда
+            # вечно отвечает 200 OK, и мёртвый worker остаётся незамеченным.
+            logger.error("🛑 Worker завершается: инициализация мэтчинга провалилась")
+            raise init_error
+
         if sniper_task:
             await sniper_task
         else:

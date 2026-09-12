@@ -244,6 +244,24 @@ async def main():
     """Главная функция запуска бота."""
 
     # ============================================
+    # GUARD: этот entry point — только для web-сервиса
+    # ============================================
+    # Если сюда попал worker (например, Railway перекрыл ENTRYPOINT своим
+    # startCommand), то мы получили бы второй polling Telegram
+    # (TelegramConflictError), второй прогон alembic-миграций и ноль мэтчинга.
+    # Падаем сразу и громко, до миграций и всего остального.
+    if os.getenv('SERVICE_ROLE', '').strip().lower() == 'worker':
+        logger.error(
+            "❌ FATAL: bot.main запущен с SERVICE_ROLE=worker. "
+            "Этот entry point предназначен ТОЛЬКО для web-сервиса "
+            "(кабинет + Telegram/Max polling + миграции). "
+            "Worker-сервис должен запускать 'python -m tender_sniper.worker_main' — "
+            "уберите startCommand из настроек Railway-сервиса, чтобы работал "
+            "ENTRYPOINT образа (docker-entrypoint.sh), ветвящийся по SERVICE_ROLE."
+        )
+        sys.exit(1)
+
+    # ============================================
     # PRODUCTION: Миграции базы данных
     # ============================================
     run_migrations()
