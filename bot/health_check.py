@@ -575,6 +575,28 @@ async def start_health_check_server(port: int = 8080):
     return runner
 
 
+async def start_worker_health_check_server(port: int = 8080) -> web.AppRunner:
+    """
+    Health check HTTP-сервер для worker-сервиса (только матчинг тендеров,
+    без кабинета/админки/вебхуков — тем достаточно /health, /ready, /live).
+    """
+    app = web.Application()
+    app.router.add_get('/health', health_check_handler)
+    app.router.add_get('/ready', readiness_handler)
+    app.router.add_get('/live', liveness_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+
+    _health_status["status"] = "healthy"
+
+    logger.info(f"✅ Worker health check server started on port {port}")
+    return runner
+
+
 def update_health_status(component: str, status: str):
     """
     Обновление статуса компонента.
