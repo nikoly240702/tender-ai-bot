@@ -59,6 +59,8 @@ class SubscriptionMiddleware(BaseMiddleware):
         'main_menu',             # Главное меню бота
         'start_onboarding',      # Онбординг
         'get_referral_link',     # Реферальная ссылка
+        'take_work_',            # «Взять в работу» → карточка на канбане
+        'take_done_',            # (уже в пайплайне)
     ]
 
     async def __call__(
