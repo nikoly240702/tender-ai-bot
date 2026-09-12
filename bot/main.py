@@ -42,9 +42,6 @@ from bot.engagement_scheduler import engagement_router, EngagementScheduler
 from bot.db import get_database
 from bot.middlewares import AccessControlMiddleware, AdaptiveRateLimitMiddleware, SubscriptionMiddleware, ErrorAlertMiddleware
 
-# Импортируем Tender Sniper Service
-from tender_sniper.service import TenderSniperService
-from tender_sniper.config import is_tender_sniper_enabled
 # Subscription expiration checker
 from bot.subscription_checker import SubscriptionChecker
 from tender_sniper.monitoring import (
@@ -557,36 +554,6 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Не удалось запустить VK Max бота: {e}", exc_info=True)
 
-    # Инициализируем Tender Sniper Service (если включен)
-    sniper_service = None
-    sniper_task = None
-    if is_tender_sniper_enabled():
-        try:
-            logger.info("🎯 Инициализация Tender Sniper Service...")
-            sniper_service = TenderSniperService(
-                bot_token=BotConfig.BOT_TOKEN,
-                poll_interval=120,  # 2 минуты
-                max_tenders_per_poll=100
-            )
-            await sniper_service.initialize()
-
-            # Запускаем мониторинг в фоновом режиме
-            async def run_sniper():
-                try:
-                    await sniper_service.start()
-                except Exception as e:
-                    logger.error(f"❌ Ошибка Tender Sniper: {e}", exc_info=True)
-
-            sniper_task = asyncio.create_task(run_sniper())
-            logger.info("✅ Tender Sniper Service запущен в фоновом режиме")
-            update_health_status("sniper_service", "ok")
-        except Exception as e:
-            logger.error(f"❌ Не удалось запустить Tender Sniper: {e}", exc_info=True)
-            update_health_status("sniper_service", f"error: {e}")
-    else:
-        logger.info("ℹ️  Tender Sniper отключен в конфигурации")
-        update_health_status("sniper_service", "disabled")
-
     try:
         # Удаляем старые webhook (если были)
         # ВАЖНО: НЕ удаляем pending updates, чтобы не терять сообщения при перезапуске
@@ -643,17 +610,6 @@ async def main():
             engagement_scheduler_task.cancel()
             try:
                 await engagement_scheduler_task
-            except asyncio.CancelledError:
-                pass
-
-        # Останавливаем Tender Sniper если запущен
-        if sniper_service:
-            logger.info("🛑 Остановка Tender Sniper Service...")
-            await sniper_service.stop()
-        if sniper_task and not sniper_task.done():
-            sniper_task.cancel()
-            try:
-                await sniper_task
             except asyncio.CancelledError:
                 pass
 
