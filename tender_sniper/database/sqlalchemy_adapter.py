@@ -1203,11 +1203,20 @@ class TenderSniperDB:
             if not user_ids:
                 return False
 
+            # Окно 24ч — совпадает со сбросом in-memory _seen_tenders в
+            # service.py. Без этого ограничения пользователь с долгой
+            # историей уведомлений (тот же tender_number мог совпасть
+            # с СОВЕРШЕННО другим фильтром/компанией месяцы назад)
+            # получал ложный "уже отправлено" и терял свежие уведомления
+            # в группу — при том что в личку они уходили нормально
+            # (там этой проверки нет вообще).
+            cutoff = datetime.utcnow() - timedelta(hours=24)
             result = await session.execute(
                 select(SniperNotificationModel.id).where(
                     and_(
                         SniperNotificationModel.tender_number == tender_number,
-                        SniperNotificationModel.user_id.in_(user_ids)
+                        SniperNotificationModel.user_id.in_(user_ids),
+                        SniperNotificationModel.sent_at > cutoff,
                     )
                 ).limit(1)
             )
