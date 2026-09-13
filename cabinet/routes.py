@@ -73,6 +73,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/pipeline', pipeline_page)
     app.router.add_get('/cabinet/pipeline/archive', pipeline_archive_page)
     app.router.add_get('/cabinet/team', team_page)
+    app.router.add_get('/cabinet/suppliers', suppliers_page)
     app.router.add_get('/cabinet/invite/{token}', invite_page)
 
     # Auth
@@ -140,6 +141,8 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_patch('/cabinet/api/pipeline/checklist/{cid}', api.pipeline_toggle_checklist)
     app.router.add_delete('/cabinet/api/pipeline/checklist/{cid}', api.pipeline_delete_checklist)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/relations', api.pipeline_add_relation)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/quotes', api.pipeline_quotes_add)
+    app.router.add_delete('/cabinet/api/pipeline/quotes/{id}', api.pipeline_quotes_delete)
     app.router.add_delete('/cabinet/api/pipeline/relations/{rid}', api.pipeline_delete_relation)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/ai-enrich', api.pipeline_ai_enrich)
     app.router.add_get('/cabinet/api/pipeline/export', api.pipeline_export_csv)
@@ -160,7 +163,12 @@ def setup_cabinet_routes(app: web.Application):
 
     # JSON API — Team
     app.router.add_get('/cabinet/api/team/members', api.team_get_members)
+    app.router.add_get('/cabinet/api/suppliers', api.suppliers_list)
+    app.router.add_post('/cabinet/api/suppliers', api.suppliers_create)
+    app.router.add_put('/cabinet/api/suppliers/{id}', api.suppliers_update)
+    app.router.add_delete('/cabinet/api/suppliers/{id}', api.suppliers_delete)
     app.router.add_delete('/cabinet/api/team/members/{id}', api.team_remove_member)
+    app.router.add_patch('/cabinet/api/team/members/{id}', api.team_set_member_name)
     app.router.add_post('/cabinet/api/team/leave', api.team_leave)
     app.router.add_get('/cabinet/api/team/invites', api.team_list_invites)
     app.router.add_post('/cabinet/api/team/invites', api.team_create_invite)
@@ -480,8 +488,13 @@ async def pipeline_page(request: web.Request) -> web.Response:
         lc = last_changes.get(c['id'])
         if lc:
             uid = lc['user_id']
-            mem = members_by_id.get(uid)
-            c['_last_change_by'] = (mem.get('display_name') if mem else f'User {uid}')
+            if uid is None:
+                c['_last_change_by'] = 'Система'
+            elif uid == user['user_id']:
+                c['_last_change_by'] = 'Я'
+            else:
+                mem = members_by_id.get(uid)
+                c['_last_change_by'] = (mem.get('display_name') if mem else f'User {uid}')
             c['_last_change_at'] = lc['created_at']
             # Сколько прошло (минут / часов / дней)
             delta = now - lc['created_at']
@@ -587,6 +600,25 @@ async def pipeline_archive_page(request: web.Request) -> web.Response:
         is_owner=(role == 'owner'),
         cards=cards,
         members=members,
+    )
+
+
+@require_team_member
+async def suppliers_page(request: web.Request) -> web.Response:
+    from cabinet import supplier_service
+    user = request['user']
+    company = request['company']
+    role = request['role']
+    suppliers = await supplier_service.list_suppliers(company['id'])
+    return _render_template(
+        'suppliers.html', request,
+        active_page='suppliers',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+        company_name=company['name'],
+        is_owner=(role == 'owner'),
+        suppliers=suppliers,
     )
 
 

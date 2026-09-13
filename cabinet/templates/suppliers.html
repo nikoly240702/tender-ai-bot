@@ -1,0 +1,54 @@
+{% extends "_base.html" %}
+
+{% block title %}Поставщики — Tender Sniper{% endblock %}
+
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/team.css?v=1">
+{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Поставщики</div>
+  <h1>{{ company_name }}</h1>
+  <div class="summary">{{ suppliers|length }} поставщик{% if suppliers|length != 1 %}ов{% endif %}</div>
+</div>
+
+<section class="team-section">
+  <h2>Список</h2>
+  <div class="members-list" id="suppliers-list">
+    {% for s in suppliers %}
+      <div class="member-row" data-supplier-id="{{ s.id }}">
+        <span class="member-avatar">{{ s.name[0]|upper }}</span>
+        <div class="member-info">
+          <div class="member-name">{{ s.name }}</div>
+          <div class="member-role">{{ s.contact or 'контакты не указаны' }}</div>
+        </div>
+        <button class="btn btn-ghost btn-sm edit-supplier-btn" data-supplier-id="{{ s.id }}"
+                data-name="{{ s.name }}" data-contact="{{ s.contact or '' }}">Изменить</button>
+        <button class="btn btn-ghost btn-sm delete-supplier-btn" data-supplier-id="{{ s.id }}">Удалить</button>
+      </div>
+    {% else %}
+      <div class="summary">Пока нет ни одного поставщика — добавьте первого ниже, или создайте прямо из карточки тендера при внесении предложения.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="team-section">
+  <h2>Добавить поставщика</h2>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Название</label>
+      <input type="text" id="new-supplier-name" placeholder="Название поставщика">
+    </div>
+    <div class="form-group">
+      <label>Контакты</label>
+      <input type="text" id="new-supplier-contact" placeholder="Телефон / email / сайт">
+    </div>
+  </div>
+  <button class="btn btn-primary btn-sm" id="btn-create-supplier">+ Добавить</button>
+</section>
+{% endblock %}
+
+{% block page_js %}
+<script src="/cabinet/static/js/pages/suppliers.js?v=1"></script>
+{% endblock %}

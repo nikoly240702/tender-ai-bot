@@ -21,6 +21,13 @@
   const isOwner = headerEl ? headerEl.dataset.isOwner === '1' : false;
   const currentUserId = headerEl ? parseInt(headerEl.dataset.currentUserId || '0', 10) : 0;
 
+  function resolveUserName(userId) {
+    if (userId == null) return 'Система';
+    if (userId === currentUserId) return 'Я';
+    const m = teamMembers.find(x => x.user_id === userId);
+    return (m && m.display_name) || ('User ' + userId);
+  }
+
   const modal = document.getElementById('card-modal');
   const modalClose = document.getElementById('card-modal-close');
   let openCardId = null;
@@ -381,6 +388,10 @@
       mEl.hidden = true;
     }
 
+    // Quotes (предложения поставщиков)
+    renderQuotes(c.id, data.quotes);
+    setupQuoteForm(c.id);
+
     // Meta
     document.getElementById('cm-customer').textContent = (c.data && c.data.customer) || '—';
     document.getElementById('cm-region').textContent = (c.data && c.data.region) || '—';
@@ -525,7 +536,7 @@
     notes.forEach(n => {
       const row = el('div', { cls: 'note-item' });
       row.appendChild(el('div', { text: n.text }));
-      row.appendChild(el('div', { cls: 'note-meta', text: `User ${n.user_id} · ${n.created_at || ''}` }));
+      row.appendChild(el('div', { cls: 'note-meta', text: `${resolveUserName(n.user_id)} · ${n.created_at || ''}` }));
       list.appendChild(row);
     });
   }
@@ -622,6 +633,84 @@
     });
   }
 
+  function renderQuotes(cardId, quotes) {
+    const list = document.getElementById('cm-quotes-list');
+    list.replaceChildren();
+    if (!quotes || !quotes.length) {
+      list.appendChild(el('div', { cls: 'empty', text: 'Предложений пока нет' }));
+      return;
+    }
+    quotes.forEach(q => {
+      const row = el('div', { cls: 'note-item' });
+      const priceStr = q.price != null ? Math.round(q.price).toLocaleString('ru-RU') + ' ₽' : '—';
+      row.appendChild(el('div', { text: `${q.supplier_name} — ${priceStr}` }));
+      if (q.notes) row.appendChild(el('div', { cls: 'note-meta', text: q.notes }));
+      row.appendChild(el('div', { cls: 'note-meta', text: `${resolveUserName(q.created_by)} · ${q.created_at || ''}` }));
+      const del = el('button', { cls: 'btn btn-ghost btn-sm', text: 'Удалить' });
+      del.onclick = async () => {
+        const r = await fetch('/cabinet/api/pipeline/quotes/' + q.id, {
+          method: 'DELETE', credentials: 'same-origin',
+        });
+        if (r.ok) loadCardFull(cardId);
+      };
+      row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+
+  async function setupQuoteForm(cardId) {
+    const sel = document.getElementById('cm-quote-supplier');
+    const newNameInp = document.getElementById('cm-quote-new-supplier-name');
+    const r = await fetch('/cabinet/api/suppliers', { credentials: 'same-origin' });
+    const d = r.ok ? await r.json() : { suppliers: [] };
+
+    sel.replaceChildren();
+    (d.suppliers || []).forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      sel.appendChild(opt);
+    });
+    const newOpt = document.createElement('option');
+    newOpt.value = '__new__';
+    newOpt.textContent = '+ Новый поставщик…';
+    sel.appendChild(newOpt);
+
+    newNameInp.hidden = sel.value !== '__new__';
+    sel.onchange = () => { newNameInp.hidden = sel.value !== '__new__'; };
+
+    document.getElementById('cm-quote-add').onclick = async () => {
+      const priceInp = document.getElementById('cm-quote-price');
+      const notesInp = document.getElementById('cm-quote-notes');
+      const cleaned = String(priceInp.value).replace(/[^\d.,-]/g, '').replace(',', '.');
+      const price = parseFloat(cleaned);
+      if (isNaN(price)) { Toast.show('Укажите цену', 'alert'); return; }
+
+      const body = { price, notes: notesInp.value.trim() };
+      if (sel.value === '__new__') {
+        const name = newNameInp.value.trim();
+        if (!name) { Toast.show('Укажите название поставщика', 'alert'); return; }
+        body.new_supplier_name = name;
+      } else {
+        body.supplier_id = parseInt(sel.value, 10);
+      }
+
+      const resp = await fetch('/cabinet/api/pipeline/cards/' + cardId + '/quotes', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const rd = await resp.json().catch(() => ({}));
+      if (resp.ok && rd.ok) {
+        priceInp.value = ''; notesInp.value = ''; newNameInp.value = '';
+        Toast.show('✓ Предложение добавлено', 'positive');
+        loadCardFull(cardId);
+      } else {
+        Toast.show(rd.error || 'Ошибка', 'alert');
+      }
+    };
+  }
+
   function renderHistory(history) {
     const wrap = document.getElementById('cm-history');
     wrap.replaceChildren();
@@ -632,7 +721,7 @@
     history.forEach(h => {
       const row = el('div', { cls: 'history-item' });
       row.appendChild(el('div', { text: formatHistoryAction(h) }));
-      row.appendChild(el('div', { cls: 'history-meta', text: `User ${h.user_id} · ${h.created_at || ''}` }));
+      row.appendChild(el('div', { cls: 'history-meta', text: `${resolveUserName(h.user_id)} · ${h.created_at || ''}` }));
       wrap.appendChild(row);
     });
   }
@@ -640,7 +729,10 @@
   function formatHistoryAction(h) {
     const map = {
       'created': 'создал карточку',
-      'stage_changed': `перевёл «${h.payload.from || ''}» → «${h.payload.to || ''}»`,
+      'stage_changed': `перевёл «${h.payload.from || ''}» → «${h.payload.to || ''}»`
+        + (h.payload.reason === 'deadline_expired' ? ' (истёк срок подачи)' : ''),
+      'quote_added': `внёс предложение от ${h.payload.supplier_name || 'поставщика'}`
+        + (h.payload.price != null ? `: ${Math.round(h.payload.price).toLocaleString('ru-RU')} ₽` : ''),
       'assigned': `назначил ответственного (user ${h.payload.to || ''})`,
       'note_added': 'добавил заметку',
       'file_uploaded': `загрузил файл${h.payload.filename ? ' ' + h.payload.filename : ''}`,

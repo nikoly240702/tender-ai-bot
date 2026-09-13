@@ -25,6 +25,9 @@
           <div class="member-name">{{ m.display_name }}{% if m.username %} <span class="member-username">@{{ m.username }}</span>{% endif %}</div>
           <div class="member-role">{{ 'Владелец' if m.role == 'owner' else 'Сотрудник' }} · с {{ m.joined_at|string|truncate(10, true, '') }}</div>
         </div>
+        {% if is_owner %}
+          <button class="btn btn-ghost btn-sm rename-member-btn" data-user-id="{{ m.user_id }}" data-current-name="{{ m.display_name }}">Переименовать</button>
+        {% endif %}
         {% if is_owner and m.role != 'owner' %}
           <button class="btn btn-ghost btn-sm remove-member-btn" data-user-id="{{ m.user_id }}">Удалить</button>
         {% endif %}

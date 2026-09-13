@@ -38,6 +38,7 @@ def _member_dict(member: CompanyMember) -> Dict:
         'company_id': member.company_id,
         'user_id': member.user_id,
         'role': member.role,
+        'display_name': member.display_name,
         'joined_at': member.joined_at,
     }
 
@@ -170,11 +171,37 @@ async def list_members_with_users(company_id: int) -> List[Dict]:
         out = []
         for m, u in result.all():
             d = _member_dict(m)
-            d['display_name'] = u.first_name or u.username or f'User {u.id}'
+            d['display_name'] = m.display_name or u.first_name or u.username or f'User {u.id}'
             d['username'] = u.username
             d['telegram_id'] = u.telegram_id
             out.append(d)
         return out
+
+
+async def set_member_display_name(company_id: int, target_user_id: int,
+                                  display_name: Optional[str], by_user_id: int) -> Dict:
+    """Owner-only: задаёт удобное отображаемое имя участнику команды
+    (Telegram first_name часто мусорный — ник, эмодзи и т.п.). target_user_id
+    — как в remove_member, т.е. sniper_users.id, а не company_members.id."""
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return {'ok': False, 'error': 'Команда не найдена'}
+        if company.owner_user_id != by_user_id:
+            return {'ok': False, 'error': 'Только owner может переименовывать участников'}
+
+        member = await session.scalar(
+            select(CompanyMember).where(
+                CompanyMember.user_id == target_user_id,
+                CompanyMember.company_id == company_id,
+            )
+        )
+        if not member:
+            return {'ok': False, 'error': 'Участник не найден'}
+
+        member.display_name = (display_name or '').strip() or None
+        await session.commit()
+        return {'ok': True, 'member': _member_dict(member)}
 
 
 # ============================================

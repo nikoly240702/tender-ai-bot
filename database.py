@@ -1051,6 +1051,7 @@ class CompanyMember(Base):
     company_id = Column(Integer, ForeignKey('companies.id'), nullable=False)
     user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
     role = Column(String(16), nullable=False)
+    display_name = Column(String(255), nullable=True)  # override для Telegram first_name/username
     joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     __table_args__ = (
         UniqueConstraint('user_id', 'company_id', name='uq_company_members_user_company'),
@@ -1105,7 +1106,7 @@ class PipelineCardHistory(Base):
     __tablename__ = 'pipeline_card_history'
     id = Column(Integer, primary_key=True)
     card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=True)  # NULL — системное действие (напр. автопросрочка)
     action = Column(String(40), nullable=False)
     payload = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -1161,6 +1162,31 @@ class PipelineCardRelation(Base):
     __table_args__ = (
         UniqueConstraint('card_id', 'related_card_id', name='uq_card_relation'),
     )
+
+
+class Supplier(Base):
+    """Поставщик, у которого запрашиваем предложения по тендерам (не путать
+    с OwnProduct — это внешние контрагенты, а не наш собственный прайс)."""
+    __tablename__ = 'suppliers'
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id'), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    contact = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PipelineCardQuote(Base):
+    """Предложение (цена) от конкретного поставщика по конкретной карточке.
+    На одной карточке — сколько угодно предложений, для сравнения."""
+    __tablename__ = 'pipeline_card_quotes'
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
+    supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=False)
+    price = Column(Numeric(14, 2), nullable=False)
+    notes = Column(Text, nullable=True)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class OwnProduct(Base):
@@ -1241,6 +1267,8 @@ __all__ = [
     'PipelineCardFile',
     'PipelineCardChecklist',
     'PipelineCardRelation',
+    'Supplier',
+    'PipelineCardQuote',
     'OwnProduct',
     # Functions
     'init_database',

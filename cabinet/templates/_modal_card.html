@@ -8,6 +8,7 @@
 
     <div class="modal-tabs">
       <button class="modal-tab active" data-tab="details">Детали</button>
+      <button class="modal-tab" data-tab="quotes">Поставщики</button>
       <button class="modal-tab" data-tab="notes">Заметки</button>
       <button class="modal-tab" data-tab="files">Файлы</button>
       <button class="modal-tab" data-tab="checklist">Чек-лист</button>
@@ -79,6 +80,23 @@
           <button class="btn btn-secondary btn-sm" id="cm-btn-request" hidden>📨 Запрос поставщикам</button>
           <button class="btn btn-danger btn-sm" id="cm-btn-delete" hidden>Удалить карточку</button>
         </div>
+      </section>
+
+      <section class="tab-pane" data-tab="quotes">
+        <div id="cm-quotes-list" class="notes-list"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Поставщик</label>
+            <select id="cm-quote-supplier"></select>
+            <input type="text" id="cm-quote-new-supplier-name" placeholder="Название нового поставщика" hidden>
+          </div>
+          <div class="form-group">
+            <label>Цена, ₽</label>
+            <input type="text" inputmode="decimal" id="cm-quote-price" class="price-input" placeholder="—" autocomplete="off">
+          </div>
+        </div>
+        <textarea id="cm-quote-notes" rows="2" placeholder="Комментарий (необязательно)…"></textarea>
+        <button class="btn btn-primary btn-sm" id="cm-quote-add">Добавить предложение</button>
       </section>
 
       <section class="tab-pane" data-tab="notes">

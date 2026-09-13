@@ -931,3 +931,70 @@ async def archive_old_lost_cards() -> int:
         )
         await session.commit()
         return result.rowcount or 0
+
+
+# ============================================
+# Deadline auto-expiry job
+# ============================================
+
+# Стадии, в которых карточка ещё не доведена до конца — если дедлайн подачи
+# истёк, пока она тут зависла, это значит просто не успели, а не что
+# осознанно отказались (REJECTED) или уже участвуем (SUBMITTED+).
+DEADLINE_WATCH_STAGES = [STAGE_FOUND, STAGE_IN_WORK, STAGE_RFQ, STAGE_QUOTED]
+
+REJECTED_HARD_DELETE_AGE_DAYS = 30
+
+
+async def auto_reject_expired_cards() -> int:
+    """Переводит в REJECTED карточки, зависшие в рабочих стадиях, у которых
+    истёк срок подачи заявки (card.data['deadline']). Возвращает количество."""
+    now = datetime.utcnow()
+    async with DatabaseSession() as session:
+        result = await session.execute(
+            select(PipelineCard).where(PipelineCard.stage.in_(DEADLINE_WATCH_STAGES))
+        )
+        cards = result.scalars().all()
+        count = 0
+        for card in cards:
+            deadline_str = (card.data or {}).get('deadline')
+            if not deadline_str:
+                continue
+            try:
+                deadline = datetime.fromisoformat(deadline_str)
+            except ValueError:
+                continue
+            if deadline >= now:
+                continue
+            old_stage = card.stage
+            card.stage = STAGE_REJECTED
+            card.result = RESULT_LOST
+            card.updated_at = now
+            session.add(PipelineCardHistory(
+                card_id=card.id, user_id=None, action='stage_changed',
+                payload={'from': old_stage, 'to': STAGE_REJECTED, 'reason': 'deadline_expired'},
+            ))
+            count += 1
+        if count:
+            await session.commit()
+        return count
+
+
+async def delete_expired_rejected_cards() -> int:
+    """Удаляет насовсем карточки в REJECTED старше REJECTED_HARD_DELETE_AGE_DAYS
+    (каскадом уходят заметки/история/файлы/чеклист/связи). Возвращает количество."""
+    cutoff = datetime.utcnow() - timedelta(days=REJECTED_HARD_DELETE_AGE_DAYS)
+    async with DatabaseSession() as session:
+        result = await session.execute(
+            select(PipelineCard.id).where(
+                PipelineCard.stage == STAGE_REJECTED,
+                PipelineCard.updated_at < cutoff,
+            )
+        )
+        ids = [row[0] for row in result.all()]
+        if not ids:
+            return 0
+        await session.execute(
+            PipelineCard.__table__.delete().where(PipelineCard.id.in_(ids))
+        )
+        await session.commit()
+        return len(ids)

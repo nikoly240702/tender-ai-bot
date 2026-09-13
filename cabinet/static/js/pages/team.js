@@ -55,6 +55,27 @@
     });
   });
 
+  // Rename member (custom display_name — Telegram first_name часто мусорный)
+  document.querySelectorAll('.rename-member-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const userId = btn.dataset.userId;
+      const newName = prompt('Имя участника (как будет видно в истории карточек):', btn.dataset.currentName || '');
+      if (newName === null) return;
+      const r = await fetch('/cabinet/api/team/members/' + userId, {
+        method: 'PATCH', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: newName.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok) {
+        Toast.show('✓ Имя обновлено', 'positive');
+        setTimeout(() => window.location.reload(), 400);
+      } else {
+        Toast.show(d.error || 'Ошибка', 'alert');
+      }
+    });
+  });
+
   // Remove member
   document.querySelectorAll('.remove-member-btn').forEach(btn => {
     btn.addEventListener('click', async () => {

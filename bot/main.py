@@ -280,6 +280,10 @@ async def main():
     from tender_sniper.jobs.archive_lost_cards import archive_loop
     asyncio.create_task(archive_loop())
 
+    # Pipeline: автопросрочка по дедлайну подачи + удаление старых REJECTED (раз в час)
+    from tender_sniper.jobs.expire_deadline_cards import expire_deadline_loop
+    asyncio.create_task(expire_deadline_loop())
+
     # Pipeline: pull-синхронизация статусов из Bitrix24 (каждые 5 мин)
     from tender_sniper.jobs.bitrix_pull_sync import pull_loop as bitrix_pull_loop
     asyncio.create_task(bitrix_pull_loop())

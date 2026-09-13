@@ -1088,7 +1088,7 @@ async def export_tender_to_bitrix24(request: web.Request) -> web.Response:
 # PIPELINE API
 # ============================================
 
-from cabinet import pipeline_service, team_service
+from cabinet import pipeline_service, team_service, supplier_service
 from cabinet.auth import require_team_member, require_owner
 
 
@@ -1196,12 +1196,84 @@ async def pipeline_card_full(request: web.Request) -> web.Response:
     files = await pipeline_service.list_files(card_id)
     checklist = await pipeline_service.list_checklist(card_id)
     relations = await pipeline_service.list_relations(card_id)
+    quotes = await supplier_service.list_quotes(card_id, company['id'])
     margin = pipeline_service.calc_margin(card['purchase_price'], card['sale_price'])
     return web.json_response({
         'card': card, 'notes': notes, 'history': history,
         'files': files, 'checklist': checklist, 'relations': relations,
-        'margin': margin,
+        'quotes': quotes, 'margin': margin,
     })
+
+
+@require_team_member
+async def suppliers_list(request: web.Request) -> web.Response:
+    company = request['company']
+    suppliers = await supplier_service.list_suppliers(company['id'])
+    return web.json_response({'suppliers': suppliers})
+
+
+@require_team_member
+async def suppliers_create(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    result = await supplier_service.create_supplier(
+        company['id'], body.get('name'), body.get('contact'), user['user_id'],
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def suppliers_update(request: web.Request) -> web.Response:
+    company = request['company']
+    supplier_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    result = await supplier_service.update_supplier(
+        supplier_id, company['id'], body.get('name'), body.get('contact'),
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def suppliers_delete(request: web.Request) -> web.Response:
+    company = request['company']
+    supplier_id = int(request.match_info['id'])
+    result = await supplier_service.delete_supplier(supplier_id, company['id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_quotes_add(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    try:
+        price = float(body.get('price'))
+    except (TypeError, ValueError):
+        return web.json_response({'error': 'Некорректная цена'}, status=400)
+    result = await supplier_service.add_quote(
+        card_id, company['id'],
+        supplier_id=body.get('supplier_id'),
+        new_supplier_name=body.get('new_supplier_name'),
+        price=price, notes=body.get('notes'), by_user_id=user['user_id'],
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_quotes_delete(request: web.Request) -> web.Response:
+    company = request['company']
+    quote_id = int(request.match_info['id'])
+    result = await supplier_service.delete_quote(quote_id, company['id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
 
 
 @require_team_member
@@ -1503,6 +1575,22 @@ async def team_remove_member(request: web.Request) -> web.Response:
         return web.json_response({'error': 'Owner only'}, status=403)
     target = int(request.match_info['id'])
     result = await team_service.remove_member(company['id'], target, user['user_id'])
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def team_set_member_name(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Owner only'}, status=403)
+    target = int(request.match_info['id'])
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    result = await team_service.set_member_display_name(
+        company['id'], target, data.get('display_name'), user['user_id'],
+    )
     return web.json_response(result, status=200 if result['ok'] else 400)
 
 
