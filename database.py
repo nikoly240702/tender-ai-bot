@@ -122,7 +122,8 @@ class SniperUser(Base):
     last_activity = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    filters = relationship("SniperFilter", back_populates="user", cascade="all, delete-orphan")
+    filters = relationship("SniperFilter", back_populates="user", cascade="all, delete-orphan",
+                           foreign_keys="SniperFilter.user_id")
     notifications = relationship("SniperNotification", back_populates="user", cascade="all, delete-orphan")
 
 
@@ -179,6 +180,8 @@ class SniperFilter(Base):
     status = Column(String(20), nullable=False, default='active')  # active|paused|staged|archived
     config_version = Column(Integer, nullable=True)  # version из filters_v2.yaml, которым обновлена строка
     updated_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=True)
+    nacrejim = Column(String(30), nullable=True)  # preference_15|restriction_2nd|ban (ПП РФ №1875)
+    notes = Column(Text, nullable=True)  # редакторский комментарий из YAML (не путать с ai_intent)
 
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
@@ -189,7 +192,7 @@ class SniperFilter(Base):
     deleted_at = Column(DateTime, nullable=True, default=None)
 
     # Relationships
-    user = relationship("SniperUser", back_populates="filters")
+    user = relationship("SniperUser", back_populates="filters", foreign_keys=[user_id])
     notifications = relationship("SniperNotification", back_populates="filter")
 
     # Indexes

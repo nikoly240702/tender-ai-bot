@@ -749,6 +749,8 @@ class TenderSniperDB:
             'status': getattr(filter_obj, 'status', None),
             'config_version': getattr(filter_obj, 'config_version', None),
             'updated_by': getattr(filter_obj, 'updated_by', None),
+            'nacrejim': getattr(filter_obj, 'nacrejim', None),
+            'notes': getattr(filter_obj, 'notes', None),
             # AI семантика
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),
