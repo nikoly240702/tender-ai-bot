@@ -7,6 +7,7 @@ from tender_sniper.jobs.mos_portal_poll import (
     MAX_PAGES_PER_CYCLE,
     MOS_MIN_SCORE_FOR_NOTIFICATION,
     _map_page_to_tenders,
+    _to_api_timestamp,
 )
 from tender_sniper.matching import SmartMatcher
 
@@ -40,6 +41,25 @@ class TestComputePollWindow:
         assert window_from == last_poll - timedelta(minutes=30)
         assert window_to == now
         assert window_from.tzinfo is not None
+
+
+@pytest.mark.unit
+class TestToApiTimestamp:
+    """Live smoke-test found the API's .NET query parser mangles a literal
+    '+' (from a '+03:00' offset) into a space after decoding — 400 Bad
+    Request ("Could not convert string to DateTime: ...23:09:26 03:00").
+    A UTC 'Z'-suffixed timestamp has no '+' character and sidesteps this
+    entirely; confirmed against the real API after this fix."""
+
+    def test_converts_moscow_time_to_utc_z_suffix(self):
+        msk = ZoneInfo("Europe/Moscow")
+        dt = datetime(2026, 9, 13, 23, 9, 26, tzinfo=msk)  # MSK = UTC+3
+        assert _to_api_timestamp(dt) == "2026-09-13T20:09:26Z"
+
+    def test_never_contains_plus_character(self):
+        msk = ZoneInfo("Europe/Moscow")
+        dt = datetime(2026, 9, 13, 23, 9, 26, tzinfo=msk)
+        assert "+" not in _to_api_timestamp(dt)
 
 
 @pytest.mark.unit
