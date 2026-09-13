@@ -4,7 +4,7 @@ docs/superpowers/specs/2026-09-13-mos-portal-integration-design.md.
 """
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -43,6 +43,20 @@ def compute_poll_window(last_poll: Optional[datetime], now: datetime) -> Tuple[d
     if last_poll is None:
         return now - timedelta(minutes=DEFAULT_LOOKBACK_MINUTES), now
     return last_poll - timedelta(minutes=OVERLAP_MINUTES), now
+
+
+def _to_api_timestamp(dt: datetime) -> str:
+    """UTC-строка с суффиксом Z для параметров запроса к API. Портал
+    поставщиков — .NET-сервис за прокси/шлюзом, который где-то по пути
+    декодирует '%2B' в '+', а затем ещё раз интерпретирует уже раскодированный
+    '+' как пробел (двойное form-decoding) — сервер получает
+    "23:09:26 03:00" вместо "23:09:26+03:00" и не может распарсить дату
+    (подтверждено эмпирически: запрос с оффсетом +03:00 стабильно давал 400
+    Bad Request, тот же самый момент времени в форме UTC+Z прошёл). Формат
+    'Z' не содержит '+' вовсе, поэтому проблема не возникает — при этом сам
+    момент времени (и корректность MSK-вычисления окна) не меняется, меняется
+    только то, как он сериализуется на проводе."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _map_page_to_tenders(page: list) -> list:
@@ -95,16 +109,16 @@ async def mos_portal_poll_loop():
             # (UTC+3, без DST), а не UTC. При окне опроса ~10 мин с нахлёстом
             # 30 мин разница в 3 часа означает, что окно систематически
             # отстаёт на ~3 часа каждый цикл — уведомления опаздывали бы
-            # на ~3 часа. Строим "сейчас" в Europe/Moscow и передаём в API
-            # ISO-строки с явным +03:00, чтобы не зависеть от того, как API
-            # парсит naive-время.
+            # на ~3 часа. Строим "сейчас" в Europe/Moscow (корректный момент
+            # времени), но на проводе шлём в UTC/Z — см. _to_api_timestamp.
             now = datetime.now(MOSCOW_TZ)
             window_from, window_to = compute_poll_window(last_poll, now)
             tenders = []
             skip = 0
             for _ in range(MAX_PAGES_PER_CYCLE):
                 resp = await client.search_auctions(
-                    window_from.isoformat(), window_to.isoformat(), skip=skip, take=PAGE_SIZE,
+                    _to_api_timestamp(window_from), _to_api_timestamp(window_to),
+                    skip=skip, take=PAGE_SIZE,
                 )
                 page = resp.get("data") or resp.get("items") or []
                 if not page:
