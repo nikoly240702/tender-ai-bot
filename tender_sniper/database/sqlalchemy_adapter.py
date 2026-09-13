@@ -741,6 +741,14 @@ class TenderSniperDB:
             # Per-filter notification targets
             'notify_chat_ids': getattr(filter_obj, 'notify_chat_ids', None),
             'notify_thread_id': getattr(filter_obj, 'notify_thread_id', None),
+            # Filters v2
+            'slug': getattr(filter_obj, 'slug', None),
+            'group_id': getattr(filter_obj, 'group_id', None),
+            'owner': getattr(filter_obj, 'owner', None),
+            'wave': getattr(filter_obj, 'wave', None),
+            'status': getattr(filter_obj, 'status', None),
+            'config_version': getattr(filter_obj, 'config_version', None),
+            'updated_by': getattr(filter_obj, 'updated_by', None),
             # AI семантика
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),

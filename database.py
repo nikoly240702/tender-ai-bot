@@ -10,7 +10,7 @@ from typing import Optional
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Float, Boolean,
+    Column, Integer, SmallInteger, BigInteger, String, Float, Boolean,
     DateTime, Text, JSON, ForeignKey, Index, UniqueConstraint, Numeric
 )
 from sqlalchemy.ext.asyncio import (
@@ -167,6 +167,18 @@ class SniperFilter(Base):
     # Per-filter notification targets
     notify_chat_ids = Column(JSON, nullable=True)  # [chat_id, ...] или null = личный чат
     notify_thread_id = Column(Integer, nullable=True)  # тема (topic) супергруппы для групповых таргетов
+
+    # Filters v2 (declarative YAML config, см. tender_sniper/filters/config.py)
+    slug = Column(String(100), nullable=True, unique=True)  # ключ идемпотентного upsert из filters_v2.yaml
+    group_id = Column(String(50), nullable=True)  # group.id из YAML (office, build_goods, ...)
+    owner = Column(String(50), nullable=True)  # group.owner из YAML — кому маршрутизировать (nikolai/artem)
+    wave = Column(SmallInteger, nullable=True)  # 1/2/3 — волна включения
+    # Дублирует is_active осознанно: весь остальной код читает только is_active,
+    # status добавляет более тонкие состояния (staged/archived) поверх неё.
+    # Импортёр держит обе колонки в синхроне.
+    status = Column(String(20), nullable=False, default='active')  # active|paused|staged|archived
+    config_version = Column(Integer, nullable=True)  # version из filters_v2.yaml, которым обновлена строка
+    updated_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=True)
 
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
