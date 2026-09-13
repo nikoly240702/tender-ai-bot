@@ -3276,13 +3276,37 @@ class TenderSniperDB:
     # ============================================
 
     async def create_web_session(self, user_id: int, session_token: str, ip_address: Optional[str] = None, ttl_days: int = 30) -> int:
-        """Создание веб-сессии."""
+        """Создание веб-сессии.
+
+        Новая сессия наследует активный воркспейс из последней сессии
+        этого юзера (по last_used), а не всегда откатывается на самую
+        старую компанию — иначе переключение воркспейса «слетало» при
+        каждом новом логине (новый токен от Telegram Login) на другом
+        устройстве/вкладке.
+        """
         async with DatabaseSession() as session:
+            last_active_company_id = None
+            result = await session.execute(
+                select(WebSessionModel.active_company_id)
+                .where(
+                    and_(
+                        WebSessionModel.user_id == user_id,
+                        WebSessionModel.active_company_id.isnot(None),
+                    )
+                )
+                .order_by(WebSessionModel.last_used.desc())
+                .limit(1)
+            )
+            row = result.first()
+            if row:
+                last_active_company_id = row[0]
+
             web_session = WebSessionModel(
                 user_id=user_id,
                 session_token=session_token,
                 expires_at=datetime.utcnow() + timedelta(days=ttl_days),
                 ip_address=ip_address,
+                active_company_id=last_active_company_id,
             )
             session.add(web_session)
             await session.flush()

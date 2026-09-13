@@ -75,14 +75,25 @@
   </div>
   <script>
     async function switchWorkspace(companyId) {
-      const res = await fetch('/cabinet/api/company/switch', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({company_id: parseInt(companyId, 10)}),
-      });
-      if (res.ok) {
-        window.location.reload();
+      const select = document.getElementById('workspace-select');
+      const previousValue = '{{ active_company_id }}';
+      select.disabled = true;
+      try {
+        const res = await fetch('/cabinet/api/company/switch', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({company_id: parseInt(companyId, 10)}),
+        });
+        if (res.ok) {
+          window.location.reload();
+          return;
+        }
+        window.Cabinet.Toast.show('Не удалось переключить рабочий стол (ошибка ' + res.status + ')', 'alert');
+      } catch (e) {
+        window.Cabinet.Toast.show('Не удалось переключить рабочий стол: нет соединения', 'alert');
       }
+      select.value = previousValue;
+      select.disabled = false;
     }
   </script>
   {% endif %}
