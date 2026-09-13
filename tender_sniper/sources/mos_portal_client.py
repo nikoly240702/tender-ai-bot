@@ -65,7 +65,7 @@ class MosPortalClient:
     def search_auctions_sync(self, publish_date_from: str, publish_date_to: str,
                              skip: int = 0, take: int = 200) -> Dict[str, Any]:
         query = {
-            "filter": {"publishDate": {"from": publish_date_from, "to": publish_date_to}},
+            "filter": {"publishDate": {"start": publish_date_from, "end": publish_date_to}},
             "skip": skip,
             "take": take,
         }
