@@ -20,6 +20,16 @@ def _compile_pattern(pattern: str, flags: int = 0) -> re.Pattern:
     return re.compile(pattern, flags)
 
 
+_YO_TRANSLATE = str.maketrans({'ё': 'е', 'Ё': 'Е'})
+
+
+def _normalize_yo(text: str) -> str:
+    """ё/Ё -> е/Е. Извещения на zakupki.gov.ru в подавляющем большинстве
+    пишутся без «ё» («шуруповерт»), а ключевики фильтров иногда — с ней
+    («шуруповёрт») — без нормализации такие ключевики никогда не совпадают."""
+    return text.translate(_YO_TRANSLATE)
+
+
 def detect_red_flags(tender: Dict[str, Any]) -> List[str]:
     """
     Детектирует потенциальные проблемы (красные флаги) в тендере.
@@ -688,7 +698,8 @@ class SmartMatcher:
         Избегает ложных срабатываний типа 'служб' в 'службы военной'.
         Использует кэшированные regex паттерны для производительности.
         """
-        keyword_lower = keyword.lower().strip()
+        keyword_lower = _normalize_yo(keyword.lower().strip())
+        text_normalized = _normalize_yo(text)
 
         # Для коротких слов (< 4 символов) требуем точное совпадение с границами
         if len(keyword_lower) < 4:
@@ -698,7 +709,7 @@ class SmartMatcher:
             # Это позволяет найти "linux" в "linux-система" или "линукс"
             pattern = r'\b' + re.escape(keyword_lower)
 
-        return bool(_compile_pattern(pattern, re.IGNORECASE).search(text))
+        return bool(_compile_pattern(pattern, re.IGNORECASE).search(text_normalized))
 
     def _check_negative_patterns(self, text: str) -> Optional[str]:
         """
@@ -949,6 +960,30 @@ class SmartMatcher:
             for keyword in exclude_keywords:
                 # Используем проверку с границами слов для точности
                 if self._word_boundary_match(keyword, searchable_text):
+                    # keyword_wins_over_exclusion: исключение не применяется,
+                    # если оно — часть ключевика фильтра, который сам матчится
+                    # в тексте («монтажная пена» не гасится исключением
+                    # «монтаж», «ремонтный состав для бетона» — исключением
+                    # «ремонт»). Проверяем тем же способом, каким кандидат
+                    # был бы засчитан в скоринге (фраза vs одиночное слово).
+                    exc_norm = _normalize_yo(keyword.lower().strip())
+                    rescued_by = None
+                    for kw in keywords:
+                        kw_norm = _normalize_yo(kw.lower().strip())
+                        if exc_norm == kw_norm or exc_norm not in kw_norm:
+                            continue
+                        kw_matches = (
+                            self._match_compound_phrase(kw, searchable_text)
+                            if ' ' in kw_norm else
+                            self._word_boundary_match(kw, searchable_text)
+                        )
+                        if kw_matches:
+                            rescued_by = kw
+                            break
+                    if rescued_by:
+                        logger.debug(f"   ✅ Исключение «{keyword}» проигнорировано — "
+                                     f"часть ключевика «{rescued_by}»")
+                        continue
                     logger.debug(f"   ⛔ Исключено по ключевому слову: {keyword}")
                     return None
 

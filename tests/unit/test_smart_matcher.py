@@ -573,3 +573,97 @@ class TestEdgeCases:
         result = matcher.match_tender(tender, sample_filter)
         # Не должно падать
         assert result is not None
+
+
+@pytest.mark.unit
+class TestWordBoundaries:
+    """ТЗ §4.2/Этап 3.3: короткие ключевики (<4 симв.) не должны совпадать
+    как подстрока другого слова — ни слева, ни справа."""
+
+    @pytest.mark.parametrize('keyword,tender_name', [
+        ('кран', 'Поставка запчастей для экрана телевизора'),
+        ('мат', 'Печать в формате А4'),
+        ('моп', 'Поставка компота фруктового'),
+    ])
+    def test_short_keyword_does_not_match_inside_longer_word(
+        self, matcher, sample_filter, keyword, tender_name,
+    ):
+        sample_filter['keywords'] = json.dumps([keyword], ensure_ascii=False)
+        sample_filter['exclude_keywords'] = json.dumps([], ensure_ascii=False)
+        tender = {
+            'number': '5', 'name': tender_name,
+            'description': '', 'price': 2000000, 'region': 'Москва',
+        }
+        result = matcher.match_tender(tender, sample_filter)
+        assert result is None
+
+    def test_short_keyword_matches_as_whole_word(self, matcher, sample_filter):
+        """Контрольный случай: то же короткое слово матчится, когда оно
+        реально встречается как отдельное слово."""
+        sample_filter['keywords'] = json.dumps(['кран'], ensure_ascii=False)
+        sample_filter['exclude_keywords'] = json.dumps([], ensure_ascii=False)
+        tender = {
+            'number': '6', 'name': 'Поставка крана шарового для водопровода',
+            'description': '', 'price': 2000000, 'region': 'Москва',
+        }
+        result = matcher.match_tender(tender, sample_filter)
+        assert result is not None
+
+
+@pytest.mark.unit
+class TestYoNormalization:
+    """ё/е нормализация — filters_v2.yaml требует, чтобы ключевик с «ё» и
+    текст извещения без неё (и наоборот) считались одним и тем же словом."""
+
+    def test_keyword_with_yo_matches_text_without_yo(self, matcher, sample_filter):
+        """Ключевик «шуруповёрт» находит «шуруповерт» в тексте извещения
+        (так пишут в подавляющем большинстве реальных извещений)."""
+        sample_filter['keywords'] = json.dumps(['шуруповёрт'], ensure_ascii=False)
+        sample_filter['exclude_keywords'] = json.dumps([], ensure_ascii=False)
+        tender = {
+            'number': '1', 'name': 'Поставка шуруповертов аккумуляторных',
+            'description': '', 'price': 2000000, 'region': 'Москва',
+        }
+        result = matcher.match_tender(tender, sample_filter)
+        assert result is not None
+
+    def test_keyword_without_yo_matches_text_with_yo(self, matcher, sample_filter):
+        """И наоборот: ключевик без «ё» находит текст, где она есть."""
+        sample_filter['keywords'] = json.dumps(['счетчик'], ensure_ascii=False)
+        sample_filter['exclude_keywords'] = json.dumps([], ensure_ascii=False)
+        tender = {
+            'number': '2', 'name': 'Поставка счётчиков электроэнергии',
+            'description': '', 'price': 2000000, 'region': 'Москва',
+        }
+        result = matcher.match_tender(tender, sample_filter)
+        assert result is not None
+
+
+@pytest.mark.unit
+class TestKeywordWinsOverExclusion:
+    """Исключение не должно гасить ключевик, частью которого оно является
+    (filters_v2.yaml §4.2, keyword_wins_over_exclusion)."""
+
+    def test_exclusion_substring_of_matching_keyword_is_rescued(self, matcher, sample_filter):
+        """«монтажная пена» матчится, несмотря на исключение «монтаж»,
+        потому что «монтаж» — часть сработавшего ключевика."""
+        sample_filter['keywords'] = json.dumps(['монтажная пена'], ensure_ascii=False)
+        sample_filter['exclude_keywords'] = json.dumps(['монтаж'], ensure_ascii=False)
+        tender = {
+            'number': '3', 'name': 'Поставка товара: монтажная пена строительная',
+            'description': '', 'price': 2000000, 'region': 'Москва',
+        }
+        result = matcher.match_tender(tender, sample_filter)
+        assert result is not None
+
+    def test_exclusion_not_part_of_any_keyword_still_blocks(self, matcher, sample_filter):
+        """Контрольный случай: то же исключение «монтаж» без «спасающего»
+        ключевика продолжает работать как раньше."""
+        sample_filter['keywords'] = json.dumps(['компьютер'], ensure_ascii=False)
+        sample_filter['exclude_keywords'] = json.dumps(['монтаж'], ensure_ascii=False)
+        tender = {
+            'number': '4', 'name': 'Монтаж компьютерного оборудования',
+            'description': '', 'price': 2000000, 'region': 'Москва',
+        }
+        result = matcher.match_tender(tender, sample_filter)
+        assert result is None
