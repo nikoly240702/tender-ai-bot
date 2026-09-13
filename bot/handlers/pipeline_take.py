@@ -1,9 +1,12 @@
 """Кнопка «🗂 Взять в работу» на карточке тендера — кладёт процедуру на
 канбан кабинета (аналог кнопки «В Б24», но для команд без Bitrix).
 
-Компания нажавшего резолвится динамически (team_service.get_active_company),
-поэтому кнопка одинаково работает и для владельца, и для любого члена
-любой команды — без хардкода company_id.
+Компания резолвится по company_id самого уведомления/тендера (т.е. по
+той компании, чей фильтр его поймал), а не по контексту чата или по
+дефолтной компании нажавшего — иначе для владельца, состоящего сразу
+в нескольких командах, карточка из ЛИЧКИ всегда падала бы в его самую
+старую компанию, независимо от того, какой команде реально принадлежит
+фильтр, который прислал это уведомление.
 """
 
 import logging
@@ -85,17 +88,32 @@ async def handle_take_work(callback: CallbackQuery):
 
         from cabinet.team_service import get_active_company
 
-        company = None
-        # В групповом чате компания резолвится по самой группе (у неё
-        # свой SniperUser-профиль с ровно одним членством), а не по
-        # нажавшему — иначе для юзера, состоящего сразу в нескольких
-        # командах, карточка всегда падала бы в его самую старую
-        # компанию, независимо от того, в какой группе он нажал кнопку.
-        if callback.message.chat.type in ('group', 'supergroup'):
-            group_user = await db.get_user_by_telegram_id(callback.message.chat.id)
-            if group_user:
-                company = await get_active_company(group_user['id'], None)
+        company_id = None
+        # Основной источник: company_id самого уведомления — это компания,
+        # чей фильтр реально поймал этот тендер. Сначала пробуем найти
+        # уведомление под нажавшим (быстрее, точнее), затем — вообще
+        # любое по этому номеру (нажавший мог не быть тем, кто изначально
+        # получил уведомление — например, в групповом чате).
+        notif = await db.get_notification_by_tender_number(user['id'], tender_number)
+        if not notif or not notif.get('company_id'):
+            notif = await db.find_notification_by_tender_number(tender_number)
+        if notif and notif.get('company_id'):
+            company_id = notif['company_id']
 
+        company = None
+        if company_id:
+            from database import DatabaseSession, Company
+            async with DatabaseSession() as session:
+                company_row = await session.get(Company, company_id)
+                if company_row:
+                    company = {
+                        'id': company_row.id,
+                        'name': company_row.name,
+                        'owner_user_id': company_row.owner_user_id,
+                    }
+
+        # Фолбэк — если уведомления нет вовсе (например, тендер добавлен
+        # вручную, не через автомониторинг): компания нажавшего по умолчанию.
         if not company:
             company = await get_active_company(user['id'], None)
         if not company:

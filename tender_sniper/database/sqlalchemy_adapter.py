@@ -2822,6 +2822,7 @@ class TenderSniperDB:
             return {
                 'id': notif.id,
                 'filter_id': notif.filter_id,
+                'company_id': getattr(notif, 'company_id', None),
                 'tender_number': notif.tender_number,
                 'tender_name': notif.tender_name,
                 'tender_price': notif.tender_price,
@@ -2859,6 +2860,7 @@ class TenderSniperDB:
             return {
                 'id': notif.id,
                 'filter_id': notif.filter_id,
+                'company_id': getattr(notif, 'company_id', None),
                 'tender_number': notif.tender_number,
                 'tender_name': notif.tender_name,
                 'tender_price': notif.tender_price,
