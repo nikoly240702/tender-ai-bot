@@ -224,6 +224,7 @@ class SniperNotification(Base):
     tender_source = Column(String(50), default='automonitoring', nullable=False)  # instant_search или automonitoring
     sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     telegram_message_id = Column(BigInteger, nullable=True)
+    notified_chat_id = Column(BigInteger, nullable=True, index=True)  # куда реально ушло (личка или группа) — для дедупа is_tender_sent_to_chat
     sheets_exported = Column(Boolean, default=False, nullable=False)  # Экспортирован ли в Google Sheets
     sheets_exported_at = Column(DateTime, nullable=True)
     sheets_exported_by = Column(BigInteger, nullable=True)  # telegram_id того, кто экспортировал (для групп)

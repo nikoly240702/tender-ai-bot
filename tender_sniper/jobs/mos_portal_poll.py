@@ -210,6 +210,7 @@ async def mos_portal_poll_loop():
                                     matched_keywords=match.get('matched_keywords', []),
                                     match_info=match,
                                     source='mos_portal',
+                                    notified_chat_id=target_chat_id,
                                 )
                                 sent_count += 1
                             else:
