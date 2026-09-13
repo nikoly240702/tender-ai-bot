@@ -657,22 +657,29 @@ class TenderSniperDB:
             logger.info(f"📋 Filter duplicated: {original.name} -> {copy_name} (id={new_id})")
             return new_id
 
-    async def get_all_active_filters(self) -> List[Dict[str, Any]]:
-        """Получение всех активных фильтров с информацией о пользователе."""
+    async def get_all_active_filters(self, company_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Получение всех активных фильтров с информацией о пользователе.
+
+        company_id: если задан — только фильтры этой компании (используется
+        интеграцией Портала поставщиков, см.
+        docs/superpowers/specs/2026-09-13-mos-portal-integration-design.md).
+        None (по умолчанию) — поведение не меняется, все компании как раньше.
+        """
         async with DatabaseSession() as session:
             # JOIN с SniperUser чтобы получить telegram_id и subscription_tier
             # ВАЖНО: проверяем и is_active фильтра И notifications_enabled пользователя
+            conditions = [
+                SniperFilterModel.is_active == True,
+                SniperFilterModel.deleted_at.is_(None),
+                SniperUserModel.notifications_enabled == True,  # Пауза автомониторинга
+                SniperUserModel.subscription_tier != 'expired'  # Не отправлять истёкшим
+            ]
+            if company_id is not None:
+                conditions.append(SniperFilterModel.company_id == company_id)
             result = await session.execute(
                 select(SniperFilterModel, SniperUserModel)
                 .join(SniperUserModel, SniperFilterModel.user_id == SniperUserModel.id)
-                .where(
-                    and_(
-                        SniperFilterModel.is_active == True,
-                        SniperFilterModel.deleted_at.is_(None),
-                        SniperUserModel.notifications_enabled == True,  # Пауза автомониторинга
-                        SniperUserModel.subscription_tier != 'expired'  # Не отправлять истёкшим
-                    )
-                )
+                .where(and_(*conditions))
             )
             filter_user_pairs = result.all()
 
