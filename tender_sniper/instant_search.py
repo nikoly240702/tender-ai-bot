@@ -64,7 +64,8 @@ class InstantSearch:
         expanded_keywords: List[str] = None,
         use_ai_check: bool = True,
         user_id: int = None,
-        subscription_tier: str = 'trial'
+        subscription_tier: str = 'trial',
+        date_from_days: int = 3,
     ) -> Dict[str, Any]:
         """
         Поиск тендеров по критериям фильтра.
@@ -179,7 +180,7 @@ class InstantSearch:
                     loop = asyncio.get_event_loop()
 
                     from datetime import datetime as _dt, timedelta as _td
-                    _date_from = (_dt.utcnow() - _td(days=3)).strftime('%d.%m.%Y')
+                    _date_from = (_dt.utcnow() - _td(days=date_from_days)).strftime('%d.%m.%Y')
 
                     rss_future = loop.run_in_executor(
                         None,
