@@ -1,7 +1,12 @@
 import pytest
 from datetime import datetime, timedelta
 
-from tender_sniper.jobs.mos_portal_poll import compute_poll_window, MAX_PAGES_PER_CYCLE
+from tender_sniper.jobs.mos_portal_poll import (
+    compute_poll_window,
+    MAX_PAGES_PER_CYCLE,
+    MIN_SCORE_FOR_NOTIFICATION,
+)
+from tender_sniper.matching import SmartMatcher
 
 @pytest.mark.unit
 class TestComputePollWindow:
@@ -20,3 +25,44 @@ class TestComputePollWindow:
 
     def test_max_pages_per_cycle_is_bounded(self):
         assert MAX_PAGES_PER_CYCLE <= 20  # см. спеку разд. 5 — потолок пагинации за цикл
+
+
+@pytest.mark.unit
+class TestMinScoreGate:
+    """Finding #2 (round 1 fix): SmartMatcher.match_tender() returns a
+    truthy dict even for its "negative pattern" branch (score=5), so the
+    poll loop must gate on MIN_SCORE_FOR_NOTIFICATION after the `if not
+    match` check, exactly like tender_sniper/service.py does. These tests
+    exercise the real matcher (no DB/Telegram needed) to prove the gate
+    threshold actually rejects that branch's output.
+    """
+
+    def test_min_score_constant_matches_service_py(self):
+        # tender_sniper/service.py:347 — единый порог для composite score.
+        assert MIN_SCORE_FOR_NOTIFICATION == 35
+
+    def test_negative_pattern_match_is_truthy_but_below_gate(self):
+        matcher = SmartMatcher()
+        tender = {
+            'number': '0000000000000001',
+            'name': 'Оказание услуг по транспортировке медицинских отходов',
+            'description': '',
+        }
+        filter_config = {
+            'id': 1,
+            'name': 'Тестовый фильтр',
+            'user_id': 1,
+            'keywords': '["транспортировка"]',
+            'exclude_keywords': '[]',
+            'regions': '[]',
+            'customer_types': '[]',
+            'tender_types': '[]',
+        }
+
+        match = matcher.match_tender(tender, filter_config)
+
+        # Регрессия для finding #2: раньше `if not match: continue` пропускал
+        # это дальше, потому что match — truthy dict (score=5), не None.
+        assert match is not None
+        assert match['score'] == 5
+        assert match['score'] < MIN_SCORE_FOR_NOTIFICATION

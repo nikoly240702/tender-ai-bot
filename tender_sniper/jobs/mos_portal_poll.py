@@ -22,6 +22,8 @@ OVERLAP_MINUTES = 30
 DEFAULT_LOOKBACK_MINUTES = 60
 MAX_PAGES_PER_CYCLE = 10
 PAGE_SIZE = 200
+# Единый порог для composite score — как в tender_sniper/service.py
+MIN_SCORE_FOR_NOTIFICATION = 35
 
 
 def compute_poll_window(last_poll: Optional[datetime], now: datetime) -> Tuple[datetime, datetime]:
@@ -42,8 +44,6 @@ async def _check_token_expiry(client: MosPortalClient) -> None:
 
 async def mos_portal_poll_loop():
     await asyncio.sleep(180)  # стартовая задержка, как у остальных фоновых job'ов
-    client = MosPortalClient()
-    await _check_token_expiry(client)
     matcher = SmartMatcher()
     bot_token = os.environ.get('BOT_TOKEN', '')
     notifier = TelegramNotifier(bot_token=bot_token) if bot_token else None
@@ -52,6 +52,12 @@ async def mos_portal_poll_loop():
 
     while True:
         try:
+            # Внутри try: пока PP_TOKEN не задан (см. Task 6), конструктор
+            # кидает RuntimeError — цикл должен пережить это и повторить
+            # попытку на следующем POLL_INTERVAL_SECONDS, а не убить job навсегда.
+            client = MosPortalClient()
+            await _check_token_expiry(client)
+
             now = datetime.utcnow()
             window_from, window_to = compute_poll_window(last_poll, now)
             tenders = []
@@ -79,6 +85,8 @@ async def mos_portal_poll_loop():
                         match = matcher.match_tender(tender, filter_data)
                         if not match:
                             continue
+                        if match['score'] < MIN_SCORE_FOR_NOTIFICATION:
+                            continue
 
                         filter_id = filter_data['id']
                         filter_name = filter_data['name']
@@ -86,6 +94,22 @@ async def mos_portal_poll_loop():
                         notify_chat_ids = filter_data.get('notify_chat_ids') or []
                         notify_thread_id = filter_data.get('notify_thread_id')
                         target_chat_ids = notify_chat_ids if notify_chat_ids else [filter_data['telegram_id']]
+
+                        # Дедуп между циклами (окно опроса перекрывается на 30 мин
+                        # при интервале 10 мин => один тендер попадает в ~4 цикла
+                        # подряд). Проверяем ОДИН раз на (tender, user), как в
+                        # tender_sniper/service.py — до цикла по target_chat_ids,
+                        # а не внутри него: иначе save_notification после отправки
+                        # в первый чат сделал бы is_tender_notified true и ложно
+                        # заблокировал бы отправку во второй notify_chat_id того
+                        # же пользователя в этом же цикле. Для личного чата
+                        # (target_chat_id > 0) это единственная защита от дублей —
+                        # без неё пользователь получает тендер ~4 раза.
+                        already_notified = await db.is_tender_notified(
+                            tender_number, user_id, company_id=COMPANY_ID
+                        )
+                        if already_notified:
+                            continue
 
                         for target_chat_id in target_chat_ids:
                             dedup_key = (target_chat_id, tender_number)
