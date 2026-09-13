@@ -938,8 +938,14 @@ class TenderSniperDB:
         telegram_message_id: Optional[int] = None,
         source: str = 'automonitoring',
         match_info: Optional[Dict[str, Any]] = None,
+        notified_chat_id: Optional[int] = None,
     ) -> int:
-        """Сохранение уведомления."""
+        """Сохранение уведомления.
+
+        notified_chat_id: реальный чат назначения (личка или группа) —
+        используется is_tender_sent_to_chat() для точного дедупа по чату,
+        а не по user_id (см. её докстринг и миграцию 20260913_notified_chat).
+        """
         tender_number = tender_data.get('number', '')
 
         async with DatabaseSession() as session:
@@ -1026,6 +1032,7 @@ class TenderSniperDB:
                 tender_source=source,
                 telegram_message_id=telegram_message_id,
                 match_info=match_info,
+                notified_chat_id=notified_chat_id,
             )
               session.add(notification)
               await session.flush()
@@ -1201,40 +1208,30 @@ class TenderSniperDB:
             return result.first() is not None
 
     async def is_tender_sent_to_chat(self, tender_number: str, chat_id: int) -> bool:
-        """Проверка, было ли уже отправлено уведомление о тендере в чат (любым пользователем).
+        """Проверка, было ли уже отправлено уведомление о тендере в этот
+        конкретный чат (личку ИЛИ группу).
 
-        Для дедупликации в групповых чатах, где разные пользователи
-        имеют фильтры, совпадающие с одним и тем же тендером.
+        ИСТОРИЯ БАГА (13.09.2026): раньше эта функция проверяла "отправлено
+        ли ЭТОМУ ПОЛЬЗОВАТЕЛЮ" (по user_id, без учёта КУДА именно), потому
+        что sniper_notifications вообще не хранила фактический chat_id
+        доставки. Если notify_chat_ids фильтра содержит и личку, и группу
+        (обычная конфигурация) — отправка в личку (она всегда обрабатывается
+        первой) писала строку по user_id, и следующая же итерация по группе
+        ложно находила эту строку и молча пропускала группу, считая что
+        "уже отправлено". Обнаружено на живом прогоне Портала поставщиков:
+        20/20 уведомлений ушли в личку, 0 — в группу, хотя notify_chat_ids
+        содержал оба чата. Пофикшено миграцией 20260913_notified_chat —
+        теперь сравниваем ТОЧНО по chat_id, без временного окна (раньше
+        было 24ч — костыль под неточность user_id-проверки; при точном
+        совпадении по chat_id постоянная проверка корректна: один и тот же
+        tender_number не должен повторно уходить в один и тот же чат).
         """
         async with DatabaseSession() as session:
-            # Находим всех пользователей, чьи фильтры шлют в этот чат
-            # Используем cast к text для совместимости с JSON (не JSONB)
-            from database import SniperFilter as SniperFilterModel_
-            from sqlalchemy import cast, String
-            filter_result = await session.execute(
-                select(SniperFilterModel_.user_id).where(
-                    cast(SniperFilterModel_.notify_chat_ids, String).like(f'%{chat_id}%')
-                ).distinct()
-            )
-            user_ids = [row[0] for row in filter_result.all()]
-
-            if not user_ids:
-                return False
-
-            # Окно 24ч — совпадает со сбросом in-memory _seen_tenders в
-            # service.py. Без этого ограничения пользователь с долгой
-            # историей уведомлений (тот же tender_number мог совпасть
-            # с СОВЕРШЕННО другим фильтром/компанией месяцы назад)
-            # получал ложный "уже отправлено" и терял свежие уведомления
-            # в группу — при том что в личку они уходили нормально
-            # (там этой проверки нет вообще).
-            cutoff = datetime.utcnow() - timedelta(hours=24)
             result = await session.execute(
                 select(SniperNotificationModel.id).where(
                     and_(
                         SniperNotificationModel.tender_number == tender_number,
-                        SniperNotificationModel.user_id.in_(user_ids),
-                        SniperNotificationModel.sent_at > cutoff,
+                        SniperNotificationModel.notified_chat_id == chat_id,
                     )
                 ).limit(1)
             )

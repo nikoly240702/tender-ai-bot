@@ -135,6 +135,7 @@ async def main(days: int):
                         tender_data=tender, score=match['score'],
                         matched_keywords=match.get('matched_keywords', []),
                         match_info=match, source='mos_portal_backfill',
+                        notified_chat_id=target_chat_id,
                     )
                     sent_count += 1
                     print(f"Отправлено: {tender_number} -> {target_chat_id} (фильтр '{filter_name}', score={match['score']})")

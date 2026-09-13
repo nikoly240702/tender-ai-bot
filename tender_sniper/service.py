@@ -502,6 +502,7 @@ class TenderSniperService:
                                 score=notif['score'],
                                 matched_keywords=notif['match_info'].get('matched_keywords', []),
                                 match_info=notif.get('match_info'),
+                                notified_chat_id=ntf_telegram_id,
                             )
                             continue
 
@@ -536,6 +537,7 @@ class TenderSniperService:
                                 score=notif['score'],
                                 matched_keywords=notif['match_info'].get('matched_keywords', []),
                                 match_info=notif.get('match_info'),
+                                notified_chat_id=ntf_telegram_id,
                             )
 
                             is_admin = BotConfig.ADMIN_USER_ID and ntf_telegram_id == BotConfig.ADMIN_USER_ID
