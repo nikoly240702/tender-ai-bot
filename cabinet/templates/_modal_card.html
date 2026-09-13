@@ -90,13 +90,26 @@
             <select id="cm-quote-supplier"></select>
             <input type="text" id="cm-quote-new-supplier-name" placeholder="Название нового поставщика" hidden>
           </div>
+        </div>
+        <div class="form-row">
           <div class="form-group">
-            <label>Цена, ₽</label>
+            <label>Наименование позиции</label>
+            <input type="text" id="cm-quote-product-name" list="cm-quote-product-options"
+                   placeholder="Наименование товара" autocomplete="off">
+            <datalist id="cm-quote-product-options"></datalist>
+          </div>
+          <div class="form-group">
+            <label>Цена за единицу, ₽</label>
             <input type="text" inputmode="decimal" id="cm-quote-price" class="price-input" placeholder="—" autocomplete="off">
           </div>
+          <div class="form-group">
+            <label>Количество</label>
+            <input type="text" inputmode="decimal" id="cm-quote-qty" placeholder="1" autocomplete="off">
+          </div>
         </div>
+        <div id="cm-quote-line-total" class="margin-box" hidden></div>
         <textarea id="cm-quote-notes" rows="2" placeholder="Комментарий (необязательно)…"></textarea>
-        <button class="btn btn-primary btn-sm" id="cm-quote-add">Добавить предложение</button>
+        <button class="btn btn-primary btn-sm" id="cm-quote-add">Добавить позицию</button>
       </section>
 
       <section class="tab-pane" data-tab="notes">

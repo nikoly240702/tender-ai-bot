@@ -1172,18 +1172,40 @@ class Supplier(Base):
     company_id = Column(Integer, ForeignKey('companies.id'), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     contact = Column(Text, nullable=True)
+    website = Column(String(255), nullable=True)
+    contact_person = Column(String(255), nullable=True)
     created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class SupplierProduct(Base):
+    """Каталог позиций поставщика (наименование + цена за единицу) — база
+    знаний, переиспользуемая между тендерами: раз внесённая на карточке
+    позиция становится доступна для выбора в новых тендерах у того же
+    поставщика."""
+    __tablename__ = 'supplier_products'
+    id = Column(Integer, primary_key=True)
+    supplier_id = Column(Integer, ForeignKey('suppliers.id', ondelete='CASCADE'), nullable=False, index=True)
+    name = Column(String(300), nullable=False)
+    unit_price = Column(Numeric(14, 2), nullable=False)
+    created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class PipelineCardQuote(Base):
-    """Предложение (цена) от конкретного поставщика по конкретной карточке.
-    На одной карточке — сколько угодно предложений, для сравнения."""
+    """Позиция закупки на карточке: наименование товара + цена за единицу
+    от конкретного поставщика + количество. В одной карточке — сколько
+    угодно позиций, в т.ч. от разных поставщиков; card.purchase_price
+    пересчитывается как сумма (unit_price × quantity) по всем позициям."""
     __tablename__ = 'pipeline_card_quotes'
     id = Column(Integer, primary_key=True)
     card_id = Column(Integer, ForeignKey('pipeline_cards.id', ondelete='CASCADE'), nullable=False, index=True)
     supplier_id = Column(Integer, ForeignKey('suppliers.id'), nullable=False)
-    price = Column(Numeric(14, 2), nullable=False)
+    supplier_product_id = Column(Integer, ForeignKey('supplier_products.id', ondelete='SET NULL'), nullable=True)
+    product_name = Column(String(300), nullable=True)
+    unit_price = Column(Numeric(14, 2), nullable=False)
+    quantity = Column(Numeric(14, 3), nullable=False, default=1)
     notes = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -1268,6 +1290,7 @@ __all__ = [
     'PipelineCardChecklist',
     'PipelineCardRelation',
     'Supplier',
+    'SupplierProduct',
     'PipelineCardQuote',
     'OwnProduct',
     # Functions

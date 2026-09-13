@@ -637,13 +637,17 @@
     const list = document.getElementById('cm-quotes-list');
     list.replaceChildren();
     if (!quotes || !quotes.length) {
-      list.appendChild(el('div', { cls: 'empty', text: 'Предложений пока нет' }));
+      list.appendChild(el('div', { cls: 'empty', text: 'Позиций пока нет' }));
       return;
     }
+    const fmt = v => v != null ? Math.round(v).toLocaleString('ru-RU') + ' ₽' : '—';
+    let sum = 0;
     quotes.forEach(q => {
+      if (q.line_total != null) sum += q.line_total;
       const row = el('div', { cls: 'note-item' });
-      const priceStr = q.price != null ? Math.round(q.price).toLocaleString('ru-RU') + ' ₽' : '—';
-      row.appendChild(el('div', { text: `${q.supplier_name} — ${priceStr}` }));
+      row.appendChild(el('div', {
+        text: `${q.product_name || '—'} · ${q.supplier_name} — ${q.quantity} × ${fmt(q.unit_price)} = ${fmt(q.line_total)}`,
+      }));
       if (q.notes) row.appendChild(el('div', { cls: 'note-meta', text: q.notes }));
       row.appendChild(el('div', { cls: 'note-meta', text: `${resolveUserName(q.created_by)} · ${q.created_at || ''}` }));
       const del = el('button', { cls: 'btn btn-ghost btn-sm', text: 'Удалить' });
@@ -656,14 +660,53 @@
       row.appendChild(del);
       list.appendChild(row);
     });
+    if (quotes.length > 1) {
+      list.appendChild(el('div', { cls: 'note-meta', text: `Итого по всем позициям: ${fmt(sum)}` }));
+    }
   }
 
   async function setupQuoteForm(cardId) {
     const sel = document.getElementById('cm-quote-supplier');
     const newNameInp = document.getElementById('cm-quote-new-supplier-name');
+    const nameInp = document.getElementById('cm-quote-product-name');
+    const priceInp = document.getElementById('cm-quote-price');
+    const qtyInp = document.getElementById('cm-quote-qty');
+    const options = document.getElementById('cm-quote-product-options');
+    const totalEl = document.getElementById('cm-quote-line-total');
+
+    const parseMoney = v => {
+      if (v == null || v === '') return null;
+      const n = parseFloat(String(v).replace(/[^\d.,-]/g, '').replace(',', '.'));
+      return isNaN(n) ? null : n;
+    };
+
+    let catalog = [];
+
+    async function loadCatalogFor(supplierId) {
+      options.replaceChildren();
+      catalog = [];
+      if (!supplierId || supplierId === '__new__') return;
+      const r = await fetch('/cabinet/api/suppliers/' + supplierId + '/products', { credentials: 'same-origin' });
+      const d = r.ok ? await r.json() : { products: [] };
+      catalog = d.products || [];
+      catalog.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.name;
+        options.appendChild(opt);
+      });
+    }
+
+    function updateTotal() {
+      const price = parseMoney(priceInp.value);
+      const qty = parseMoney(qtyInp.value) || 1;
+      if (price == null) { totalEl.hidden = true; return; }
+      totalEl.hidden = false;
+      totalEl.className = 'margin-box';
+      totalEl.textContent = `Итого: ${Math.round(price * qty).toLocaleString('ru-RU')} ₽`;
+    }
+
     const r = await fetch('/cabinet/api/suppliers', { credentials: 'same-origin' });
     const d = r.ok ? await r.json() : { suppliers: [] };
-
     sel.replaceChildren();
     (d.suppliers || []).forEach(s => {
       const opt = document.createElement('option');
@@ -677,16 +720,35 @@
     sel.appendChild(newOpt);
 
     newNameInp.hidden = sel.value !== '__new__';
-    sel.onchange = () => { newNameInp.hidden = sel.value !== '__new__'; };
+    await loadCatalogFor(sel.value);
+    sel.onchange = () => {
+      newNameInp.hidden = sel.value !== '__new__';
+      loadCatalogFor(sel.value);
+    };
+
+    nameInp.oninput = () => {
+      const match = catalog.find(p => p.name.toLowerCase() === nameInp.value.trim().toLowerCase());
+      if (match) {
+        priceInp.value = Math.round(match.unit_price).toLocaleString('ru-RU');
+        updateTotal();
+      }
+    };
+    priceInp.oninput = updateTotal;
+    qtyInp.oninput = updateTotal;
+    updateTotal();
 
     document.getElementById('cm-quote-add').onclick = async () => {
-      const priceInp = document.getElementById('cm-quote-price');
       const notesInp = document.getElementById('cm-quote-notes');
-      const cleaned = String(priceInp.value).replace(/[^\d.,-]/g, '').replace(',', '.');
-      const price = parseFloat(cleaned);
-      if (isNaN(price)) { Toast.show('Укажите цену', 'alert'); return; }
+      const productName = nameInp.value.trim();
+      const price = parseMoney(priceInp.value);
+      const qty = parseMoney(qtyInp.value) || 1;
+      if (!productName) { Toast.show('Укажите наименование позиции', 'alert'); return; }
+      if (price == null) { Toast.show('Укажите цену за единицу', 'alert'); return; }
 
-      const body = { price, notes: notesInp.value.trim() };
+      const body = {
+        product_name: productName, unit_price: price, quantity: qty,
+        notes: notesInp.value.trim(),
+      };
       if (sel.value === '__new__') {
         const name = newNameInp.value.trim();
         if (!name) { Toast.show('Укажите название поставщика', 'alert'); return; }
@@ -702,8 +764,9 @@
       });
       const rd = await resp.json().catch(() => ({}));
       if (resp.ok && rd.ok) {
-        priceInp.value = ''; notesInp.value = ''; newNameInp.value = '';
-        Toast.show('✓ Предложение добавлено', 'positive');
+        nameInp.value = ''; priceInp.value = ''; qtyInp.value = ''; notesInp.value = ''; newNameInp.value = '';
+        totalEl.hidden = true;
+        Toast.show('✓ Позиция добавлена', 'positive');
         loadCardFull(cardId);
       } else {
         Toast.show(rd.error || 'Ошибка', 'alert');
@@ -731,8 +794,8 @@
       'created': 'создал карточку',
       'stage_changed': `перевёл «${h.payload.from || ''}» → «${h.payload.to || ''}»`
         + (h.payload.reason === 'deadline_expired' ? ' (истёк срок подачи)' : ''),
-      'quote_added': `внёс предложение от ${h.payload.supplier_name || 'поставщика'}`
-        + (h.payload.price != null ? `: ${Math.round(h.payload.price).toLocaleString('ru-RU')} ₽` : ''),
+      'quote_added': `внёс позицию «${h.payload.product_name || ''}» от ${h.payload.supplier_name || 'поставщика'}`
+        + (h.payload.unit_price != null ? `: ${h.payload.quantity || 1} × ${Math.round(h.payload.unit_price).toLocaleString('ru-RU')} ₽` : ''),
       'assigned': `назначил ответственного (user ${h.payload.to || ''})`,
       'note_added': 'добавил заметку',
       'file_uploaded': `загрузил файл${h.payload.filename ? ' ' + h.payload.filename : ''}`,

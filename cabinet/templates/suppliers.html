@@ -4,6 +4,7 @@
 
 {% block page_css %}
   <link rel="stylesheet" href="/cabinet/static/css/pages/team.css?v=1">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/suppliers.css?v=1">
 {% endblock %}
 
 {% block main %}
@@ -17,15 +18,38 @@
   <h2>Список</h2>
   <div class="members-list" id="suppliers-list">
     {% for s in suppliers %}
-      <div class="member-row" data-supplier-id="{{ s.id }}">
-        <span class="member-avatar">{{ s.name[0]|upper }}</span>
-        <div class="member-info">
-          <div class="member-name">{{ s.name }}</div>
-          <div class="member-role">{{ s.contact or 'контакты не указаны' }}</div>
+      <div class="supplier-card" data-supplier-id="{{ s.id }}">
+        <div class="member-row">
+          <span class="member-avatar">{{ s.name[0]|upper }}</span>
+          <div class="member-info">
+            <div class="member-name">{{ s.name }}</div>
+            <div class="member-role">
+              {{ s.contact_person or '' }}{% if s.contact_person and (s.contact or s.website) %} · {% endif %}
+              {{ s.contact or '' }}{% if s.contact and s.website %} · {% endif %}
+              {% if s.website %}<a href="{{ s.website if s.website.startswith('http') else 'https://' + s.website }}" target="_blank" rel="noopener">{{ s.website }}</a>{% endif %}
+              {% if not s.contact_person and not s.contact and not s.website %}контакты не указаны{% endif %}
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-sm toggle-catalog-btn" data-supplier-id="{{ s.id }}">Каталог</button>
+          <button class="btn btn-ghost btn-sm edit-supplier-btn" data-supplier-id="{{ s.id }}"
+                  data-name="{{ s.name }}" data-contact="{{ s.contact or '' }}"
+                  data-website="{{ s.website or '' }}" data-contact-person="{{ s.contact_person or '' }}">Изменить</button>
+          <button class="btn btn-ghost btn-sm delete-supplier-btn" data-supplier-id="{{ s.id }}">Удалить</button>
         </div>
-        <button class="btn btn-ghost btn-sm edit-supplier-btn" data-supplier-id="{{ s.id }}"
-                data-name="{{ s.name }}" data-contact="{{ s.contact or '' }}">Изменить</button>
-        <button class="btn btn-ghost btn-sm delete-supplier-btn" data-supplier-id="{{ s.id }}">Удалить</button>
+        <div class="supplier-catalog" data-supplier-id="{{ s.id }}" hidden>
+          <div class="supplier-catalog-list"></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Наименование позиции</label>
+              <input type="text" class="catalog-new-name" placeholder="Наименование товара">
+            </div>
+            <div class="form-group">
+              <label>Цена за единицу, ₽</label>
+              <input type="text" inputmode="decimal" class="price-input catalog-new-price" placeholder="—">
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm add-catalog-item-btn" data-supplier-id="{{ s.id }}">+ Добавить позицию</button>
+        </div>
       </div>
     {% else %}
       <div class="summary">Пока нет ни одного поставщика — добавьте первого ниже, или создайте прямо из карточки тендера при внесении предложения.</div>
@@ -41,8 +65,18 @@
       <input type="text" id="new-supplier-name" placeholder="Название поставщика">
     </div>
     <div class="form-group">
-      <label>Контакты</label>
-      <input type="text" id="new-supplier-contact" placeholder="Телефон / email / сайт">
+      <label>Сайт</label>
+      <input type="text" id="new-supplier-website" placeholder="example.ru">
+    </div>
+  </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Контакт</label>
+      <input type="text" id="new-supplier-contact" placeholder="Телефон / email">
+    </div>
+    <div class="form-group">
+      <label>Имя контакта</label>
+      <input type="text" id="new-supplier-contact-person" placeholder="Имя менеджера">
     </div>
   </div>
   <button class="btn btn-primary btn-sm" id="btn-create-supplier">+ Добавить</button>
@@ -50,5 +84,5 @@
 {% endblock %}
 
 {% block page_js %}
-<script src="/cabinet/static/js/pages/suppliers.js?v=1"></script>
+<script src="/cabinet/static/js/pages/suppliers.js?v=2"></script>
 {% endblock %}

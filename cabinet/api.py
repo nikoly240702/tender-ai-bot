@@ -1220,7 +1220,8 @@ async def suppliers_create(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
     result = await supplier_service.create_supplier(
-        company['id'], body.get('name'), body.get('contact'), user['user_id'],
+        company['id'], body.get('name'), body.get('contact'),
+        body.get('website'), body.get('contact_person'), user['user_id'],
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 
@@ -1234,8 +1235,44 @@ async def suppliers_update(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
     result = await supplier_service.update_supplier(
-        supplier_id, company['id'], body.get('name'), body.get('contact'),
+        supplier_id, company['id'],
+        name=body.get('name'), contact=body.get('contact'),
+        website=body.get('website'), contact_person=body.get('contact_person'),
     )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def suppliers_list_products(request: web.Request) -> web.Response:
+    company = request['company']
+    supplier_id = int(request.match_info['id'])
+    products = await supplier_service.list_supplier_products(supplier_id, company['id'])
+    return web.json_response({'products': products})
+
+
+@require_team_member
+async def suppliers_add_product(request: web.Request) -> web.Response:
+    user = request['user']; company = request['company']
+    supplier_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    try:
+        unit_price = float(body.get('unit_price'))
+    except (TypeError, ValueError):
+        return web.json_response({'error': 'Некорректная цена'}, status=400)
+    result = await supplier_service.add_supplier_product(
+        supplier_id, company['id'], body.get('name'), unit_price, user['user_id'],
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def supplier_products_delete(request: web.Request) -> web.Response:
+    company = request['company']
+    product_id = int(request.match_info['id'])
+    result = await supplier_service.delete_supplier_product(product_id, company['id'])
     return web.json_response(result, status=200 if result['ok'] else 400)
 
 
@@ -1256,14 +1293,17 @@ async def pipeline_quotes_add(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
     try:
-        price = float(body.get('price'))
+        unit_price = float(body.get('unit_price'))
+        quantity = float(body.get('quantity'))
     except (TypeError, ValueError):
-        return web.json_response({'error': 'Некорректная цена'}, status=400)
+        return web.json_response({'error': 'Некорректная цена или количество'}, status=400)
     result = await supplier_service.add_quote(
         card_id, company['id'],
         supplier_id=body.get('supplier_id'),
         new_supplier_name=body.get('new_supplier_name'),
-        price=price, notes=body.get('notes'), by_user_id=user['user_id'],
+        product_name=body.get('product_name'),
+        unit_price=unit_price, quantity=quantity,
+        notes=body.get('notes'), by_user_id=user['user_id'],
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 

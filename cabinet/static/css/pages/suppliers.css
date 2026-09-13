@@ -1,0 +1,22 @@
+/* Cabinet v3 — Suppliers page */
+
+.supplier-card { margin-bottom: 6px; }
+
+.supplier-catalog {
+  margin: 8px 0 16px 44px;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  border-radius: 6px;
+  border: 1px solid var(--line);
+}
+
+.supplier-catalog-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+
+.catalog-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.catalog-item-name { flex: 1; }
+.catalog-item-price { font-family: var(--font-mono); color: var(--sub); white-space: nowrap; }
