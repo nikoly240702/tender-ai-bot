@@ -657,22 +657,29 @@ class TenderSniperDB:
             logger.info(f"📋 Filter duplicated: {original.name} -> {copy_name} (id={new_id})")
             return new_id
 
-    async def get_all_active_filters(self) -> List[Dict[str, Any]]:
-        """Получение всех активных фильтров с информацией о пользователе."""
+    async def get_all_active_filters(self, company_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Получение всех активных фильтров с информацией о пользователе.
+
+        company_id: если задан — только фильтры этой компании (используется
+        интеграцией Портала поставщиков, см.
+        docs/superpowers/specs/2026-09-13-mos-portal-integration-design.md).
+        None (по умолчанию) — поведение не меняется, все компании как раньше.
+        """
         async with DatabaseSession() as session:
             # JOIN с SniperUser чтобы получить telegram_id и subscription_tier
             # ВАЖНО: проверяем и is_active фильтра И notifications_enabled пользователя
+            conditions = [
+                SniperFilterModel.is_active == True,
+                SniperFilterModel.deleted_at.is_(None),
+                SniperUserModel.notifications_enabled == True,  # Пауза автомониторинга
+                SniperUserModel.subscription_tier != 'expired'  # Не отправлять истёкшим
+            ]
+            if company_id is not None:
+                conditions.append(SniperFilterModel.company_id == company_id)
             result = await session.execute(
                 select(SniperFilterModel, SniperUserModel)
                 .join(SniperUserModel, SniperFilterModel.user_id == SniperUserModel.id)
-                .where(
-                    and_(
-                        SniperFilterModel.is_active == True,
-                        SniperFilterModel.deleted_at.is_(None),
-                        SniperUserModel.notifications_enabled == True,  # Пауза автомониторинга
-                        SniperUserModel.subscription_tier != 'expired'  # Не отправлять истёкшим
-                    )
-                )
+                .where(and_(*conditions))
             )
             filter_user_pairs = result.all()
 
@@ -741,6 +748,16 @@ class TenderSniperDB:
             # Per-filter notification targets
             'notify_chat_ids': getattr(filter_obj, 'notify_chat_ids', None),
             'notify_thread_id': getattr(filter_obj, 'notify_thread_id', None),
+            # Filters v2
+            'slug': getattr(filter_obj, 'slug', None),
+            'group_id': getattr(filter_obj, 'group_id', None),
+            'owner': getattr(filter_obj, 'owner', None),
+            'wave': getattr(filter_obj, 'wave', None),
+            'status': getattr(filter_obj, 'status', None),
+            'config_version': getattr(filter_obj, 'config_version', None),
+            'updated_by': getattr(filter_obj, 'updated_by', None),
+            'nacrejim': getattr(filter_obj, 'nacrejim', None),
+            'notes': getattr(filter_obj, 'notes', None),
             # AI семантика
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),

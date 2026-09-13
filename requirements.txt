@@ -91,3 +91,7 @@ tiktoken>=0.7.0
 
 # KP Generator - PDF rendering (added 2026-07-17)
 weasyprint==66.0
+
+# Testing
+pytest>=7.0.0
+responses>=0.23.0
