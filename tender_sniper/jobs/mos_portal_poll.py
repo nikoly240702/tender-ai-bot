@@ -74,6 +74,7 @@ async def mos_portal_poll_loop():
     await asyncio.sleep(180)  # стартовая задержка, как у остальных фоновых job'ов
     matcher = SmartMatcher()
     last_poll: Optional[datetime] = None
+    notifier: Optional[TelegramNotifier] = None
 
     while True:
         try:
@@ -87,7 +88,8 @@ async def mos_portal_poll_loop():
             await _check_token_expiry(client)
             db = await get_sniper_db()
             bot_token = BotConfig.BOT_TOKEN
-            notifier = TelegramNotifier(bot_token=bot_token) if bot_token else None
+            if notifier is None:
+                notifier = TelegramNotifier(bot_token=bot_token) if bot_token else None
 
             # Портал поставщиков — московский, ожидает naive-время как MSK
             # (UTC+3, без DST), а не UTC. При окне опроса ~10 мин с нахлёстом
