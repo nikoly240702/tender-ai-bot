@@ -86,6 +86,7 @@ async def _check_token_expiry(client: MosPortalClient) -> None:
 
 async def mos_portal_poll_loop():
     await asyncio.sleep(180)  # стартовая задержка, как у остальных фоновых job'ов
+    logger.info("Портал поставщиков: job запущен")
     matcher = SmartMatcher()
     last_poll: Optional[datetime] = None
     notifier: Optional[TelegramNotifier] = None
@@ -130,6 +131,7 @@ async def mos_portal_poll_loop():
             else:
                 logger.warning(f"Портал поставщиков: достигнут потолок {MAX_PAGES_PER_CYCLE} страниц за цикл")
 
+            sent_count = 0
             if tenders:
                 filters = await db.get_all_active_filters(company_id=COMPANY_ID)
                 seen_tenders = set()  # (chat_id, tender_number) — дедуп внутри одного цикла
@@ -209,8 +211,14 @@ async def mos_portal_poll_loop():
                                     match_info=match,
                                     source='mos_portal',
                                 )
+                                sent_count += 1
                             else:
                                 logger.warning(f"Портал поставщиков: не удалось отправить {tender_number} -> {target_chat_id}")
+
+            # Итоговая строка по циклу — печатается ВСЕГДА, даже при 0
+            # тендерах/0 отправок, чтобы тишина в логах не была неотличима от
+            # "job не стартовал" (столкнулись с этим на живом деплое 13.09).
+            logger.info(f"Портал поставщиков: цикл завершён — тендеров {len(tenders)}, отправлено {sent_count}")
 
             last_poll = now
         except Exception as e:
