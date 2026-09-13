@@ -15,6 +15,7 @@
     btnCreate.addEventListener('click', async () => {
       const name = document.getElementById('new-supplier-name').value.trim();
       const website = document.getElementById('new-supplier-website').value.trim();
+      const region = document.getElementById('new-supplier-region').value.trim();
       const contact = document.getElementById('new-supplier-contact').value.trim();
       const contactPerson = document.getElementById('new-supplier-contact-person').value.trim();
       if (!name) {
@@ -24,7 +25,7 @@
       const r = await fetch('/cabinet/api/suppliers', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, website, contact, contact_person: contactPerson }),
+        body: JSON.stringify({ name, website, region, contact, contact_person: contactPerson }),
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.ok) {
@@ -43,6 +44,8 @@
       if (name === null) return;
       const website = prompt('Сайт:', btn.dataset.website || '');
       if (website === null) return;
+      const region = prompt('Регион (откуда поставка):', btn.dataset.region || '');
+      if (region === null) return;
       const contact = prompt('Контакт (телефон/email):', btn.dataset.contact || '');
       if (contact === null) return;
       const contactPerson = prompt('Имя контакта:', btn.dataset.contactPerson || '');
@@ -51,7 +54,7 @@
         method: 'PUT', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: name.trim(), website: website.trim(),
+          name: name.trim(), website: website.trim(), region: region.trim(),
           contact: contact.trim(), contact_person: contactPerson.trim(),
         }),
       });
@@ -108,6 +111,23 @@
       const price = document.createElement('span');
       price.className = 'catalog-item-price';
       price.textContent = fmtMoney(p.unit_price) + ' ₽/ед.';
+      const edit = document.createElement('button');
+      edit.className = 'btn btn-ghost btn-sm';
+      edit.textContent = 'Изменить';
+      edit.onclick = async () => {
+        const newName = prompt('Наименование:', p.name);
+        if (newName === null) return;
+        const newPriceStr = prompt('Цена за единицу, ₽:', String(Math.round(p.unit_price)));
+        if (newPriceStr === null) return;
+        const newPrice = parseMoney(newPriceStr);
+        if (newPrice == null) { Toast.show('Некорректная цена', 'alert'); return; }
+        const rr = await fetch('/cabinet/api/supplier-products/' + p.id, {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName.trim(), unit_price: newPrice }),
+        });
+        if (rr.ok) loadCatalog(supplierId); else Toast.show('Ошибка', 'alert');
+      };
       const del = document.createElement('button');
       del.className = 'btn btn-ghost btn-sm';
       del.textContent = '×';
@@ -119,6 +139,7 @@
       };
       row.appendChild(name);
       row.appendChild(price);
+      row.appendChild(edit);
       row.appendChild(del);
       list.appendChild(row);
     });

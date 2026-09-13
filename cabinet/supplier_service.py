@@ -31,6 +31,7 @@ def _supplier_dict(s: Supplier) -> Dict:
         'contact': s.contact,
         'website': s.website,
         'contact_person': s.contact_person,
+        'region': s.region,
         'created_at': s.created_at.isoformat() if s.created_at else None,
     }
 
@@ -78,7 +79,7 @@ async def list_suppliers(company_id: int) -> List[Dict]:
 
 async def create_supplier(company_id: int, name: str, contact: Optional[str],
                           website: Optional[str], contact_person: Optional[str],
-                          by_user_id: int) -> Dict:
+                          region: Optional[str], by_user_id: int) -> Dict:
     name = (name or '').strip()
     if not name:
         return {'ok': False, 'error': 'Укажите название поставщика'}
@@ -88,6 +89,7 @@ async def create_supplier(company_id: int, name: str, contact: Optional[str],
             contact=(contact or '').strip() or None,
             website=(website or '').strip() or None,
             contact_person=(contact_person or '').strip() or None,
+            region=(region or '').strip() or None,
             created_by=by_user_id,
         )
         session.add(supplier)
@@ -96,7 +98,7 @@ async def create_supplier(company_id: int, name: str, contact: Optional[str],
 
 
 async def update_supplier(supplier_id: int, company_id: int, **fields) -> Dict:
-    """fields: любые из name/contact/website/contact_person (None — не менять)."""
+    """fields: любые из name/contact/website/contact_person/region (None — не менять)."""
     async with DatabaseSession() as session:
         supplier = await session.scalar(
             select(Supplier).where(Supplier.id == supplier_id, Supplier.company_id == company_id)
@@ -108,7 +110,7 @@ async def update_supplier(supplier_id: int, company_id: int, **fields) -> Dict:
             if not name:
                 return {'ok': False, 'error': 'Название не может быть пустым'}
             supplier.name = name
-        for attr in ('contact', 'website', 'contact_person'):
+        for attr in ('contact', 'website', 'contact_person', 'region'):
             if fields.get(attr) is not None:
                 setattr(supplier, attr, fields[attr].strip() or None)
         await session.commit()
@@ -161,6 +163,28 @@ async def add_supplier_product(supplier_id: int, company_id: int, name: str,
             unit_price=Decimal(str(unit_price)), created_by=by_user_id,
         )
         session.add(product)
+        await session.commit()
+        return {'ok': True, 'product': _product_dict(product)}
+
+
+async def update_supplier_product(product_id: int, company_id: int,
+                                  name: Optional[str], unit_price: Optional[float]) -> Dict:
+    """Цены поставщика со временем меняются — правка каталожной позиции
+    задним числом, без пересоздания."""
+    async with DatabaseSession() as session:
+        product = await session.get(SupplierProduct, product_id)
+        if not product:
+            return {'ok': False, 'error': 'Позиция не найдена'}
+        supplier = await session.get(Supplier, product.supplier_id)
+        if not supplier or supplier.company_id != company_id:
+            return {'ok': False, 'error': 'Позиция не найдена'}
+        if name is not None:
+            name = name.strip()
+            if not name:
+                return {'ok': False, 'error': 'Название не может быть пустым'}
+            product.name = name
+        if unit_price is not None:
+            product.unit_price = Decimal(str(unit_price))
         await session.commit()
         return {'ok': True, 'product': _product_dict(product)}
 
@@ -290,6 +314,40 @@ async def add_quote(card_id: int, company_id: int, supplier_id: Optional[int],
         ))
         await session.commit()
         return {'ok': True, 'quote': _quote_dict(quote, supplier_name)}
+
+
+async def update_quote(quote_id: int, company_id: int, unit_price: Optional[float],
+                       quantity: Optional[float], notes: Optional[str]) -> Dict:
+    """Правка уже внесённой позиции (цена/количество могли измениться) —
+    пересчитывает purchase_price карточки и, если цена поменялась,
+    подтягивает её и в каталог поставщика (та же позиция, новая цена)."""
+    async with DatabaseSession() as session:
+        quote = await session.get(PipelineCardQuote, quote_id)
+        if not quote:
+            return {'ok': False, 'error': 'Позиция не найдена'}
+        card = await session.get(PipelineCard, quote.card_id)
+        if not card or card.company_id != company_id:
+            return {'ok': False, 'error': 'Позиция не найдена'}
+
+        if unit_price is not None:
+            quote.unit_price = Decimal(str(unit_price))
+            if quote.supplier_product_id:
+                catalog_product = await session.get(SupplierProduct, quote.supplier_product_id)
+                if catalog_product:
+                    catalog_product.unit_price = quote.unit_price
+        if quantity is not None:
+            if quantity <= 0:
+                return {'ok': False, 'error': 'Количество должно быть больше нуля'}
+            quote.quantity = Decimal(str(quantity))
+        if notes is not None:
+            quote.notes = notes.strip() or None
+
+        await session.flush()
+        await _recalc_card_purchase_price(session, quote.card_id)
+
+        supplier = await session.get(Supplier, quote.supplier_id)
+        await session.commit()
+        return {'ok': True, 'quote': _quote_dict(quote, supplier.name if supplier else None)}
 
 
 async def delete_quote(quote_id: int, company_id: int) -> Dict:

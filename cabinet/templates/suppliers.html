@@ -22,7 +22,7 @@
         <div class="member-row">
           <span class="member-avatar">{{ s.name[0]|upper }}</span>
           <div class="member-info">
-            <div class="member-name">{{ s.name }}</div>
+            <div class="member-name">{{ s.name }}{% if s.region %} <span class="member-username">· {{ s.region }}</span>{% endif %}</div>
             <div class="member-role">
               {{ s.contact_person or '' }}{% if s.contact_person and (s.contact or s.website) %} · {% endif %}
               {{ s.contact or '' }}{% if s.contact and s.website %} · {% endif %}
@@ -33,7 +33,8 @@
           <button class="btn btn-ghost btn-sm toggle-catalog-btn" data-supplier-id="{{ s.id }}">Каталог</button>
           <button class="btn btn-ghost btn-sm edit-supplier-btn" data-supplier-id="{{ s.id }}"
                   data-name="{{ s.name }}" data-contact="{{ s.contact or '' }}"
-                  data-website="{{ s.website or '' }}" data-contact-person="{{ s.contact_person or '' }}">Изменить</button>
+                  data-website="{{ s.website or '' }}" data-contact-person="{{ s.contact_person or '' }}"
+                  data-region="{{ s.region or '' }}">Изменить</button>
           <button class="btn btn-ghost btn-sm delete-supplier-btn" data-supplier-id="{{ s.id }}">Удалить</button>
         </div>
         <div class="supplier-catalog" data-supplier-id="{{ s.id }}" hidden>
@@ -68,6 +69,10 @@
       <label>Сайт</label>
       <input type="text" id="new-supplier-website" placeholder="example.ru">
     </div>
+    <div class="form-group">
+      <label>Регион (откуда поставка)</label>
+      <input type="text" id="new-supplier-region" placeholder="Москва / Китай / ...">
+    </div>
   </div>
   <div class="form-row">
     <div class="form-group">
@@ -84,5 +89,5 @@
 {% endblock %}
 
 {% block page_js %}
-<script src="/cabinet/static/js/pages/suppliers.js?v=2"></script>
+<script src="/cabinet/static/js/pages/suppliers.js?v=3"></script>
 {% endblock %}

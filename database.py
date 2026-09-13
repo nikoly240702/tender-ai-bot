@@ -1174,6 +1174,7 @@ class Supplier(Base):
     contact = Column(Text, nullable=True)
     website = Column(String(255), nullable=True)
     contact_person = Column(String(255), nullable=True)
+    region = Column(String(255), nullable=True)  # откуда поставка
     created_by = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

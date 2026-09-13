@@ -1221,7 +1221,8 @@ async def suppliers_create(request: web.Request) -> web.Response:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
     result = await supplier_service.create_supplier(
         company['id'], body.get('name'), body.get('contact'),
-        body.get('website'), body.get('contact_person'), user['user_id'],
+        body.get('website'), body.get('contact_person'), body.get('region'),
+        user['user_id'],
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 
@@ -1238,6 +1239,7 @@ async def suppliers_update(request: web.Request) -> web.Response:
         supplier_id, company['id'],
         name=body.get('name'), contact=body.get('contact'),
         website=body.get('website'), contact_person=body.get('contact_person'),
+        region=body.get('region'),
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 
@@ -1264,6 +1266,26 @@ async def suppliers_add_product(request: web.Request) -> web.Response:
         return web.json_response({'error': 'Некорректная цена'}, status=400)
     result = await supplier_service.add_supplier_product(
         supplier_id, company['id'], body.get('name'), unit_price, user['user_id'],
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def supplier_products_update(request: web.Request) -> web.Response:
+    company = request['company']
+    product_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    unit_price = None
+    if body.get('unit_price') is not None:
+        try:
+            unit_price = float(body.get('unit_price'))
+        except (TypeError, ValueError):
+            return web.json_response({'error': 'Некорректная цена'}, status=400)
+    result = await supplier_service.update_supplier_product(
+        product_id, company['id'], body.get('name'), unit_price,
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 
@@ -1304,6 +1326,32 @@ async def pipeline_quotes_add(request: web.Request) -> web.Response:
         product_name=body.get('product_name'),
         unit_price=unit_price, quantity=quantity,
         notes=body.get('notes'), by_user_id=user['user_id'],
+    )
+    return web.json_response(result, status=200 if result['ok'] else 400)
+
+
+@require_team_member
+async def pipeline_quotes_update(request: web.Request) -> web.Response:
+    company = request['company']
+    quote_id = int(request.match_info['id'])
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Invalid JSON'}, status=400)
+    unit_price = None
+    if body.get('unit_price') is not None:
+        try:
+            unit_price = float(body.get('unit_price'))
+        except (TypeError, ValueError):
+            return web.json_response({'error': 'Некорректная цена'}, status=400)
+    quantity = None
+    if body.get('quantity') is not None:
+        try:
+            quantity = float(body.get('quantity'))
+        except (TypeError, ValueError):
+            return web.json_response({'error': 'Некорректное количество'}, status=400)
+    result = await supplier_service.update_quote(
+        quote_id, company['id'], unit_price, quantity, body.get('notes'),
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 

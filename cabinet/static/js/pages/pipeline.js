@@ -650,6 +650,24 @@
       }));
       if (q.notes) row.appendChild(el('div', { cls: 'note-meta', text: q.notes }));
       row.appendChild(el('div', { cls: 'note-meta', text: `${resolveUserName(q.created_by)} · ${q.created_at || ''}` }));
+      const edit = el('button', { cls: 'btn btn-ghost btn-sm', text: 'Изменить' });
+      edit.onclick = async () => {
+        const priceStr = prompt('Цена за единицу, ₽:', String(Math.round(q.unit_price)));
+        if (priceStr === null) return;
+        const price = parseFloat(String(priceStr).replace(/[^\d.,-]/g, '').replace(',', '.'));
+        if (isNaN(price)) { Toast.show('Некорректная цена', 'alert'); return; }
+        const qtyStr = prompt('Количество:', String(q.quantity));
+        if (qtyStr === null) return;
+        const qty = parseFloat(String(qtyStr).replace(/[^\d.,-]/g, '').replace(',', '.'));
+        if (isNaN(qty) || qty <= 0) { Toast.show('Некорректное количество', 'alert'); return; }
+        const r = await fetch('/cabinet/api/pipeline/quotes/' + q.id, {
+          method: 'PUT', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ unit_price: price, quantity: qty }),
+        });
+        if (r.ok) { Toast.show('✓ Обновлено', 'positive'); loadCardFull(cardId); }
+        else Toast.show('Ошибка', 'alert');
+      };
       const del = el('button', { cls: 'btn btn-ghost btn-sm', text: 'Удалить' });
       del.onclick = async () => {
         const r = await fetch('/cabinet/api/pipeline/quotes/' + q.id, {
@@ -657,6 +675,7 @@
         });
         if (r.ok) loadCardFull(cardId);
       };
+      row.appendChild(edit);
       row.appendChild(del);
       list.appendChild(row);
     });
