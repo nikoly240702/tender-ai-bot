@@ -28,6 +28,7 @@ from tender_sniper.monitoring import (
     init_telegram_error_alerts, send_error_to_telegram,
 )
 from tender_sniper.service import TenderSniperService
+from tender_sniper.jobs.mos_portal_poll import mos_portal_poll_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -135,6 +136,11 @@ async def main():
             sniper_task = asyncio.create_task(run_sniper())
             logger.info("✅ Tender Sniper Service запущен")
             update_health_status("worker_matching", "ok")
+
+            # Второй источник тендеров — Портал поставщиков (Москва), см.
+            # docs/superpowers/specs/2026-09-13-mos-portal-integration-design.md.
+            # Независимый фоновый цикл, не влияет на shutdown/health основного сервиса.
+            mos_portal_task = asyncio.create_task(mos_portal_poll_loop())
         except Exception as e:
             logger.error(f"❌ Не удалось запустить Tender Sniper: {e}", exc_info=True)
             update_health_status("worker_matching", f"error: {e}")
