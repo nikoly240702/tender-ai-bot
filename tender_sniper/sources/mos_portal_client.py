@@ -10,6 +10,7 @@ import base64
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, Optional
 
 import requests
@@ -18,6 +19,23 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://api.zakupki.mos.ru/api/v2/auction/public/Search"
 PROXY_ENV_VARS = ["PROXY_URL", "PROXY_URL_2", "PROXY_URL_3", "PROXY_URL_4", "PROXY_URL_5"]
+
+# Маскирует user:pass@ в любом URL внутри текста — некоторые ошибки requests
+# (например ProxyError) включают в текст полный URL прокси с credentials.
+_CREDENTIALS_RE = re.compile(r"://[^/@\s]+@")
+
+
+def _mask_proxy_host(proxy: str) -> str:
+    """Хост прокси без credentials — как в src/parsers/zakupki_rss_parser.py
+    (`host = p.split('@')[-1]`). Используем только это в логах, никогда сырой
+    PROXY_URL целиком."""
+    return proxy.split("@")[-1] if "@" in proxy else proxy
+
+
+def _sanitize_error(e: Exception) -> str:
+    """Текст исключения с замаскированными credentials — на случай если сам
+    requests подставил в сообщение об ошибке полный URL прокси."""
+    return _CREDENTIALS_RE.sub("://***@", str(e))
 
 
 def decode_jwt_exp(token: str) -> Optional[int]:
@@ -54,16 +72,17 @@ class MosPortalClient:
         params = {"query": json.dumps(query, ensure_ascii=False)}
         sessions = self._proxies or [None]
         last_error = None
-        for proxy in sessions:
+        for idx, proxy in enumerate(sessions):
             proxies = {"http": proxy, "https": proxy} if proxy else None
+            proxy_label = f"#{idx + 1} ({_mask_proxy_host(proxy)})" if proxy else "#1 (напрямую)"
             try:
                 r = requests.get(BASE_URL, headers=self._headers(), params=params,
                                  proxies=proxies, timeout=15)
                 r.raise_for_status()
                 return r.json()
             except Exception as e:
-                last_error = e
-                logger.warning(f"Портал поставщиков: прокси {proxy or 'напрямую'} — {e}")
+                last_error = _sanitize_error(e)
+                logger.warning(f"Портал поставщиков: прокси {proxy_label} — {last_error}")
                 continue
         raise RuntimeError(f"Все прокси недоступны для Портала поставщиков: {last_error}")
 

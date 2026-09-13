@@ -110,6 +110,7 @@ async def main():
 
     sniper_service = None
     sniper_task = None
+    mos_portal_task = None
     # Ошибка инициализации мэтчинга. Не бросаем её прямо здесь: ниже есть
     # try/finally с обязательной очисткой (stop сервиса, health check runner,
     # flush Sentry) — поэтому пробрасываем уже ИЗ ТЕЛА того try.
@@ -164,6 +165,13 @@ async def main():
             # в рестарт-луп.
             await asyncio.Event().wait()
     finally:
+        if mos_portal_task:
+            logger.info("🛑 Остановка Портала поставщиков job'ы...")
+            mos_portal_task.cancel()
+            try:
+                await mos_portal_task
+            except asyncio.CancelledError:
+                pass
         if sniper_service:
             logger.info("🛑 Остановка Tender Sniper Service...")
             await sniper_service.stop()

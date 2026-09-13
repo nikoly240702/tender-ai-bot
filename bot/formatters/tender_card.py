@@ -143,9 +143,11 @@ def _build_text(
     elif customer:
         parts.append(f"🏢 {customer}")
 
-    # Источник тендера (для неzakupki.gov.ru источников)
+    # Источник тендера (для неzakupki.gov.ru источников). Эмодзи 🌐, а не 📍
+    # (как в строке региона выше) — иначе на карточках с источником Москвы
+    # две подряд строки с одинаковым 📍 выглядят как дубль/путаница.
     if tender.get('source_label'):
-        parts.append(f"📍 Источник: {tender['source_label']}")
+        parts.append(f"🌐 Источник: {tender['source_label']}")
 
     # AI-строка: рекомендация + confidence + summary/reason
     if ai_confidence is not None and ai_confidence >= 40:
@@ -199,13 +201,16 @@ def _build_keyboard(
     buttons = []
     tender_number = tender.get('number')
 
-    # Ссылка на zakupki.gov.ru
+    # Ссылка на источник тендера. Для zakupki.gov.ru — конкретная подпись,
+    # для прочих источников (source_label задан, например Портал поставщиков
+    # Москвы) — нейтральная, т.к. ссылка ведёт не на zakupki.gov.ru.
     tender_url = tender.get('url', '')
     if tender_url:
         if not tender_url.startswith('http'):
             tender_url = f"https://zakupki.gov.ru{tender_url}"
+        button_text = "📄 Открыть тендер" if tender.get('source_label') else "📄 Открыть на zakupki.gov.ru"
         buttons.append([
-            InlineKeyboardButton(text="📄 Открыть на zakupki.gov.ru", url=tender_url)
+            InlineKeyboardButton(text=button_text, url=tender_url)
         ])
 
     # Действия

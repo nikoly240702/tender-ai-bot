@@ -4,10 +4,11 @@ docs/superpowers/specs/2026-09-13-mos-portal-integration-design.md.
 """
 import asyncio
 import logging
-import os
 from datetime import datetime, timedelta
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
 
+from bot.config import BotConfig
 from tender_sniper.sources.mos_portal_client import MosPortalClient, decode_jwt_exp
 from tender_sniper.sources.mos_portal_mapper import ks_dto_to_tender
 from tender_sniper.matching import SmartMatcher
@@ -22,14 +23,41 @@ OVERLAP_MINUTES = 30
 DEFAULT_LOOKBACK_MINUTES = 60
 MAX_PAGES_PER_CYCLE = 10
 PAGE_SIZE = 200
-# Единый порог для composite score — как в tender_sniper/service.py
-MIN_SCORE_FOR_NOTIFICATION = 35
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+# ВАЖНО: этот порог — НЕ то же самое, что MIN_SCORE_FOR_NOTIFICATION в
+# tender_sniper/service.py (=35). Там порог гейтит COMPOSITE score: сырой
+# SmartMatcher score + AI-relevance буст (+10/+15, см.
+# tender_sniper/instant_search.py:872-879), посчитанный по name+description.
+# У этой job'ы нет шага AI-буста, а description у Портала поставщиков ВСЕГДА
+# пустой (list-эндпоинт его не отдаёт) — то есть здесь гейтится строго
+# меньший, name-only «сырой» score против того же порога было бы неверно.
+# Замер по реальным filters_v2.yaml показал легитимные совпадения (каталожные
+# и словоформы) со скором 9-16 — то есть ниже 35 они бы молча отбрасывались.
+# 20 — обоснованная стартовая точка по этому замеру, НЕ финальное тюнингованное
+# число. Пересмотреть, когда появится статистика по реальному трафику Портала
+# поставщиков (см. лог ниже — near-miss'ы логируются для этого).
+MOS_MIN_SCORE_FOR_NOTIFICATION = 20
 
 
 def compute_poll_window(last_poll: Optional[datetime], now: datetime) -> Tuple[datetime, datetime]:
     if last_poll is None:
         return now - timedelta(minutes=DEFAULT_LOOKBACK_MINUTES), now
     return last_poll - timedelta(minutes=OVERLAP_MINUTES), now
+
+
+def _map_page_to_tenders(page: list) -> list:
+    """Мапит страницу DTO Портала поставщиков в тендеры. Одна кривая запись
+    (например без "id" — ks_dto_to_tender кидает KeyError по замыслу) не
+    должна обрушивать весь цикл: если бы исключение дошло до цикл-левел
+    except, last_poll не сдвинулся бы, и следующий цикл упёрся бы в ту же
+    запись, пока она не выйдет из окна поиска (до часа простоя)."""
+    tenders = []
+    for dto in page:
+        try:
+            tenders.append(ks_dto_to_tender(dto))
+        except Exception as e:
+            logger.warning(f"Портал поставщиков: пропущен неразбираемый DTO: {e}")
+    return tenders
 
 
 async def _check_token_expiry(client: MosPortalClient) -> None:
@@ -45,9 +73,6 @@ async def _check_token_expiry(client: MosPortalClient) -> None:
 async def mos_portal_poll_loop():
     await asyncio.sleep(180)  # стартовая задержка, как у остальных фоновых job'ов
     matcher = SmartMatcher()
-    bot_token = os.environ.get('BOT_TOKEN', '')
-    notifier = TelegramNotifier(bot_token=bot_token) if bot_token else None
-    db = await get_sniper_db()
     last_poll: Optional[datetime] = None
 
     while True:
@@ -55,10 +80,23 @@ async def mos_portal_poll_loop():
             # Внутри try: пока PP_TOKEN не задан (см. Task 6), конструктор
             # кидает RuntimeError — цикл должен пережить это и повторить
             # попытку на следующем POLL_INTERVAL_SECONDS, а не убить job навсегда.
+            # db/notifier — по той же причине: если БД ещё не готова (холодный
+            # деплой) или BOT_TOKEN временно недоступен, это не должно убить
+            # job навсегда, только текущий цикл.
             client = MosPortalClient()
             await _check_token_expiry(client)
+            db = await get_sniper_db()
+            bot_token = BotConfig.BOT_TOKEN
+            notifier = TelegramNotifier(bot_token=bot_token) if bot_token else None
 
-            now = datetime.utcnow()
+            # Портал поставщиков — московский, ожидает naive-время как MSK
+            # (UTC+3, без DST), а не UTC. При окне опроса ~10 мин с нахлёстом
+            # 30 мин разница в 3 часа означает, что окно систематически
+            # отстаёт на ~3 часа каждый цикл — уведомления опаздывали бы
+            # на ~3 часа. Строим "сейчас" в Europe/Moscow и передаём в API
+            # ISO-строки с явным +03:00, чтобы не зависеть от того, как API
+            # парсит naive-время.
+            now = datetime.now(MOSCOW_TZ)
             window_from, window_to = compute_poll_window(last_poll, now)
             tenders = []
             skip = 0
@@ -69,7 +107,7 @@ async def mos_portal_poll_loop():
                 page = resp.get("data") or resp.get("items") or []
                 if not page:
                     break
-                tenders.extend(ks_dto_to_tender(dto) for dto in page)
+                tenders.extend(_map_page_to_tenders(page))
                 if len(page) < PAGE_SIZE:
                     break
                 skip += PAGE_SIZE
@@ -79,13 +117,24 @@ async def mos_portal_poll_loop():
             if tenders:
                 filters = await db.get_all_active_filters(company_id=COMPANY_ID)
                 seen_tenders = set()  # (chat_id, tender_number) — дедуп внутри одного цикла
-                for tender in tenders:
+                for tender_idx, tender in enumerate(tenders):
+                    # Цикл tenders×filters синхронный (без await внутри), при
+                    # ~2000 тендерах × ~50 фильтров может занять до ~40с и
+                    # заблокировать event loop того же воркер-процесса, где
+                    # крутится основной мониторинг zakupki.gov.ru и health
+                    # check. Периодически отдаём управление event loop'у.
+                    if tender_idx and tender_idx % 20 == 0:
+                        await asyncio.sleep(0)
                     tender_number = tender['number']
                     for filter_data in filters:
                         match = matcher.match_tender(tender, filter_data)
                         if not match:
                             continue
-                        if match['score'] < MIN_SCORE_FOR_NOTIFICATION:
+                        if match['score'] < MOS_MIN_SCORE_FOR_NOTIFICATION:
+                            logger.info(
+                                f"Портал поставщиков: near-miss — фильтр '{filter_data['name']}', "
+                                f"тендер '{tender.get('name')}' ({tender_number}), score={match['score']}"
+                            )
                             continue
 
                         filter_id = filter_data['id']
@@ -133,7 +182,7 @@ async def mos_portal_poll_loop():
                                             'matched_keywords': match.get('matched_keywords', [])},
                                 filter_name=filter_name,
                                 is_auto_notification=True,
-                                subscription_tier='premium',
+                                subscription_tier=filter_data.get('subscription_tier', 'premium'),
                                 message_thread_id=notify_thread_id if target_chat_id < 0 else None,
                             )
                             if success:
@@ -142,6 +191,7 @@ async def mos_portal_poll_loop():
                                     tender_data=tender, score=match['score'],
                                     matched_keywords=match.get('matched_keywords', []),
                                     match_info=match,
+                                    source='mos_portal',
                                 )
                             else:
                                 logger.warning(f"Портал поставщиков: не удалось отправить {tender_number} -> {target_chat_id}")
