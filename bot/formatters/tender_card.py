@@ -143,6 +143,10 @@ def _build_text(
     elif customer:
         parts.append(f"🏢 {customer}")
 
+    # Источник тендера (для неzakupki.gov.ru источников)
+    if tender.get('source_label'):
+        parts.append(f"📍 Источник: {tender['source_label']}")
+
     # AI-строка: рекомендация + confidence + summary/reason
     if ai_confidence is not None and ai_confidence >= 40:
         ai_line = "🤖 "
