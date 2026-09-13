@@ -126,7 +126,8 @@ class TelegramNotifier:
         match_info: Dict[str, Any],
         filter_name: str,
         is_auto_notification: bool = False,
-        subscription_tier: str = 'trial'
+        subscription_tier: str = 'trial',
+        message_thread_id: Optional[int] = None,
     ) -> bool:
         """
         Отправка уведомления о новом тендере.
@@ -138,6 +139,8 @@ class TelegramNotifier:
             filter_name: Название фильтра
             is_auto_notification: True если уведомление из автомониторинга
             subscription_tier: Тариф пользователя (для AI функций)
+            message_thread_id: ID темы (topic) супергруппы — если задан,
+                уведомление уходит в конкретную тему, а не в General
 
         Returns:
             True если успешно отправлено, False иначе
@@ -163,7 +166,8 @@ class TelegramNotifier:
                 text=message,
                 reply_markup=keyboard,
                 parse_mode='HTML',
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
+                message_thread_id=message_thread_id,
             )
 
             self.stats['notifications_sent'] += 1

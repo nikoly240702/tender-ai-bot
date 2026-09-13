@@ -319,6 +319,11 @@ class TenderSniperService:
                 # Per-filter routing: определяем куда отправлять
                 notify_chat_ids = filter_data.get('notify_chat_ids') or []
                 target_chat_ids = notify_chat_ids if notify_chat_ids else [telegram_id]
+                # Тема (topic) супергруппы — только для групповых таргетов,
+                # в личке тем не существует. Отдельное поле, а не часть
+                # notify_chat_ids: тот массив перезаписывается плоским списком
+                # int'ов при каждом сохранении в кабинете (notify-targets UI).
+                notify_thread_id = filter_data.get('notify_thread_id')
 
                 # Обрабатываем ошибки поиска (result = Exception если asyncio.gather поймал)
                 if isinstance(result, Exception):
@@ -408,6 +413,7 @@ class TenderSniperService:
                         notifications_to_send.append({
                             'user_id': user_id,
                             'telegram_id': target_chat_id,
+                            'message_thread_id': notify_thread_id if target_chat_id < 0 else None,
                             'tender': tender,
                             'match_info': {
                                 'score': score,
@@ -515,7 +521,8 @@ class TenderSniperService:
                                 match_info=notif['match_info'],
                                 filter_name=notif['filter_name'],
                                 is_auto_notification=True,
-                                subscription_tier=notif.get('subscription_tier', 'trial')
+                                subscription_tier=notif.get('subscription_tier', 'trial'),
+                                message_thread_id=notif.get('message_thread_id'),
                             )
 
                         if success:

@@ -740,6 +740,7 @@ class TenderSniperDB:
             'search_in': safe_list(getattr(filter_obj, 'search_in', [])),
             # Per-filter notification targets
             'notify_chat_ids': getattr(filter_obj, 'notify_chat_ids', None),
+            'notify_thread_id': getattr(filter_obj, 'notify_thread_id', None),
             # AI семантика
             'ai_intent': getattr(filter_obj, 'ai_intent', None),
             'expanded_keywords': safe_list(getattr(filter_obj, 'expanded_keywords', [])),

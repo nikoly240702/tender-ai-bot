@@ -166,6 +166,7 @@ class SniperFilter(Base):
 
     # Per-filter notification targets
     notify_chat_ids = Column(JSON, nullable=True)  # [chat_id, ...] или null = личный чат
+    notify_thread_id = Column(Integer, nullable=True)  # тема (topic) супергруппы для групповых таргетов
 
     is_active = Column(Boolean, default=True, nullable=False)
     error_count = Column(Integer, default=0, nullable=False)  # Счетчик последовательных ошибок мониторинга
