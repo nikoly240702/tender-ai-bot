@@ -1058,6 +1058,9 @@ class Company(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(120), nullable=False)
     owner_user_id = Column(Integer, ForeignKey('sniper_users.id'), nullable=False)
+    # Ставка налога с оборота, % — УСН 6% + страховые взносы ≈ 7% по умолчанию.
+    # Одна на компанию: заполнять в каждой карточке отдельно неудобно.
+    tax_rate = Column(Numeric(5, 2), nullable=False, default=7)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -1103,6 +1106,8 @@ class PipelineCard(Base):
     result = Column(String(10), nullable=True)
     result_reason = Column(Text, nullable=True)  # почему выиграли/проиграли — опционально
     purchase_price = Column(Numeric(14, 2), nullable=True)
+    extra_costs = Column(Numeric(14, 2), nullable=True)      # доп. расходы по сделке
+    logistics_cost = Column(Numeric(14, 2), nullable=True)   # логистика/доставка
     sale_price = Column(Numeric(14, 2), nullable=True)
     ai_summary = Column(Text, nullable=True)
     ai_recommendation = Column(String(40), nullable=True)

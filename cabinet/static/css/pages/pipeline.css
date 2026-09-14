@@ -1081,3 +1081,62 @@ body.pipeline-mode .main {
 @media (max-width: 480px) {
   .kb-board { grid-template-columns: repeat(7, 86vw); }
 }
+
+/* ============= ЭКОНОМИКА СДЕЛКИ ============= */
+.nmck-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: var(--bg-2);
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+.nmck-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nmck-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sub);
+}
+
+.calc-breakdown {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.calc-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.calc-row + .calc-row { border-top: 1px dashed var(--line-soft); }
+.calc-label { color: var(--sub); }
+.calc-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+}
+.calc-value.minus { color: var(--alert); }
+/* Снижение от НМЦК — справочная строка, визуально отделена от затрат */
+.calc-row-note {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line) !important;
+}
+.calc-row-note .calc-label,
+.calc-row-note .calc-value { color: var(--muted); font-size: 12px; }

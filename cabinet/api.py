@@ -1197,7 +1197,14 @@ async def pipeline_card_full(request: web.Request) -> web.Response:
     checklist = await pipeline_service.list_checklist(card_id)
     relations = await pipeline_service.list_relations(card_id)
     quotes = await supplier_service.list_quotes(card_id, company['id'])
-    margin = pipeline_service.calc_margin(card['purchase_price'], card['sale_price'])
+    tax_rate = await pipeline_service.get_company_tax_rate(company['id'])
+    margin = pipeline_service.calc_margin(
+        card['purchase_price'], card['sale_price'],
+        extra_costs=card.get('extra_costs'),
+        logistics_cost=card.get('logistics_cost'),
+        tax_rate=tax_rate,
+        price_max=(card.get('data') or {}).get('price_max'),
+    )
     return web.json_response({
         'card': card, 'notes': notes, 'history': history,
         'files': files, 'checklist': checklist, 'relations': relations,
@@ -1437,7 +1444,9 @@ async def pipeline_set_prices(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
     result = await pipeline_service.set_prices(
-        card_id, body.get('purchase_price'), body.get('sale_price'), user['user_id']
+        card_id, body.get('purchase_price'), body.get('sale_price'), user['user_id'],
+        extra_costs=body.get('extra_costs'),
+        logistics_cost=body.get('logistics_cost'),
     )
     return web.json_response(result, status=200 if result['ok'] else 400)
 
@@ -1662,6 +1671,27 @@ async def pipeline_export_csv(request: web.Request) -> web.Response:
         content_type='text/csv',
         headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
+
+
+@require_team_member
+async def pipeline_get_tax_rate(request: web.Request) -> web.Response:
+    company = request['company']
+    rate = await pipeline_service.get_company_tax_rate(company['id'])
+    return web.json_response({'tax_rate': rate})
+
+
+@require_team_member
+async def pipeline_set_tax_rate(request: web.Request) -> web.Response:
+    company = request['company']; role = request['role']
+    if role != 'owner':
+        return web.json_response({'error': 'Только владелец может менять ставку'}, status=403)
+    try:
+        body = await request.json()
+        rate = float(body.get('tax_rate'))
+    except Exception:
+        return web.json_response({'error': 'Некорректная ставка'}, status=400)
+    result = await pipeline_service.set_company_tax_rate(company['id'], rate)
+    return web.json_response(result, status=200 if result['ok'] else 400)
 
 
 # ============================================
