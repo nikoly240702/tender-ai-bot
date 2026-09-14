@@ -301,11 +301,25 @@
     }
   }
 
+  // Ссылка на карточку закупки. НИКОГДА не возвращаем '#': раньше при
+  // отсутствующем data.url href становился '#', и клик по ссылке
+  // (target="_blank") открывал новую вкладку с самим кабинетом вместо
+  // тендера. Номер тендера у карточки есть всегда, поэтому строим URL из
+  // него — ровно как на странице «Результаты».
+  function tenderUrl(c) {
+    if (c.data && c.data.url) return c.data.url;
+    const num = c.tender_number || '';
+    if (num.startsWith('MOS-')) {
+      return 'https://zakupki.mos.ru/auction/' + num.slice(4);
+    }
+    return 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=' + num;
+  }
+
   function renderModal(data) {
     const c = data.card;
 
     document.getElementById('cm-title').textContent = (c.data && c.data.name) || ('Тендер ' + c.tender_number);
-    document.getElementById('cm-zakupki-link').href = (c.data && c.data.url) || '#';
+    document.getElementById('cm-zakupki-link').href = tenderUrl(c);
 
     // Stage select
     const stageSel = document.getElementById('cm-stage');

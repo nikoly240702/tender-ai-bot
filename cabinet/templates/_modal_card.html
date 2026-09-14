@@ -3,7 +3,10 @@
     <button class="modal-close" id="card-modal-close" aria-label="Закрыть">×</button>
     <div class="modal-head">
       <h2 id="cm-title">Карточка</h2>
-      <a id="cm-zakupki-link" target="_blank" rel="noopener" href="#">↗ zakupki.gov.ru</a>
+      {# Без href намеренно: пока карточка не загружена, ссылка не кликабельна.
+         Раньше тут стоял href="#" — при незагрузившейся карточке клик открывал
+         новую вкладку с самим кабинетом вместо тендера. href проставляет JS. #}
+      <a id="cm-zakupki-link" target="_blank" rel="noopener">↗ zakupki.gov.ru</a>
     </div>
 
     <div class="modal-tabs">
