@@ -90,6 +90,8 @@ def _card_dict(card: PipelineCard) -> Dict:
         'result_reason': card.result_reason,
         'purchase_price': _decimal_to_float(card.purchase_price),
         'sale_price': _decimal_to_float(card.sale_price),
+        'extra_costs': _decimal_to_float(card.extra_costs),
+        'logistics_cost': _decimal_to_float(card.logistics_cost),
         'ai_summary': card.ai_summary,
         'ai_recommendation': card.ai_recommendation,
         'ai_enriched_at': card.ai_enriched_at.isoformat() if card.ai_enriched_at else None,
@@ -101,19 +103,71 @@ def _card_dict(card: PipelineCard) -> Dict:
     }
 
 
-def calc_margin(purchase: Optional[float], sale: Optional[float]) -> Optional[Dict]:
-    """Возвращает {abs, pct, color} или None."""
-    if purchase is None or sale is None or sale == 0:
+DEFAULT_TAX_RATE = 7.0  # УСН 6% + страховые взносы
+
+
+def calc_margin(purchase: Optional[float], sale: Optional[float],
+                extra_costs: Optional[float] = None,
+                logistics_cost: Optional[float] = None,
+                tax_rate: Optional[float] = None,
+                price_max: Optional[float] = None) -> Optional[Dict]:
+    """Чистая прибыль по сделке с учётом всех затрат и налога.
+
+    Раньше считалось просто «наша цена − закупочная», что завышало
+    прибыль: не учитывались ни доп. расходы с логистикой, ни налог.
+
+    Налог берём с ОБОРОТА (наша цена), а не с прибыли — это УСН «доходы»,
+    где расходы налоговую базу не уменьшают. Поэтому налог считается до
+    вычета затрат и не зависит от них.
+
+    price_max (НМЦК) на прибыль не влияет, нужен чтобы показать, на
+    сколько мы опустились от начальной цены — это и есть запас торга.
+    """
+    if sale is None or sale == 0:
         return None
-    abs_margin = sale - purchase
-    pct = (abs_margin / sale) * 100
+
+    purchase = purchase or 0
+    extra = extra_costs or 0
+    logistics = logistics_cost or 0
+    rate = DEFAULT_TAX_RATE if tax_rate is None else float(tax_rate)
+
+    tax = sale * rate / 100
+    costs_total = purchase + extra + logistics
+    net = sale - costs_total - tax
+    pct = (net / sale) * 100
+
     if pct >= 5:
         color = 'positive'
     elif pct >= 0:
         color = 'warn'
     else:
         color = 'alert'
-    return {'abs': abs_margin, 'pct': pct, 'color': color}
+
+    # Насколько наша цена ниже НМЦК — показывает, сколько ещё можно
+    # снизить, и на сколько уже снизились.
+    discount_abs = None
+    discount_pct = None
+    if price_max:
+        discount_abs = price_max - sale
+        discount_pct = (discount_abs / price_max) * 100
+
+    return {
+        # abs/pct — чистая прибыль: ключи прежние, чтобы не ломать
+        # существующие места, которые их читают.
+        'abs': net,
+        'pct': pct,
+        'color': color,
+        'purchase': purchase,
+        'extra_costs': extra,
+        'logistics_cost': logistics,
+        'costs_total': costs_total,
+        'tax': tax,
+        'tax_rate': rate,
+        'sale': sale,
+        'price_max': price_max,
+        'discount_abs': discount_abs,
+        'discount_pct': discount_pct,
+    }
 
 
 def _safe_filename(name: str) -> str:
@@ -384,7 +438,9 @@ async def set_assignee(card_id: int, assignee_user_id: int, by_user_id: int) -> 
 
 
 async def set_prices(card_id: int, purchase_price: Optional[float],
-                     sale_price: Optional[float], by_user_id: int) -> Dict:
+                     sale_price: Optional[float], by_user_id: int,
+                     extra_costs: Optional[float] = None,
+                     logistics_cost: Optional[float] = None) -> Dict:
     async with DatabaseSession() as session:
         card = await session.get(PipelineCard, card_id)
         if not card:
@@ -393,11 +449,16 @@ async def set_prices(card_id: int, purchase_price: Optional[float],
             card.purchase_price = Decimal(str(purchase_price))
         if sale_price is not None:
             card.sale_price = Decimal(str(sale_price))
+        if extra_costs is not None:
+            card.extra_costs = Decimal(str(extra_costs))
+        if logistics_cost is not None:
+            card.logistics_cost = Decimal(str(logistics_cost))
         card.updated_at = datetime.utcnow()
         claimed = _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card_id, user_id=by_user_id, action='price_set',
-            payload={'purchase': purchase_price, 'sale': sale_price},
+            payload={'purchase': purchase_price, 'sale': sale_price,
+                     'extra_costs': extra_costs, 'logistics_cost': logistics_cost},
         )
         session.add(history)
         await session.commit()
@@ -540,6 +601,28 @@ async def list_results(company_id: int) -> Dict:
             'avg_days_to_result': avg_days_to_result,
         },
     }
+
+
+async def get_company_tax_rate(company_id: int) -> float:
+    """Ставка налога компании, % (фолбэк — DEFAULT_TAX_RATE)."""
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if company and company.tax_rate is not None:
+            return float(company.tax_rate)
+        return DEFAULT_TAX_RATE
+
+
+async def set_company_tax_rate(company_id: int, tax_rate: float) -> Dict:
+    """Сохранить ставку налога компании."""
+    if tax_rate is None or tax_rate < 0 or tax_rate > 100:
+        return {'ok': False, 'error': 'Ставка должна быть от 0 до 100%'}
+    async with DatabaseSession() as session:
+        company = await session.get(Company, company_id)
+        if not company:
+            return {'ok': False, 'error': 'Компания не найдена'}
+        company.tax_rate = Decimal(str(tax_rate))
+        await session.commit()
+        return {'ok': True, 'tax_rate': float(company.tax_rate)}
 
 
 async def get_card(card_id: int, company_id: int) -> Optional[Dict]:

@@ -385,7 +385,15 @@
     };
     document.getElementById('cm-purchase').value = fmtMoney(c.purchase_price);
     document.getElementById('cm-sale').value = fmtMoney(c.sale_price);
-    ['cm-purchase', 'cm-sale'].forEach(id => {
+    document.getElementById('cm-logistics').value = fmtMoney(c.logistics_cost);
+    document.getElementById('cm-extra').value = fmtMoney(c.extra_costs);
+
+    // НМЦК — справочно, не редактируется
+    const nmckEl = document.getElementById('cm-nmck');
+    const nmck = c.data && c.data.price_max;
+    nmckEl.textContent = nmck ? fmtMoney(nmck) + ' \u20BD' : '—';
+
+    ['cm-purchase', 'cm-sale', 'cm-logistics', 'cm-extra'].forEach(id => {
       const inp = document.getElementById(id);
       // Live re-format на blur для красоты
       inp.onblur = () => {
@@ -393,26 +401,60 @@
         inp.value = n == null ? '' : fmtMoney(n);
       };
       inp.onchange = async () => {
-        const purchase = parseMoney(document.getElementById('cm-purchase').value);
-        const sale = parseMoney(document.getElementById('cm-sale').value);
         await fetch('/cabinet/api/pipeline/cards/' + c.id + '/prices', {
           method: 'POST', credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ purchase_price: purchase, sale_price: sale }),
+          body: JSON.stringify({
+            purchase_price: parseMoney(document.getElementById('cm-purchase').value),
+            sale_price: parseMoney(document.getElementById('cm-sale').value),
+            logistics_cost: parseMoney(document.getElementById('cm-logistics').value),
+            extra_costs: parseMoney(document.getElementById('cm-extra').value),
+          }),
         });
-        Toast.show('✓ Цены сохранены', 'positive');
+        Toast.show('\u2713 Сохранено', 'positive');
         loadCardFull(c.id);
       };
     });
 
-    // Margin
+    // Разбивка расчёта + итоговая чистая прибыль
     const mEl = document.getElementById('cm-margin');
-    if (data.margin) {
+    const bEl = document.getElementById('cm-breakdown');
+    const m = data.margin;
+    if (m) {
+      const money = (v) => Math.round(v || 0).toLocaleString('ru-RU') + ' \u20BD';
+      const rows = [
+        ['Наша цена', money(m.sale), ''],
+        ['Закупочная', '\u2212 ' + money(m.purchase), 'minus'],
+      ];
+      if (m.logistics_cost) rows.push(['Логистика', '\u2212 ' + money(m.logistics_cost), 'minus']);
+      if (m.extra_costs) rows.push(['Доп. расходы', '\u2212 ' + money(m.extra_costs), 'minus']);
+      rows.push([`Налог ${m.tax_rate}%`, '\u2212 ' + money(m.tax), 'minus']);
+
+      bEl.replaceChildren();
+      rows.forEach(([label, value, cls]) => {
+        const row = el('div', { cls: 'calc-row' });
+        row.appendChild(el('span', { cls: 'calc-label', text: label }));
+        row.appendChild(el('span', { cls: 'calc-value ' + (cls || ''), text: value }));
+        bEl.appendChild(row);
+      });
+      // Снижение от НМЦК — сколько уже уступили от начальной цены
+      if (m.discount_abs != null) {
+        const row = el('div', { cls: 'calc-row calc-row-note' });
+        row.appendChild(el('span', { cls: 'calc-label', text: 'Снижение от НМЦК' }));
+        row.appendChild(el('span', {
+          cls: 'calc-value',
+          text: money(m.discount_abs) + ' (' + m.discount_pct.toFixed(1) + '%)',
+        }));
+        bEl.appendChild(row);
+      }
+      bEl.hidden = false;
+
       mEl.hidden = false;
-      mEl.className = 'margin-box ' + data.margin.color;
-      mEl.textContent = `Маржа: ${Math.round(data.margin.abs).toLocaleString('ru-RU')} ₽ (${data.margin.pct.toFixed(1)}%)`;
+      mEl.className = 'margin-box ' + m.color;
+      mEl.textContent = `Чистая прибыль: ${Math.round(m.abs).toLocaleString('ru-RU')} \u20BD (${m.pct.toFixed(1)}%)`;
     } else {
       mEl.hidden = true;
+      bEl.hidden = true;
     }
 
     // Quotes (предложения поставщиков)

@@ -31,8 +31,24 @@
           </div>
         </div>
         <div class="prices-block">
-          <div class="prices-block-head">Цены и маржа</div>
+          <div class="prices-block-head">Экономика сделки</div>
+
+          {# НМЦК — только для справки, не редактируется: видно, сколько
+             можно снизить и на сколько уже снизились. #}
+          <div class="nmck-row">
+            <span class="nmck-label">НМЦК (начальная цена)</span>
+            <span class="nmck-value" id="cm-nmck">—</span>
+          </div>
+
           <div class="prices-grid">
+            <label class="price-field">
+              <span class="price-label">Наша цена в заявке</span>
+              <span class="price-input-wrap">
+                <input type="text" inputmode="decimal" id="cm-sale"
+                       class="price-input" placeholder="—" autocomplete="off">
+                <span class="price-suffix">₽</span>
+              </span>
+            </label>
             <label class="price-field">
               <span class="price-label">Закупочная (от поставщика)</span>
               <span class="price-input-wrap">
@@ -42,14 +58,25 @@
               </span>
             </label>
             <label class="price-field">
-              <span class="price-label">Наша цена в заявке</span>
+              <span class="price-label">Логистика</span>
               <span class="price-input-wrap">
-                <input type="text" inputmode="decimal" id="cm-sale"
-                       class="price-input" placeholder="—" autocomplete="off">
+                <input type="text" inputmode="decimal" id="cm-logistics"
+                       class="price-input" placeholder="0" autocomplete="off">
+                <span class="price-suffix">₽</span>
+              </span>
+            </label>
+            <label class="price-field">
+              <span class="price-label">Доп. расходы</span>
+              <span class="price-input-wrap">
+                <input type="text" inputmode="decimal" id="cm-extra"
+                       class="price-input" placeholder="0" autocomplete="off">
                 <span class="price-suffix">₽</span>
               </span>
             </label>
           </div>
+
+          {# Разбивка: откуда взялась чистая прибыль #}
+          <div id="cm-breakdown" class="calc-breakdown" hidden></div>
           <div id="cm-margin" class="margin-box" hidden></div>
         </div>
 
