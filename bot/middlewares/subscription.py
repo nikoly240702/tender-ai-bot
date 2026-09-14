@@ -114,6 +114,20 @@ class SubscriptionMiddleware(BaseMiddleware):
         # НЕ делаем запрос к БД!
         cached_user = data.get('cached_user')
 
+        # В ГРУППЕ cached_user — это запись САМОЙ ГРУППЫ, а не нажавшего:
+        # AccessControlMiddleware в групповом контексте делает lookup по
+        # chat.id (см. bot/middlewares/access_control.py, «В группе lookup по
+        # chat.id»). У «пользователя-группы» tier обычно 'expired', поэтому
+        # любой участник с ЛИЧНОЙ действующей подпиской получал ложное
+        # «Ваш пробный период закончился» (так было с «Взять в работу»,
+        # прикрытым через FREE_CALLBACK_PREFIXES, и снова вылезло на
+        # «Анализ докум.» 14.09.2026). Точечные исключения по префиксам —
+        # это игра в догонялки, поэтому проверяем подписку ТОГО, КТО НАЖАЛ.
+        if data.get('is_group_context'):
+            clicker = await self._get_clicker_user(user_id)
+            if clicker:
+                cached_user = clicker
+
         if cached_user:
             tier = cached_user.get('subscription_tier', 'trial')
 
@@ -213,3 +227,47 @@ class SubscriptionMiddleware(BaseMiddleware):
                 return
 
         return await handler(event, data)
+
+    @staticmethod
+    async def _get_clicker_user(telegram_id: int):
+        """Запись пользователя, который нажал кнопку (для группового контекста).
+
+        Сначала общий кэш AccessControlMiddleware — в личных чатах человек
+        почти всегда уже там, так что запроса к БД обычно не будет. Если нет —
+        один лёгкий SELECT, результат кладём в тот же кэш.
+
+        Fail-open: при любой ошибке возвращаем None, и вызывающий код
+        останется на прежнем поведении — лучше не заблокировать, чем ложно
+        заблокировать человека с оплаченной подпиской.
+        """
+        try:
+            from bot.middlewares.user_cache import get_cached_user, set_cached_user
+
+            cached = get_cached_user(telegram_id)
+            if cached:
+                return cached
+
+            from database import DatabaseSession, SniperUser
+            from sqlalchemy import select
+
+            async with DatabaseSession() as session:
+                db_user = await session.scalar(
+                    select(SniperUser).where(SniperUser.telegram_id == telegram_id)
+                )
+                if not db_user:
+                    return None
+                data = {
+                    'id': db_user.id,
+                    'telegram_id': db_user.telegram_id,
+                    'status': db_user.status,
+                    'subscription_tier': db_user.subscription_tier,
+                    'trial_expires_at': db_user.trial_expires_at,
+                    'filters_limit': db_user.filters_limit,
+                    'notifications_limit': db_user.notifications_limit,
+                    'notifications_enabled': db_user.notifications_enabled,
+                }
+                set_cached_user(telegram_id, data)
+                return data
+        except Exception as e:
+            logger.error(f"Не удалось получить подписку нажавшего {telegram_id}: {e}")
+            return None
