@@ -9,12 +9,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Unbounded:wght@900&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="/cabinet/static/css/tokens.css?v=7">
-  <link rel="stylesheet" href="/cabinet/static/css/base.css?v=7">
-  <link rel="stylesheet" href="/cabinet/static/css/components.css?v=7">
+  <link rel="stylesheet" href="/cabinet/static/css/tokens.css?v=8">
+  <link rel="stylesheet" href="/cabinet/static/css/base.css?v=8">
+  <link rel="stylesheet" href="/cabinet/static/css/components.css?v=8">
   {% block page_css %}{% endblock %}
 </head>
 <body>
+  <!-- Мобильная шапка: видна только на узких экранах (<=959px), где сайдбар
+       превращается в выезжающую панель. На десктопе скрыта через CSS. -->
+  <header class="mobile-topbar">
+    <button class="mobile-nav-btn" id="mobile-nav-open" aria-label="Открыть меню" aria-expanded="false">☰</button>
+    <span class="mobile-topbar-logo">TENDER<em>SNIPER</em></span>
+  </header>
+  <div class="mobile-nav-backdrop" id="mobile-nav-backdrop" hidden></div>
+
   <div class="app">
     {% include "_sidebar.html" %}
 
@@ -30,6 +38,7 @@
   <script src="/cabinet/static/js/api.js"></script>
   <script src="/cabinet/static/js/modal.js"></script>
   <script src="/cabinet/static/js/toggle.js"></script>
+  <script src="/cabinet/static/js/mobile-nav.js?v=1"></script>
   {% block page_js %}{% endblock %}
 </body>
 </html>
