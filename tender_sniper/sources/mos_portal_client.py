@@ -20,6 +20,15 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.zakupki.mos.ru/api/v2/auction/public/Search"
 PROXY_ENV_VARS = ["PROXY_URL", "PROXY_URL_2", "PROXY_URL_3", "PROXY_URL_4", "PROXY_URL_5"]
 
+
+class QuotaExceededError(RuntimeError):
+    """API вернул 429 "quota exceeded" (обнаружено 14.09.2026: жёсткий лимит
+    100 запросов/сутки на токен, независимо от того, через какой прокси идёт
+    запрос — лимит привязан к PP_TOKEN, не к source IP). Отдельный класс,
+    чтобы вызывающий код (mos_portal_poll) мог отличить "квота исчерпана,
+    ждём завтра" от обычного сетевого сбоя, который стоит перелогировать
+    иначе/тише."""
+
 # Маскирует user:pass@ в любом URL внутри текста — некоторые ошибки requests
 # (например ProxyError) включают в текст полный URL прокси с credentials.
 _CREDENTIALS_RE = re.compile(r"://[^/@\s]+@")
@@ -78,8 +87,17 @@ class MosPortalClient:
             try:
                 r = requests.get(BASE_URL, headers=self._headers(), params=params,
                                  proxies=proxies, timeout=15)
+                if r.status_code == 429:
+                    # Лимит привязан к токену, не к IP прокси — пробовать
+                    # другой прокси после 429 бессмысленно и только тратит
+                    # квоту следующего дня впустую (обнаружено 14.09.2026:
+                    # 2 прокси подряд получили 429 в одном цикле, прежде чем
+                    # остальные два просто не достучались по таймауту).
+                    raise QuotaExceededError(r.text.strip() or "429 Too Many Requests")
                 r.raise_for_status()
                 return r.json()
+            except QuotaExceededError:
+                raise
             except Exception as e:
                 last_error = _sanitize_error(e)
                 logger.warning(f"Портал поставщиков: прокси {proxy_label} — {last_error}")
