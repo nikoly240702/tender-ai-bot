@@ -75,12 +75,12 @@
     }
   }
 
-  async function setResult(cardId, result) {
+  async function setResult(cardId, result, reason) {
     try {
       const r = await fetch('/cabinet/api/pipeline/cards/' + cardId + '/result', {
         method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ result }),
+        body: JSON.stringify({ result, reason: reason || null }),
       });
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d.error || 'Ошибка');
@@ -123,11 +123,13 @@
   const resultModal = document.getElementById('result-modal');
   const resultClose = document.getElementById('result-modal-close');
   const resultTender = document.getElementById('result-modal-tender');
+  const resultReason = document.getElementById('result-modal-reason');
   let pendingResultCardId = null;
 
   function openResultModal(cardId, tenderName) {
     pendingResultCardId = cardId;
     if (resultTender) resultTender.textContent = tenderName;
+    if (resultReason) resultReason.value = '';
     if (resultModal) resultModal.hidden = false;
   }
   function closeResultModal() {
@@ -143,10 +145,10 @@
   const wonBtn = document.getElementById('result-btn-won');
   const lostBtn = document.getElementById('result-btn-lost');
   if (wonBtn) wonBtn.addEventListener('click', () => {
-    if (pendingResultCardId) { setResult(pendingResultCardId, 'won'); closeResultModal(); }
+    if (pendingResultCardId) { setResult(pendingResultCardId, 'won', resultReason?.value); closeResultModal(); }
   });
   if (lostBtn) lostBtn.addEventListener('click', () => {
-    if (pendingResultCardId) { setResult(pendingResultCardId, 'lost'); closeResultModal(); }
+    if (pendingResultCardId) { setResult(pendingResultCardId, 'lost', resultReason?.value); closeResultModal(); }
   });
 
   /* ================ MANUAL CREATE ================ */

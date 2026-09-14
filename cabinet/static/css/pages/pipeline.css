@@ -319,6 +319,20 @@ body.pipeline-mode .main {
   margin-bottom: 22px;
   font-family: var(--font-mono);
 }
+.result-modal-reason {
+  width: 100%;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+.result-modal-reason:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-dim); }
 .result-modal-actions {
   display: flex;
   gap: 12px;

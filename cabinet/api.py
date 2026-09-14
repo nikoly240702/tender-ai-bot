@@ -1397,11 +1397,12 @@ async def pipeline_set_result(request: web.Request) -> web.Response:
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
     res = body.get('result')
+    reason = body.get('reason')
     if res not in ('won', 'lost'):
         return web.json_response({'error': 'result must be won or lost'}, status=400)
     if not await pipeline_service.get_card(card_id, company['id']):
         return web.json_response({'error': 'Card not found'}, status=404)
-    result = await pipeline_service.set_card_result(card_id, res, by_user_id=user['user_id'])
+    result = await pipeline_service.set_card_result(card_id, res, by_user_id=user['user_id'], reason=reason)
     return web.json_response(result, status=200 if result['ok'] else 400)
 
 
@@ -1609,21 +1610,30 @@ async def pipeline_ai_enrich(request: web.Request) -> web.Response:
 async def pipeline_export_csv(request: web.Request) -> web.Response:
     import csv
     company = request['company']
-    cards = await pipeline_service.list_company_cards(company['id'], include_archived=True)
+    results_only = request.query.get('view') == 'results'
+
+    if results_only:
+        data = await pipeline_service.list_results(company['id'])
+        cards = data['cards']
+    else:
+        cards = await pipeline_service.list_company_cards(company['id'], include_archived=True)
 
     output = io.StringIO()
     # BOM for Excel
     output.write('﻿')
     writer = csv.writer(output, delimiter=';')
-    writer.writerow([
+    header = [
         'Номер тендера', 'Название', 'Стадия', 'Результат',
         'Заказчик', 'Регион', 'НМЦ', 'Закупочная', 'Наша цена',
         'Дедлайн', 'Ответственный', 'Создана',
-    ])
+    ]
+    if results_only:
+        header += ['Причина', 'Подано', 'Результат от', 'Дней до результата']
+    writer.writerow(header)
 
     for c in cards:
         d = c.get('data') or {}
-        writer.writerow([
+        row = [
             c.get('tender_number', ''),
             d.get('name', ''),
             c.get('stage', ''),
@@ -1636,12 +1646,21 @@ async def pipeline_export_csv(request: web.Request) -> web.Response:
             d.get('deadline', '') or '',
             c.get('assignee_user_id', '') or '',
             str(c.get('created_at', ''))[:10] if c.get('created_at') else '',
-        ])
+        ]
+        if results_only:
+            row += [
+                c.get('result_reason', '') or '',
+                str(c.get('_submitted_at', ''))[:10] if c.get('_submitted_at') else '',
+                str(c.get('_result_at', ''))[:10] if c.get('_result_at') else '',
+                c.get('_days_to_result', '') if c.get('_days_to_result') is not None else '',
+            ]
+        writer.writerow(row)
 
+    filename = 'results.csv' if results_only else 'pipeline.csv'
     return web.Response(
         body=output.getvalue().encode('utf-8-sig'),
         content_type='text/csv',
-        headers={'Content-Disposition': 'attachment; filename="pipeline.csv"'},
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
     )
 
 

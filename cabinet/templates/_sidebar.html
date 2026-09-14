@@ -12,6 +12,9 @@
         <span>Pipeline</span>
         <span class="count">{{ nav_counts.pipeline or '' }}</span>
       </a>
+      <a href="/cabinet/pipeline/results" data-icon="🎯" {% if active_page == 'pipeline_results' %}class="active"{% endif %}>
+        <span>Результаты</span>
+      </a>
       <a href="/cabinet/team" data-icon="👥" {% if active_page == 'team' %}class="active"{% endif %}>
         <span>Команда</span>
       </a>

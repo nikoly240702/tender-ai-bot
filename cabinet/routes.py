@@ -72,6 +72,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/calendar', calendar_page)
     app.router.add_get('/cabinet/pipeline', pipeline_page)
     app.router.add_get('/cabinet/pipeline/archive', pipeline_archive_page)
+    app.router.add_get('/cabinet/pipeline/results', pipeline_results_page)
     app.router.add_get('/cabinet/team', team_page)
     app.router.add_get('/cabinet/suppliers', suppliers_page)
     app.router.add_get('/cabinet/invite/{token}', invite_page)
@@ -604,6 +605,50 @@ async def pipeline_archive_page(request: web.Request) -> web.Response:
         company_name=company['name'],
         is_owner=(role == 'owner'),
         cards=cards,
+        members=members,
+    )
+
+
+@require_team_member
+async def pipeline_results_page(request: web.Request) -> web.Response:
+    """Раздел «Поданные процедуры» — список карточек SUBMITTED/RESULT
+    со статусами (ожидаем/выиграно/проиграно) и сводной статистикой."""
+    from cabinet import pipeline_service, team_service
+    user = request['user']
+    company = request['company']
+    role = request['role']
+
+    data = await pipeline_service.list_results(company['id'])
+    cards = data['cards']
+    members = await team_service.list_members_with_users(company['id'])
+    members_by_id = {m['user_id']: m for m in members}
+
+    for c in cards:
+        if c['assignee_user_id']:
+            mem = members_by_id.get(c['assignee_user_id'])
+            c['_assignee_name'] = mem.get('display_name') if mem else f'#{c["assignee_user_id"]}'
+        else:
+            c['_assignee_name'] = None
+        if c['result'] == 'won':
+            c['_status'] = 'won'
+            c['_status_label'] = '✓ Выиграно'
+        elif c['result'] == 'lost':
+            c['_status'] = 'lost'
+            c['_status_label'] = '✕ Проиграно'
+        else:
+            c['_status'] = 'pending'
+            c['_status_label'] = '🕐 Ожидаем'
+
+    return _render_template(
+        'pipeline_results.html', request,
+        active_page='pipeline_results',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+        company_name=company['name'],
+        is_owner=(role == 'owner'),
+        cards=cards,
+        stats=data['stats'],
         members=members,
     )
 

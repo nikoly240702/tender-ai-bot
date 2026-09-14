@@ -87,6 +87,7 @@ def _card_dict(card: PipelineCard) -> Dict:
         'filter_id': card.filter_id,
         'source': card.source,
         'result': card.result,
+        'result_reason': card.result_reason,
         'purchase_price': _decimal_to_float(card.purchase_price),
         'sale_price': _decimal_to_float(card.sale_price),
         'ai_summary': card.ai_summary,
@@ -304,21 +305,24 @@ async def move_card_stage(card_id: int, new_stage: str, by_user_id: int) -> Dict
     return {'ok': True, 'card': out}
 
 
-async def set_card_result(card_id: int, result: str, by_user_id: int) -> Dict:
+async def set_card_result(card_id: int, result: str, by_user_id: int,
+                          reason: Optional[str] = None) -> Dict:
     if result not in (RESULT_WON, RESULT_LOST):
         return {'ok': False, 'error': f'Недопустимый result: {result}'}
+    reason = (reason or '').strip() or None
     async with DatabaseSession() as session:
         card = await session.get(PipelineCard, card_id)
         if not card:
             return {'ok': False, 'error': 'Карточка не найдена'}
         card.stage = STAGE_RESULT
         card.result = result
+        card.result_reason = reason
         card.updated_at = datetime.utcnow()
         claimed = _auto_claim(card, by_user_id)
         history = PipelineCardHistory(
             card_id=card.id, user_id=by_user_id,
             action='won' if result == RESULT_WON else 'lost',
-            payload={},
+            payload={'reason': reason} if reason else {},
         )
         session.add(history)
         await session.commit()
@@ -448,6 +452,94 @@ async def list_archived_cards(company_id: int) -> List[Dict]:
             ).order_by(PipelineCard.archived_at.desc())
         )
         return [_card_dict(c) for c in result.scalars().all()]
+
+
+async def get_submission_and_result_dates(card_ids: List[int]) -> Dict[int, Dict]:
+    """Для каждой карточки — когда она впервые попала на стадию SUBMITTED
+    («Участвуем») и когда впервые получила результат (won/lost), из
+    card_history. Нужно для колонки «дней до результата» в разделе
+    результатов — отдельных timestamp-колонок на самой карточке нет,
+    submitted_at/result_at не хранятся напрямую."""
+    if not card_ids:
+        return {}
+    async with DatabaseSession() as session:
+        result = await session.execute(
+            select(PipelineCardHistory)
+            .where(PipelineCardHistory.card_id.in_(card_ids))
+            .order_by(PipelineCardHistory.card_id, PipelineCardHistory.created_at.asc())
+        )
+        out: Dict[int, Dict] = {}
+        for h in result.scalars().all():
+            entry = out.setdefault(h.card_id, {'submitted_at': None, 'result_at': None})
+            if entry['submitted_at'] is None and h.action == 'stage_changed' \
+                    and (h.payload or {}).get('to') == STAGE_SUBMITTED:
+                entry['submitted_at'] = h.created_at
+            if entry['result_at'] is None and h.action in ('won', 'lost'):
+                entry['result_at'] = h.created_at
+        return out
+
+
+async def list_results(company_id: int) -> Dict:
+    """Карточки на стадиях «Участвуем»/«Результат» + сводная статистика
+    для раздела «Поданные процедуры»."""
+    async with DatabaseSession() as session:
+        result = await session.execute(
+            select(PipelineCard).where(
+                PipelineCard.company_id == company_id,
+                PipelineCard.archived_at.is_(None),
+                PipelineCard.stage.in_([STAGE_SUBMITTED, STAGE_RESULT]),
+            ).order_by(PipelineCard.updated_at.desc())
+        )
+        cards = [_card_dict(c) for c in result.scalars().all()]
+
+    dates_map = await get_submission_and_result_dates([c['id'] for c in cards])
+    won_sum = 0.0
+    lost_sum = 0.0
+    won_count = 0
+    lost_count = 0
+    pending_count = 0
+    days_to_result_total = 0
+    days_to_result_n = 0
+
+    for c in cards:
+        dates = dates_map.get(c['id'], {})
+        submitted_at = dates.get('submitted_at')
+        result_at = dates.get('result_at')
+        c['_submitted_at'] = submitted_at.isoformat() if submitted_at else None
+        c['_result_at'] = result_at.isoformat() if result_at else None
+        c['_days_to_result'] = None
+        if submitted_at and result_at:
+            c['_days_to_result'] = (result_at - submitted_at).days
+            days_to_result_total += c['_days_to_result']
+            days_to_result_n += 1
+
+        amount = c.get('sale_price') or (c.get('data') or {}).get('price_max') or 0
+        if c['result'] == RESULT_WON:
+            won_sum += amount
+            won_count += 1
+        elif c['result'] == RESULT_LOST:
+            lost_sum += amount
+            lost_count += 1
+        else:
+            pending_count += 1
+
+    decided = won_count + lost_count
+    win_rate = round(won_count / decided * 100) if decided else None
+    avg_days_to_result = round(days_to_result_total / days_to_result_n) if days_to_result_n else None
+
+    return {
+        'cards': cards,
+        'stats': {
+            'total': len(cards),
+            'won_count': won_count,
+            'lost_count': lost_count,
+            'pending_count': pending_count,
+            'win_rate': win_rate,
+            'won_sum': won_sum,
+            'lost_sum': lost_sum,
+            'avg_days_to_result': avg_days_to_result,
+        },
+    }
 
 
 async def get_card(card_id: int, company_id: int) -> Optional[Dict]:
