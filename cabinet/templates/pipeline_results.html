@@ -1,0 +1,97 @@
+{% extends "_base.html" %}
+
+{% block title %}Результаты — Tender Sniper{% endblock %}
+
+{% block page_css %}
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline.css?v=1">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/pipeline_results.css?v=1">
+{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">CRM</div>
+  <h1>Поданные <em>процедуры</em></h1>
+  <div class="summary">{{ company_name }} · {{ stats.total }} {% if stats.total == 1 %}процедура{% else %}процедур{% endif %}</div>
+</div>
+
+<div class="pipeline-actions">
+  <a href="/cabinet/pipeline" class="btn btn-ghost">← Доска</a>
+  <a href="/cabinet/api/pipeline/export?view=results" class="btn btn-ghost">⇩ Экспорт CSV</a>
+</div>
+
+<div class="results-stats">
+  <div class="rs-stat">
+    <div class="rs-value">{{ stats.win_rate if stats.win_rate is not none else '—' }}{% if stats.win_rate is not none %}%{% endif %}</div>
+    <div class="rs-label">% побед</div>
+  </div>
+  <div class="rs-stat">
+    <div class="rs-value">{{ stats.won_count }}</div>
+    <div class="rs-label">Выиграно</div>
+  </div>
+  <div class="rs-stat">
+    <div class="rs-value">{{ stats.lost_count }}</div>
+    <div class="rs-label">Проиграно</div>
+  </div>
+  <div class="rs-stat">
+    <div class="rs-value">{{ stats.pending_count }}</div>
+    <div class="rs-label">Ожидаем</div>
+  </div>
+  <div class="rs-stat">
+    <div class="rs-value">{{ '{:,.0f}'.format(stats.won_sum).replace(',', ' ') }} ₽</div>
+    <div class="rs-label">Сумма выигранных</div>
+  </div>
+  <div class="rs-stat">
+    <div class="rs-value">{{ '{:,.0f}'.format(stats.lost_sum).replace(',', ' ') }} ₽</div>
+    <div class="rs-label">Сумма проигранных</div>
+  </div>
+  <div class="rs-stat">
+    <div class="rs-value">{{ stats.avg_days_to_result if stats.avg_days_to_result is not none else '—' }}</div>
+    <div class="rs-label">Дней до результата (сред.)</div>
+  </div>
+</div>
+
+{% if not cards %}
+  <div class="empty">
+    <div class="title">Пока пусто</div>
+    <div>Сюда попадают карточки со стадии «Участвуем» и дальше — как только подадите первую заявку на доске Pipeline, она появится здесь.</div>
+  </div>
+{% else %}
+<div class="results-table-wrap">
+  <table class="results-table">
+    <thead>
+      <tr>
+        <th>Тендер</th>
+        <th>Заказчик</th>
+        <th>Статус</th>
+        <th>Сумма</th>
+        <th>Подано</th>
+        <th>Результат</th>
+        <th>Дней</th>
+        <th>Ответственный</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cards %}
+      <tr class="rs-row status-{{ c._status }}" data-card-id="{{ c.id }}">
+        <td class="rs-tender">
+          <a href="{{ (c.data.url) or ('https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=' + c.tender_number) }}" target="_blank" rel="noopener">
+            {{ c.data.name or ('Тендер ' + c.tender_number) }}
+          </a>
+          <div class="rs-tender-number">{{ c.tender_number }}</div>
+        </td>
+        <td>{{ c.data.customer or '—' }}</td>
+        <td><span class="status-pill status-{{ c._status }}">{{ c._status_label }}</span>
+          {% if c.result_reason %}<div class="rs-reason" title="{{ c.result_reason }}">{{ c.result_reason }}</div>{% endif %}
+        </td>
+        <td class="rs-num">{% if c.sale_price or c.data.price_max %}{{ '{:,.0f}'.format(c.sale_price or c.data.price_max).replace(',', ' ') }} ₽{% else %}—{% endif %}</td>
+        <td>{{ c._submitted_at[:10] if c._submitted_at else '—' }}</td>
+        <td>{{ c._result_at[:10] if c._result_at else '—' }}</td>
+        <td class="rs-num">{{ c._days_to_result if c._days_to_result is not none else '—' }}</td>
+        <td>{{ c._assignee_name or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

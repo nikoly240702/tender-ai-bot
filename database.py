@@ -1101,6 +1101,7 @@ class PipelineCard(Base):
     filter_id = Column(Integer, ForeignKey('sniper_filters.id'), nullable=True)
     source = Column(String(20), nullable=False, default='feed')
     result = Column(String(10), nullable=True)
+    result_reason = Column(Text, nullable=True)  # почему выиграли/проиграли — опционально
     purchase_price = Column(Numeric(14, 2), nullable=True)
     sale_price = Column(Numeric(14, 2), nullable=True)
     ai_summary = Column(Text, nullable=True)
