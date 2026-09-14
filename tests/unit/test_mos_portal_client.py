@@ -6,7 +6,7 @@ import urllib.parse
 import pytest
 import responses
 
-from tender_sniper.sources.mos_portal_client import MosPortalClient, decode_jwt_exp
+from tender_sniper.sources.mos_portal_client import MosPortalClient, decode_jwt_exp, QuotaExceededError
 
 
 def _fake_jwt(exp: int) -> str:
@@ -68,3 +68,24 @@ class TestMosPortalClientAuth:
         }
         assert "from" not in sent_query["filter"]["publishDate"]
         assert "to" not in sent_query["filter"]["publishDate"]
+
+    @responses.activate
+    def test_429_stops_immediately_without_trying_other_proxies(self, monkeypatch):
+        """Обнаружено 14.09.2026 в проде: квота 100 запросов/сутки привязана
+        к PP_TOKEN, не к IP прокси — значит после 429 пробовать другой
+        прокси бессмысленно и только тратит завтрашнюю квоту. Один прокси
+        настроен (#1) — должен вызвать API РОВНО один раз и поднять
+        QuotaExceededError, не RuntimeError "все прокси недоступны"."""
+        monkeypatch.setenv("PP_TOKEN", _fake_jwt(exp=int(time.time()) + 86400 * 3650))
+        monkeypatch.setenv("PROXY_URL", "http://user:pass@proxy1.example.com:8080")
+        monkeypatch.delenv("PROXY_URL_2", raising=False)
+        responses.add(
+            responses.GET,
+            "https://api.zakupki.mos.ru/api/v2/auction/public/Search",
+            body="API calls quota exceeded! maximum admitted 100 per 1d.",
+            status=429,
+        )
+        client = MosPortalClient()
+        with pytest.raises(QuotaExceededError, match="quota exceeded"):
+            client.search_auctions_sync("2026-09-14T00:00:00Z", "2026-09-14T01:00:00Z")
+        assert len(responses.calls) == 1

@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from bot.config import BotConfig
-from tender_sniper.sources.mos_portal_client import MosPortalClient, decode_jwt_exp
+from tender_sniper.sources.mos_portal_client import MosPortalClient, decode_jwt_exp, QuotaExceededError
 from tender_sniper.sources.mos_portal_mapper import ks_dto_to_tender
 from tender_sniper.matching import SmartMatcher
 from tender_sniper.notifications.telegram_notifier import TelegramNotifier
@@ -18,7 +18,14 @@ from tender_sniper.database import get_sniper_db
 logger = logging.getLogger(__name__)
 
 COMPANY_ID = 57
-POLL_INTERVAL_SECONDS = 600  # 10 минут
+# 20 мин, не 10 — обнаружено 14.09.2026: у API жёсткий лимит 100
+# запросов/сутки на токен ("API calls quota exceeded! maximum admitted 100
+# per 1d"), привязанный к PP_TOKEN, а не к IP прокси. При 10-минутном
+# интервале один только штатный опрос уже потенциально даёт 144 вызова/сутки
+# — больше лимита сам по себе, без единого ручного теста. При 20 минутах —
+# 72 вызова/сутки, оставляет ~28 в запасе на повторные попытки/ручные
+# проверки. Если этого всё равно не хватит — увеличить ещё, не уменьшать.
+POLL_INTERVAL_SECONDS = 1200  # 20 минут
 OVERLAP_MINUTES = 30
 DEFAULT_LOOKBACK_MINUTES = 60
 MAX_PAGES_PER_CYCLE = 10
@@ -222,6 +229,12 @@ async def mos_portal_poll_loop():
             logger.info(f"Портал поставщиков: цикл завершён — тендеров {len(tenders)}, отправлено {sent_count}")
 
             last_poll = now
+        except QuotaExceededError as e:
+            # Ожидаемое, самостоятельно проходящее состояние (сутки истекут
+            # и лимит сбросится) — не полноценная ошибка, поэтому без
+            # exc_info/трейсбека, чтобы не шуметь в логах и не выглядеть как
+            # баг, требующий вмешательства каждый цикл.
+            logger.warning(f"Портал поставщиков: квота API исчерпана на сегодня — {e}")
         except Exception as e:
             logger.error(f"Портал поставщиков: ошибка цикла опроса: {e}", exc_info=True)
 
