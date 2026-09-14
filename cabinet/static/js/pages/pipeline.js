@@ -282,12 +282,23 @@
   });
 
   async function loadCardFull(cardId) {
-    const r = await fetch('/cabinet/api/pipeline/cards/' + cardId + '/full', {
-      credentials: 'same-origin',
-    });
-    if (!r.ok) { Toast.show('Не удалось загрузить', 'alert'); return; }
-    const data = await r.json();
-    renderModal(data);
+    // try/catch обязателен: при обрыве соединения fetch БРОСАЕТ исключение
+    // (а не возвращает !r.ok), renderModal не вызывается, и в модалке
+    // остаются данные прошлой карточки со ссылкой href="#" из разметки —
+    // клик по ней открывал новую вкладку с самим кабинетом вместо карточки
+    // закупки. Ловим ошибку, явно сообщаем и закрываем модалку, чтобы не
+    // показывать заведомо нерабочее состояние.
+    try {
+      const r = await fetch('/cabinet/api/pipeline/cards/' + cardId + '/full', {
+        credentials: 'same-origin',
+      });
+      if (!r.ok) throw new Error('Сервер вернул ' + r.status);
+      const data = await r.json();
+      renderModal(data);
+    } catch (e) {
+      Toast.show('Не удалось загрузить карточку — проверьте соединение', 'alert');
+      closeModal();
+    }
   }
 
   function renderModal(data) {
