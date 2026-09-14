@@ -405,3 +405,94 @@
 }
 .empty .title { color: var(--text); font-size: 15px; font-weight: 600; margin-bottom: 6px; }
 .loading { padding: 48px; text-align: center; color: var(--muted); font-family: var(--font-mono); font-size: 12px; }
+
+/* ============== МОБИЛЬНАЯ АДАПТАЦИЯ ============== */
+/* Шапка с гамбургером — только на узких экранах. */
+.mobile-topbar { display: none; }
+.mobile-nav-backdrop { display: none; }
+
+@media (max-width: 959px) {
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 60;
+    height: 52px;
+    padding: 0 12px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .mobile-nav-btn {
+    width: 44px;              /* комфортная область нажатия пальцем */
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    line-height: 1;
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    cursor: pointer;
+  }
+  .mobile-nav-btn:active { background: var(--accent-dim); }
+  .mobile-topbar-logo {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .mobile-topbar-logo em { font-style: normal; color: var(--accent); }
+
+  /* Сайдбар — выезжающая панель поверх контента. Важно: перекрываем
+     display:none из правила выше по файлу, иначе панель не покажется. */
+  .sidebar {
+    display: flex !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 264px;
+    max-width: 82vw;
+    height: 100vh;
+    z-index: 70;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    overflow-y: auto;
+  }
+  body.mobile-nav-open .sidebar { transform: translateX(0); }
+
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 65;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .mobile-nav-backdrop[hidden] { display: none; }
+
+  /* Пункты меню — крупнее для пальца */
+  .sidebar nav a { padding-top: 11px; padding-bottom: 11px; }
+
+  /* Поля экрана на телефоне — вместо десктопных 44px */
+  .main { padding: 18px 14px 40px; }
+  .page-header { margin-bottom: 18px; }
+  .page-header h1 { font-size: 22px; }
+
+  /* Ряды кнопок над контентом переносятся, а не уезжают за экран */
+  .pipeline-actions,
+  .pipeline-filters { flex-wrap: wrap; gap: 8px; }
+
+  /* Любая широкая таблица прокручивается внутри себя,
+     страница вбок не едет */
+  table { display: block; overflow-x: auto; max-width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .main { padding: 14px 10px 36px; }
+  .page-header h1 { font-size: 20px; }
+}

@@ -1040,3 +1040,44 @@ body.pipeline-mode .main {
   max-height: 320px;
   overflow-y: auto;
 }
+
+/* ============= МОБИЛЬНАЯ АДАПТАЦИЯ PIPELINE ============= */
+@media (max-width: 959px) {
+  /* Канбан: 7 колонок в ряд на телефон не влезают. Листаем свайпом,
+     колонка почти во всю ширину экрана — так видно карточку целиком. */
+  .kb-board {
+    grid-template-columns: repeat(7, 78vw);
+    overflow-x: auto;
+    gap: 10px;
+    padding: 10px;
+    scroll-snap-type: x mandatory;   /* колонки «примагничиваются» при свайпе */
+    -webkit-overflow-scrolling: touch;
+  }
+  .kb-col { scroll-snap-align: start; }
+  /* Десктопная высота calc(100vh - 180px) на телефоне оставляет слишком
+     мало места: сверху появилась шапка 52px и уменьшились отступы. */
+  .kb-board { height: calc(100vh - 230px); min-height: 380px; }
+
+  /* Модалки — на весь экран: на телефоне окно 720px с полями по 24px
+     оставляло контент в узкой полоске. */
+  .modal-overlay { padding: 0; align-items: stretch; }
+  .modal-window {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100vh;
+    height: 100vh;
+    border-radius: 0;
+  }
+  .modal-close { width: 44px; height: 44px; font-size: 22px; }
+
+  /* Кнопки в модалке результата — в столбик, крупнее для пальца */
+  .result-modal-actions { flex-direction: column; }
+  .result-modal-actions .btn { width: 100%; padding: 14px 16px; }
+
+  /* Поля цен — в один столбец */
+  .price-field { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .kb-board { grid-template-columns: repeat(7, 86vw); }
+}
