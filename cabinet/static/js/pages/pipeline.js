@@ -2,7 +2,7 @@
    Drag через Sortable.js + optimistic UI. Модалка карточки с 5 табами.
    Никакого innerHTML — только createElement / textContent / replaceChildren. */
 (function () {
-  const { Toast, buildCustomSelect } = window.Cabinet;
+  const { Toast, buildCustomSelect, buildAutocomplete } = window.Cabinet;
 
   const STAGE_LABELS = {
     'FOUND': 'Найденные',
@@ -851,7 +851,6 @@
     const nameInp = document.getElementById('cm-quote-product-name');
     const priceInp = document.getElementById('cm-quote-price');
     const qtyInp = document.getElementById('cm-quote-qty');
-    const options = document.getElementById('cm-quote-product-options');
     const totalEl = document.getElementById('cm-quote-line-total');
 
     const parseMoney = v => {
@@ -861,19 +860,25 @@
     };
 
     let catalog = [];
+    // Замена <input list=…> + <datalist>: нативный попап тоже не
+    // стилизуется и обрезает длинные наименования по ширине поля.
+    const productAutocomplete = buildAutocomplete(nameInp, {
+      labelOf: p => p.name,
+      onSelect: p => {
+        nameInp.value = p.name;
+        priceInp.value = Math.round(p.unit_price).toLocaleString('ru-RU');
+        updateTotal();
+      },
+    });
 
     async function loadCatalogFor(supplierId) {
-      options.replaceChildren();
       catalog = [];
+      productAutocomplete.setItems(catalog);
       if (!supplierId || supplierId === '__new__') return;
       const r = await fetch('/cabinet/api/suppliers/' + supplierId + '/products', { credentials: 'same-origin' });
       const d = r.ok ? await r.json() : { products: [] };
       catalog = d.products || [];
-      catalog.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.name;
-        options.appendChild(opt);
-      });
+      productAutocomplete.setItems(catalog);
     }
 
     function updateTotal() {
