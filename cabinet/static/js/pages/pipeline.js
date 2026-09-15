@@ -315,11 +315,22 @@
     return 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=' + num;
   }
 
+  // Источник тендера — подпись у ссылки должна соответствовать тому, куда
+  // она ведёт. Раньше всегда писали «zakupki.gov.ru», в том числе для
+  // московских КС, которые открываются на Портале поставщиков.
+  function tenderSourceLabel(c) {
+    const num = c.tender_number || '';
+    if (num.startsWith('MOS-')) return 'Портал поставщиков';
+    return 'zakupki.gov.ru';
+  }
+
   function renderModal(data) {
     const c = data.card;
 
     document.getElementById('cm-title').textContent = (c.data && c.data.name) || ('Тендер ' + c.tender_number);
-    document.getElementById('cm-zakupki-link').href = tenderUrl(c);
+    const linkEl = document.getElementById('cm-zakupki-link');
+    linkEl.href = tenderUrl(c);
+    linkEl.textContent = '\u2197 Ссылка на тендер \u00B7 ' + tenderSourceLabel(c);
 
     // Stage select
     const stageSel = document.getElementById('cm-stage');
