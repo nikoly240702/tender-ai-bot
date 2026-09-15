@@ -85,7 +85,16 @@
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d.error || 'Ошибка');
       Toast.show(result === 'won' ? '✓ Выиграно' : '✓ Проиграно', 'positive');
-      window.location.reload();
+      // Двигаем карточку на доске сразу, без перезагрузки страницы.
+      const card = document.querySelector('[data-card-id="' + cardId + '"]');
+      const resultCol = document.querySelector('.kb-col-body[data-stage="RESULT"]');
+      if (card) {
+        card.classList.remove('won', 'lost');
+        card.classList.add(result);
+        if (resultCol) resultCol.appendChild(card);
+      }
+      updateCounts();
+      if (openCardId === cardId) loadCardFull(cardId);
     } catch (e) {
       Toast.show(e.message || 'Ошибка', 'alert');
     }
@@ -324,6 +333,94 @@
     return 'zakupki.gov.ru';
   }
 
+
+  // Линейный путь карточки. REJECTED и RESULT — терминальные, в полосе не
+  // участвуют: «не берём» это выход из воронки, а результат — её конец.
+  const FUNNEL_STAGES = ['FOUND', 'IN_WORK', 'RFQ', 'QUOTED', 'SUBMITTED'];
+
+  function daysInStage(card, history) {
+    // Когда карточка попала в текущую стадию: последняя запись stage_changed
+    // с to == текущая стадия, иначе — момент создания карточки.
+    let since = card.created_at;
+    (history || []).forEach(h => {
+      if (h.action === 'stage_changed' && h.payload && h.payload.to === card.stage) {
+        if (!since || h.created_at > since) since = h.created_at;
+      }
+    });
+    if (!since) return null;
+    const days = Math.floor((Date.now() - new Date(since).getTime()) / 86400000);
+    return days >= 0 ? days : null;
+  }
+
+  function plural(n, one, few, many) {
+    const m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return one;
+    if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
+    return many;
+  }
+
+  async function changeStage(cardId, stage) {
+    const r = await fetch('/cabinet/api/pipeline/cards/' + cardId + '/stage', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage }),
+    });
+    if (r.ok) {
+      Toast.show('\u2713 Стадия обновлена', 'positive');
+      loadCardFull(cardId);
+      const card = document.querySelector('[data-card-id="' + cardId + '"]');
+      const targetCol = document.querySelector('.kb-col-body[data-stage="' + stage + '"]');
+      if (card && targetCol) { targetCol.appendChild(card); updateCounts(); }
+    } else {
+      Toast.show('Ошибка', 'alert');
+    }
+  }
+
+  function renderStageTrack(c, history) {
+    const nameEl = document.getElementById('cm-stage-name');
+    const timeEl = document.getElementById('cm-stage-time');
+    const track = document.getElementById('cm-stage-track');
+
+    const isResult = c.stage === 'RESULT';
+    const isRejected = c.stage === 'REJECTED';
+
+    if (isResult) {
+      nameEl.textContent = c.result === 'won' ? 'Успешно завершён' : 'Неуспешно завершён';
+    } else if (isRejected) {
+      nameEl.textContent = 'Не берём в работу';
+    } else {
+      nameEl.textContent = STAGE_LABELS[c.stage] || c.stage;
+    }
+    nameEl.className = 'stage-current-name'
+      + (isResult ? (c.result === 'won' ? ' is-won' : ' is-lost') : '')
+      + (isRejected ? ' is-rejected' : '');
+
+    const d = daysInStage(c, history);
+    timeEl.textContent = d == null ? ''
+      : (d === 0 ? 'сегодня' : `${d} ${plural(d, 'день', 'дня', 'дней')} в стадии`);
+
+    // Индекс текущей стадии: для завершённых считаем воронку пройденной.
+    const curIdx = isResult ? FUNNEL_STAGES.length
+      : (isRejected ? -1 : FUNNEL_STAGES.indexOf(c.stage));
+
+    track.replaceChildren();
+    FUNNEL_STAGES.forEach((stage, i) => {
+      const seg = el('button', {
+        cls: 'stage-seg' + (i < curIdx ? ' done' : '') + (i === curIdx ? ' current' : ''),
+        attrs: { type: 'button', title: STAGE_LABELS[stage] },
+      });
+      if (isResult && c.result === 'lost') seg.classList.add('lost');
+      seg.onclick = () => changeStage(c.id, stage);
+      track.appendChild(seg);
+    });
+
+    document.getElementById('cm-stage-won').onclick = () => openResultModal(c.id, nameEl.textContent);
+    document.getElementById('cm-stage-lost').onclick = () => openResultModal(c.id, nameEl.textContent);
+    const rejBtn = document.getElementById('cm-stage-reject');
+    rejBtn.hidden = isRejected;
+    rejBtn.onclick = () => changeStage(c.id, 'REJECTED');
+  }
+
   function renderModal(data) {
     const c = data.card;
 
@@ -332,33 +429,8 @@
     linkEl.href = tenderUrl(c);
     linkEl.textContent = '\u2197 Ссылка на тендер \u00B7 ' + tenderSourceLabel(c);
 
-    // Stage select
-    const stageSel = document.getElementById('cm-stage');
-    stageSel.replaceChildren();
-    SELECTABLE_STAGES.forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s;
-      opt.textContent = STAGE_LABELS[s];
-      if (c.stage === s) opt.selected = true;
-      stageSel.appendChild(opt);
-    });
-    if (c.stage === 'RESULT') {
-      const opt = document.createElement('option');
-      opt.value = 'RESULT';
-      opt.textContent = 'Результат: ' + (c.result === 'won' ? 'Победа' : 'Проигрыш');
-      opt.selected = true;
-      stageSel.appendChild(opt);
-    }
-    stageSel.onchange = async () => {
-      const v = stageSel.value;
-      if (v === 'RESULT') return;
-      const r = await fetch('/cabinet/api/pipeline/cards/' + c.id + '/stage', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage: v }),
-      });
-      Toast.show(r.ok ? '✓ Стадия обновлена' : 'Ошибка', r.ok ? 'positive' : 'alert');
-    };
+    // Стадия — воронка-прогрессбар (референс: amoCRM). Сегменты кликабельны.
+    renderStageTrack(c, data.history || []);
 
     // Assignee
     const asSel = document.getElementById('cm-assignee');
@@ -511,8 +583,12 @@
       }
     };
 
-    document.getElementById('cm-btn-won').onclick = () => setResult(c.id, 'won');
-    document.getElementById('cm-btn-lost').onclick = () => setResult(c.id, 'lost');
+    // Кнопки результата живут в блоке стадий; этот блок оставлен на случай
+    // старой разметки в кэше браузера.
+    const legacyWon = document.getElementById('cm-btn-won');
+    const legacyLost = document.getElementById('cm-btn-lost');
+    if (legacyWon) legacyWon.onclick = () => openResultModal(c.id, c.tender_number);
+    if (legacyLost) legacyLost.onclick = () => openResultModal(c.id, c.tender_number);
 
     // Notes
     renderNotes(c.id, data.notes);
