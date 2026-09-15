@@ -18,7 +18,8 @@ from tenacity import (
 )
 from loguru import logger
 import openai
-from openai import OpenAI, AsyncOpenAI
+
+from tender_sniper.openai_client import make_openai_client, make_async_openai_client
 
 
 class OpenAIClient:
@@ -52,8 +53,8 @@ class OpenAIClient:
         self.max_retries = max_retries
         
         # Инициализация клиентов
-        self.client = OpenAI(api_key=self.api_key)
-        self.async_client = AsyncOpenAI(api_key=self.api_key)
+        self.client = make_openai_client(self.api_key)
+        self.async_client = make_async_openai_client(self.api_key)
         
         logger.info(f"OpenAI client initialized with model: {model}")
     

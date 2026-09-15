@@ -9,8 +9,9 @@ import os
 import asyncio
 import functools
 from typing import List, Dict, Any
-from openai import OpenAI
 import logging
+
+from tender_sniper.openai_client import make_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class QueryExpander:
             api_key: OpenAI API ключ (опционально, читает из env)
         """
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
-        self.client = OpenAI(api_key=self.api_key)
+        self.client = make_openai_client(self.api_key)
 
     async def expand_keywords(
         self,

@@ -68,8 +68,8 @@ class OpenAIAdapter(LLMAdapter):
 
     def __init__(self, api_key: str, **kwargs):
         super().__init__(**kwargs)
-        from openai import OpenAI
-        self.client = OpenAI(api_key=api_key)
+        from tender_sniper.openai_client import make_openai_client
+        self.client = make_openai_client(api_key)
 
     def generate(self, system_prompt: str, user_prompt: str) -> str:
         def _call():
