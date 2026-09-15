@@ -1274,83 +1274,10 @@ body.pipeline-mode .main {
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-/* Кастомный dropdown (замена <select> там, где важен и вид открытой
-   панели — сам системный список macOS/iOS не поддаётся стилизации). */
-.cs-select { position: relative; }
-.cs-trigger {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 9px 12px;
-  font-size: 14px;
-  font-family: var(--font-ui);
-  color: var(--text);
-  background-color: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  cursor: pointer;
-  text-align: left;
-}
-.cs-trigger:focus {
-  outline: none;
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px var(--accent-dim);
-}
-.cs-trigger-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cs-trigger-arrow {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  transform: rotate(45deg) translateY(-2px);
-  transition: transform 0.15s ease;
-}
-.cs-select.open .cs-trigger-arrow { transform: rotate(-135deg) translateY(2px); }
-.cs-select.open .cs-trigger {
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px var(--accent-dim);
-}
-.cs-panel {
-  /* fixed + рисуется в document.body (не внутри модалки) — координаты
-     проставляет JS (buildCustomSelect/position), чтобы панель не
-     обрезалась скроллом .modal-body при открытии у нижнего края. */
-  display: none;
-  position: fixed;
-  z-index: 1200;
-  width: max-content;
-  max-height: 260px;
-  overflow-y: auto;
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-  padding: 4px;
-}
-.cs-panel.open { display: block; }
-.cs-option {
-  padding: 8px 10px;
-  font-size: 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-.cs-option:hover { background: var(--accent-dim); }
-.cs-option.selected { color: var(--accent); font-weight: 600; }
-.cs-option-new {
-  margin-top: 4px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line-soft);
-  color: var(--accent);
-  font-weight: 600;
-}
+/* Кастомный dropdown (.cs-*) переехал в components.css — общий компонент,
+   используется не только на этой странице (сайдбар, поиск). Здесь только
+   размер под конкретное место в фильтрах доски. */
+.cs-select.cs-filter { min-width: 180px; }
 
 @media (max-width: 959px) {
   .stage-btn { min-width: 0; padding: 12px 10px; }

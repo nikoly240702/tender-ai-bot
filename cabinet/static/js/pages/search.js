@@ -1,6 +1,6 @@
 /* Cabinet v3 — search page. XSS-safe DOM rendering. */
 (function () {
-  const { apiGet, Toast, Modal } = window.Cabinet;
+  const { apiGet, Toast, Modal, buildCustomSelect } = window.Cabinet;
 
   function byId(id) { return document.getElementById(id); }
   function el(tag, opts) {
@@ -126,6 +126,8 @@
     byId('results-count').textContent = lastResults.length;
     render(lastResults);
   }
+
+  if (byId('law')) buildCustomSelect(byId('law'));
 
   byId('search-btn').addEventListener('click', runSearch);
   byId('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
