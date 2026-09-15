@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from tender_sniper.jobs.mos_portal_poll import (
@@ -45,21 +45,31 @@ class TestComputePollWindow:
 
 @pytest.mark.unit
 class TestToApiTimestamp:
-    """Live smoke-test found the API's .NET query parser mangles a literal
-    '+' (from a '+03:00' offset) into a space after decoding — 400 Bad
-    Request ("Could not convert string to DateTime: ...23:09:26 03:00").
-    A UTC 'Z'-suffixed timestamp has no '+' character and sidesteps this
-    entirely; confirmed against the real API after this fix."""
+    """Формат времени для API Портала поставщиков — московское время БЕЗ
+    суффикса таймзоны.
 
-    def test_converts_moscow_time_to_utc_z_suffix(self):
-        msk = ZoneInfo("Europe/Moscow")
-        dt = datetime(2026, 9, 13, 23, 9, 26, tzinfo=msk)  # MSK = UTC+3
-        assert _to_api_timestamp(dt) == "2026-09-13T20:09:26Z"
+    Два уже случившихся провала, которые здесь закрепляются:
+      - '+03:00' ломает парсер API (шлюз превращает '+' в пробел) -> 400;
+      - UTC с 'Z' не даёт 400, но API трактует время как московское, из-за
+        чего окно отставало на 3 часа и сутки подряд не находило ничего.
+    """
 
-    def test_never_contains_plus_character(self):
+    def test_formats_as_moscow_time_without_timezone_suffix(self):
         msk = ZoneInfo("Europe/Moscow")
-        dt = datetime(2026, 9, 13, 23, 9, 26, tzinfo=msk)
-        assert "+" not in _to_api_timestamp(dt)
+        dt = datetime(2026, 9, 15, 10, 12, 11, tzinfo=msk)
+        assert _to_api_timestamp(dt) == "2026-09-15T10:12:11"
+
+    def test_converts_other_timezones_to_moscow(self):
+        """UTC-время должно приехать в API уже пересчитанным в MSK."""
+        dt_utc = datetime(2026, 9, 15, 7, 12, 11, tzinfo=timezone.utc)
+        assert _to_api_timestamp(dt_utc) == "2026-09-15T10:12:11"
+
+    def test_no_plus_and_no_z_suffix(self):
+        msk = ZoneInfo("Europe/Moscow")
+        dt = datetime(2026, 9, 15, 10, 12, 11, tzinfo=msk)
+        out = _to_api_timestamp(dt)
+        assert "+" not in out      # ломает парсер API -> 400
+        assert not out.endswith("Z")  # трактуется как MSK -> сдвиг на 3 часа
 
 
 @pytest.mark.unit
