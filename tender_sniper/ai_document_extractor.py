@@ -143,8 +143,8 @@ class TenderDocumentExtractor:
         """Ленивая инициализация OpenAI клиента."""
         if self._client is None:
             try:
-                from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(api_key=self.api_key)
+                from tender_sniper.openai_client import make_async_openai_client
+                self._client = make_async_openai_client(self.api_key)
             except ImportError:
                 logger.warning("OpenAI библиотека не установлена")
                 return None

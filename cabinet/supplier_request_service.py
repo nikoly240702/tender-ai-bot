@@ -34,8 +34,8 @@ _openai_client: Optional[Any] = None
 def _get_openai_client():
     global _openai_client
     if _openai_client is None:
-        from openai import AsyncOpenAI
-        _openai_client = AsyncOpenAI(api_key=os.environ.get('OPENAI_API_KEY', ''))
+        from tender_sniper.openai_client import make_async_openai_client
+        _openai_client = make_async_openai_client(os.environ.get('OPENAI_API_KEY', ''))
     return _openai_client
 
 

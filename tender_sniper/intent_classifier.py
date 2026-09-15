@@ -53,8 +53,8 @@ class IntentClassifier:
 
         if self.api_key:
             try:
-                from openai import AsyncOpenAI
-                self._client = AsyncOpenAI(api_key=self.api_key)
+                from tender_sniper.openai_client import make_async_openai_client
+                self._client = make_async_openai_client(self.api_key)
                 logger.info("✅ Intent Classifier initialized with OpenAI")
             except Exception as e:
                 logger.warning(f"⚠️ Failed to initialize OpenAI client: {e}")
