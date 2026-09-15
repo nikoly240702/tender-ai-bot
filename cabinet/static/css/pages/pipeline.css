@@ -592,6 +592,12 @@ body.pipeline-mode .main {
   padding: 8px 10px;
   border-bottom: 1px solid var(--line-soft);
   font-size: 13px;
+  /* pre-wrap обязателен: текст кладётся через textContent (это правильно —
+     защищает от вставки HTML), но браузер по умолчанию схлопывает переносы
+     строк в пробелы, и многострочная заметка слипалась в сплошной абзац.
+     break-word — чтобы длинные URL не распирали модалку по горизонтали. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 .note-item:last-child { border-bottom: none; }
 .note-item .note-meta {
@@ -599,6 +605,10 @@ body.pipeline-mode .main {
   font-size: 10px;
   color: var(--muted);
   margin-top: 4px;
+  /* Тем же классом выводится комментарий к предложению поставщика —
+     он тоже многострочный. */
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 #cm-note-input {
   width: 100%;

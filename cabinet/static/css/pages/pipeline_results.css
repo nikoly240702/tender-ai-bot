@@ -81,9 +81,13 @@
   color: var(--muted);
   margin-top: 4px;
   max-width: 220px;
+  /* Причина может быть многострочной. В таблице показываем максимум две
+     строки, полный текст — в подсказке (title). */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: break-word;
 }
 
 .status-pill {
