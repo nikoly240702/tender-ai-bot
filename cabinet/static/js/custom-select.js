@@ -45,21 +45,6 @@
     panel.appendChild(list);
     document.body.appendChild(panel);
 
-    function position() {
-      const r = trigger.getBoundingClientRect();
-      panel.style.left = r.left + 'px';
-      panel.style.minWidth = r.width + 'px';
-      panel.style.maxWidth = Math.min(420, window.innerWidth - r.left - 16) + 'px';
-      const spaceBelow = window.innerHeight - r.bottom;
-      if (spaceBelow < 200 && r.top > spaceBelow) {
-        panel.style.bottom = (window.innerHeight - r.top + 6) + 'px';
-        panel.style.top = 'auto';
-      } else {
-        panel.style.top = (r.bottom + 6) + 'px';
-        panel.style.bottom = 'auto';
-      }
-    }
-
     function filterList(query) {
       const q = query.trim().toLowerCase();
       let anyVisible = false;
@@ -87,7 +72,7 @@
       if (selectEl.disabled) return;
       document.querySelectorAll('.cs-panel.open').forEach(p => p.classList.remove('open'));
       document.querySelectorAll('.cs-select.open').forEach(w => w.classList.remove('open'));
-      position();
+      positionPanel(panel, trigger);
       wrap.classList.add('open');
       panel.classList.add('open');
       if (searchInp.hidden) trigger.focus(); else searchInp.focus();
@@ -101,7 +86,7 @@
     document.addEventListener('click', (e) => {
       if (!wrap.contains(e.target) && !panel.contains(e.target)) close();
     });
-    window.addEventListener('resize', () => { if (panel.classList.contains('open')) position(); });
+    window.addEventListener('resize', () => { if (panel.classList.contains('open')) positionPanel(panel, trigger); });
     // capture:true — скролл вложенного контейнера (например .modal-body)
     // не всплывает как обычное событие, но перехватывается на фазе
     // погружения; проще закрыть панель, чем пересчитывать позицию на
@@ -148,6 +133,80 @@
     refresh();
   }
 
+  function positionPanel(panel, anchorEl) {
+    const r = anchorEl.getBoundingClientRect();
+    panel.style.left = r.left + 'px';
+    panel.style.minWidth = r.width + 'px';
+    panel.style.maxWidth = Math.min(420, window.innerWidth - r.left - 16) + 'px';
+    const spaceBelow = window.innerHeight - r.bottom;
+    if (spaceBelow < 200 && r.top > spaceBelow) {
+      panel.style.bottom = (window.innerHeight - r.top + 6) + 'px';
+      panel.style.top = 'auto';
+    } else {
+      panel.style.top = (r.bottom + 6) + 'px';
+      panel.style.bottom = 'auto';
+    }
+  }
+
+  // Замена <input list="..."> + <datalist>: нативный datalist-попап тоже
+  // не стилизуется и обрезает длинные варианты по ширине поля — та же
+  // проблема, что и у <select>. Панель — тот же .cs-panel/.cs-list/
+  // .cs-option, что и у buildCustomSelect, для единого вида.
+  // opts.labelOf(item) -> строка для отображения и поиска.
+  // opts.onSelect(item) вызывается по клику на вариант.
+  function buildAutocomplete(inputEl, options) {
+    if (!inputEl) return null;
+    if (inputEl._csAutocomplete) return inputEl._csAutocomplete;
+    const opts = options || {};
+    const labelOf = opts.labelOf || (x => String(x));
+
+    let items = [];
+
+    const panel = el('div', { cls: 'cs-panel cs-autocomplete' });
+    const list = el('div', { cls: 'cs-list' });
+    panel.appendChild(list);
+    document.body.appendChild(panel);
+
+    const close = () => panel.classList.remove('open');
+
+    function render(query) {
+      if (!items.length) { close(); return; }
+      const q = query.trim().toLowerCase();
+      const filtered = q ? items.filter(it => labelOf(it).toLowerCase().indexOf(q) !== -1) : items;
+      list.replaceChildren();
+      if (!filtered.length) { close(); return; }
+      filtered.slice(0, 50).forEach(it => {
+        const row = el('div', { cls: 'cs-option', text: labelOf(it) });
+        // mousedown, не click: инпут иначе теряет фокус (blur) раньше,
+        // чем долетит click, и панель успевает закрыться до выбора.
+        row.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          opts.onSelect && opts.onSelect(it);
+          close();
+        });
+        list.appendChild(row);
+      });
+      positionPanel(panel, inputEl);
+      panel.classList.add('open');
+    }
+
+    inputEl.addEventListener('input', () => render(inputEl.value));
+    inputEl.addEventListener('focus', () => render(inputEl.value));
+    document.addEventListener('click', (e) => {
+      if (e.target !== inputEl && !panel.contains(e.target)) close();
+    });
+    window.addEventListener('resize', () => { if (panel.classList.contains('open')) positionPanel(panel, inputEl); });
+    document.addEventListener('scroll', () => { if (panel.classList.contains('open')) close(); }, true);
+    inputEl.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+    const api = {
+      setItems(newItems) { items = newItems || []; },
+    };
+    inputEl._csAutocomplete = api;
+    return api;
+  }
+
   window.Cabinet = window.Cabinet || {};
   window.Cabinet.buildCustomSelect = buildCustomSelect;
+  window.Cabinet.buildAutocomplete = buildAutocomplete;
 })();
