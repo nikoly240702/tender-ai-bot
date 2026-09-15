@@ -208,7 +208,12 @@ def _build_keyboard(
     if tender_url:
         if not tender_url.startswith('http'):
             tender_url = f"https://zakupki.gov.ru{tender_url}"
-        button_text = "📄 Открыть тендер" if tender.get('source_label') else "📄 Открыть на zakupki.gov.ru"
+        # Подпись называет источник, куда реально ведёт ссылка: московские
+        # КС открываются на Портале поставщиков, а не на zakupki.gov.ru.
+        if tender.get('source_label'):
+            button_text = "📄 Открыть на Портале поставщиков"
+        else:
+            button_text = "📄 Открыть на zakupki.gov.ru"
         buttons.append([
             InlineKeyboardButton(text=button_text, url=tender_url)
         ])

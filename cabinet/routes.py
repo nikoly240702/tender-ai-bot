@@ -421,8 +421,18 @@ async def logout(request: web.Request) -> web.Response:
 # ============================================
 
 def _render_template(template_name: str, request: web.Request = None, **context) -> web.Response:
-    """Рендерит шаблон через aiohttp-jinja2. context передаётся в шаблон."""
-    return aiohttp_jinja2.render_template(template_name, request, context)
+    """Рендерит шаблон через aiohttp-jinja2. context передаётся в шаблон.
+
+    HTML отдаём с запретом кэширования. Статика (CSS/JS) версионируется
+    через ?v=N и кэшируется нормально, а вот сами страницы браузер кэшировал
+    эвристически — после деплоя пользователь продолжал видеть старую вёрстку
+    и считал, что изменения не выехали (ловили это дважды: с новой модалкой
+    результата и с блоком «Экономика сделки»). Страницы динамические и
+    лёгкие, выигрыш от их кэширования мизерный, а путаницы много.
+    """
+    response = aiohttp_jinja2.render_template(template_name, request, context)
+    response.headers['Cache-Control'] = 'no-cache, must-revalidate'
+    return response
 
 
 # ============================================

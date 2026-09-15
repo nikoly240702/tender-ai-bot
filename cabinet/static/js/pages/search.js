@@ -56,7 +56,15 @@
     const p = fmtPrice(t.price);
     byId('tm-price').textContent = p.main + (p.unit ? ' ' + p.unit : '');
     byId('tm-main').textContent = t.customer_name || '—';
-    byId('tm-btn-open').href = t.url || '#';
+    // Ссылка на тендер: подпись соответствует источнику, а href никогда не
+    // равен '#' — иначе клик по «Открыть» уводил на сам кабинет.
+    const openBtn = byId('tm-btn-open');
+    const tnum = t.number || '';
+    const isMos = tnum.startsWith('MOS-');
+    openBtn.href = t.url || (isMos
+      ? 'https://zakupki.mos.ru/auction/' + tnum.slice(4)
+      : 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=' + tnum);
+    openBtn.textContent = 'Открыть тендер \u00B7 ' + (isMos ? 'Портал поставщиков' : 'zakupki.gov.ru');
     const bxBtn = byId('tm-btn-bitrix');
     if (bxBtn) bxBtn.dataset.tenderNumber = t.number || '';
     Modal.open('tender-modal');
