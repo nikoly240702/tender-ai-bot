@@ -394,7 +394,10 @@ body.pipeline-mode .main {
   color: var(--muted);
 }
 .modal-close:hover { color: var(--text); }
-.modal-head { padding: 18px 24px 6px; }
+/* flex-shrink:0 обязателен: .modal-window — flex-колонка с ограниченной
+   высотой, и без этого шапка со вкладками сжимаются, когда контент
+   вырастает (вкладки буквально обрезало пополам после удлинения ссылки). */
+.modal-head { padding: 18px 24px 6px; flex-shrink: 0; }
 .modal-head h2 {
   margin: 0 0 4px;
   font-size: 18px;
@@ -402,6 +405,7 @@ body.pipeline-mode .main {
   padding-right: 36px;
 }
 .modal-head a {
+  display: inline-block;
   font-size: 12px;
   color: var(--accent);
   text-decoration: none;
@@ -413,6 +417,7 @@ body.pipeline-mode .main {
   padding: 0 24px;
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
+  flex-shrink: 0;
 }
 .modal-tab {
   background: none;
@@ -1140,3 +1145,97 @@ body.pipeline-mode .main {
 }
 .calc-row-note .calc-label,
 .calc-row-note .calc-value { color: var(--muted); font-size: 12px; }
+
+/* ============= ВОРОНКА СТАДИЙ (вместо нативного select) ============= */
+.stage-block { margin-bottom: 18px; }
+
+.stage-current {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.stage-current-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+}
+.stage-current-name.is-won { color: var(--positive); }
+.stage-current-name.is-lost { color: var(--alert); }
+.stage-current-name.is-rejected { color: var(--muted); }
+.stage-current-time { font-size: 13px; color: var(--muted); }
+
+/* Сегменты: пройденные — акцентные, текущий — ярче и шире, будущие — серые */
+.stage-track {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.stage-seg {
+  flex: 1;
+  height: 6px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.stage-seg:hover { transform: scaleY(1.6); }
+.stage-seg.done { background: var(--accent-line); }
+.stage-seg.current { background: var(--accent); }
+.stage-seg.current.lost { background: var(--alert); }
+
+.stage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.stage-btn {
+  flex: 1;
+  min-width: 110px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-ui);
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--sub);
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.stage-btn:hover { background: var(--bg-2); }
+.stage-btn-won:hover { border-color: var(--positive); color: var(--positive); }
+.stage-btn-lost:hover { border-color: var(--alert); color: var(--alert); }
+.stage-btn-reject { flex: 0 0 auto; min-width: 90px; }
+.stage-btn[hidden] { display: none; }
+
+/* Свой вид у select — нативный на macOS/iOS выглядит чужеродно */
+.styled-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding: 9px 34px 9px 12px;
+  font-size: 14px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background-color: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+  /* стрелка рисуется фоном, чтобы не зависеть от системного контрола */
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.styled-select:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+@media (max-width: 959px) {
+  .stage-btn { min-width: 0; padding: 12px 10px; }
+  .stage-seg { height: 8px; }  /* крупнее для попадания пальцем */
+}

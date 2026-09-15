@@ -20,14 +20,25 @@
 
     <div class="modal-body">
       <section class="tab-pane active" data-tab="details">
+        {# Стадия — воронка-прогрессбар вместо нативного select: сегменты
+           кликабельны, сразу видно весь путь и где сейчас карточка. #}
+        <div class="stage-block">
+          <div class="stage-current">
+            <span class="stage-current-name" id="cm-stage-name">—</span>
+            <span class="stage-current-time" id="cm-stage-time"></span>
+          </div>
+          <div class="stage-track" id="cm-stage-track"></div>
+          <div class="stage-actions">
+            <button class="stage-btn stage-btn-won" id="cm-stage-won">Успешно</button>
+            <button class="stage-btn stage-btn-lost" id="cm-stage-lost">Неуспешно</button>
+            <button class="stage-btn stage-btn-reject" id="cm-stage-reject">Не берём</button>
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
-            <label>Стадия</label>
-            <select id="cm-stage"></select>
-          </div>
-          <div class="form-group">
             <label>Ответственный</label>
-            <select id="cm-assignee"></select>
+            <select id="cm-assignee" class="styled-select"></select>
           </div>
         </div>
         <div class="prices-block">
@@ -104,9 +115,9 @@
           </div>
         </div>
 
+        {# «Победа/Проигрыш» переехали в блок стадий наверх — здесь их
+           дублировать не нужно. #}
         <div class="modal-actions">
-          <button class="btn btn-positive btn-sm" id="cm-btn-won">Победа</button>
-          <button class="btn btn-alert btn-sm" id="cm-btn-lost">Проигрыш</button>
           <button class="btn btn-secondary btn-sm" id="cm-btn-request" hidden>📨 Запрос поставщикам</button>
           <button class="btn btn-danger btn-sm" id="cm-btn-delete" hidden>Удалить карточку</button>
         </div>
