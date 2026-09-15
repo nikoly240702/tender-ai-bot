@@ -406,6 +406,102 @@
 .empty .title { color: var(--text); font-size: 15px; font-weight: 600; margin-bottom: 6px; }
 .loading { padding: 48px; text-align: center; color: var(--muted); font-family: var(--font-mono); font-size: 12px; }
 
+/* ============== КАСТОМНЫЙ DROPDOWN ============== */
+/* Общая замена <select> (см. custom-select.js) — открытую панель
+   системного списка на macOS/iOS нельзя стилизовать через CSS вообще,
+   только закрытый контрол. Настоящий <select> остаётся источником
+   истины и просто спрятан внутри .cs-select. */
+.cs-select { position: relative; }
+.cs-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background-color: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+}
+.cs-trigger:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.cs-trigger:disabled { cursor: default; opacity: 0.6; }
+.cs-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cs-trigger-arrow {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.15s ease;
+}
+.cs-select.open .cs-trigger-arrow { transform: rotate(-135deg) translateY(2px); }
+.cs-select.open .cs-trigger {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.cs-panel {
+  /* fixed + рисуется в document.body (не внутри контрола) — координаты
+     проставляет JS (position()), чтобы панель не обрезалась скроллом
+     родителя (например .modal-body) при открытии у нижнего края. */
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  position: fixed;
+  z-index: 1200;
+  width: max-content;
+  max-height: 300px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+}
+.cs-panel.open { display: flex; }
+.cs-search {
+  flex-shrink: 0;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: var(--font-ui);
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.cs-search:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-dim); }
+.cs-list { overflow-y: auto; }
+.cs-option {
+  padding: 8px 10px;
+  font-size: 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.cs-option:hover { background: var(--accent-dim); }
+.cs-option.selected { color: var(--accent); font-weight: 600; }
+.cs-option-new {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.cs-empty { padding: 10px; font-size: 13px; color: var(--muted); text-align: center; }
+
 /* ============== МОБИЛЬНАЯ АДАПТАЦИЯ ============== */
 /* Шапка с гамбургером — только на узких экранах. */
 .mobile-topbar { display: none; }
@@ -477,6 +573,8 @@
 
   /* Пункты меню — крупнее для пальца */
   .sidebar nav a { padding-top: 11px; padding-bottom: 11px; }
+  .cs-option { padding: 11px 10px; }
+  .cs-panel { max-width: calc(100vw - 24px) !important; }
 
   /* Поля экрана на телефоне — вместо десктопных 44px */
   .main { padding: 18px 14px 40px; }

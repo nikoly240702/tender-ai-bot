@@ -101,6 +101,11 @@
       select.value = previousValue;
       select.disabled = false;
     }
+    // DOMContentLoaded — custom-select.js подключён в _base.html внизу body,
+    // после сайдбара; к моменту парсинга этого инлайн-скрипта его ещё нет.
+    document.addEventListener('DOMContentLoaded', () => {
+      window.Cabinet.buildCustomSelect(document.getElementById('workspace-select'));
+    });
   </script>
   {% endif %}
 </aside>

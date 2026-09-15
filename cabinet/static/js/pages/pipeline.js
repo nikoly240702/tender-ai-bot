@@ -2,7 +2,7 @@
    Drag через Sortable.js + optimistic UI. Модалка карточки с 5 табами.
    Никакого innerHTML — только createElement / textContent / replaceChildren. */
 (function () {
-  const { Toast } = window.Cabinet;
+  const { Toast, buildCustomSelect } = window.Cabinet;
 
   const STAGE_LABELS = {
     'FOUND': 'Найденные',
@@ -39,102 +39,6 @@
     if (opts.text !== undefined) e.textContent = opts.text;
     if (opts.attrs) Object.keys(opts.attrs).forEach(k => e.setAttribute(k, opts.attrs[k]));
     return e;
-  }
-
-  // Кастомный выпадающий список поверх нативного <select>: на macOS/iOS
-  // системный список нельзя стилизовать через CSS вообще, только сам
-  // закрытый контрол. Держим настоящий <select> скрытым как источник
-  // истины (populate/value/onchange/change-событие — без изменений в
-  // остальном коде), а поверх рисуем свою кликабельную панель.
-  // Повторные вызовы (модалка перерисовывается при каждой загрузке
-  // карточки) не пересоздают обёртку — только обновляют список опций.
-  function buildCustomSelect(selectEl) {
-    if (selectEl._csRefresh) { selectEl._csRefresh(); return; }
-
-    const wrap = el('div', { cls: 'cs-select' });
-    selectEl.parentNode.insertBefore(wrap, selectEl);
-    selectEl.hidden = true;
-    wrap.appendChild(selectEl);
-
-    const trigger = el('button', { cls: 'cs-trigger', attrs: { type: 'button' } });
-    const label = el('span', { cls: 'cs-trigger-label' });
-    trigger.appendChild(label);
-    trigger.appendChild(el('span', { cls: 'cs-trigger-arrow' }));
-    wrap.appendChild(trigger);
-
-    // Панель рисуется в document.body, а не внутри wrap: модалка скроллится
-    // (.modal-body { overflow-y: auto }), и абсолютно позиционированная
-    // панель обрезалась бы этим скроллом при открытии у нижнего края.
-    const panel = el('div', { cls: 'cs-panel' });
-    document.body.appendChild(panel);
-
-    function position() {
-      const r = trigger.getBoundingClientRect();
-      panel.style.left = r.left + 'px';
-      panel.style.minWidth = r.width + 'px';
-      panel.style.maxWidth = Math.min(420, window.innerWidth - r.left - 16) + 'px';
-      const spaceBelow = window.innerHeight - r.bottom;
-      if (spaceBelow < 200 && r.top > spaceBelow) {
-        panel.style.bottom = (window.innerHeight - r.top + 6) + 'px';
-        panel.style.top = 'auto';
-      } else {
-        panel.style.top = (r.bottom + 6) + 'px';
-        panel.style.bottom = 'auto';
-      }
-    }
-
-    const close = () => { wrap.classList.remove('open'); panel.classList.remove('open'); };
-    const open = () => {
-      document.querySelectorAll('.cs-panel.open').forEach(p => p.classList.remove('open'));
-      document.querySelectorAll('.cs-select.open').forEach(w => w.classList.remove('open'));
-      position();
-      wrap.classList.add('open');
-      panel.classList.add('open');
-    };
-
-    trigger.onclick = (e) => {
-      e.stopPropagation();
-      panel.classList.contains('open') ? close() : open();
-    };
-    document.addEventListener('click', (e) => {
-      if (!wrap.contains(e.target) && !panel.contains(e.target)) close();
-    });
-    window.addEventListener('resize', () => { if (panel.classList.contains('open')) position(); });
-    // capture:true — скролл модалки/страницы не всплывает как событие,
-    // но перехватывается на фазе погружения; проще закрыть панель, чем
-    // пересчитывать позицию на каждый кадр скролла.
-    document.addEventListener('scroll', () => { if (panel.classList.contains('open')) close(); }, true);
-    wrap.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && panel.classList.contains('open')) {
-        e.stopPropagation();
-        close();
-        trigger.focus();
-      }
-    });
-
-    function refresh() {
-      const current = selectEl.options[selectEl.selectedIndex];
-      label.textContent = current ? current.textContent : '';
-      panel.replaceChildren();
-      Array.from(selectEl.options).forEach(opt => {
-        const item = el('div', {
-          cls: 'cs-option'
-            + (opt.value === '__new__' ? ' cs-option-new' : '')
-            + (opt.selected ? ' selected' : ''),
-          text: opt.textContent,
-        });
-        item.onclick = () => {
-          selectEl.value = opt.value;
-          selectEl.dispatchEvent(new Event('change'));
-          refresh();
-          close();
-        };
-        panel.appendChild(item);
-      });
-    }
-
-    selectEl._csRefresh = refresh;
-    refresh();
   }
 
   function fmtPrice(v) {
@@ -547,6 +451,7 @@
       if (c.assignee_user_id === m.user_id) opt.selected = true;
       asSel.appendChild(opt);
     });
+    buildCustomSelect(asSel);
     asSel.onchange = async () => {
       const v = asSel.value;
       if (!v) return;
@@ -1135,6 +1040,7 @@
     const searchInput = document.getElementById('pipeline-search');
     const assigneeSelect = document.getElementById('pipeline-filter-assignee');
     if (!searchInput) return;
+    if (assigneeSelect) buildCustomSelect(assigneeSelect, { wrapClass: 'cs-filter' });
 
     function applyFilters() {
       const q = (searchInput.value || '').toLowerCase().trim();
