@@ -550,12 +550,16 @@ body.pipeline-mode .main {
   margin-bottom: 4px;
 }
 
-.ai-block, .relations-block {
+.ai-block, .relations-block, .notes-block {
   background: var(--bg-2);
   border-radius: 6px;
   padding: 12px 14px;
   margin: 14px 0;
 }
+/* Заметки переехали на вкладку «Детали» — на своей вкладке поля тянулись
+   на всю ширину сами, внутри блока это надо задать явно. */
+.notes-block #cm-note-input { width: 100%; margin-bottom: 8px; }
+.notes-block .notes-list:not(:empty) { margin-bottom: 10px; }
 .ai-block-head {
   display: flex;
   justify-content: space-between;
@@ -600,6 +604,12 @@ body.pipeline-mode .main {
   overflow-wrap: break-word;
 }
 .note-item:last-child { border-bottom: none; }
+.note-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.note-link:hover { color: var(--accent-hover); }
 .note-item .note-meta {
   font-family: var(--font-mono);
   font-size: 10px;

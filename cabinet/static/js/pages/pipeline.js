@@ -41,6 +41,33 @@
     return e;
   }
 
+  // Только http/https: протокол вроде javascript: сюда не попадёт даже
+  // из чужой заметки. Текст по-прежнему кладём текстовыми узлами, а не
+  // innerHTML, поэтому вставить разметку через заметку нельзя.
+  const URL_RE = /https?:\/\/[^\s<>"']+/g;
+
+  function appendLinkified(parent, text) {
+    const str = String(text || '');
+    let last = 0;
+    let m;
+    URL_RE.lastIndex = 0;
+    while ((m = URL_RE.exec(str)) !== null) {
+      let url = m[0];
+      // Хвостовая пунктуация — часть предложения, а не адреса.
+      const trailing = url.match(/[.,;:!?)]+$/);
+      if (trailing) url = url.slice(0, -trailing[0].length);
+      if (!url) continue;
+      if (m.index > last) parent.appendChild(document.createTextNode(str.slice(last, m.index)));
+      const a = el('a', { cls: 'note-link', text: url });
+      a.href = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      parent.appendChild(a);
+      last = m.index + url.length;
+    }
+    if (last < str.length) parent.appendChild(document.createTextNode(str.slice(last)));
+  }
+
   function fmtPrice(v) {
     if (v === null || v === undefined) return '';
     return Math.round(v).toLocaleString('ru-RU') + ' ₽';
@@ -696,7 +723,9 @@
     }
     notes.forEach(n => {
       const row = el('div', { cls: 'note-item' });
-      row.appendChild(el('div', { text: n.text }));
+      const body = el('div');
+      appendLinkified(body, n.text);
+      row.appendChild(body);
       row.appendChild(el('div', { cls: 'note-meta', text: `${resolveUserName(n.user_id)} · ${n.created_at || ''}` }));
       list.appendChild(row);
     });
@@ -809,7 +838,11 @@
       row.appendChild(el('div', {
         text: `${q.product_name || '—'} · ${q.supplier_name} — ${q.quantity} × ${fmt(q.unit_price)} = ${fmt(q.line_total)}`,
       }));
-      if (q.notes) row.appendChild(el('div', { cls: 'note-meta', text: q.notes }));
+      if (q.notes) {
+        const qNotes = el('div', { cls: 'note-meta' });
+        appendLinkified(qNotes, q.notes);
+        row.appendChild(qNotes);
+      }
       row.appendChild(el('div', { cls: 'note-meta', text: `${resolveUserName(q.created_by)} · ${q.created_at || ''}` }));
       const edit = el('button', { cls: 'btn btn-ghost btn-sm', text: 'Изменить' });
       edit.onclick = async () => {

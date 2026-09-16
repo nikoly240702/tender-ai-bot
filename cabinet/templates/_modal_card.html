@@ -12,7 +12,6 @@
     <div class="modal-tabs">
       <button class="modal-tab active" data-tab="details">Детали</button>
       <button class="modal-tab" data-tab="quotes">Поставщики</button>
-      <button class="modal-tab" data-tab="notes">Заметки</button>
       <button class="modal-tab" data-tab="files">Файлы</button>
       <button class="modal-tab" data-tab="checklist">Чек-лист</button>
       <button class="modal-tab" data-tab="history">История</button>
@@ -115,6 +114,15 @@
           </div>
         </div>
 
+        {# Заметки живут прямо на «Деталях», а не на своей вкладке:
+           это рабочий журнал по карточке, нужен под рукой. #}
+        <div class="notes-block">
+          <div class="ai-block-head"><strong>Заметки</strong></div>
+          <div id="cm-notes-list" class="notes-list"></div>
+          <textarea id="cm-note-input" rows="3" placeholder="Добавить заметку…"></textarea>
+          <button class="btn btn-primary btn-sm" id="cm-note-add">Добавить</button>
+        </div>
+
         {# «Победа/Проигрыш» переехали в блок стадий наверх — здесь их
            дублировать не нужно. #}
         <div class="modal-actions">
@@ -150,12 +158,6 @@
         <div id="cm-quote-line-total" class="margin-box" hidden></div>
         <textarea id="cm-quote-notes" rows="2" placeholder="Комментарий (необязательно)…"></textarea>
         <button class="btn btn-primary btn-sm" id="cm-quote-add">Добавить позицию</button>
-      </section>
-
-      <section class="tab-pane" data-tab="notes">
-        <div id="cm-notes-list" class="notes-list"></div>
-        <textarea id="cm-note-input" rows="3" placeholder="Добавить заметку…"></textarea>
-        <button class="btn btn-primary btn-sm" id="cm-note-add">Добавить</button>
       </section>
 
       <section class="tab-pane" data-tab="files">
