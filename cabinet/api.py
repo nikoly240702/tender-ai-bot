@@ -1130,9 +1130,20 @@ async def pipeline_create_manual(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         return web.json_response({'error': 'Invalid JSON'}, status=400)
-    tender_number = (body.get('tender_number') or '').strip()
-    if not tender_number:
-        return web.json_response({'error': 'tender_number required'}, status=400)
+    raw_number = (body.get('tender_number') or '').strip()
+    if not raw_number:
+        return web.json_response({'error': 'Укажите номер тендера'}, status=400)
+
+    # Нормализуем на сервере, а не только в браузере: клиенту доверять
+    # нельзя, а необработанный длинный ввод раньше падал в 500
+    # (value too long for character varying(40)).
+    tender_number = pipeline_service.normalize_tender_number(raw_number)
+    if not tender_number or len(tender_number) > pipeline_service.TENDER_NUMBER_MAX_LEN:
+        return web.json_response(
+            {'error': 'Не похоже на номер тендера. Укажите реестровый номер '
+                      'с zakupki.gov.ru, номер котировочной сессии Портала '
+                      'поставщиков или ссылку на тендер целиком.'},
+            status=400)
 
     result = await pipeline_service.create_card_from_tender(
         company_id=company['id'],

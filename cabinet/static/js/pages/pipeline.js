@@ -193,7 +193,10 @@
     const btn = document.getElementById('btn-create-manual');
     if (!btn) return;
     btn.addEventListener('click', async () => {
-      const num = prompt('Номер тендера на zakupki.gov.ru:');
+      const num = prompt(
+        'Номер тендера или ссылка на него.\n\n' +
+        'Подходит и ЕИС (zakupki.gov.ru), и Портал поставщиков Москвы ' +
+        '(zakupki.mos.ru) — можно вставить ссылку целиком.');
       if (!num) return;
       const trimmed = num.trim();
       const r = await fetch('/cabinet/api/pipeline/cards', {

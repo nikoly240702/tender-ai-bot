@@ -180,6 +180,61 @@ def _safe_filename(name: str) -> str:
 # Card CRUD + stage transitions
 # ============================================
 
+# Длина колонки pipeline_cards.tender_number. Раньше не проверялась, и
+# вставленная целиком ссылка роняла создание карточки в 500
+# (StringDataRightTruncationError) вместо понятного сообщения.
+TENDER_NUMBER_MAX_LEN = 40
+
+
+def normalize_tender_number(raw: str) -> Optional[str]:
+    """Приводит пользовательский ввод к номеру тендера или возвращает None.
+
+    Принимает и голый номер, и ссылку целиком — люди копируют из адресной
+    строки, и это нормальный ввод, а не ошибка:
+      * ЕИС:    …/common-info.html?regNumber=0373100108126000448
+      * Москва: https://zakupki.mos.ru/auction/10297580  -> MOS-10297580
+
+    Номера Портала поставщиков внутри системы всегда хранятся с префиксом
+    MOS- (так их пишет mos_portal_mapper), поэтому и здесь нормализуем к
+    нему — иначе карточка не свяжется с уведомлениями по тому же тендеру.
+    """
+    if not raw:
+        return None
+    value = raw.strip()
+
+    # Ссылка на Портал поставщиков Москвы
+    m = re.search(r'zakupki\.mos\.ru/auction/(\d+)', value)
+    if m:
+        return f'MOS-{m.group(1)}'
+
+    # Ссылка на ЕИС — номер лежит в query-параметре regNumber
+    m = re.search(r'[?&]regNumber=([0-9]+)', value)
+    if m:
+        return m.group(1)
+
+    # Уже готовый MOS-номер
+    m = re.fullmatch(r'(?:MOS-)?(\d+)', value, flags=re.IGNORECASE)
+    if m and value.upper().startswith('MOS-'):
+        return f'MOS-{m.group(1)}'
+
+    # Голая цифровая последовательность: реестровый номер ЕИС — 19 цифр,
+    # идентификатор московской КС заметно короче.
+    if m:
+        digits = m.group(1)
+        return digits if len(digits) >= 15 else f'MOS-{digits}'
+
+    return None
+
+
+def _fallback_tender_url(tender_number: str) -> str:
+    """Ссылка на карточку тендера, когда своей ссылки в уведомлении нет.
+    Раньше всегда вела на ЕИС — для московских КС это была битая ссылка."""
+    if tender_number.startswith('MOS-'):
+        return f'https://zakupki.mos.ru/auction/{tender_number[4:]}'
+    return ('https://zakupki.gov.ru/epz/order/notice/ea20/view/'
+            f'common-info.html?regNumber={tender_number}')
+
+
 async def _build_tender_meta(session, tender_number: str,
                              user_id_hint: Optional[int] = None) -> Dict:
     """Собирает meta-данные тендера из sniper_notifications (приоритет user_id_hint,
@@ -200,7 +255,7 @@ async def _build_tender_meta(session, tender_number: str,
         return {
             'name': None, 'customer': None, 'region': None,
             'price_max': None, 'deadline': None,
-            'url': f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
+            'url': _fallback_tender_url(tender_number),
         }
     deadline = None
     if notif.submission_deadline:
@@ -211,7 +266,7 @@ async def _build_tender_meta(session, tender_number: str,
         'region': notif.tender_region,
         'price_max': float(notif.tender_price) if notif.tender_price else None,
         'deadline': deadline,
-        'url': notif.tender_url or f'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={tender_number}',
+        'url': notif.tender_url or _fallback_tender_url(tender_number),
         'filter_name': notif.filter_name,
         'score': notif.score,
     }
