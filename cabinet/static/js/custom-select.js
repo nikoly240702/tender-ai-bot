@@ -91,7 +91,12 @@
     // не всплывает как обычное событие, но перехватывается на фазе
     // погружения; проще закрыть панель, чем пересчитывать позицию на
     // каждый кадр скролла.
-    document.addEventListener('scroll', () => { if (panel.classList.contains('open')) close(); }, true);
+    // Скролл ВНУТРИ самой панели (.cs-list) исключаем: фаза погружения
+    // ловит и его тоже, из-за чего попытка прокрутить длинный список
+    // мгновенно закрывала этот же список.
+    document.addEventListener('scroll', (e) => {
+      if (panel.classList.contains('open') && !panel.contains(e.target)) close();
+    }, true);
     wrap.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && panel.classList.contains('open')) {
         e.stopPropagation();
@@ -196,7 +201,11 @@
       if (e.target !== inputEl && !panel.contains(e.target)) close();
     });
     window.addEventListener('resize', () => { if (panel.classList.contains('open')) positionPanel(panel, inputEl); });
-    document.addEventListener('scroll', () => { if (panel.classList.contains('open')) close(); }, true);
+    // Скролл внутри самой панели не закрывает её — см. тот же случай в
+    // buildCustomSelect: capture-фаза ловит и внутренний скролл списка.
+    document.addEventListener('scroll', (e) => {
+      if (panel.classList.contains('open') && !panel.contains(e.target)) close();
+    }, true);
     inputEl.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
     const api = {
