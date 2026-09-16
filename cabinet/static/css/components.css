@@ -485,8 +485,10 @@
 /* min-height:0 обязателен: без него flex-потомок не сжимается меньше
    высоты своего контента и вместо скролла просто вылезает за пределы
    .cs-panel (её max-height при этом никак не спасает — потомок игнорит
-   ограничение родителя по умолчанию для flex-элементов). */
-.cs-list { overflow-y: auto; min-height: 0; }
+   ограничение родителя по умолчанию для flex-элементов).
+   overscroll-behavior:contain — чтобы докрутка до конца списка не
+   перебрасывала скролл на модалку под панелью (это закрывало бы панель). */
+.cs-list { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
 .cs-option {
   padding: 8px 10px;
   font-size: 14px;
