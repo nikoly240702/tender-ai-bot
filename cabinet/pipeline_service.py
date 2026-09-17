@@ -236,21 +236,41 @@ def _fallback_tender_url(tender_number: str) -> str:
 
 
 async def _build_tender_meta(session, tender_number: str,
-                             user_id_hint: Optional[int] = None) -> Dict:
-    """Собирает meta-данные тендера из sniper_notifications (приоритет user_id_hint,
-    fallback — любая последняя notification по tender_number)."""
+                             user_id_hint: Optional[int] = None,
+                             company_id: Optional[int] = None) -> Dict:
+    """Собирает meta-данные тендера из sniper_notifications.
+
+    Приоритет — уведомление самого создателя карточки, затем уведомление
+    его компании. Данные тендера публичные, но filter_name — нет: он
+    уезжает в заголовок сделки Bitrix (`[Фильтр] Название`), и подставлять
+    туда название фильтра посторонней компании нельзя. Поэтому у чужого
+    уведомления берём только публичные поля.
+    """
     from database import SniperNotification
     q = select(SniperNotification).where(SniperNotification.tender_number == tender_number)
     if user_id_hint is not None:
         q = q.where(SniperNotification.user_id == user_id_hint)
     q = q.order_by(SniperNotification.sent_at.desc()).limit(1)
     notif = await session.scalar(q)
+
+    own = notif is not None
+    if not notif and company_id is not None:
+        # Уведомление своей компании — например, фильтр создал коллега.
+        notif = await session.scalar(
+            select(SniperNotification).where(
+                SniperNotification.tender_number == tender_number,
+                SniperNotification.company_id == company_id,
+            ).order_by(SniperNotification.sent_at.desc()).limit(1)
+        )
+        own = notif is not None
     if not notif:
-        # Fallback: ищем любую notification по tender_number
-        q2 = select(SniperNotification).where(
-            SniperNotification.tender_number == tender_number
-        ).order_by(SniperNotification.sent_at.desc()).limit(1)
-        notif = await session.scalar(q2)
+        # Совсем чужое уведомление: годится как источник публичных данных
+        # тендера, но не имени фильтра.
+        notif = await session.scalar(
+            select(SniperNotification).where(
+                SniperNotification.tender_number == tender_number
+            ).order_by(SniperNotification.sent_at.desc()).limit(1)
+        )
     if not notif:
         return {
             'name': None, 'customer': None, 'region': None,
@@ -267,8 +287,8 @@ async def _build_tender_meta(session, tender_number: str,
         'price_max': float(notif.tender_price) if notif.tender_price else None,
         'deadline': deadline,
         'url': notif.tender_url or _fallback_tender_url(tender_number),
-        'filter_name': notif.filter_name,
-        'score': notif.score,
+        'filter_name': notif.filter_name if own else None,
+        'score': notif.score if own else None,
     }
 
 
@@ -291,7 +311,9 @@ async def create_card_from_tender(
         if existing:
             return {'error': 'already_exists', 'existing_card': _card_dict(existing)}
 
-        meta = await _build_tender_meta(session, tender_number, user_id_hint=creator_user_id)
+        meta = await _build_tender_meta(session, tender_number,
+                                        user_id_hint=creator_user_id,
+                                        company_id=company_id)
         sale_price_default = meta.get('price_max')
 
         card = PipelineCard(
@@ -344,6 +366,7 @@ async def backfill_card_meta(company_id: int) -> int:
             meta = await _build_tender_meta(
                 session, card.tender_number,
                 user_id_hint=card.assignee_user_id or owner_user_id,
+                company_id=company_id,
             )
             if not meta.get('name'):
                 continue  # источника нет
@@ -892,9 +915,28 @@ async def add_checklist(card_id: int, text: str, by_user_id: int) -> Dict:
         }}
 
 
-async def toggle_checklist(item_id: int, done: bool, by_user_id: int) -> Dict:
+async def _checklist_item_of_company(session, item_id: int,
+                                     company_id: int) -> Optional[PipelineCardChecklist]:
+    """Пункт чек-листа, только если его карточка принадлежит этой компании.
+
+    У пунктов чек-листа нет своего company_id — принадлежность определяется
+    через карточку. Маршруты сюда приходят с id ПУНКТА, а не карточки,
+    поэтому обычная проверка get_card(card_id, company_id) в обработчике
+    невозможна, и её забыли: любой залогиненный пользователь мог отметить
+    или удалить пункт в карточке чужой компании, подобрав целое число.
+    """
+    return await session.scalar(
+        select(PipelineCardChecklist)
+        .join(PipelineCard, PipelineCard.id == PipelineCardChecklist.card_id)
+        .where(PipelineCardChecklist.id == item_id,
+               PipelineCard.company_id == company_id)
+    )
+
+
+async def toggle_checklist(item_id: int, done: bool, by_user_id: int,
+                           company_id: int) -> Dict:
     async with DatabaseSession() as session:
-        item = await session.get(PipelineCardChecklist, item_id)
+        item = await _checklist_item_of_company(session, item_id, company_id)
         if not item:
             return {'ok': False, 'error': 'Не найдено'}
         item.done = done
@@ -913,9 +955,9 @@ async def toggle_checklist(item_id: int, done: bool, by_user_id: int) -> Dict:
         return {'ok': True}
 
 
-async def delete_checklist(item_id: int) -> Dict:
+async def delete_checklist(item_id: int, company_id: int) -> Dict:
     async with DatabaseSession() as session:
-        item = await session.get(PipelineCardChecklist, item_id)
+        item = await _checklist_item_of_company(session, item_id, company_id)
         if not item:
             return {'ok': False, 'error': 'Не найдено'}
         await session.delete(item)

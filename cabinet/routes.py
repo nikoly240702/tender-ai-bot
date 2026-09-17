@@ -393,12 +393,18 @@ async def telegram_auth_callback(request: web.Request) -> web.Response:
 
     # Устанавливаем cookie и редиректим
     response = web.HTTPFound('/cabinet/')
+    # secure выводим из схемы запроса, а не ставим жёстко: в бою кабинет за
+    # nginx по HTTPS (там флаг нужен, чтобы cookie сессии не ушла открытым
+    # каналом), но при локальной отладке по http://127.0.0.1:8080 жёсткий
+    # secure просто не дал бы залогиниться.
+    is_https = (request.headers.get('X-Forwarded-Proto', request.scheme) == 'https')
     response.set_cookie(
         'cabinet_session',
         session_token,
         max_age=30 * 24 * 3600,  # 30 дней
         httponly=True,
         samesite='Lax',
+        secure=is_https,
     )
     return response
 

@@ -294,6 +294,11 @@ async def _do_search(task_id: str, card_id: int, company_id: int, by_user_id: in
     """Background task. Обновляет _TASKS[task_id] + сохраняет results в card.data."""
     started_at = _now()
     _TASKS[task_id] = {
+        # Компания владельца задачи: статус отдаётся по одному task_id, без
+        # привязки к карточке, поэтому проверять принадлежность больше не по
+        # чему. Токен угадать трудно, но полагаться на это как на защиту —
+        # значит не иметь проверки прав вовсе.
+        'company_id': company_id,
         'status': 'running',
         'progress': '0/?',
         'current_step': 'Загружаю карточку',
@@ -408,8 +413,12 @@ async def start_search(card_id: int, company_id: int, by_user_id: int,
     return {'cached': False, 'task_id': task_id}
 
 
-def get_status(task_id: str) -> Optional[Dict[str, Any]]:
-    return _TASKS.get(task_id)
+def get_status(task_id: str, company_id: int) -> Optional[Dict[str, Any]]:
+    """Статус задачи — только своей компании. Чужая неотличима от несуществующей."""
+    task = _TASKS.get(task_id)
+    if not task or task.get('company_id') != company_id:
+        return None
+    return {k: v for k, v in task.items() if k != 'company_id'}
 
 
 # ============================================
