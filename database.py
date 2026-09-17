@@ -1261,6 +1261,42 @@ class OwnProduct(Base):
     )
 
 
+class TenderPool(Base):
+    """Общий пул тендеров: скачано один раз — матчится всеми фильтрами.
+
+    Раньше каждый фильтр качал площадку сам, по каждому своему ключевому
+    слову, поэтому объём запросов рос как (фильтры × ключевики) и упирался
+    в блокировку. Здесь список новых публикаций забирается постранично
+    независимо от числа фильтров, а сопоставление идёт локально.
+
+    Поля — ровно то, что отдаёт страница выдачи. Региона там нет, он
+    догружается позже и только для совпавших (см. enriched_at).
+    """
+    __tablename__ = 'tender_pool'
+    tender_number = Column(String(40), primary_key=True)
+    name = Column(Text, nullable=True)
+    customer = Column(Text, nullable=True)
+    price = Column(Float, nullable=True)
+    region = Column(String(255), nullable=True)
+    law = Column(String(16), nullable=True)
+    procedure_type = Column(String(255), nullable=True)
+    status = Column(String(255), nullable=True)
+    url = Column(String(500), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    submission_deadline = Column(DateTime, nullable=True)
+    source = Column(String(32), nullable=False, default='eis')
+    fetched_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, nullable=True)
+    # NULL = ещё не прогонялся через фильтры. Это одновременно и очередь
+    # матчинга, переживающая рестарт воркера.
+    matched_at = Column(DateTime, nullable=True)
+    enriched_at = Column(DateTime, nullable=True)
+    __table_args__ = (
+        Index('ix_tender_pool_matching', 'matched_at', 'fetched_at'),
+        Index('ix_tender_pool_published', 'published_at'),
+    )
+
+
 # ============================================
 # ЭКСПОРТ
 # ============================================
@@ -1317,6 +1353,7 @@ __all__ = [
     'SupplierProduct',
     'PipelineCardQuote',
     'OwnProduct',
+    'TenderPool',
     # Functions
     'init_database',
     'get_session',
