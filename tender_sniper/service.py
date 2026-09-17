@@ -90,6 +90,9 @@ class TenderSniperService:
         # Дедупликация: (chat_id, tender_number) — персистентный между циклами
         self._seen_tenders: set = set()
         self._seen_tenders_reset_at: Optional[datetime] = None
+        # Сколько циклов подряд с площадки не пришло ни одного тендера —
+        # см. _check_source_health.
+        self._empty_cycles: int = 0
 
     async def initialize(self):
         """Инициализация всех компонентов."""
@@ -304,6 +307,8 @@ class TenderSniperService:
             sent_count = 0
             failed_count = 0
             search_error_count = 0
+            cycle_total_found = 0   # тендеров скачано с площадки за цикл (до матчинга)
+            searched_filters = 0    # фильтров, по которым поиск реально выполнялся
 
             for filter_data, result in zip(filters, raw_results):
                 filter_id = filter_data['id']
@@ -341,6 +346,9 @@ class TenderSniperService:
                     continue
 
                 matches = result.get('matches', [])
+                cycle_total_found += result.get('total_found', 0)
+                if result.get('searched'):
+                    searched_filters += 1
                 logger.info(f"\n   🔍 Фильтр «{filter_name}» (ID: {filter_id}): {len(matches)} совпадений")
 
                 # Единый порог для composite score
@@ -588,7 +596,10 @@ class TenderSniperService:
                     notifications_to_send = []  # Очищаем после отправки
 
             # 3. Итоги цикла
-            logger.info(f"\n   📊 Итого за цикл: {sent_count} отправлено, {failed_count} ошибок отправки, {search_error_count} ошибок поиска")
+            logger.info(f"\n   📊 Итого за цикл: {sent_count} отправлено, {failed_count} ошибок отправки, "
+                        f"{search_error_count} ошибок поиска, {cycle_total_found} тендеров скачано")
+
+            await self._check_source_health(cycle_total_found, searched_filters, search_error_count)
 
             # Очищаем кэш обогащения после каждого цикла (экономия памяти)
             cache_stats = InstantSearch.get_cache_stats()
@@ -691,6 +702,66 @@ class TenderSniperService:
 
         return True
 
+    # После скольких подряд «пустых» циклов бить тревогу. Два, а не один:
+    # единичный пустой цикл бывает при кратковременном сбое площадки и сам
+    # себя лечит на следующем проходе, а два подряд — это уже не случайность.
+    EMPTY_CYCLES_BEFORE_ALERT = 2
+
+    async def _check_source_health(self, cycle_total_found: int,
+                                   searched_filters: int,
+                                   search_error_count: int) -> None:
+        """Ловит ситуацию «источник молча отдаёт пустоту».
+
+        При недоступности всех прокси парсер возвращает пустой список — для
+        вызывающего кода это «тендеров нет», а не ошибка: счётчик ошибок не
+        растёт, исключения нет, в логах тишина. В сентябре 2026 из-за этого
+        поиск по ЕИС стоял несколько часов, и заметили это только вручную.
+
+        Сигнал берём до матчинга: ноль СОВПАДЕНИЙ — нормальное состояние
+        (может, и правда ничего подходящего не публиковали), а ноль
+        СКАЧАННЫХ тендеров сразу по всем фильтрам — источник недоступен.
+        """
+        if searched_filters == 0:
+            return  # искать было нечего — не повод для тревоги
+
+        if cycle_total_found > 0:
+            if self._empty_cycles >= self.EMPTY_CYCLES_BEFORE_ALERT:
+                logger.info(f"   ✅ Источник восстановился после {self._empty_cycles} пустых циклов")
+                try:
+                    from tender_sniper.monitoring import send_ops_alert
+                    await send_ops_alert(
+                        "Источник тендеров восстановился",
+                        {"Пустых циклов было": self._empty_cycles,
+                         "Скачано в этом цикле": cycle_total_found},
+                    )
+                except Exception as e:
+                    logger.error(f"Не удалось отправить алерт о восстановлении: {e}")
+            self._empty_cycles = 0
+            return
+
+        self._empty_cycles += 1
+        logger.warning(f"   ⚠️ Пустой цикл #{self._empty_cycles}: "
+                       f"по {searched_filters} фильтрам не скачано ни одного тендера")
+
+        # Алертим на пороге и дальше раз в 10 циклов, чтобы не спамить,
+        # но и не молчать, если проблема затянулась на сутки.
+        n = self._empty_cycles
+        if n == self.EMPTY_CYCLES_BEFORE_ALERT or (
+                n > self.EMPTY_CYCLES_BEFORE_ALERT and n % 10 == 0):
+            try:
+                from tender_sniper.monitoring import send_ops_alert
+                await send_ops_alert(
+                    "Тендеры не скачиваются",
+                    {"Пустых циклов подряд": n,
+                     "Фильтров опрошено": searched_filters,
+                     "Ошибок поиска": search_error_count},
+                    detail=("Площадка не отдала ни одного тендера. Вероятные причины: "
+                            "недоступны прокси, блокировка по IP или сбой на стороне "
+                            "площадки. Уведомления сейчас не приходят."),
+                )
+            except Exception as e:
+                logger.error(f"Не удалось отправить алерт о пустых циклах: {e}")
+
     async def _search_filter_matches(self, filter_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Выполняет RSS-поиск для одного фильтра. Предназначен для параллельного запуска.
@@ -708,7 +779,7 @@ class TenderSniperService:
 
         if not keywords:
             logger.debug(f"   ⏭ Фильтр {filter_id}: нет ключевых слов, пропускаем")
-            return {'matches': []}
+            return {'matches': [], 'total_found': 0, 'searched': False}
 
         expanded_keywords_raw = filter_data.get('expanded_keywords', [])
         if isinstance(expanded_keywords_raw, str):
@@ -729,7 +800,14 @@ class TenderSniperService:
             subscription_tier=subscription_tier
         )
         await self.db.reset_filter_error_count(filter_id)
-        return {'matches': search_results.get('matches', [])}
+        # total_found — сколько тендеров вообще пришло с площадки ДО матчинга.
+        # Отдаём наружу как сигнал здоровья источника: ноль совпадений — норма,
+        # ноль скачанных тендеров по всем фильтрам разом — источник недоступен.
+        return {
+            'matches': search_results.get('matches', []),
+            'total_found': search_results.get('total_found', 0),
+            'searched': True,
+        }
 
     def _print_stats(self):
         """Вывод статистики работы сервиса."""
