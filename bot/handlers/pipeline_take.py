@@ -95,10 +95,23 @@ async def handle_take_work(callback: CallbackQuery):
         # любое по этому номеру (нажавший мог не быть тем, кто изначально
         # получил уведомление — например, в групповом чате).
         notif = await db.get_notification_by_tender_number(user['id'], tender_number)
-        if not notif or not notif.get('company_id'):
-            notif = await db.find_notification_by_tender_number(tender_number)
         if notif and notif.get('company_id'):
             company_id = notif['company_id']
+        else:
+            # Уведомления под нажавшим нет — он мог нажать в групповом чате,
+            # куда фильтр слал уведомление от имени другого пользователя.
+            # Но брать company_id из ЛЮБОГО уведомления по этому номеру
+            # нельзя: тендер могли поймать фильтры посторонней компании, и
+            # тогда карточка уехала бы к ним на канбан (и в их Bitrix).
+            # Берём чужое уведомление, только если нажавший реально состоит
+            # в той компании.
+            from cabinet.team_service import list_companies_for_user
+
+            other = await db.find_notification_by_tender_number(tender_number)
+            if other and other.get('company_id'):
+                my_company_ids = {c['id'] for c in await list_companies_for_user(user['id'])}
+                if other['company_id'] in my_company_ids:
+                    company_id = other['company_id']
 
         company = None
         if company_id:

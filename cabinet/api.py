@@ -1573,18 +1573,22 @@ async def pipeline_add_checklist(request: web.Request) -> web.Response:
 
 @require_team_member
 async def pipeline_toggle_checklist(request: web.Request) -> web.Response:
-    user = request['user']
+    user = request['user']; company = request['company']
     item_id = int(request.match_info['cid'])
     body = await request.json()
     done = bool(body.get('done', True))
-    result = await pipeline_service.toggle_checklist(item_id, done, user['user_id'])
-    return web.json_response(result, status=200 if result['ok'] else 400)
+    # company_id уходит в сервис: здесь в маршруте id пункта, а не карточки,
+    # поэтому привычная проверка get_card(...) невозможна.
+    result = await pipeline_service.toggle_checklist(
+        item_id, done, user['user_id'], company['id'])
+    return web.json_response(result, status=200 if result['ok'] else 404)
 
 
 @require_team_member
 async def pipeline_delete_checklist(request: web.Request) -> web.Response:
+    company = request['company']
     item_id = int(request.match_info['cid'])
-    result = await pipeline_service.delete_checklist(item_id)
+    result = await pipeline_service.delete_checklist(item_id, company['id'])
     return web.json_response(result, status=200 if result['ok'] else 404)
 
 
@@ -1829,10 +1833,11 @@ async def holodilnik_start_search(request: web.Request) -> web.Response:
 
 @require_team_member
 async def holodilnik_get_status(request: web.Request) -> web.Response:
+    company = request['company']
     task_id = request.query.get('task_id', '')
     if not task_id:
         return web.json_response({'error': 'task_id required'}, status=400)
-    status = holodilnik_service.get_status(task_id)
+    status = holodilnik_service.get_status(task_id, company['id'])
     if not status:
         return web.json_response({'error': 'Task not found'}, status=404)
     return web.json_response(status)
