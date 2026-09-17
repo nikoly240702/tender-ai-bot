@@ -33,6 +33,7 @@ from database import (
     GeneratedDocument as GeneratedDocumentModel,
     WebSession as WebSessionModel,
     CompanyMember as CompanyMemberModel,
+    Company as CompanyModel,
     get_session,
     DatabaseSession
 )
@@ -436,6 +437,24 @@ class TenderSniperDB:
                 )
                 if membership:
                     resolved_company_id = membership.company_id
+                else:
+                    # Компании нет вовсе. Раньше она создавалась только при
+                    # первом заходе в веб-кабинет, поэтому у пользователя,
+                    # живущего в боте, фильтр получал company_id=NULL и
+                    # потом не показывался в кабинете — вместе со всеми
+                    # уведомлениями по нему.
+                    user = await session.get(SniperUserModel, user_id)
+                    name_base = (user.first_name if user and user.first_name
+                                 else f'User {user_id}')
+                    company = CompanyModel(name=f'Команда {name_base}',
+                                           owner_user_id=user_id)
+                    session.add(company)
+                    await session.flush()
+                    session.add(CompanyMemberModel(company_id=company.id,
+                                                   user_id=user_id, role='owner'))
+                    resolved_company_id = company.id
+                    logger.info(f"Создана компания {company.id} для user {user_id} "
+                                f"при создании фильтра (бот)")
 
             filter_obj = SniperFilterModel(
                 user_id=user_id,
