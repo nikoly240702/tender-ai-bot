@@ -508,6 +508,48 @@ async def send_error_to_telegram(
         logger.error(f"❌ Не удалось отправить ошибку в Telegram: {e}")
 
 
+async def send_ops_alert(title: str, lines: Dict[str, Any] = None, detail: str = ""):
+    """Эксплуатационный алерт админу — не про исключение, а про состояние.
+
+    send_error_to_telegram рассчитан на Exception с traceback. Здесь другой
+    случай: ничего не упало, но система работает вхолостую (например, парсер
+    вернул ноль тендеров несколько циклов подряд). Такие отказы тихие: в коде
+    это валидный пустой результат, а не ошибка, и без явного алерта они
+    остаются незамеченными часами.
+    """
+    global _telegram_error_bot, _admin_chat_id
+
+    if not _telegram_error_bot or not _admin_chat_id:
+        logger.warning(f"⚠️ Ops-алерт не отправлен (нет токена/admin_chat_id): {title}")
+        return
+
+    try:
+        import httpx
+        from datetime import datetime
+
+        message = (f"⚠️ <b>{title}</b>\n\n"
+                   f"<b>Время:</b> {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
+        if lines:
+            message += '\n'.join(f"• {k}: <b>{v}</b>" for k, v in lines.items()) + "\n"
+        if detail:
+            message += f"\n{detail}"
+
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"https://api.telegram.org/bot{_telegram_error_bot}/sendMessage",
+                json={
+                    "chat_id": _admin_chat_id,
+                    "text": message[:4000],
+                    "parse_mode": "HTML",
+                    "disable_notification": False,
+                },
+                timeout=10,
+            )
+        logger.info(f"📤 Ops-алерт отправлен админу: {title}")
+    except Exception as e:
+        logger.error(f"❌ Не удалось отправить ops-алерт: {e}")
+
+
 def send_error_to_telegram_sync(
     error: Exception,
     context: str = "",
