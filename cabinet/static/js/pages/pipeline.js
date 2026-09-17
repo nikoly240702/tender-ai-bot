@@ -586,8 +586,27 @@
 
     // AI block
     document.getElementById('cm-ai-summary').textContent = c.ai_summary || 'Анализ ещё не запускался.';
-    document.getElementById('cm-ai-recommendation').textContent = c.ai_recommendation
-      ? ('Рекомендация: ' + c.ai_recommendation) : '';
+    const recEl = document.getElementById('cm-ai-recommendation');
+    recEl.replaceChildren();
+    const analysis = (c.data && c.data.ai_analysis) || null;
+    const flags = (analysis && analysis.red_flags) || [];
+    if (flags.length) {
+      // Риски выводим списком и заметно: это то, из-за чего в тендер
+      // не идут, и терять их в сплошном тексте нельзя.
+      const head = el('div', { cls: 'ai-flags-head', text: '⚠️ На что обратить внимание' });
+      recEl.appendChild(head);
+      const list = el('ul', { cls: 'ai-flags' });
+      flags.forEach(f => list.appendChild(el('li', { text: String(f) })));
+      recEl.appendChild(list);
+    } else if (c.ai_recommendation) {
+      recEl.appendChild(el('div', { text: c.ai_recommendation }));
+    }
+    if (analysis && analysis.tz_source) {
+      const src = { card_files: 'файлы карточки', zakupki: 'документация с ЕИС',
+                    cache: 'документация с ЕИС (из кэша)',
+                    fallback_summary: 'краткое описание' }[analysis.tz_source] || analysis.tz_source;
+      recEl.appendChild(el('div', { cls: 'ai-source', text: 'Источник: ' + src }));
+    }
     document.getElementById('cm-ai-run').onclick = () => runAi(c.id);
 
     // Action buttons

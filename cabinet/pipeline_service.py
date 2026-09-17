@@ -1071,38 +1071,155 @@ async def enrich_card_with_ai(card_id: int, by_user_id: int) -> Dict:
     return {'ok': True, 'started': True}
 
 
+async def _refund_ai_quota(company_id: int) -> None:
+    """Возвращает списанную квоту, если анализ ничего не дал.
+
+    Квота списывается до запуска (чтобы параллельные нажатия не проскочили
+    мимо лимита), поэтому при провале её надо вернуть — иначе пользователь
+    платит за пустой результат. Именно так и было: кнопка списывала квоту,
+    падала на несуществующей функции и рапортовала об успехе.
+    """
+    try:
+        async with DatabaseSession() as session:
+            company = await session.get(Company, company_id)
+            if not company:
+                return
+            owner = await session.get(SniperUser, company.owner_user_id)
+            if owner and (owner.ai_analyses_used_month or 0) > 0:
+                owner.ai_analyses_used_month -= 1
+                await session.commit()
+    except Exception as e:
+        logger.warning(f'Не удалось вернуть квоту AI: {e}')
+
+
+def _format_ai_summary(data: Dict) -> str:
+    """Человекочитаемая выжимка из извлечённых условий контракта.
+
+    Показываем только то, что реально извлечено из документации. Пустые
+    поля не пишем вовсе: строка «Требования: не указаны» выглядит как
+    ответ, хотя означает лишь, что мы не нашли данных.
+    """
+    lines = []
+    pairs = [
+        ('items_description', 'Предмет'),
+        ('execution_deadline', 'Срок исполнения'),
+        ('delivery_address', 'Место поставки'),
+        ('application_security', 'Обеспечение заявки'),
+        ('contract_security', 'Обеспечение контракта'),
+        ('advance_percent', 'Аванс'),
+        ('payment_deadline', 'Срок оплаты'),
+        ('licenses_required', 'Лицензии/допуски'),
+        ('experience_required', 'Опыт'),
+    ]
+    for key, label in pairs:
+        value = data.get(key)
+        if value and str(value).strip().lower() not in ('не указано', 'нет данных', 'none'):
+            lines.append(f'{label}: {value}')
+    return '\n'.join(lines)
+
+
 async def _do_ai_enrich(card_id: int, by_user_id: int):
-    """Background task: вызывает существующие AI-функции, обновляет карточку."""
+    """Разбор документации тендера: качаем ТЗ, извлекаем условия контракта.
+
+    Раньше здесь вызывались `summarize_tender(dict)` (ждёт строку) и
+    `check_relevance` (такой функции нет вовсе — есть
+    `check_tender_relevance`). Обе ветки падали в except, карточка
+    помечалась «анализ готов» с пустым содержимым, а квота сгорала.
+
+    Теперь работает на том, что уже написано и используется в проде для
+    запросов поставщикам: get_full_tz_text качает документацию с ЕИС и
+    кэширует текст, TenderDocumentExtractor вытаскивает из него условия
+    контракта и считает red flags (лицензии ФСБ/ФСТЭК, обеспечение выше
+    5%, поставка партиями с оплатой в конце, короткий срок подачи).
+    """
+    company_id = None
     try:
         async with DatabaseSession() as session:
             card = await session.get(PipelineCard, card_id)
             if not card:
                 return
-            tender_data = card.data or {}
+            company_id = card.company_id
+            card_data = dict(card.data or {})
+            company = await session.get(Company, company_id)
+            owner = await session.get(SniperUser, company.owner_user_id) if company else None
+            tier = (owner.subscription_tier if owner else 'trial') or 'trial'
 
-            summary = None
-            recommendation = None
-            try:
-                from tender_sniper.ai_summarizer import summarize_tender
-                summary = await summarize_tender(tender_data)
-            except Exception as e:
-                logger.warning(f'AI summarizer failed: {e}')
-            try:
-                from tender_sniper.ai_relevance_checker import check_relevance
-                recommendation = await check_relevance(tender_data, {'name': 'pipeline'})
-            except Exception as e:
-                logger.warning(f'AI relevance checker failed: {e}')
+        from cabinet.tz_text_service import get_full_tz_text
+        tz = await get_full_tz_text(card_id, company_id)
+        text = (tz or {}).get('text') or ''
+        source = (tz or {}).get('source')
 
-            card.ai_summary = (summary or '')[:2000] if summary else None
-            card.ai_recommendation = (recommendation or '')[:40] if recommendation else None
+        # 'name_only' значит, что документацию достать не удалось и есть
+        # только название — анализировать нечего, и это надо сказать прямо,
+        # а не выдавать пересказ названия за разбор.
+        if not tz or not tz.get('ok') or source == 'name_only' or len(text) < 200:
+            async with DatabaseSession() as session:
+                card = await session.get(PipelineCard, card_id)
+                if card:
+                    card.ai_summary = ('Документация тендера недоступна — '
+                                       'анализировать нечего. Приложите файлы '
+                                       'к карточке и запустите анализ снова.')
+                    card.ai_recommendation = None
+                    card.ai_enriched_at = datetime.utcnow()
+                    await session.commit()
+            if company_id:
+                await _refund_ai_quota(company_id)
+            return
+
+        from tender_sniper.ai_document_extractor import TenderDocumentExtractor
+        extractor = TenderDocumentExtractor()
+        data, ok = await extractor.extract_from_text(
+            text,
+            subscription_tier=tier,
+            tender_info={'number': card_data.get('number') or '',
+                         'name': card_data.get('name') or '',
+                         'price': card_data.get('price_max')},
+        )
+
+        if not ok or not data:
+            async with DatabaseSession() as session:
+                card = await session.get(PipelineCard, card_id)
+                if card:
+                    card.ai_summary = 'Не удалось разобрать документацию. Попробуйте позже.'
+                    card.ai_enriched_at = datetime.utcnow()
+                    await session.commit()
+            if company_id:
+                await _refund_ai_quota(company_id)
+            return
+
+        red_flags = data.get('red_flags') or []
+        summary = _format_ai_summary(data)
+
+        async with DatabaseSession() as session:
+            card = await session.get(PipelineCard, card_id)
+            if not card:
+                return
+            card.ai_summary = (summary or 'Условия в документации не найдены')[:2000]
+            # Короткое поле (40 символов) — держим в нём не пересказ, а вывод.
+            card.ai_recommendation = (
+                f'Есть риски: {len(red_flags)}' if red_flags else 'Явных рисков нет')[:40]
+            # Структурированный разбор кладём в data: под него нет колонок,
+            # а JSON-поле у карточки уже есть.
+            new_data = dict(card.data or {})
+            new_data['ai_analysis'] = {
+                'fields': {k: v for k, v in data.items() if not k.startswith('_')},
+                'red_flags': red_flags,
+                'tz_source': source,
+                'analyzed_at': datetime.utcnow().isoformat(),
+            }
+            card.data = new_data
             card.ai_enriched_at = datetime.utcnow()
-            history = PipelineCardHistory(
-                card_id=card_id, user_id=by_user_id, action='ai_enriched', payload={},
-            )
-            session.add(history)
+            session.add(PipelineCardHistory(
+                card_id=card_id, user_id=by_user_id, action='ai_enriched',
+                payload={'red_flags': len(red_flags), 'tz_source': source},
+            ))
             await session.commit()
+        logger.info(f'AI-анализ карточки {card_id}: источник ТЗ {source}, '
+                    f'{len(text)} символов, red flags {len(red_flags)}')
     except Exception as e:
         logger.error(f'AI enrich failed for card {card_id}: {e}', exc_info=True)
+        if company_id:
+            await _refund_ai_quota(company_id)
 
 
 # ============================================
