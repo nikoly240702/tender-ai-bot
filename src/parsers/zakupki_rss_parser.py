@@ -517,6 +517,8 @@ class ZakupkiRSSParser:
         purchase_stage: Optional[str] = None,
         purchase_method: Optional[str] = None,
         date_from: Optional[str] = None,
+        records_per_page: str = '_50',
+        page_number: int = 1,
     ) -> List[Dict[str, Any]]:
         """
         Fallback: парсинг HTML-страницы поиска вместо RSS.
@@ -533,7 +535,10 @@ class ZakupkiRSSParser:
                 date_from=date_from,
             )
             html_url = rss_url.replace('/rss.html?', '/results.html?')
-            html_url += '&recordsPerPage=_50&pageNumber=1'
+            # Постраничность нужна общему пулу: он забирает всю выдачу за
+            # период, а не первые N по одному ключевому слову. '_500' отдаёт
+            # 200 карточек — больше площадка на страницу не кладёт.
+            html_url += f'&recordsPerPage={records_per_page}&pageNumber={page_number}'
 
             _log.info(f"   🌐 HTML fallback: {html_url[:150]}...")
 
