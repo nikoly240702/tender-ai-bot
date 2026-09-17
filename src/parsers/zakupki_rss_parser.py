@@ -608,12 +608,28 @@ class ZakupkiRSSParser:
                     if customer_div:
                         tender['customer'] = customer_div.text.strip()
 
-                    # Даты
-                    date_blocks = card.find_all('div', class_='data-block__value')
-                    if len(date_blocks) >= 1:
-                        tender['published'] = date_blocks[0].text.strip()
-                    if len(date_blocks) >= 2:
-                        tender['submission_deadline'] = date_blocks[1].text.strip()
+                    # Даты. Берём по ПОДПИСИ, а не по позиции: на карточке их
+                    # три — «Размещено», «Обновлено», «Окончание подачи
+                    # заявок». Раньше индекс [1] попадал в «Обновлено» и
+                    # уезжал в submission_deadline, из-за чего сервис считал
+                    # свежий тендер просроченным и молча его отбрасывал.
+                    # Набор подписей меняется от типа процедуры (у закупки
+                    # у единственного поставщика срока подачи нет вовсе),
+                    # поэтому позиционный доступ здесь принципиально ненадёжен.
+                    date_titles = [t.get_text(strip=True)
+                                   for t in card.find_all('div', class_='data-block__title')]
+                    date_values = [v.get_text(strip=True)
+                                   for v in card.find_all('div', class_='data-block__value')]
+                    dates = dict(zip(date_titles, date_values))
+                    if dates.get('Размещено'):
+                        tender['published'] = dates['Размещено']
+                    elif date_values:
+                        tender['published'] = date_values[0]
+                    for label in ('Окончание подачи заявок', 'Окончание подачи заявки',
+                                  'Дата окончания подачи заявок'):
+                        if dates.get(label):
+                            tender['submission_deadline'] = dates[label]
+                            break
 
                     if tender.get('number'):
                         tenders.append(tender)
