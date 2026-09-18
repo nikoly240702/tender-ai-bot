@@ -58,30 +58,60 @@ class _TelegramRateLimiter:
         self._per_chat_last: Dict[int, float] = {}
         self._lock = asyncio.Lock()
 
+    # Сколько записей о последней отправке держим. Словарь chat_id -> время
+    # иначе растёт бесконечно: каждый чат, которому когда-либо слали, остаётся
+    # в памяти воркера навсегда.
+    _MAX_TRACKED_CHATS = 10_000
+
+    def _prune_chat_history(self, now: float) -> None:
+        """Выкидывает чаты, которым давно не слали: их пауза всё равно истекла."""
+        if len(self._per_chat_last) <= self._MAX_TRACKED_CHATS:
+            return
+        cutoff = now - self.PER_CHAT_INTERVAL * 10
+        self._per_chat_last = {
+            chat: ts for chat, ts in self._per_chat_last.items() if ts > cutoff
+        }
+
     async def acquire(self, chat_id: int):
-        """Ожидает разрешения перед отправкой сообщения в chat_id."""
-        async with self._lock:
-            now = time.monotonic()
+        """Ожидает разрешения перед отправкой сообщения в chat_id.
 
-            # Пополняем глобальный bucket
-            elapsed = now - self._last_refill
-            self._tokens = min(float(self.GLOBAL_RATE), self._tokens + elapsed * self.GLOBAL_RATE)
-            self._last_refill = now
+        Ждать нужно ВНЕ лока. Раньше обе паузы стояли внутри `async with
+        self._lock`, а лок один на процесс (синглтон) — поэтому ожидание
+        per-chat паузы в 1.1 с останавливало отправку и во все остальные
+        чаты. Реальная пропускная способность выходила около 0.9 сообщения
+        в секунду вместо заявленных 25, и рассылка растягивалась линейно по
+        числу получателей.
 
-            # Ждём глобальный токен
-            if self._tokens < 1.0:
-                wait = (1.0 - self._tokens) / self.GLOBAL_RATE
-                await asyncio.sleep(wait)
-                self._tokens = 0.0
-            else:
-                self._tokens -= 1.0
+        Под локом теперь только расчёт и резервирование слота, а сама пауза
+        снаружи — пока один чат ждёт свою секунду, другие продолжают идти.
+        """
+        while True:
+            async with self._lock:
+                now = time.monotonic()
 
-            # Ждём per-chat лимит
-            last_send = self._per_chat_last.get(chat_id, 0.0)
-            chat_wait = self.PER_CHAT_INTERVAL - (time.monotonic() - last_send)
-            if chat_wait > 0:
-                await asyncio.sleep(chat_wait)
-            self._per_chat_last[chat_id] = time.monotonic()
+                # Пополняем глобальный bucket
+                elapsed = now - self._last_refill
+                self._tokens = min(float(self.GLOBAL_RATE),
+                                   self._tokens + elapsed * self.GLOBAL_RATE)
+                self._last_refill = now
+
+                global_wait = 0.0
+                if self._tokens < 1.0:
+                    global_wait = (1.0 - self._tokens) / self.GLOBAL_RATE
+
+                last_send = self._per_chat_last.get(chat_id, 0.0)
+                chat_wait = self.PER_CHAT_INTERVAL - (now - last_send)
+
+                wait = max(global_wait, chat_wait, 0.0)
+                if wait <= 0:
+                    # Слот свободен — занимаем его, не отпуская лок, иначе две
+                    # отправки в один чат могут одновременно решить, что можно.
+                    self._tokens -= 1.0
+                    self._per_chat_last[chat_id] = now
+                    self._prune_chat_history(now)
+                    return
+
+            await asyncio.sleep(wait)
 
 
 # Singleton rate limiter — единый для всего процесса

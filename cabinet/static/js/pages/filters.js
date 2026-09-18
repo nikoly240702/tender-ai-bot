@@ -394,7 +394,22 @@
       if (kws.children.length > 0) card.appendChild(kws);
 
       const meta = el('div', { cls: 'meta' });
-      meta.appendChild(el('span', { cls: 'match-count', text: String(f.match_count || 0) + ' совпадений' }));
+      // Показываем совпадения за окно, а не за всё время: match_count
+      // накопительный и не уменьшается, а уведомления чистятся через 60
+      // дней — из-за этого счётчик показывал тысячи там, где в базе лежали
+      // сотни, и по нему нельзя было понять, работает ли фильтр сейчас.
+      const days = f.recent_match_days || 30;
+      const recent = f.recent_match_count;
+      const countEl = el('span', {
+        cls: 'match-count',
+        text: recent === undefined
+          ? String(f.match_count || 0) + ' совпадений'
+          : String(recent) + ' за ' + days + ' дн.',
+      });
+      if (recent !== undefined && f.match_count) {
+        countEl.title = 'Всего за всё время: ' + f.match_count;
+      }
+      meta.appendChild(countEl);
       if (f.price_min || f.price_max) {
         meta.appendChild(el('span', { text: 'Цена: ' + (fmtPrice(f.price_min) || '0') + '—' + (fmtPrice(f.price_max) || '∞') + ' ₽' }));
       }

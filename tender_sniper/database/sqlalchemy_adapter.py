@@ -40,6 +40,11 @@ from database import (
 
 logger = logging.getLogger(__name__)
 
+# Окно для «живого» счётчика совпадений у фильтра. Меньше срока хранения
+# уведомлений (60 дней, см. bot/main.py), иначе счётчик снова начал бы
+# показывать больше, чем реально есть в базе.
+RECENT_MATCHES_DAYS = 30
+
 
 def serialize_for_json(obj: Any) -> Any:
     """Рекурсивная сериализация для JSON."""
@@ -526,7 +531,31 @@ class TenderSniperDB:
 
             result = await session.execute(query.order_by(SniperFilterModel.created_at.desc()))
             filters = result.scalars().all()
-            return [self._filter_to_dict(f) for f in filters]
+            items = [self._filter_to_dict(f) for f in filters]
+
+            # Счётчик совпадений за последние 30 дней — по фактическим
+            # уведомлениям. Поле match_count накопительное за всё время жизни
+            # фильтра и никогда не уменьшается, а сами уведомления чистятся
+            # старше 60 дней (bot/main.py). Из-за этого кабинет показывал
+            # «3224 совпадения» там, где в базе лежало 104 записи, и по нему
+            # нельзя было судить, работает ли фильтр сейчас.
+            if items:
+                since = datetime.utcnow() - timedelta(days=RECENT_MATCHES_DAYS)
+                rows = await session.execute(
+                    select(SniperNotificationModel.filter_id,
+                           func.count(SniperNotificationModel.id))
+                    .where(
+                        SniperNotificationModel.filter_id.in_([i['id'] for i in items]),
+                        SniperNotificationModel.sent_at >= since,
+                    )
+                    .group_by(SniperNotificationModel.filter_id)
+                )
+                recent = dict(rows.all())
+                for item in items:
+                    item['recent_match_count'] = recent.get(item['id'], 0)
+                    item['recent_match_days'] = RECENT_MATCHES_DAYS
+
+            return items
 
     async def get_filter_by_id(self, filter_id: int) -> Optional[Dict[str, Any]]:
         """Получение фильтра по ID."""

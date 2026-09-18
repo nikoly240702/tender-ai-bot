@@ -480,10 +480,21 @@ class TenderSniperService:
                         short_name = resolve_tender_name(
                             tender, notif.get('match_info'), max_length=120
                         )
-                        # Если резолвер вернул длинное «сырое» имя — поджимаем через AI
+                        # Если резолвер вернул длинное «сырое» имя — поджимаем через AI.
+                        # generate_tender_name синхронная и ходит в OpenAI по
+                        # сети, поэтому вызывать её прямо здесь нельзя: она
+                        # замораживала event loop воркера на 1-3 секунды, а
+                        # вместе с ним health check и опрос Портала поставщиков,
+                        # которые крутятся в том же процессе. При потоке
+                        # уведомлений воркер выглядел зависшим и ловил
+                        # перезапуски по healthcheck.
                         if len(short_name) > 80 and not is_procedure_type_only(short_name):
-                            short_name = generate_tender_name(
-                                short_name, tender_data=tender, max_length=80
+                            loop = asyncio.get_event_loop()
+                            short_name = await loop.run_in_executor(
+                                None,
+                                lambda n=short_name, t=tender: generate_tender_name(
+                                    n, tender_data=t, max_length=80
+                                ),
                             )
                         # Заменяем название в тендере на короткое
                         tender['name'] = short_name
