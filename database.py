@@ -1297,6 +1297,29 @@ class TenderPool(Base):
     )
 
 
+class ProductSearchCache(Base):
+    """Кэш поиска товаров под позиции ТЗ — «система учится на том, что ищет».
+
+    Позиции в тендерах повторяются («бумага А4 80 г/м2» — сотни закупок),
+    поэтому повторный подбор не должен заново тратить поисковые запросы.
+
+    Кэш общий, а не по компаниям: внутри результаты веб-поиска (публичные
+    данные), ключ — нормализованный текст позиции из тендерной документации
+    (тоже публичной). Чем дольше система работает, тем дешевле подбор.
+    """
+    __tablename__ = 'product_search_cache'
+    query_key = Column(String(64), primary_key=True)   # sha256 нормализованного текста
+    query_text = Column(Text, nullable=False)
+    results = Column(JSON, nullable=False)
+    hits = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, nullable=True)
+    __table_args__ = (
+        Index('ix_product_search_cache_hits', 'hits'),
+        Index('ix_product_search_cache_updated', 'updated_at'),
+    )
+
+
 # ============================================
 # ЭКСПОРТ
 # ============================================
@@ -1354,6 +1377,7 @@ __all__ = [
     'PipelineCardQuote',
     'OwnProduct',
     'TenderPool',
+    'ProductSearchCache',
     # Functions
     'init_database',
     'get_session',

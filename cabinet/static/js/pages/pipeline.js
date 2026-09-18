@@ -609,6 +609,11 @@
     }
     document.getElementById('cm-ai-run').onclick = () => runAi(c.id);
 
+    // Цифровой закупщик
+    renderBuyer(c);
+    const buyerBtn = document.getElementById('cm-buyer-run');
+    if (buyerBtn) buyerBtn.onclick = () => runBuyerSearch(c.id);
+
     // Action buttons
     const requestBtn = document.getElementById('cm-btn-request');
     if (requestBtn) {
@@ -1054,6 +1059,108 @@
   }
 
   /* ================ AI ================ */
+
+  const BUYER_SOURCE_LABEL = {
+    catalog: 'из вашего каталога',
+    cache: 'из прошлых поисков',
+    web: 'найдено в интернете',
+    none: 'ничего не найдено',
+  };
+
+  function renderBuyer(card) {
+    const statusEl = document.getElementById('cm-buyer-status');
+    const listEl = document.getElementById('cm-buyer-results');
+    if (!statusEl || !listEl) return;
+    statusEl.replaceChildren();
+    listEl.replaceChildren();
+
+    const state = (card.data && card.data.buyer_search) || null;
+    if (!state) {
+      statusEl.textContent = 'Подбор ещё не запускался.';
+      return;
+    }
+    if (state.status === 'error') {
+      statusEl.textContent = 'Ошибка: ' + (state.error || 'неизвестная');
+      return;
+    }
+    if (state.error) statusEl.textContent = state.error;
+    else if (state.status === 'running') {
+      statusEl.textContent = `Идёт подбор… ${state.done || 0} из ${state.total || '?'}`;
+    } else {
+      statusEl.textContent = `Готово: позиций ${(state.positions || []).length}`;
+    }
+
+    (state.positions || []).forEach(pos => {
+      const box = el('div', { cls: 'buyer-position' });
+      const head = el('div', { cls: 'buyer-position-head' });
+      head.appendChild(el('span', { cls: 'buyer-position-name', text: pos.position }));
+      head.appendChild(el('span', {
+        cls: 'buyer-source',
+        text: BUYER_SOURCE_LABEL[pos.source] || pos.source,
+      }));
+      box.appendChild(head);
+
+      if (pos.error) {
+        box.appendChild(el('div', { cls: 'buyer-error', text: pos.error }));
+      }
+      (pos.offers || []).forEach(o => {
+        const row = el('div', { cls: 'buyer-offer' });
+        if (o.url) {
+          const a = el('a', { cls: 'note-link', text: o.title || o.url });
+          a.href = o.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          row.appendChild(a);
+        } else {
+          row.appendChild(el('span', { text: o.title || '—' }));
+        }
+        const meta = el('span', { cls: 'buyer-offer-meta' });
+        // Цена из выдачи — розничная и ориентировочная, поэтому «~»:
+        // выдавать её за закупочную нельзя.
+        meta.textContent = [o.domain, o.price ? '~' + fmtPrice(o.price) : null]
+          .filter(Boolean).join(' · ');
+        row.appendChild(meta);
+        box.appendChild(row);
+      });
+      listEl.appendChild(box);
+    });
+  }
+
+  async function runBuyerSearch(cardId) {
+    const btn = document.getElementById('cm-buyer-run');
+    btn.disabled = true;
+    btn.textContent = '⏳ Ищу…';
+    const restore = () => { btn.disabled = false; btn.textContent = 'Подобрать'; };
+    try {
+      const r = await fetch('/cabinet/api/pipeline/cards/' + cardId + '/buyer-search', {
+        method: 'POST', credentials: 'same-origin',
+      });
+      if (r.status !== 202) {
+        const d = await r.json().catch(() => ({}));
+        Toast.show(d.error || 'Не удалось запустить подбор', 'alert');
+        restore();
+        return;
+      }
+      Toast.show('Подбор запущен', 'positive');
+      let i = 0;
+      const poll = setInterval(async () => {
+        i++;
+        const cr = await fetch('/cabinet/api/pipeline/cards/' + cardId, { credentials: 'same-origin' });
+        if (cr.ok) {
+          const cd = await cr.json();
+          if (openCardId === cardId) renderBuyer(cd.card);
+          const st = (cd.card.data && cd.card.data.buyer_search) || {};
+          if (st.status === 'done' || st.status === 'error') {
+            clearInterval(poll); restore(); return;
+          }
+        }
+        // Потолок опроса: подбор идёт по позициям и может занять минуты,
+        // но бесконечно дёргать сервер из вкладки не стоит.
+        if (i > 60) { clearInterval(poll); restore(); }
+      }, 3000);
+    } catch (e) {
+      Toast.show('Ошибка сети', 'alert');
+      restore();
+    }
+  }
 
   async function runAi(cardId) {
     const btn = document.getElementById('cm-ai-run');

@@ -1630,6 +1630,25 @@ async def pipeline_ai_enrich(request: web.Request) -> web.Response:
     return web.json_response(result, status=202)
 
 
+# Цифровой закупщик: «где купить» под позиции ТЗ
+@require_team_member
+async def pipeline_buyer_search(request: web.Request) -> web.Response:
+    import asyncio
+
+    from cabinet import buyer_service
+
+    user = request['user']; company = request['company']
+    card_id = int(request.match_info['id'])
+    if not await pipeline_service.get_card(card_id, company['id']):
+        return web.json_response({'error': 'Not found'}, status=404)
+
+    # Результат кладётся в card.data['buyer_search'] — UI забирает его тем
+    # же запросом карточки, отдельный реестр задач не нужен.
+    asyncio.create_task(
+        buyer_service.run_search(card_id, company['id'], user['user_id']))
+    return web.json_response({'ok': True, 'started': True}, status=202)
+
+
 @require_team_member
 async def pipeline_export_csv(request: web.Request) -> web.Response:
     import csv

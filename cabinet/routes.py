@@ -147,6 +147,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_delete('/cabinet/api/pipeline/quotes/{id}', api.pipeline_quotes_delete)
     app.router.add_delete('/cabinet/api/pipeline/relations/{rid}', api.pipeline_delete_relation)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/ai-enrich', api.pipeline_ai_enrich)
+    app.router.add_post('/cabinet/api/pipeline/cards/{id}/buyer-search', api.pipeline_buyer_search)
     app.router.add_get('/cabinet/api/pipeline/export', api.pipeline_export_csv)
     app.router.add_get('/cabinet/api/pipeline/tax-rate', api.pipeline_get_tax_rate)
     app.router.add_post('/cabinet/api/pipeline/tax-rate', api.pipeline_set_tax_rate)

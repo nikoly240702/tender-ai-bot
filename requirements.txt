@@ -95,3 +95,7 @@ weasyprint==66.0
 # Testing
 pytest>=7.0.0
 responses>=0.23.0
+
+# Безопасный разбор XML из внешних источников (выдача Yandex Search API):
+# stdlib-парсер уязвим к entity-атакам, а в XML приезжают заголовки чужих страниц.
+defusedxml>=0.7.1
