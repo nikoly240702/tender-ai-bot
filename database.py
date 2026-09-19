@@ -1245,6 +1245,13 @@ class OwnProduct(Base):
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     category = Column(String(40), nullable=False, default='siz')
+    # Артикул: именно он идёт в коммерческое предложение заказчику,
+    # поэтому без него «готовая позиция под тендер» не собирается.
+    sku = Column(String(80), nullable=True)
+    # Производитель/поставщик. source для этого не годится — там пометка
+    # вида «ИМПОРТ»/«РФ», а в каталоге могут лежать прайсы нескольких
+    # поставщиков, и надо понимать, у кого заказывать.
+    supplier = Column(String(120), nullable=True)
     name = Column(String(300), nullable=False)
     sizes = Column(String(200), nullable=True)         # 'XS,S,M,L,XL'
     params = Column(Text, nullable=True)               # 'вес 3.2г, плотность 30г, белая'
@@ -1258,6 +1265,7 @@ class OwnProduct(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     __table_args__ = (
         Index('ix_own_products_company_category', 'company_id', 'category'),
+        Index('ix_own_products_company_sku', 'company_id', 'supplier', 'sku'),
     )
 
 
