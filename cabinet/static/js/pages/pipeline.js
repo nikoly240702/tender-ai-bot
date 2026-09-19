@@ -1103,8 +1103,8 @@
       if (pos.error) {
         box.appendChild(el('div', { cls: 'buyer-error', text: pos.error }));
       }
-      (pos.offers || []).forEach(o => {
-        const row = el('div', { cls: 'buyer-offer' });
+      const offerRow = (o, cls) => {
+        const row = el('div', { cls: cls || 'buyer-offer' });
         if (o.url) {
           const a = el('a', { cls: 'note-link', text: o.title || o.url });
           a.href = o.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
@@ -1113,13 +1113,34 @@
           row.appendChild(el('span', { text: o.title || '—' }));
         }
         const meta = el('span', { cls: 'buyer-offer-meta' });
-        // Цена из выдачи — розничная и ориентировочная, поэтому «~»:
-        // выдавать её за закупочную нельзя.
-        meta.textContent = [o.domain, o.price ? '~' + fmtPrice(o.price) : null]
+        // Цена розничная и ориентировочная, поэтому «~»: выдавать её за
+        // закупочную нельзя.
+        meta.textContent = [o.domain, o.snippet || null,
+                            o.price ? '~' + fmtPrice(o.price) : null]
           .filter(Boolean).join(' · ');
         row.appendChild(meta);
-        box.appendChild(row);
-      });
+        return row;
+      };
+
+      (pos.offers || []).forEach(o => box.appendChild(offerRow(o)));
+
+      // Цену нашли не везде. Поставщики без опубликованной цены — это не
+      // пустой результат, а список, кому отправлять запрос прайса.
+      const ask = pos.ask_price_from || [];
+      if (ask.length) {
+        box.appendChild(el('div', {
+          cls: 'buyer-ask-head',
+          text: pos.needs_quote
+            ? '📨 Цены нет в открытом доступе — запросите у поставщиков:'
+            : '📨 Также можно запросить цену у:',
+        }));
+        ask.forEach(o => box.appendChild(offerRow(o, 'buyer-offer buyer-ask')));
+      } else if (pos.needs_quote && !pos.error) {
+        box.appendChild(el('div', {
+          cls: 'buyer-ask-head',
+          text: '📨 Подходящих предложений с ценой не нашлось — нужен запрос поставщикам',
+        }));
+      }
       listEl.appendChild(box);
     });
   }

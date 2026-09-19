@@ -95,6 +95,9 @@ class Offer:
     price: Optional[float] = None
     snippet: str = ''
     source: str = 'web'          # web | catalog | cache
+    # «от 250 ₽» — ценник раздела, а не товара: такие уходят в конец
+    # списка и не годятся как основание для ставки.
+    is_from_price: bool = False
 
 
 @dataclass
@@ -103,13 +106,25 @@ class PositionResult:
     offers: List[Offer] = field(default_factory=list)
     source: str = 'none'         # catalog | cache | web | none
     error: Optional[str] = None
+    # Поставщики, у которых товар есть, но цена не опубликована (или
+    # указана «от ...»). Это не мусор: именно им и надо писать запрос
+    # цены, поэтому их адреса сохраняем отдельно, а не выбрасываем.
+    ask_price_from: List[Offer] = field(default_factory=list)
+
+    @property
+    def needs_quote(self) -> bool:
+        """Твёрдой цены нет — решать по такой позиции не на чем."""
+        return not any(o.price is not None and not o.is_from_price
+                       for o in self.offers)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             'position': self.position,
             'source': self.source,
             'error': self.error,
+            'needs_quote': self.needs_quote,
             'offers': [asdict(o) for o in self.offers],
+            'ask_price_from': [asdict(o) for o in self.ask_price_from],
         }
 
 
@@ -207,7 +222,14 @@ async def match_catalog(company_id: int, position: str,
     ]
 
 
-async def _cache_get(key: str) -> Optional[List[Offer]]:
+def _offers_from_payload(items) -> List[Offer]:
+    """Старые записи кэша могли не иметь новых полей — читаем терпимо."""
+    known = {f for f in Offer.__dataclass_fields__}
+    return [Offer(**{k: v for k, v in o.items() if k in known}) for o in (items or [])]
+
+
+async def _cache_get(key: str):
+    """Возвращает (предложения, кому писать запрос) или None."""
     async with DatabaseSession() as session:
         row = await session.get(ProductSearchCache, key)
         if not row:
@@ -217,13 +239,20 @@ async def _cache_get(key: str) -> Optional[List[Offer]]:
             return None
         row.hits = (row.hits or 0) + 1
         await session.commit()
-        return [Offer(**o) for o in (row.results or [])]
+        payload = row.results or {}
+        # Записи до появления запроса прайса — просто список предложений.
+        if isinstance(payload, list):
+            return _offers_from_payload(payload), []
+        return (_offers_from_payload(payload.get('offers')),
+                _offers_from_payload(payload.get('ask_price_from')))
 
 
-async def _cache_put(key: str, text: str, offers: List[Offer]) -> None:
+async def _cache_put(key: str, text: str, offers: List[Offer],
+                     ask: List[Offer] = None) -> None:
     """Пустую выдачу тоже кэшируем: «ничего не нашли» — такой же результат,
     и повторять бесплодный поиск при каждом прогоне незачем."""
-    payload = [asdict(o) for o in offers]
+    payload = {'offers': [asdict(o) for o in offers],
+               'ask_price_from': [asdict(o) for o in (ask or [])]}
     async with DatabaseSession() as session:
         row = await session.get(ProductSearchCache, key)
         now = datetime.utcnow()
@@ -246,6 +275,74 @@ def build_query(position: str) -> str:
     """
     tokens = tokenize(position)[:10]
     return ' '.join(tokens) + ' купить цена' if tokens else position[:200]
+
+
+# Сколько ссылок из выдачи вообще рассматриваем. Часть отпадёт на
+# нечитаемых доменах, часть — на блокировке страницы, поэтому берём с
+# запасом относительно нужного числа предложений.
+MAX_CANDIDATES = 12
+# Сколько страниц реально открываем и читаем моделью. Каждая — запрос в
+# сеть и вызов модели, поэтому потолок жёсткий.
+MAX_PAGES_TO_READ = 6
+
+
+async def _read_candidates(position: str, found, limit: int):
+    """Открывает страницы-кандидаты. Возвращает (с ценой, кому писать запрос).
+
+    Ранжирование по цене, а не по позиции в выдаче: задача — «самое
+    выгодное предложение», и порядок Яндекса к цене отношения не имеет.
+
+    Поставщики без опубликованной цены не выбрасываются: товар у них есть,
+    просто цена по запросу — это ровно те адреса, куда нужно отправить
+    запрос прайса.
+    """
+    from cabinet import offer_reader
+
+    priced: List[Offer] = []
+    ask: List[Offer] = []
+    read_count = 0
+
+    for r in found:
+        if read_count >= MAX_PAGES_TO_READ:
+            break
+        if not offer_reader.is_readable_domain(r.domain):
+            continue
+
+        page_text = await _fetch_page(r.url)
+        if not page_text:
+            continue
+        read_count += 1
+
+        page = await offer_reader.read_offer(position, page_text)
+        if not page or not page.matches:
+            continue
+
+        offer = Offer(
+            title=page.product or r.title,
+            url=r.url,
+            domain=r.domain,
+            price=page.price,
+            snippet=(page.unit or '') + (' · цена раздела' if page.is_from_price else ''),
+            source='web',
+            is_from_price=page.is_from_price,
+        )
+        if page.price is not None and not page.is_from_price:
+            priced.append(offer)
+        else:
+            ask.append(offer)
+
+    priced.sort(key=lambda o: o.price)
+    return priced[:limit], ask[:limit]
+
+
+async def _fetch_page(url: str) -> Optional[str]:
+    """Загрузка страницы в пуле потоков: requests блокирующий."""
+    import asyncio
+
+    from cabinet import offer_reader
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: offer_reader.fetch_page_text(url))
 
 
 async def find_offers(company_id: int, position: str,
@@ -273,7 +370,7 @@ async def find_offers(company_id: int, position: str,
     try:
         cached = await _cache_get(key)
         if cached is not None:
-            result.offers = cached[:limit]
+            result.offers, result.ask_price_from = cached[0][:limit], cached[1][:limit]
             result.source = 'cache'
             return result
     except Exception as e:
@@ -288,29 +385,22 @@ async def find_offers(company_id: int, position: str,
         return result
 
     try:
-        found = await yandex_search.search(build_query(position), limit=limit * 2)
+        found = await yandex_search.search(build_query(position), limit=MAX_CANDIDATES)
     except Exception as e:
         logger.warning(f'Закупщик: поиск не удался для «{position[:50]}»: {e}')
         result.error = f'Поиск не удался: {e}'
         return result
 
-    offers = [
-        Offer(title=r.title, url=r.url, domain=r.domain,
-              price=extract_price(r.snippet), snippet=r.snippet, source='web')
-        for r in found
-    ]
-    # Варианты с распознанной ценой полезнее — поднимаем их наверх,
-    # сохраняя порядок выдачи внутри каждой группы.
-    offers.sort(key=lambda o: o.price is None)
-    offers = offers[:limit]
+    offers, ask = await _read_candidates(position, found, limit)
+    result.ask_price_from = ask
 
     try:
-        await _cache_put(key, position, offers)
+        await _cache_put(key, position, offers, ask)
     except Exception as e:
         logger.warning(f'Закупщик: не удалось сохранить кэш: {e}')
 
     result.offers = offers
-    result.source = 'web' if offers else 'none'
+    result.source = 'web' if (offers or ask) else 'none'
     return result
 
 
