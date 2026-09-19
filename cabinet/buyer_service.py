@@ -176,6 +176,60 @@ def extract_price(text: str) -> Optional[float]:
     return value if value > 0 else None
 
 
+# Буквенные размеры. Держим и кириллические двойники: в прайсах размер
+# пишут то латиницей, то кириллицей («М» vs «M»), на глаз неразличимо.
+_SIZE_ALIASES = {
+    'хs': 'xs', 'хl': 'xl', 'х': 'x', 'м': 'm', 'с': 's', 'л': 'l',
+}
+_LETTER_SIZES = {'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', '2xl', '3xl'}
+_SIZE_NEAR_RE = re.compile(
+    r'размер[а-я]*\s*[:\-]?\s*([a-zA-Zа-яА-Я]{1,4}|\d{2,3})', re.IGNORECASE)
+
+
+def extract_size(text: str) -> Optional[str]:
+    """Размер из текста позиции или строки каталога. None, если не указан.
+
+    Размер невидим для обычного сопоставления по словам: «M» — один
+    символ и отбрасывается как шум. А перепутать размер нельзя: под
+    тендер на M нельзя предлагать XS.
+    """
+    if not text:
+        return None
+    raw = None
+    m = _SIZE_NEAR_RE.search(text)
+    if m:
+        raw = m.group(1)
+    else:
+        # Отдельно стоящий буквенный размер: «Перчатки ... Желтый M пара».
+        for token in re.findall(r'(?<![а-яёa-z0-9])([a-zA-Zа-яА-Я]{1,4})(?![а-яёa-z0-9])', text):
+            low = _SIZE_ALIASES.get(token.lower(), token.lower())
+            if low in _LETTER_SIZES:
+                raw = token
+                break
+    if not raw:
+        return None
+    low = _SIZE_ALIASES.get(raw.lower(), raw.lower())
+    if low in _LETTER_SIZES:
+        return low
+    if low.isdigit():
+        return low
+    return None
+
+
+def attributes_conflict(position: str, product_text: str) -> bool:
+    """Есть ли прямое противоречие по характеристикам.
+
+    Проверяется только то, что названо с обеих сторон: если в позиции
+    размер не указан, ограничения нет. Но если указан у обоих и разный —
+    это другой товар, сколько бы слов ни совпало.
+    """
+    pos_size = extract_size(position)
+    prod_size = extract_size(product_text)
+    if pos_size and prod_size and pos_size != prod_size:
+        return True
+    return False
+
+
 def catalog_match_score(position: str, product_text: str) -> float:
     """Насколько позиция ТЗ похожа на запись каталога — доля совпавших слов.
 
@@ -208,7 +262,11 @@ async def match_catalog(company_id: int, position: str,
 
     scored = []
     for p in products:
-        text = ' '.join(filter(None, [p.name, p.params or '', p.pack or '']))
+        text = ' '.join(filter(None, [p.name, p.sizes or '', p.params or '', p.pack or '']))
+        # Противоречие по характеристикам отсекает раньше любого счёта:
+        # совпадение слов не спасает, если размер другой.
+        if attributes_conflict(position, text):
+            continue
         score = catalog_match_score(position, text)
         if score >= CATALOG_MATCH_THRESHOLD:
             scored.append((score, p))
