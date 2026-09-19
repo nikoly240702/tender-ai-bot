@@ -1,4 +1,4 @@
-"""Клиент Yandex Search API (v2, синхронный режим).
+"""Клиент Yandex Search API v2.
 
 Зачем Яндекс, а не зарубежный сервис поиска: задача — искать товары по
 российским сайтам поставщиков, и покрытие рунета здесь решает всё. Плюс
@@ -11,9 +11,13 @@
 Крупные маркетплейсы (Ozon, Яндекс.Маркет) отвечают капчей «Вы не робот?»
 и через этот API как источник цен недоступны.
 
-Используется СИНХРОННЫЙ эндпоинт: асинхронный (/v2/web/searchAsync) по
-документации отдаёт результат «от пяти минут до нескольких часов», что
-для интерактивного подбора товара бессмысленно.
+По умолчанию работает ОТЛОЖЕННЫЙ режим (/v2/web/searchAsync): он стоит
+30.5 ₽ за 1000 запросов против 488 ₽ у синхронного — в 16 раз дешевле.
+В документации у него пугающая оговорка «от пяти минут до нескольких
+часов», но замер на боевом 19.09.2026 дал 11 секунд: это верхняя
+граница SLA, а не обычное время. Если отложенный всё же не успел,
+переспрашиваем синхронно, чтобы не остаться вовсе без результата.
+Режим переключается переменной YANDEX_SEARCH_MODE (async | sync).
 """
 import base64
 import logging
@@ -121,7 +125,42 @@ def search_sync(query: str, limit: int = 10,
 
     import requests
 
-    payload = {
+    resp = requests.post(
+        SEARCH_URL,
+        json=_payload(query, limit, folder_id),
+        headers={'Authorization': f'Api-Key {api_key}'},
+        timeout=timeout,
+    )
+    if resp.status_code != 200:
+        raise YandexSearchError(f'HTTP {resp.status_code}: {resp.text[:200]}')
+
+    raw = (resp.json() or {}).get('rawData')
+    if not raw:
+        raise YandexSearchError('пустой rawData в ответе')
+
+    return parse_response_xml(_decode_raw(raw))[:limit]
+
+
+SEARCH_ASYNC_URL = "https://searchapi.api.cloud.yandex.net/v2/web/searchAsync"
+OPERATION_URL = "https://operation.api.cloud.yandex.net/operations/{}"
+
+# Отложенный режим стоит 30.5 ₽ за 1000 запросов против 488 ₽ у
+# синхронного — в 16 раз дешевле. Плата за это — ожидание: по
+# документации «от пяти минут до нескольких часов». Подбор товара идёт
+# фоновой задачей и результат складывается в карточку, поэтому минуты
+# ожидания приемлемы, а вот часы — нет: дальше этого срока сдаёмся и
+# (по настройке) переспрашиваем синхронно.
+# Замер на боевом 19.09.2026: результат был готов за 11 секунд, то есть
+# «пять минут» из документации — это верхняя граница SLA, а не норма.
+# Поэтому опрашиваем часто вначале и разрежаем, если затянулось: так
+# обычный запрос отдаётся почти как синхронный, но в 16 раз дешевле.
+ASYNC_POLL_START = 3
+ASYNC_POLL_MAX = 30
+ASYNC_MAX_WAIT = 900  # 15 минут
+
+
+def _payload(query: str, limit: int, folder_id: str) -> dict:
+    return {
         'query': {
             'searchType': 'SEARCH_TYPE_RU',
             'queryText': query,
@@ -141,24 +180,79 @@ def search_sync(query: str, limit: int = 10,
         'responseFormat': 'FORMAT_XML',
     }
 
-    resp = requests.post(
-        SEARCH_URL,
-        json=payload,
-        headers={'Authorization': f'Api-Key {api_key}'},
-        timeout=timeout,
-    )
-    if resp.status_code != 200:
-        raise YandexSearchError(f'HTTP {resp.status_code}: {resp.text[:200]}')
 
-    raw = (resp.json() or {}).get('rawData')
-    if not raw:
-        raise YandexSearchError('пустой rawData в ответе')
+async def search_async(query: str, limit: int = 10,
+                       max_wait: int = ASYNC_MAX_WAIT) -> List[SearchResult]:
+    """Отложенный поиск: в 16 раз дешевле синхронного, но ждать дольше.
 
-    return parse_response_xml(_decode_raw(raw))[:limit]
+    Бросает YandexSearchError, если за max_wait результат не готов —
+    вызывающий решает, ждать ли дальше или переспросить синхронно.
+    """
+    import asyncio
+
+    import requests
+
+    api_key = os.getenv('YANDEX_SEARCH_API_KEY')
+    folder_id = os.getenv('YANDEX_SEARCH_FOLDER_ID')
+    if not api_key or not folder_id:
+        raise YandexSearchError(
+            'Не задан YANDEX_SEARCH_API_KEY или YANDEX_SEARCH_FOLDER_ID')
+
+    headers = {'Authorization': f'Api-Key {api_key}'}
+    loop = asyncio.get_event_loop()
+
+    def _start():
+        r = requests.post(SEARCH_ASYNC_URL, json=_payload(query, limit, folder_id),
+                          headers=headers, timeout=DEFAULT_TIMEOUT)
+        if r.status_code != 200:
+            raise YandexSearchError(f'HTTP {r.status_code}: {r.text[:200]}')
+        return (r.json() or {}).get('id')
+
+    operation_id = await loop.run_in_executor(None, _start)
+    if not operation_id:
+        raise YandexSearchError('API не вернул идентификатор операции')
+
+    def _poll():
+        r = requests.get(OPERATION_URL.format(operation_id),
+                         headers=headers, timeout=DEFAULT_TIMEOUT)
+        if r.status_code != 200:
+            raise YandexSearchError(f'HTTP {r.status_code}: {r.text[:200]}')
+        return r.json() or {}
+
+    waited = 0
+    delay = ASYNC_POLL_START
+    while waited < max_wait:
+        await asyncio.sleep(delay)
+        waited += delay
+        delay = min(delay * 2, ASYNC_POLL_MAX)
+        data = await loop.run_in_executor(None, _poll)
+        if data.get('error'):
+            raise YandexSearchError(str(data['error'])[:200])
+        if data.get('done'):
+            raw = (data.get('response') or {}).get('rawData')
+            if not raw:
+                raise YandexSearchError('операция завершена, но rawData пуст')
+            return parse_response_xml(_decode_raw(raw))[:limit]
+
+    raise YandexSearchError(f'результат не готов за {max_wait} с')
 
 
 async def search(query: str, limit: int = 10) -> List[SearchResult]:
-    """Асинхронная обёртка: requests блокирующий, а мы живём в event loop."""
+    """Поиск в режиме из YANDEX_SEARCH_MODE.
+
+    По умолчанию отложенный: он в 16 раз дешевле, а подбор и так идёт
+    фоном. Если отложенный не успел — один раз переспрашиваем
+    синхронно, чтобы пользователь не остался вовсе без результата.
+    """
     import asyncio
+
+    mode = (os.getenv('YANDEX_SEARCH_MODE') or 'async').lower()
+
+    if mode == 'async':
+        try:
+            return await search_async(query, limit)
+        except YandexSearchError as e:
+            logger.warning(f'Отложенный поиск не удался ({e}), пробуем синхронный')
+
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: search_sync(query, limit))
