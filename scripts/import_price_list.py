@@ -105,17 +105,32 @@ def _to_price(value):
 
 
 def parse_rows(ws, header_row: int, mapping, price_cols):
-    """Строки товаров. Разделы и пустые строки пропускаются."""
+    """Строки товаров. Заголовки разделов становятся характеристикой.
+
+    Заголовок раздела выбрасывать нельзя: в прайсе Matrix один и тот же
+    артикул (PrmLat-100XS) встречается дважды — в разделах «Premium
+    Latex, 2х кратное хлорирование» (12.9 ₽) и «Extra Light Latex, 1-х
+    кратное хлорирование» (7.4 ₽). Это разные товары, и различает их
+    только заголовок. Без него в каталоге появлялись два одинаковых
+    артикула с разной ценой, то есть заведомо недостоверная выдача.
+    """
     items = []
+    section = ''
     for row in ws.iter_rows(min_row=header_row + 1, values_only=False):
         def cell(key):
             col = mapping.get(key)
             return _norm(row[col - 1].value) if col and col <= len(row) else ''
 
         sku, name = cell('sku'), cell('name')
-        # Заголовок раздела («ПЕРЧАТКИ ЛАТЕКСНЫЕ», «Matrix Premium») —
-        # это строка с текстом, но без артикула. Товаром не является.
         if not sku or not name:
+            # Строка без артикула, но с текстом — заголовок раздела.
+            # Берём самый длинный непустой текст: в объединённых ячейках
+            # название линейки лежит не всегда в первой колонке.
+            texts = [_norm(c.value) for c in row if _norm(c.value)]
+            if texts:
+                longest = max(texts, key=len)
+                if len(longest) > 5:
+                    section = longest[:150]
             continue
 
         prices = []
@@ -132,14 +147,21 @@ def parse_rows(ws, header_row: int, mapping, price_cols):
         price_text = '; '.join(f'{p:g} ({t})' for p, t in prices)[:120]
 
         params = ', '.join(filter(None, [
+            section,
             f"цвет {cell('color')}" if cell('color') else '',
             f"вес {cell('weight')}" if cell('weight') else '',
         ]))
         pack = ' / '.join(filter(None, [cell('pack'), cell('box')]))
 
+        # Линейку дописываем в название, а не только в params: у дублей
+        # артикула описания ПОБУКВЕННО одинаковы (проверено на строках 6 и
+        # 35), и различает их только раздел. Заодно ключ повторного
+        # импорта восстанавливается из БД точно, без разбора params.
+        full_name = f'{name[:220]} — {section[:70]}' if section else name[:300]
+
         items.append({
             'sku': sku[:80],
-            'name': name[:300],
+            'name': full_name[:300],
             'sizes': cell('size')[:200] or None,
             'params': params or None,
             'pack': pack[:120] or None,
@@ -154,8 +176,10 @@ def parse_rows(ws, header_row: int, mapping, price_cols):
 async def save(items, company_id: int, supplier: str, category: str,
                dry: bool) -> None:
     async with DatabaseSession() as session:
+        # Ключ — артикул плюс название (в котором уже есть линейка).
         existing = {
-            p.sku: p for p in (await session.scalars(
+            f'{p.sku}|{p.name}': p
+            for p in (await session.scalars(
                 select(OwnProduct).where(
                     OwnProduct.company_id == company_id,
                     OwnProduct.supplier == supplier,
@@ -164,19 +188,24 @@ async def save(items, company_id: int, supplier: str, category: str,
         }
         created = updated = 0
         for item in items:
-            row = existing.get(item['sku'])
+            key = f"{item['sku']}|{item['name']}"
+            row = existing.get(key)
             if row:
                 # Повторный импорт того же прайса — обновление цен, а не
-                # дубли: артикул уникален в пределах поставщика.
-                for key, value in item.items():
-                    setattr(row, key, value)
+                # дубли. Имя переменной цикла отличается от key намеренно:
+                # затирать ключ на первой же итерации нельзя.
+                for field_name, value in item.items():
+                    setattr(row, field_name, value)
                 updated += 1
             else:
                 created += 1
                 if not dry:
-                    session.add(OwnProduct(
+                    new_row = OwnProduct(
                         company_id=company_id, supplier=supplier,
-                        category=category, source=supplier, **item))
+                        category=category, source=supplier, **item)
+                    session.add(new_row)
+                    # Тот же ключ дальше в файле — обновление, не дубль.
+                    existing[key] = new_row
         if dry:
             session.expunge_all()
         else:
