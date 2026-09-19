@@ -1114,9 +1114,13 @@
         }
         const meta = el('span', { cls: 'buyer-offer-meta' });
         // Цена розничная и ориентировочная, поэтому «~»: выдавать её за
-        // закупочную нельзя.
+        // закупочную нельзя. Рядом — приведённая цена за штуку, иначе
+        // «12 ₽ за шт.» и «408 ₽ за упаковку» не сравнить.
+        const perUnit = (o.unit_price && o.pack_qty > 1)
+          ? Math.round(o.unit_price * 100) / 100 + ' ₽/шт'
+          : null;
         meta.textContent = [o.domain, o.snippet || null,
-                            o.price ? '~' + fmtPrice(o.price) : null]
+                            o.price ? '~' + fmtPrice(o.price) : null, perUnit]
           .filter(Boolean).join(' · ');
         row.appendChild(meta);
         return row;
