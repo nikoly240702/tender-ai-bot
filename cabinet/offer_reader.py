@@ -58,6 +58,10 @@ class PageOffer:
     product: str
     price: Optional[float]
     unit: str = ''
+    # Сколько штук в той единице, за которую названа цена. Нужно, чтобы
+    # сравнивать предложения между собой: «12 ₽ за шт.» и «408 ₽ за упак.»
+    # без этого несопоставимы, и более дорогое выглядит более дешёвым.
+    pack_qty: Optional[int] = None
     is_from_price: bool = False   # «от 250 ₽» — ценник категории, не товара
     matches: bool = False
 
@@ -135,12 +139,13 @@ _PROMPT = """Со страницы интернет-магазина нужно 
 - Ничего не додумывай: нет данных — null или пустая строка.
 - is_from_price = true, если это цена «от ...» для раздела или диапазон, а не цена конкретного товара.
 - matches = true только если товар на странице действительно соответствует нужному (тот же предмет и ключевые характеристики).
+- pack_qty — сколько ШТУК (пар, листов) в той единице, за которую указана цена. Цена за штуку -> 1. Цена за упаковку 100 пар -> 100. Пачка 500 листов -> 500. Не понятно -> null.
 
 СТРАНИЦА:
 {page}
 
 Ответь строго JSON без пояснений:
-{{"matches": true|false, "product": "название товара на странице", "price": число|null, "unit": "за что цена (шт/упак/пачка/коробка)", "is_from_price": true|false}}"""
+{{"matches": true|false, "product": "название товара на странице", "price": число|null, "unit": "за что цена (шт/упак/пачка/коробка)", "pack_qty": число|null, "is_from_price": true|false}}"""
 
 
 async def read_offer(position: str, page_text: str) -> Optional[PageOffer]:
@@ -198,10 +203,19 @@ async def read_offer(position: str, page_text: str) -> Optional[PageOffer]:
         logger.info(f'Цена {price} не найдена в тексте страницы — отбрасываем')
         price = None
 
+    pack_qty = data.get('pack_qty')
+    try:
+        pack_qty = int(pack_qty) if pack_qty else None
+        if pack_qty is not None and pack_qty <= 0:
+            pack_qty = None
+    except (TypeError, ValueError):
+        pack_qty = None
+
     return PageOffer(
         product=str(data.get('product') or '')[:200],
         price=price,
         unit=str(data.get('unit') or '')[:40],
+        pack_qty=pack_qty,
         is_from_price=bool(data.get('is_from_price')),
         matches=bool(data.get('matches')),
     )

@@ -98,6 +98,11 @@ class Offer:
     # «от 250 ₽» — ценник раздела, а не товара: такие уходят в конец
     # списка и не годятся как основание для ставки.
     is_from_price: bool = False
+    # Сколько штук в единице, за которую названа цена, и приведённая цена
+    # за штуку. Без приведения сравнивать нельзя: «12 ₽ за шт.» и
+    # «408 ₽ за упак. 100 пар» — второе вдвое выгоднее, хотя число больше.
+    pack_qty: Optional[int] = None
+    unit_price: Optional[float] = None
 
 
 @dataclass
@@ -317,6 +322,12 @@ async def _read_candidates(position: str, found, limit: int):
         if not page or not page.matches:
             continue
 
+        # Приведение к цене за штуку — детерминированный расчёт в коде:
+        # модель только прочитала со страницы цену и размер упаковки.
+        unit_price = None
+        if page.price is not None and page.pack_qty:
+            unit_price = page.price / page.pack_qty
+
         offer = Offer(
             title=page.product or r.title,
             url=r.url,
@@ -325,13 +336,19 @@ async def _read_candidates(position: str, found, limit: int):
             snippet=(page.unit or '') + (' · цена раздела' if page.is_from_price else ''),
             source='web',
             is_from_price=page.is_from_price,
+            pack_qty=page.pack_qty,
+            unit_price=unit_price,
         )
         if page.price is not None and not page.is_from_price:
             priced.append(offer)
         else:
             ask.append(offer)
 
-    priced.sort(key=lambda o: o.price)
+    # Сортируем по приведённой цене за штуку. Предложения, где размер
+    # упаковки распознать не удалось, идут после сопоставимых: ставить их
+    # выше значило бы выдавать несравнимое число за самое выгодное.
+    priced.sort(key=lambda o: (o.unit_price is None,
+                               o.unit_price if o.unit_price is not None else o.price))
     return priced[:limit], ask[:limit]
 
 
