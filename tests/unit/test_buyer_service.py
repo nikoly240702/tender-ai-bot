@@ -132,3 +132,65 @@ class TestExtractPositions:
 
     def test_nothing_at_all(self):
         assert extract_positions({}, tender_name='') == []
+
+
+@pytest.mark.unit
+class TestSpecVerification:
+    """Проверяемость подбора: по каким характеристикам сошлось.
+
+    Без построчной сверки «подходит» — утверждение без доказательства, и
+    проверить его нельзя ни в вебе, ни в каталоге.
+    """
+
+    REQS = [
+        {'name': 'материал', 'value': 'нитрил'},
+        {'name': 'размер', 'value': 'M'},
+    ]
+
+    def test_confirms_matching_characteristics(self):
+        from cabinet.buyer_service import check_against_text
+        checks = {c['name']: c for c in check_against_text(
+            self.REQS, 'Перчатки нитриловые смотровые размер M Голубой')}
+        assert checks['материал']['ok'] is True
+        assert checks['размер']['ok'] is True
+
+    def test_flags_wrong_size_as_conflict(self):
+        """Несовпадение размера должно быть видно как противоречие, а не
+        как «не проверили»: под тендер на M нельзя предлагать XS."""
+        from cabinet.buyer_service import check_against_text
+        checks = {c['name']: c for c in check_against_text(
+            self.REQS, 'Перчатки нитриловые смотровые размер XS')}
+        assert checks['размер']['ok'] is False
+        assert checks['размер']['found'] == 'xs'
+
+    def test_material_matches_across_parts_of_speech(self):
+        """Регрессия: требование пишут существительным («нитрил»), а
+        описание — прилагательным («нитриловые»). Усечение даёт разные
+        основы, и материал — самая важная характеристика — показывался
+        как «не указано»."""
+        from cabinet.buyer_service import check_against_text
+        checks = {c['name']: c for c in check_against_text(
+            [{'name': 'материал', 'value': 'нитрил'}], 'Перчатки нитриловые')}
+        assert checks['материал']['ok'] is True
+
+    def test_does_not_confuse_similar_roots(self):
+        """«стол» не должен считаться корнем «столовой» — этот ложняк в
+        проекте уже ловили на фильтрах."""
+        from cabinet.buyer_service import _same_root
+        assert _same_root('стол', 'столов') is False
+        assert _same_root('нитрил', 'нитрилов') is True
+
+    def test_unverifiable_is_not_reported_as_matching(self):
+        """Характеристики нет в описании — это «не проверено», а не «сошлось»."""
+        from cabinet.buyer_service import check_against_text
+        checks = {c['name']: c for c in check_against_text(
+            self.REQS, 'Перчатки смотровые размер M')}
+        assert checks['материал']['ok'] is None
+
+    def test_result_carries_audit_trail_fields(self):
+        """Журнал перебора и требования должны доезжать до интерфейса,
+        иначе проверить подбор нечем."""
+        from cabinet.buyer_service import PositionResult
+        d = PositionResult(position='тест').to_dict()
+        assert 'considered' in d
+        assert 'requirements' in d

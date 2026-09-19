@@ -1375,3 +1375,43 @@ body.pipeline-mode .main {
   padding-left: 10px;
 }
 .buyer-offer.buyer-ask { opacity: 0.85; }
+.buyer-reqs {
+  font-size: 11px;
+  color: var(--sub);
+  padding: 2px 0 6px 10px;
+  overflow-wrap: break-word;
+}
+.buyer-reqs-label { color: var(--muted); font-family: var(--font-mono); }
+.buyer-checks { padding: 2px 0 4px 20px; }
+.buyer-check {
+  font-size: 11px;
+  line-height: 1.5;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.buyer-check-mark { flex-shrink: 0; font-weight: 700; }
+.buyer-check.ok .buyer-check-mark { color: var(--positive); }
+.buyer-check.bad .buyer-check-mark { color: var(--alert); }
+.buyer-check.bad { color: var(--alert); }
+.buyer-check.unknown { color: var(--muted); }
+.buyer-considered { margin: 6px 0 2px 10px; font-size: 11px; }
+.buyer-considered summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.buyer-considered-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 0 2px 14px;
+  overflow-wrap: anywhere;
+}
+.buyer-verdict {
+  flex-shrink: 0;
+  min-width: 118px;
+  color: var(--sub);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}

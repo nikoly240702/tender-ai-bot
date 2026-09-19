@@ -1103,6 +1103,35 @@
       if (pos.error) {
         box.appendChild(el('div', { cls: 'buyer-error', text: pos.error }));
       }
+      // Требования, по которым шёл подбор. Показываем их явно: иначе
+      // непонятно, что именно система искала и с чем сверяла.
+      if ((pos.requirements || []).length) {
+        const rq = el('div', { cls: 'buyer-reqs' });
+        rq.appendChild(el('span', { cls: 'buyer-reqs-label', text: 'Требования: ' }));
+        rq.appendChild(el('span', {
+          text: pos.requirements.map(r => r.name + ' — ' + r.value).join('; '),
+        }));
+        box.appendChild(rq);
+      }
+
+      // Построчная сверка: «подходит» без неё — слово без доказательства.
+      const checksBlock = (checks) => {
+        if (!checks || !checks.length) return null;
+        const wrap = el('div', { cls: 'buyer-checks' });
+        checks.forEach(c => {
+          const mark = c.ok === true ? '✓' : (c.ok === false ? '✗' : '?');
+          const cls = c.ok === true ? 'ok' : (c.ok === false ? 'bad' : 'unknown');
+          const line = el('div', { cls: 'buyer-check ' + cls });
+          line.appendChild(el('span', { cls: 'buyer-check-mark', text: mark }));
+          line.appendChild(el('span', {
+            text: c.name + ': нужно «' + c.required + '»'
+                  + (c.found ? ', на странице «' + c.found + '»' : ', не указано'),
+          }));
+          wrap.appendChild(line);
+        });
+        return wrap;
+      };
+
       const offerRow = (o, cls) => {
         const row = el('div', { cls: cls || 'buyer-offer' });
         if (o.url) {
@@ -1126,7 +1155,13 @@
         return row;
       };
 
-      (pos.offers || []).forEach(o => box.appendChild(offerRow(o)));
+      const addOffer = (o, cls) => {
+        box.appendChild(offerRow(o, cls));
+        const ch = checksBlock(o.checks);
+        if (ch) box.appendChild(ch);
+      };
+
+      (pos.offers || []).forEach(o => addOffer(o));
 
       // Цену нашли не везде. Поставщики без опубликованной цены — это не
       // пустой результат, а список, кому отправлять запрос прайса.
@@ -1138,13 +1173,36 @@
             ? '📨 Цены нет в открытом доступе — запросите у поставщиков:'
             : '📨 Также можно запросить цену у:',
         }));
-        ask.forEach(o => box.appendChild(offerRow(o, 'buyer-offer buyer-ask')));
+        ask.forEach(o => addOffer(o, 'buyer-offer buyer-ask'));
       } else if (pos.needs_quote && !pos.error) {
         box.appendChild(el('div', {
           cls: 'buyer-ask-head',
           text: '📨 Подходящих предложений с ценой не нашлось — нужен запрос поставщикам',
         }));
       }
+      // Журнал перебора: что система смотрела и почему отвергла. Без него
+      // «нашли лучшее» проверить нельзя — видно только то, что осталось.
+      const considered = pos.considered || [];
+      if (considered.length) {
+        const det = el('details', { cls: 'buyer-considered' });
+        const okCount = considered.filter(c => c.verdict === 'подходит').length;
+        det.appendChild(el('summary', {
+          text: `Перебрано вариантов: ${considered.length}, подошло: ${okCount}`,
+        }));
+        considered.forEach(c => {
+          const line = el('div', { cls: 'buyer-considered-row' });
+          line.appendChild(el('span', { cls: 'buyer-verdict', text: c.verdict || '' }));
+          if (c.url) {
+            const a = el('a', { cls: 'note-link', text: c.domain || c.url });
+            a.href = c.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+            line.appendChild(a);
+          }
+          line.appendChild(el('span', { cls: 'buyer-offer-meta', text: c.reason || '' }));
+          det.appendChild(line);
+        });
+        box.appendChild(det);
+      }
+
       listEl.appendChild(box);
     });
   }
