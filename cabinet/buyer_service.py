@@ -103,6 +103,9 @@ class Offer:
     # «408 ₽ за упак. 100 пар» — второе вдвое выгоднее, хотя число больше.
     pack_qty: Optional[int] = None
     unit_price: Optional[float] = None
+    # Построчная сверка с требованиями ТЗ: [{name, required, found, ok}].
+    # Без неё «подходит» — утверждение без доказательства.
+    checks: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -115,6 +118,12 @@ class PositionResult:
     # указана «от ...»). Это не мусор: именно им и надо писать запрос
     # цены, поэтому их адреса сохраняем отдельно, а не выбрасываем.
     ask_price_from: List[Offer] = field(default_factory=list)
+    # Требования, выделенные из строки ТЗ, — по ним идёт сверка.
+    requirements: List[Dict[str, str]] = field(default_factory=list)
+    # Журнал перебора: каждый рассмотренный кандидат и его судьба.
+    # Нужен, чтобы можно было проверить, что именно система смотрела и
+    # почему отвергла, а не верить итоговому списку на слово.
+    considered: List[Dict[str, Any]] = field(default_factory=list)
 
     @property
     def needs_quote(self) -> bool:
@@ -128,6 +137,8 @@ class PositionResult:
             'source': self.source,
             'error': self.error,
             'needs_quote': self.needs_quote,
+            'requirements': self.requirements,
+            'considered': self.considered,
             'offers': [asdict(o) for o in self.offers],
             'ask_price_from': [asdict(o) for o in self.ask_price_from],
         }
@@ -252,8 +263,59 @@ def catalog_match_score(position: str, product_text: str) -> float:
 CATALOG_MATCH_THRESHOLD = 0.6
 
 
+# Минимальная общая основа, при которой считаем слова однокоренными.
+# Пять, а не четыре: на четырёх «стол» совпал бы со «столовая» — этот
+# ложняк в проекте уже ловили на фильтрах.
+_ROOT_MIN = 5
+
+
+def _same_root(a: str, b: str) -> bool:
+    """Однокоренные ли слова после усечения.
+
+    Нужно, потому что требование и описание стоят в разных частях речи:
+    «нитрил» (существительное) усекается в «нитрил», а «нитриловые»
+    (прилагательное) — в «нитрилов», и прямое сравнение давало ложный
+    промах на самой важной характеристике — материале.
+    """
+    if a == b:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    return len(shorter) >= _ROOT_MIN and longer.startswith(shorter)
+
+
+def check_against_text(requirements: List[Dict[str, str]], text: str) -> List[Dict[str, Any]]:
+    """Построчная сверка требований с описанием товара — детерминированно.
+
+    Для каталога модель не нужна: описание короткое и структурированное,
+    а проверяемость важнее гибкости — видно, по какому слову сошлось.
+    """
+    text_tokens = set(tokenize(text))
+    checks = []
+    for r in requirements:
+        value = r.get('value') or ''
+        # Размер сверяем отдельно: односимвольный «M» до токенов не доживает.
+        if 'размер' in (r.get('name') or '').lower():
+            want, have = extract_size(value), extract_size(text)
+            checks.append({'name': r['name'], 'required': value,
+                           'found': have or '', 'ok': None if not have else want == have})
+            continue
+        want_tokens = set(tokenize(value))
+        if not want_tokens:
+            checks.append({'name': r['name'], 'required': value, 'found': '', 'ok': None})
+            continue
+        hit = {w for w in want_tokens
+               if any(_same_root(w, t) for t in text_tokens)}
+        checks.append({
+            'name': r['name'], 'required': value,
+            'found': ' '.join(sorted(hit)) if hit else '',
+            'ok': len(hit) == len(want_tokens) if hit else None,
+        })
+    return checks
+
+
 async def match_catalog(company_id: int, position: str,
-                        limit: int = 5) -> List[Offer]:
+                        limit: int = 5,
+                        requirements: List[Dict[str, str]] = None) -> List[Offer]:
     """Ищет позицию в собственном каталоге компании."""
     async with DatabaseSession() as session:
         products = (await session.scalars(
@@ -272,17 +334,21 @@ async def match_catalog(company_id: int, position: str,
             scored.append((score, p))
 
     scored.sort(key=lambda x: -x[0])
-    return [
-        Offer(
-            title=p.name,
+    out = []
+    for _, p in scored[:limit]:
+        text = ' '.join(filter(None, [p.name, p.sizes or '', p.params or '', p.pack or '']))
+        out.append(Offer(
+            # Артикул впереди: именно он идёт в КП заказчику.
+            title=f'{p.sku} · {p.name}' if p.sku else p.name,
             url='',
-            domain='свой каталог',
+            domain=p.supplier or 'свой каталог',
             price=float(p.price) if p.price is not None else None,
-            snippet=' '.join(filter(None, [p.params or '', p.price_text or ''])),
+            snippet=' '.join(filter(None, [p.sizes or '', p.params or '',
+                                           p.price_unit or ''])),
             source='catalog',
-        )
-        for _, p in scored[:limit]
-    ]
+            checks=check_against_text(requirements or [], text),
+        ))
+    return out
 
 
 def _offers_from_payload(items) -> List[Offer]:
@@ -349,35 +415,61 @@ MAX_CANDIDATES = 12
 MAX_PAGES_TO_READ = 6
 
 
-async def _read_candidates(position: str, found, limit: int):
-    """Открывает страницы-кандидаты. Возвращает (с ценой, кому писать запрос).
+async def _read_candidates(position: str, found, limit: int,
+                           requirements: List[Dict[str, str]] = None):
+    """Открывает страницы-кандидаты. Возвращает (с ценой, кому писать, журнал).
+
+    Журнал ведём по КАЖДОМУ кандидату из выдачи, включая отвергнутых: без
+    него нельзя проверить, что система смотрела и почему отказалась, —
+    остаётся верить итоговому списку на слово.
 
     Ранжирование по цене, а не по позиции в выдаче: задача — «самое
     выгодное предложение», и порядок Яндекса к цене отношения не имеет.
-
-    Поставщики без опубликованной цены не выбрасываются: товар у них есть,
-    просто цена по запросу — это ровно те адреса, куда нужно отправить
-    запрос прайса.
     """
     from cabinet import offer_reader
 
     priced: List[Offer] = []
     ask: List[Offer] = []
+    considered: List[Dict[str, Any]] = []
     read_count = 0
 
     for r in found:
-        if read_count >= MAX_PAGES_TO_READ:
-            break
+        entry = {'url': r.url, 'domain': r.domain, 'title': r.title[:120]}
+
         if not offer_reader.is_readable_domain(r.domain):
+            entry['verdict'] = 'пропущен'
+            entry['reason'] = 'маркетплейс: цену прочитать нельзя (капча)'
+            considered.append(entry)
+            continue
+
+        if read_count >= MAX_PAGES_TO_READ:
+            entry['verdict'] = 'не проверен'
+            entry['reason'] = f'достигнут потолок в {MAX_PAGES_TO_READ} страниц'
+            considered.append(entry)
             continue
 
         page_text = await _fetch_page(r.url)
         if not page_text:
+            entry['verdict'] = 'пропущен'
+            entry['reason'] = 'страница не открылась или пустая'
+            considered.append(entry)
             continue
         read_count += 1
 
-        page = await offer_reader.read_offer(position, page_text)
-        if not page or not page.matches:
+        page = await offer_reader.read_offer(position, page_text, requirements)
+        if not page:
+            entry['verdict'] = 'пропущен'
+            entry['reason'] = 'не удалось разобрать страницу'
+            considered.append(entry)
+            continue
+
+        checks = [asdict(c) for c in page.checks]
+        entry['checks'] = checks
+
+        if not page.matches:
+            entry['verdict'] = 'не подошёл'
+            entry['reason'] = page.mismatch_reason or 'товар не соответствует требованиям'
+            considered.append(entry)
             continue
 
         # Приведение к цене за штуку — детерминированный расчёт в коде:
@@ -396,18 +488,24 @@ async def _read_candidates(position: str, found, limit: int):
             is_from_price=page.is_from_price,
             pack_qty=page.pack_qty,
             unit_price=unit_price,
+            checks=checks,
         )
         if page.price is not None and not page.is_from_price:
             priced.append(offer)
+            entry['verdict'] = 'подходит'
+            entry['reason'] = f'цена {page.price:g}'
         else:
             ask.append(offer)
+            entry['verdict'] = 'подходит, но без твёрдой цены'
+            entry['reason'] = 'цена раздела' if page.is_from_price else 'цена по запросу'
+        considered.append(entry)
 
     # Сортируем по приведённой цене за штуку. Предложения, где размер
     # упаковки распознать не удалось, идут после сопоставимых: ставить их
     # выше значило бы выдавать несравнимое число за самое выгодное.
     priced.sort(key=lambda o: (o.unit_price is None,
                                o.unit_price if o.unit_price is not None else o.price))
-    return priced[:limit], ask[:limit]
+    return priced[:limit], ask[:limit], considered
 
 
 async def _fetch_page(url: str) -> Optional[str]:
@@ -429,9 +527,19 @@ async def find_offers(company_id: int, position: str,
         result.error = 'из позиции нечего извлечь'
         return result
 
+    # Требования выделяем до всего остального: по ним идёт и сверка с
+    # каталогом, и сверка страниц, и они же показываются пользователю —
+    # чтобы было видно, что именно система искала.
+    from cabinet import offer_reader
+    try:
+        result.requirements = await offer_reader.parse_requirements(position)
+    except Exception as e:
+        logger.warning(f'Закупщик: не удалось выделить требования: {e}')
+
     # 1. Свой каталог
     try:
-        own = await match_catalog(company_id, position, limit=limit)
+        own = await match_catalog(company_id, position, limit=limit,
+                                  requirements=result.requirements)
         if own:
             result.offers = own
             result.source = 'catalog'
@@ -466,8 +574,10 @@ async def find_offers(company_id: int, position: str,
         result.error = f'Поиск не удался: {e}'
         return result
 
-    offers, ask = await _read_candidates(position, found, limit)
+    offers, ask, considered = await _read_candidates(
+        position, found, limit, result.requirements)
     result.ask_price_from = ask
+    result.considered = considered
 
     try:
         await _cache_put(key, position, offers, ask)

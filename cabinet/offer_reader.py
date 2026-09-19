@@ -24,8 +24,8 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +54,15 @@ _UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
 
 
 @dataclass
+class SpecCheck:
+    """Сверка одной характеристики: что требовалось и что нашлось."""
+    name: str
+    required: str
+    found: str = ''
+    ok: Optional[bool] = None   # None = на странице не указано
+
+
+@dataclass
 class PageOffer:
     product: str
     price: Optional[float]
@@ -64,6 +73,11 @@ class PageOffer:
     pack_qty: Optional[int] = None
     is_from_price: bool = False   # «от 250 ₽» — ценник категории, не товара
     matches: bool = False
+    # Построчная сверка характеристик. Без неё «подходит» — это слово без
+    # доказательства: нельзя проверить, по чему именно сошлось и не
+    # перепутан ли материал или размер.
+    checks: List[SpecCheck] = field(default_factory=list)
+    mismatch_reason: str = ''
 
 
 def is_readable_domain(domain: str) -> bool:
@@ -130,11 +144,70 @@ def _price_is_on_page(price: float, page_text: str) -> bool:
     return any(str(int(price) + delta) in digits for delta in (-1, 1))
 
 
+_SPEC_PROMPT = """Из строки технического задания нужно выделить требования к товару.
+
+СТРОКА ТЗ: {position}
+
+Выдели ТОЛЬКО те характеристики, которые в строке действительно названы. Ничего не добавляй от себя.
+Типичные характеристики: предмет, материал, размер, цвет, плотность/вес, стерильность, ГОСТ/стандарт, количество, назначение.
+
+Ответь строго JSON:
+{{"requirements": [{{"name": "материал", "value": "нитрил"}}, {{"name": "размер", "value": "M"}}]}}"""
+
+
+async def parse_requirements(position: str) -> List[Dict[str, str]]:
+    """Требования к товару из строки ТЗ.
+
+    Выделяем ОДИН раз на позицию, а не при разборе каждой страницы:
+    иначе набор требований плыл бы от страницы к странице и сравнивать
+    кандидатов между собой было бы не с чем.
+    """
+    api_key = os.getenv('OPENAI_API_KEY')
+    if not api_key or not position:
+        return []
+
+    import asyncio
+
+    from tender_sniper.openai_client import make_openai_client
+
+    def _call():
+        client = make_openai_client(api_key)
+        resp = client.chat.completions.create(
+            model='gpt-4o-mini', max_tokens=300, temperature=0,
+            response_format={'type': 'json_object'},
+            messages=[
+                {'role': 'system', 'content': 'Ты выделяешь требования из ТЗ. Только JSON.'},
+                {'role': 'user', 'content': _SPEC_PROMPT.format(position=position[:400])},
+            ],
+        )
+        return resp.choices[0].message.content
+
+    try:
+        loop = asyncio.get_event_loop()
+        raw = await loop.run_in_executor(None, _call)
+        data = json.loads(raw)
+        out = []
+        for r in (data.get('requirements') or [])[:12]:
+            name = str(r.get('name') or '').strip()[:40]
+            value = str(r.get('value') or '').strip()[:80]
+            if name and value:
+                out.append({'name': name, 'value': value})
+        return out
+    except Exception as e:
+        logger.debug(f'Не удалось выделить требования: {e}')
+        return []
+
+
 _PROMPT = """Со страницы интернет-магазина нужно понять, продаётся ли там нужный товар и по какой цене.
 
 НУЖЕН ТОВАР: {position}
 
+ТРЕБОВАНИЯ ИЗ ТЗ (сверь каждое):
+{requirements}
+
 ПРАВИЛА:
+- По КАЖДОМУ требованию верни, что написано на странице (found) и сходится ли (ok). Если на странице характеристика не указана — found: "", ok: null. Не додумывай.
+- matches = false, если хотя бы одно требование ЯВНО противоречит (другой материал, другой размер).
 - price указывай ТОЛЬКО если цена явно написана на странице. Если цены нет — null.
 - Ничего не додумывай: нет данных — null или пустая строка.
 - is_from_price = true, если это цена «от ...» для раздела или диапазон, а не цена конкретного товара.
@@ -145,10 +218,11 @@ _PROMPT = """Со страницы интернет-магазина нужно 
 {page}
 
 Ответь строго JSON без пояснений:
-{{"matches": true|false, "product": "название товара на странице", "price": число|null, "unit": "за что цена (шт/упак/пачка/коробка)", "pack_qty": число|null, "is_from_price": true|false}}"""
+{{"matches": true|false, "product": "название товара на странице", "price": число|null, "unit": "за что цена (шт/упак/пачка/коробка)", "pack_qty": число|null, "is_from_price": true|false, "mismatch_reason": "чем не подошёл, если matches=false", "checks": [{{"name": "материал", "found": "нитрил", "ok": true}}]}}"""
 
 
-async def read_offer(position: str, page_text: str) -> Optional[PageOffer]:
+async def read_offer(position: str, page_text: str,
+                     requirements: Optional[List[Dict[str, str]]] = None) -> Optional[PageOffer]:
     """Читает страницу моделью. None, если разобрать не удалось.
 
     Вызывать только с непустым page_text из fetch_page_text.
@@ -166,7 +240,11 @@ async def read_offer(position: str, page_text: str) -> Optional[PageOffer]:
 
     from tender_sniper.openai_client import make_openai_client
 
-    prompt = _PROMPT.format(position=position[:300], page=page_text[:PAGE_TEXT_LIMIT])
+    reqs = requirements or []
+    req_text = ('\n'.join(f"- {r['name']}: {r['value']}" for r in reqs)
+                if reqs else '(явных требований не выделено)')
+    prompt = _PROMPT.format(position=position[:300], requirements=req_text,
+                            page=page_text[:PAGE_TEXT_LIMIT])
 
     def _call():
         client = make_openai_client(api_key)
@@ -211,7 +289,27 @@ async def read_offer(position: str, page_text: str) -> Optional[PageOffer]:
     except (TypeError, ValueError):
         pack_qty = None
 
+    # Сверку строим от НАШЕГО списка требований, а не от того, что решила
+    # вернуть модель: иначе она могла бы умолчать о неудобной строке.
+    found_by_name = {}
+    for c in (data.get('checks') or []):
+        key = str(c.get('name') or '').strip().lower()
+        if key:
+            found_by_name[key] = c
+    checks = []
+    for r in reqs:
+        c = found_by_name.get(r['name'].strip().lower(), {})
+        ok = c.get('ok')
+        checks.append(SpecCheck(
+            name=r['name'],
+            required=r['value'],
+            found=str(c.get('found') or '')[:80],
+            ok=None if ok is None else bool(ok),
+        ))
+
     return PageOffer(
+        checks=checks,
+        mismatch_reason=str(data.get('mismatch_reason') or '')[:200],
         product=str(data.get('product') or '')[:200],
         price=price,
         unit=str(data.get('unit') or '')[:40],
