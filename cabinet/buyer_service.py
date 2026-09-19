@@ -406,99 +406,136 @@ def build_query(position: str) -> str:
     return ' '.join(tokens) + ' купить цена' if tokens else position[:200]
 
 
-# Сколько ссылок из выдачи вообще рассматриваем. Часть отпадёт на
-# нечитаемых доменах, часть — на блокировке страницы, поэтому берём с
-# запасом относительно нужного числа предложений.
-MAX_CANDIDATES = 12
+# Сколько ссылок из выдачи вообще рассматриваем. Кандидаты бесплатны:
+# Яндекс отдаёт до 50 результатов за ОДИН оплаченный запрос, поэтому
+# сужать здесь нечего.
+MAX_CANDIDATES = 30
 # Сколько страниц реально открываем и читаем моделью. Каждая — запрос в
-# сеть и вызов модели, поэтому потолок жёсткий.
-MAX_PAGES_TO_READ = 6
+# сеть плюс вызов модели (~0.04 ₽), это единственное, что стоит денег.
+MAX_PAGES_TO_READ = 20
+# Сколько страниц читаем одновременно. Раньше цикл был последовательным,
+# и потолок в 6 страниц стоял именно поэтому: 20 подряд заняли бы около
+# минуты. Параллельно те же 20 укладываются в время трёх-четырёх, а
+# ограничение нужно, чтобы не упереться в лимиты OpenAI и не долбить
+# один домен десятком запросов разом.
+READ_CONCURRENCY = 6
+
+
+async def _consider_one(idx: int, r, position: str,
+                        requirements: List[Dict[str, str]],
+                        semaphore) -> Dict[str, Any]:
+    """Обрабатывает одного кандидата. Всегда возвращает запись журнала."""
+    from cabinet import offer_reader
+
+    entry = {'idx': idx, 'url': r.url, 'domain': r.domain,
+             'title': (r.title or '')[:120]}
+
+    async with semaphore:
+        page_text = await _fetch_page(r.url)
+        if not page_text:
+            entry.update(verdict='пропущен',
+                         reason='страница не открылась или пустая')
+            return entry
+
+        page = await offer_reader.read_offer(position, page_text, requirements)
+
+    if not page:
+        entry.update(verdict='пропущен', reason='не удалось разобрать страницу')
+        return entry
+
+    entry['checks'] = [asdict(c) for c in page.checks]
+
+    if not page.matches:
+        entry.update(verdict='не подошёл',
+                     reason=page.mismatch_reason or 'товар не соответствует требованиям')
+        return entry
+
+    # Приведение к цене за штуку — детерминированный расчёт в коде:
+    # модель только прочитала со страницы цену и размер упаковки.
+    unit_price = None
+    if page.price is not None and page.pack_qty:
+        unit_price = page.price / page.pack_qty
+
+    entry['offer'] = Offer(
+        title=page.product or r.title,
+        url=r.url,
+        domain=r.domain,
+        price=page.price,
+        snippet=(page.unit or '') + (' · цена раздела' if page.is_from_price else ''),
+        source='web',
+        is_from_price=page.is_from_price,
+        pack_qty=page.pack_qty,
+        unit_price=unit_price,
+        checks=entry['checks'],
+    )
+    if page.price is not None and not page.is_from_price:
+        entry.update(verdict='подходит', reason=f'цена {page.price:g}')
+    else:
+        entry.update(verdict='подходит, но без твёрдой цены',
+                     reason='цена раздела' if page.is_from_price else 'цена по запросу')
+    return entry
 
 
 async def _read_candidates(position: str, found, limit: int,
                            requirements: List[Dict[str, str]] = None):
-    """Открывает страницы-кандидаты. Возвращает (с ценой, кому писать, журнал).
+    """Читает страницы-кандидатов. Возвращает (с ценой, кому писать, журнал).
 
-    Журнал ведём по КАЖДОМУ кандидату из выдачи, включая отвергнутых: без
-    него нельзя проверить, что система смотрела и почему отказалась, —
-    остаётся верить итоговому списку на слово.
+    Журнал ведём по КАЖДОМУ кандидату, включая отвергнутых: без него
+    нельзя проверить, что система смотрела и почему отказалась.
 
     Ранжирование по цене, а не по позиции в выдаче: задача — «самое
     выгодное предложение», и порядок Яндекса к цене отношения не имеет.
     """
+    import asyncio
+
     from cabinet import offer_reader
+
+    considered: List[Dict[str, Any]] = []
+    to_read = []
+
+    for idx, r in enumerate(found[:MAX_CANDIDATES]):
+        if not offer_reader.is_readable_domain(r.domain):
+            considered.append({
+                'idx': idx, 'url': r.url, 'domain': r.domain,
+                'title': (r.title or '')[:120], 'verdict': 'пропущен',
+                'reason': 'маркетплейс: цену прочитать нельзя (капча)'})
+            continue
+        if len(to_read) >= MAX_PAGES_TO_READ:
+            considered.append({
+                'idx': idx, 'url': r.url, 'domain': r.domain,
+                'title': (r.title or '')[:120], 'verdict': 'не проверен',
+                'reason': f'достигнут потолок в {MAX_PAGES_TO_READ} страниц'})
+            continue
+        to_read.append((idx, r))
+
+    semaphore = asyncio.Semaphore(READ_CONCURRENCY)
+    results = await asyncio.gather(*[
+        _consider_one(idx, r, position, requirements or [], semaphore)
+        for idx, r in to_read
+    ], return_exceptions=True)
 
     priced: List[Offer] = []
     ask: List[Offer] = []
-    considered: List[Dict[str, Any]] = []
-    read_count = 0
-
-    for r in found:
-        entry = {'url': r.url, 'domain': r.domain, 'title': r.title[:120]}
-
-        if not offer_reader.is_readable_domain(r.domain):
-            entry['verdict'] = 'пропущен'
-            entry['reason'] = 'маркетплейс: цену прочитать нельзя (капча)'
-            considered.append(entry)
+    for (idx, r), res in zip(to_read, results):
+        if isinstance(res, Exception):
+            # Одна упавшая страница не должна ронять весь подбор.
+            logger.debug(f'Закупщик: кандидат {r.url[:60]} упал: {res}')
+            considered.append({'idx': idx, 'url': r.url, 'domain': r.domain,
+                               'verdict': 'пропущен', 'reason': 'ошибка обработки'})
             continue
-
-        if read_count >= MAX_PAGES_TO_READ:
-            entry['verdict'] = 'не проверен'
-            entry['reason'] = f'достигнут потолок в {MAX_PAGES_TO_READ} страниц'
-            considered.append(entry)
+        offer = res.pop('offer', None)
+        considered.append(res)
+        if offer is None:
             continue
-
-        page_text = await _fetch_page(r.url)
-        if not page_text:
-            entry['verdict'] = 'пропущен'
-            entry['reason'] = 'страница не открылась или пустая'
-            considered.append(entry)
-            continue
-        read_count += 1
-
-        page = await offer_reader.read_offer(position, page_text, requirements)
-        if not page:
-            entry['verdict'] = 'пропущен'
-            entry['reason'] = 'не удалось разобрать страницу'
-            considered.append(entry)
-            continue
-
-        checks = [asdict(c) for c in page.checks]
-        entry['checks'] = checks
-
-        if not page.matches:
-            entry['verdict'] = 'не подошёл'
-            entry['reason'] = page.mismatch_reason or 'товар не соответствует требованиям'
-            considered.append(entry)
-            continue
-
-        # Приведение к цене за штуку — детерминированный расчёт в коде:
-        # модель только прочитала со страницы цену и размер упаковки.
-        unit_price = None
-        if page.price is not None and page.pack_qty:
-            unit_price = page.price / page.pack_qty
-
-        offer = Offer(
-            title=page.product or r.title,
-            url=r.url,
-            domain=r.domain,
-            price=page.price,
-            snippet=(page.unit or '') + (' · цена раздела' if page.is_from_price else ''),
-            source='web',
-            is_from_price=page.is_from_price,
-            pack_qty=page.pack_qty,
-            unit_price=unit_price,
-            checks=checks,
-        )
-        if page.price is not None and not page.is_from_price:
+        if offer.price is not None and not offer.is_from_price:
             priced.append(offer)
-            entry['verdict'] = 'подходит'
-            entry['reason'] = f'цена {page.price:g}'
         else:
             ask.append(offer)
-            entry['verdict'] = 'подходит, но без твёрдой цены'
-            entry['reason'] = 'цена раздела' if page.is_from_price else 'цена по запросу'
-        considered.append(entry)
+
+    # Журнал — в порядке выдачи, иначе его неудобно читать.
+    considered.sort(key=lambda e: e.get('idx', 0))
+    for e in considered:
+        e.pop('idx', None)
 
     # Сортируем по приведённой цене за штуку. Предложения, где размер
     # упаковки распознать не удалось, идут после сопоставимых: ставить их
