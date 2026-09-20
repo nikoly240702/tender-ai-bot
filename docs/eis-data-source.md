@@ -1,5 +1,68 @@
 # Источник исторических данных ЕИС — результат Этапа 0
 
+> **ИТОГ: источник работает.** Интеграционный сервис ЕИС доступен с
+> боевого сервера, архивы скачиваются и разбираются. Рабочий рецепт —
+> в разделе «Как это работает» ниже. Остальной текст — история поиска.
+
+## Как это работает (проверено 20.09.2026)
+
+Точка входа: `https://int.zakupki.gov.ru/eis-integration/services/getDocsIP`,
+только через прокси (прямой доступ с сервера закрыт), обычный TLS.
+
+⚠️ **Клиент не должен предлагать ГОСТ-шифры.** Если предложит — сервер
+их выберет, и рукопожатие оборвётся на session ticket. На сервере
+OpenSSL 3 без ГОСТ, там всё хорошо. На macOS python и openssl
+слинкованы с LibreSSL, у которого ГОСТ есть: там нужен
+`ctx.set_ciphers('ALL:!GOST:!aGOST:!kGOST')` — одного `!GOST` мало.
+
+Запрос — SOAP, токен в заголовке `individualPerson_token`.
+**`elementFormDefault="unqualified"`: все вложенные элементы без
+префиксов**, префикс только у корневого `getDocsByOrgRegionRequest`.
+Иначе код 28 «Ошибка валидации по интеграционной схеме».
+
+```xml
+<ws:getDocsByOrgRegionRequest xmlns:ws="http://zakupki.gov.ru/fz44/get-docs-ip/ws">
+  <index><id>UUID</id><createDateTime>ISO8601</createDateTime><mode>PROD</mode></index>
+  <selectionParams>
+    <orgRegion>77</orgRegion>              <!-- 2 цифры КЛАДР -->
+    <subsystemType>RGK</subsystemType>     <!-- реестр госконтрактов -->
+    <documentType44>contract</documentType44>
+    <periodInfo><exactDate>2026-09-17</exactDate></periodInfo>
+  </selectionParams>
+</ws:getDocsByOrgRegionRequest>
+```
+
+Ответ — список `<archiveUrl>`; **ссылки завёрнуты в CDATA**, наивный
+regex их не видит. Скачивание — обычный GET с тем же токеном в
+заголовке.
+
+Замер на Москве за один день: **13 архивов, в первом 1,9 МБ и 100 XML**,
+корневой тег `export` → `contract`. Из одного файла разобрано:
+
+```
+реестровый номер   03732006585
+цена контракта     100000.00
+дата заключения    2026-09-15
+ИНН поставщика     7709568163
+наименование       ГБУ города Москвы «Жилищник ...»
+```
+
+Рабочие скрипты на сервере: `/opt/eis/` (`call.py`, `fetch_arch.py`,
+`parse.py`), XSD — `/opt/eis/getDocsIP.xsd`.
+
+### Что осталось выяснить
+
+`documentType44` для **протоколов подведения итогов**. Официальное
+приложение к инструкции отсылает к Альбому ТФФ, раздел 2.9.19 —
+в самом документе списка для 44-ФЗ нет. Перебором не нашлось:
+`protocols`, `epProtocol`, `epProtocolEF44`, `purchaseProtocol`,
+`protocolEF`, `epNotificationEF44` (все с `PRIZ`) → `noData`.
+Для 223-ФЗ соглашение известно (`purchaseProtocol*`, Приложение 2).
+Контракты уже дают ИНН победителя и цену — половину нужных метрик.
+
+---
+
+
 Дата проверки: 20.09.2026. Проверялось под модуль аналитики ниш
 (Niche Analytics), Этап 0 по ТЗ.
 
