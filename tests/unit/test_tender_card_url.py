@@ -36,9 +36,14 @@ class TestTenderCardUrl:
         tender = ZakupkiParser()._parse_tender_card(_card(self.REL))
         assert tender['url'] == self.ABS
 
+    def test_doubled_origin_from_eis_is_repaired(self):
+        """ЕИС с 19.09.2026 отдаёт домен дважды — чиним у себя."""
+        broken = 'https://zakupki.gov.ru' + self.ABS
+        assert ZakupkiParser()._parse_tender_card(_card(broken))['url'] == self.ABS
+
     def test_host_is_never_doubled(self):
         """Тот самый симптом: «zakupki.gov.ruhttps» вместо имени хоста."""
-        for href in (self.ABS, self.REL):
+        for href in (self.ABS, self.REL, 'https://zakupki.gov.ru' + self.ABS):
             url = ZakupkiParser()._parse_tender_card(_card(href))['url']
             assert url.count('https://') == 1
             assert 'gov.ruhttps' not in url
