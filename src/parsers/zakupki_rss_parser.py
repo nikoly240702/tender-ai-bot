@@ -105,6 +105,32 @@ def _fallback_name_from_summary(summary: str) -> Optional[str]:
     return None
 
 
+# Схема+хост, за которыми сразу идёт ещё одна схема, — лишний префикс.
+_DOUBLED_ORIGIN = re.compile(r'^https?://[^/]*(?=https?://)')
+
+
+def normalize_tender_url(url: str) -> str:
+    """Чинит ссылку на процедуру, склеенную дважды.
+
+    С 19.09.2026 ЕИС отдаёт в RSS битые ссылки — домен продублирован:
+    «https://zakupki.gov.ruhttps://zakupki.gov.ru/epz/order/notice/...».
+    Замер 20.09.2026: 50 из 50 записей фида. Хост «zakupki.gov.ruhttps»
+    не резолвится, прокси отвечает 502, и обогащение карточек падает
+    целиком — поток уведомлений упал с 248 в сутки до одного.
+
+    Это дефект на стороне ЕИС, но чинить его приходится у себя.
+    Цикл — на случай, если префикс задвоится больше одного раза.
+    """
+    if not url:
+        return ''
+    url = url.strip()
+    while True:
+        shortened = _DOUBLED_ORIGIN.sub('', url, count=1)
+        if shortened == url:
+            return url
+        url = shortened
+
+
 # Отключаем предупреждения SSL (для zakupki.gov.ru)
 warnings.filterwarnings('ignore', message='Unverified HTTPS request')
 try:
@@ -585,7 +611,7 @@ class ZakupkiRSSParser:
                         if link:
                             raw_number = link.text.strip().replace('№', '').strip()
                             tender['number'] = raw_number
-                            href = link.get('href', '')
+                            href = normalize_tender_url(link.get('href', ''))
                             tender['url'] = self.BASE_URL + href if href.startswith('/') else href
                             # Извлекаем чистый номер из URL
                             reg_match = re.search(r'regNumber=([A-Z0-9]+)', href)
@@ -778,7 +804,7 @@ class ZakupkiRSSParser:
             summary = entry.get('summary', '')
 
             # Получаем URL и делаем его абсолютным
-            url = entry.get('link', '')
+            url = normalize_tender_url(entry.get('link', ''))
             if url and not url.startswith('http'):
                 url = f"{self.BASE_URL}{url}"
 

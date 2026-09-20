@@ -11,6 +11,8 @@ from datetime import datetime
 import re
 import os
 
+from .zakupki_rss_parser import normalize_tender_url
+
 
 class ZakupkiParser:
     """Парсер для извлечения тендеров с zakupki.gov.ru."""
@@ -217,11 +219,10 @@ class ZakupkiParser:
                 if link:
                     tender['number'] = link.text.strip()
                     # ЕИС отдаёт в выдаче абсолютные ссылки (проверено
-                    # 20.09.2026, 10 из 10). Безусловная склейка давала
-                    # «https://zakupki.gov.ruhttps://zakupki.gov.ru/...»:
-                    # прокси не мог резолвить такой хост и отвечал 502,
-                    # из-за чего обогащение карточек падало целиком.
-                    href = link.get('href', '')
+                    # 20.09.2026, 10 из 10), а местами и склеенные дважды —
+                    # см. normalize_tender_url. Безусловная склейка с
+                    # BASE_URL давала нерезолвимый хост и 502 от прокси.
+                    href = normalize_tender_url(link.get('href', ''))
                     tender['url'] = self.BASE_URL + href if href.startswith('/') else href
 
             # Название
