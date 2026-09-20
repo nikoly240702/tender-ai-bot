@@ -216,7 +216,13 @@ class ZakupkiParser:
                 link = registry_number.find('a')
                 if link:
                     tender['number'] = link.text.strip()
-                    tender['url'] = self.BASE_URL + link.get('href', '')
+                    # ЕИС отдаёт в выдаче абсолютные ссылки (проверено
+                    # 20.09.2026, 10 из 10). Безусловная склейка давала
+                    # «https://zakupki.gov.ruhttps://zakupki.gov.ru/...»:
+                    # прокси не мог резолвить такой хост и отвечал 502,
+                    # из-за чего обогащение карточек падало целиком.
+                    href = link.get('href', '')
+                    tender['url'] = self.BASE_URL + href if href.startswith('/') else href
 
             # Название
             body = card.find('div', class_='registry-entry__body-value')
