@@ -74,7 +74,9 @@
         '<td><a href="/cabinet/niches/' + encodeURIComponent(r.okpd2) +
           '?level=' + encodeURIComponent(r.okpd2_level) +
           (r.region ? '&region=' + encodeURIComponent(r.region) : '') +
-          '">' + esc(r.okpd2) + '</a></td>' +
+          '">' + esc(r.okpd2) + '</a>' +
+          (r.okpd2_name ? '<span class="okpd-name">' +
+            esc(r.okpd2_name) + '</span>' : '') + '</td>' +
         '<td>' + esc(r.region_name || '—') + '</td>' +
         '<td>' + esc(BUCKETS[r.price_bucket] || r.price_bucket || '—') + '</td>' +
         '<td class="num">' + (r.procedures_count || 0) + '</td>' +
@@ -162,11 +164,11 @@
   }
 
   function toCsv() {
-    const head = ['ОКПД2', 'регион', 'корзина', 'процедур', 'медиана заявок',
+    const head = ['ОКПД2', 'категория', 'регион', 'корзина', 'процедур', 'медиана заявок',
       'доля с 1 заявкой', 'снижение', 'концентрация', 'индекс', 'достоверность'];
     const lines = [head.join(';')];
     current.forEach(function (r) {
-      lines.push([r.okpd2, r.region_name || '', r.price_bucket || '',
+      lines.push([r.okpd2, r.okpd2_name || '', r.region_name || '', r.price_bucket || '',
         r.procedures_count || 0, num(r.median_bids),
         r.share_single_bid === null ? '' : (r.share_single_bid * 100).toFixed(0),
         r.drop_known ? (r.median_drop * 100).toFixed(1) : '',

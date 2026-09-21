@@ -52,6 +52,45 @@ FROM eis.niche_metrics WHERE okpd2_level = 4
 """
 
 
+OKPD2_NAMES_SQL = """
+SELECT code, name FROM eis.okpd2_dict WHERE code = ANY(:codes)
+"""
+
+
+async def _okpd2_names(session, codes: List[str]) -> Dict[str, str]:
+    """Названия категорий для кодов.
+
+    Если точного кода в справочнике нет, поднимаемся к родителю: в
+    документах чаще встречается подробный код (21.20.10.134), а в
+    рейтинге показывается укрупнённый (21.20), и без подъёма половина
+    строк осталась бы без названия.
+    """
+    wanted = {c for c in codes if c}
+    if not wanted:
+        return {}
+    lookup = set(wanted)
+    for code in wanted:
+        parts = [p for p in code.split(".") if p]
+        for depth in range(1, len(parts)):
+            lookup.add(".".join(parts[:depth]))
+
+    rows = await _fetch(session, OKPD2_NAMES_SQL, {"codes": sorted(lookup)})
+    known = {r["code"]: r["name"] for r in rows}
+
+    result = {}
+    for code in wanted:
+        name = known.get(code)
+        if not name:
+            parts = [p for p in code.split(".") if p]
+            for depth in range(len(parts) - 1, 0, -1):
+                name = known.get(".".join(parts[:depth]))
+                if name:
+                    break
+        if name:
+            result[code] = name
+    return result
+
+
 async def _fetch(session, sql: str, params: Dict[str, Any]) -> List[Dict]:
     rows = (await session.execute(text(sql), params)).mappings().all()
     return [dict(r) for r in rows]
@@ -87,10 +126,14 @@ async def list_niches(level: int = 4, region: Optional[str] = None,
             "level": level, "region": region, "bucket": bucket,
             "min_count": min_count})
         availability = (await _fetch(session, AVAILABILITY_SQL, {})) or [{}]
+        names = await _okpd2_names(session, [r.get("okpd2") for r in rows])
 
     ranked, sparse = rank(rows, config)
+    shown = [_humanise(r) for r in ranked[:limit]]
+    for row in shown:
+        row["okpd2_name"] = names.get(row.get("okpd2"))
     return {
-        "niches": [_humanise(r) for r in ranked[:limit]],
+        "niches": shown,
         "sparse_count": len(sparse),
         "total": len(rows),
         "availability": availability[0],
@@ -153,8 +196,11 @@ async def niche_detail(okpd2: str, level: int = 4, region: Optional[str] = None,
 
     enriched = [_humanise(compute_index(s)) for s in slices]
     enriched.sort(key=lambda r: r.get("procedures_count") or 0, reverse=True)
+    async with DatabaseSession() as session:
+        names = await _okpd2_names(session, [okpd2])
     return {
         "okpd2": okpd2,
+        "okpd2_name": names.get(okpd2),
         "level": level,
         "region": region,
         "slices": enriched,
@@ -422,6 +468,13 @@ async def audit_filters(user_id: Optional[int] = None,
             "verdict": verdict_for(row.get("median_bids"), row.get("median_drop"),
                                    row.get("procedures_count")),
         })
+
+    async with DatabaseSession() as session:
+        names = await _okpd2_names(
+            session, [c["okpd2"] for f in by_filter.values() for c in f["categories"]])
+    for entry in by_filter.values():
+        for category in entry["categories"]:
+            category["okpd2_name"] = names.get(category["okpd2"])
 
     filters = sorted(by_filter.values(), key=lambda f: f["hits"], reverse=True)
     total = totals[0] or {}
