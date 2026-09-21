@@ -86,6 +86,23 @@ DOC_PLACEMENT_RESULT = "fcsPlacementResult"
 DOC_PROPOSALS_RESULT = "fcsProposalsResult"
 DOC_CONTRACT = "contract"
 
+# Все типы извещений 44-ФЗ, встречающиеся в потоке. Восстановлены по
+# реальным процедурам из боевой базы: электронный аукцион, запрос
+# котировок, электронный запрос предложений, открытый конкурс.
+# Брать только EF нельзя — на замере 21.09.2026 это 61% уведомлений,
+# остальные 39% просто не увидели бы.
+NOTICE_TYPES = (
+    "epNotificationEF2020",   # электронный аукцион
+    "epNotificationEZK2020",  # запрос котировок
+    "epNotificationEZT2020",  # электронный запрос
+    "epNotificationEOK2020",  # открытый конкурс
+)
+
+PROTOCOL_TYPES = (
+    "epProtocolEF2020Final",
+    "epProtocolEZT2020Final",
+)
+
 _CREDENTIALS_RE = re.compile(r"://[^/@\s]+@")
 # Ссылка на архив приходит завёрнутой в CDATA; группа берёт содержимое и с
 # ним, и без него.
@@ -155,6 +172,7 @@ def parse_xml(xml_bytes: bytes):
 def build_request(subsystem: str, *, region: Optional[str] = None,
                   doc_type: Optional[str] = None, date: Optional[_dt.date] = None,
                   reestr_number: Optional[str] = None,
+                  hour: Optional[int] = None, tz_offset: str = "3",
                   token: str = "") -> str:
     """Конверт SOAP. Вложенные элементы намеренно без префиксов — см. шапку.
 
@@ -173,10 +191,18 @@ def build_request(subsystem: str, *, region: Optional[str] = None,
         if not (region and doc_type and date):
             raise ValueError("нужны region, doc_type и date либо reestr_number")
         operation = "getDocsByOrgRegionRequest"
+        if hour is None:
+            period = f'<exactDate>{date.isoformat()}</exactDate>'
+        else:
+            # Смещение пояса — числом: тип timeZoneDifferenceType это
+            # [+\-]?\d{1,3}, и «+03:00» сервис отвергает кодом 28.
+            period = (f'<oneHourInfo><date>{date.isoformat()}</date>'
+                      f'<fromHour>{hour}</fromHour>'
+                      f'<offsetTimeZone>{tz_offset}</offsetTimeZone></oneHourInfo>')
         params = (f'<orgRegion>{region}</orgRegion>'
                   f'<subsystemType>{subsystem}</subsystemType>'
                   f'<documentType44>{doc_type}</documentType44>'
-                  f'<periodInfo><exactDate>{date.isoformat()}</exactDate></periodInfo>')
+                  f'<periodInfo>{period}</periodInfo>')
 
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -255,6 +281,18 @@ class EisIntegrationClient:
         logger.info("ЕИС-интеграция: %s/%s регион %s за %s — архивов %d",
                     subsystem, doc_type, region, date, len(urls))
         return urls
+
+    def request_archives_hourly(self, subsystem: str, doc_type: str,
+                                region: str, date: _dt.date, hour: int,
+                                tz_offset: str = "3") -> List[str]:
+        """Архивы за один час. Нужен мониторингу: суточный срез отдаёт всё
+        подряд заново, а часовой — только свежее."""
+        xml = self._post(build_request(subsystem, region=region,
+                                       doc_type=doc_type, date=date,
+                                       hour=hour, tz_offset=tz_offset,
+                                       token=self.token))
+        raise_for_error(xml)
+        return parse_archive_urls(xml)
 
     def request_archives_by_number(self, subsystem: str,
                                    reestr_number: str) -> List[str]:
@@ -429,4 +467,60 @@ def parse_contract(xml_bytes: bytes) -> Dict[str, object]:
         "supplier_inn": _first_text(root, "INN"),
         "supplier_name": _first_text(root, "fullName"),
         "okpd2": okpd2,
+    }
+
+
+def _text_at(root, *path_tail: str) -> Optional[str]:
+    """Текст первого узла, чей путь заканчивается заданной цепочкой тегов.
+
+    Одно имя тега в документах ЕИС встречается в разных ветках с разным
+    смыслом (`name` — и способ закупки, и наименование организации, и
+    позиция), поэтому искать по одному имени нельзя: возьмётся первый
+    попавшийся. Хвост пути снимает неоднозначность, не требуя писать
+    полный путь с namespace.
+    """
+    tail = list(path_tail)
+    parents = {child: parent for parent in root.iter() for child in parent}
+    for node in root.iter():
+        if _local(node.tag) != tail[-1] or not (node.text or "").strip():
+            continue
+        current, ok = node, True
+        for expected in reversed(tail):
+            if current is None or _local(current.tag) != expected:
+                ok = False
+                break
+            current = parents.get(current)
+        if ok:
+            return node.text.strip()
+    return None
+
+
+def parse_notice_card(xml_bytes: bytes) -> Optional[Dict]:
+    """Извещение → строка общего пула тендеров.
+
+    Название берётся из `purchaseObjectInfo` — это предмет закупки, а не
+    способ её проведения. Ровно та проблема, из-за которой в проекте
+    заводился resolve_tender_name: на сайте в заголовке часто стоит
+    «Запрос котировок в электронной форме», и предмет приходилось
+    вытаскивать эвристиками. Здесь он приходит отдельным полем.
+    """
+    root = parse_xml(xml_bytes)
+    number = _text_at(root, "commonInfo", "purchaseNumber")
+    if not number:
+        # В некоторых извещениях номер лежит только в docNumber, с «№».
+        raw = _text_at(root, "commonInfo", "docNumber") or ""
+        number = raw.lstrip("№ ").strip() or None
+    if not number:
+        return None
+
+    return {
+        "tender_number": number,
+        "name": _text_at(root, "commonInfo", "purchaseObjectInfo"),
+        "customer": (_text_at(root, "responsibleOrgInfo", "fullName")
+                     or _text_at(root, "responsibleOrgInfo", "shortName")),
+        "price": _to_float(_text_at(root, "maxPriceInfo", "maxPrice")),
+        "procedure_type": _text_at(root, "placingWay", "name"),
+        "url": _text_at(root, "commonInfo", "href"),
+        "published_at": _text_at(root, "commonInfo", "publishDTInEIS"),
+        "submission_deadline": _text_at(root, "collectingInfo", "endDT"),
     }
