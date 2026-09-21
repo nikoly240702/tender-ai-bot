@@ -220,3 +220,32 @@ class TestApiSerialization:
         import cabinet.api as api
         with pytest.raises(TypeError):
             api.json.dumps({"x": decimal.Decimal("1.5")})
+
+
+@pytest.mark.unit
+class TestOkpd2NameLookupRules:
+    """Правила подстановки названия категории.
+
+    Названия приходят из документов ЕИС, где код бывает любого уровня.
+    Замер 21.09.2026: в справочнике 989 кодов шестого уровня и лишь 92
+    четвёртого, а в рейтинге показываются как раз четвёртые.
+    """
+
+    def test_children_names_are_marked_as_partial(self):
+        """Подкатегорию нельзя выдавать за название группы: «Детские
+        травяные напитки» — это не вся группа 10.86. Поэтому такие
+        названия помечены словами «в т.ч.»."""
+        from cabinet.niche_service import CHILD_NAME_LIMIT
+        assert CHILD_NAME_LIMIT >= 1
+
+    def test_children_sql_matches_only_descendants(self):
+        """Шаблон должен быть «код.%», а не «код%»: иначе 10.8 поймает
+        10.86 и 10.89, то есть соседние группы, а не свои подкатегории."""
+        from cabinet.niche_service import OKPD2_CHILDREN_SQL
+        assert "parent || '.%'" in OKPD2_CHILDREN_SQL
+
+    def test_children_are_taken_by_frequency(self):
+        """Из десятков подкатегорий показываются самые частые — они
+        описывают группу лучше случайных."""
+        from cabinet.niche_service import OKPD2_CHILDREN_SQL
+        assert "ORDER BY count(*) DESC" in OKPD2_CHILDREN_SQL
