@@ -367,7 +367,14 @@ def _offers_from_payload(items) -> List[Offer]:
 
 
 async def _cache_get(key: str):
-    """Возвращает (предложения, кому писать запрос) или None."""
+    """Возвращает (предложения, кому писать запрос, запрос) или None.
+
+    Запрос лежит рядом с результатом намеренно. Поле `query` заведено,
+    чтобы было видно, ПОЧЕМУ ничего не нашлось — плох запрос или нет
+    предложений. Пока оно заполнялось только на пути живого поиска,
+    ответ из кэша приходил с пустым запросом, то есть ровно в том
+    случае, когда объяснение и нужно.
+    """
     async with DatabaseSession() as session:
         row = await session.get(ProductSearchCache, key)
         if not row:
@@ -377,20 +384,32 @@ async def _cache_get(key: str):
             return None
         row.hits = (row.hits or 0) + 1
         await session.commit()
-        payload = row.results or {}
-        # Записи до появления запроса прайса — просто список предложений.
-        if isinstance(payload, list):
-            return _offers_from_payload(payload), []
-        return (_offers_from_payload(payload.get('offers')),
-                _offers_from_payload(payload.get('ask_price_from')))
+        return _cache_payload(row.results)
+
+
+def _cache_payload(payload):
+    """Разбор записи кэша → (предложения, кому писать, запрос).
+
+    Отдельной функцией, потому что форм записи три и все живые: самые
+    старые — просто список предложений, следующие — словарь без
+    запроса, нынешние — с запросом. Читать это внутри работы с сессией
+    неудобно и нечем проверить.
+    """
+    payload = payload or {}
+    if isinstance(payload, list):
+        return _offers_from_payload(payload), [], ''
+    return (_offers_from_payload(payload.get('offers')),
+            _offers_from_payload(payload.get('ask_price_from')),
+            payload.get('query') or '')
 
 
 async def _cache_put(key: str, text: str, offers: List[Offer],
-                     ask: List[Offer] = None) -> None:
+                     ask: List[Offer] = None, query: str = '') -> None:
     """Пустую выдачу тоже кэшируем: «ничего не нашли» — такой же результат,
     и повторять бесплодный поиск при каждом прогоне незачем."""
     payload = {'offers': [asdict(o) for o in offers],
-               'ask_price_from': [asdict(o) for o in (ask or [])]}
+               'ask_price_from': [asdict(o) for o in (ask or [])],
+               'query': query}
     async with DatabaseSession() as session:
         row = await session.get(ProductSearchCache, key)
         now = datetime.utcnow()
@@ -769,6 +788,7 @@ async def find_offers(company_id: int, position: str,
         cached = await _cache_get(key)
         if cached is not None:
             result.offers, result.ask_price_from = cached[0][:limit], cached[1][:limit]
+            result.query = cached[2]
             result.source = 'cache'
             return result
     except Exception as e:
@@ -807,7 +827,7 @@ async def find_offers(company_id: int, position: str,
     result.considered = considered
 
     try:
-        await _cache_put(key, position, offers, ask)
+        await _cache_put(key, position, offers, ask, query)
     except Exception as e:
         logger.warning(f'Закупщик: не удалось сохранить кэш: {e}')
 

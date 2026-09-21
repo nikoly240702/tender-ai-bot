@@ -400,3 +400,32 @@ class TestPositionSourcePriority:
                         'длина не менее 500 и менее 600 мм').split()
         assert 'поликарбонат' in q
         assert '500' not in q and '600' not in q
+
+
+@pytest.mark.unit
+class TestCachedQueryIsKept:
+    """Поле «запрос» заведено, чтобы было видно, ПОЧЕМУ ничего не
+    нашлось — плох запрос или нет предложений. Пока оно заполнялось
+    только на пути живого поиска, ответ из кэша приходил с пустым
+    запросом, то есть ровно там, где объяснение и нужно: карточка 1622
+    (весы) показала предложения без единого слова о том, что искали."""
+
+    def test_query_comes_back_from_the_cache(self):
+        from cabinet.buyer_service import _cache_payload
+        offers, ask, query = _cache_payload({
+            'offers': [{'title': 'Весы', 'url': 'https://example.test'}],
+            'ask_price_from': [],
+            'query': 'весы электронные до 500 кг оптом прайс'})
+        assert query == 'весы электронные до 500 кг оптом прайс'
+        assert len(offers) == 1 and ask == []
+
+    def test_older_records_without_query_still_read(self):
+        """Форм записи три и все живые: список без запроса, словарь без
+        запроса и нынешний словарь. Старые не должны ронять чтение."""
+        from cabinet.buyer_service import _cache_payload
+        offers, ask, query = _cache_payload(
+            [{'title': 'Весы', 'url': 'https://example.test'}])
+        assert len(offers) == 1 and ask == [] and query == ''
+
+        offers, ask, query = _cache_payload({'offers': [], 'ask_price_from': []})
+        assert query == ''
