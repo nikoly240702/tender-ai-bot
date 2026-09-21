@@ -59,7 +59,9 @@
               esc(c.verdict) + '</td>' +
           '</tr>';
         }).join('');
-        return '<h2>' + esc(f.filter_name || ('фильтр ' + f.filter_id)) +
+        return '<div class="filter-block">' +
+          '<h2 class="sticky-head">' +
+          esc(f.filter_name || ('фильтр ' + f.filter_id)) +
           ' <span class="hint">— совпадений ' + f.hits + '</span></h2>' +
           '<div class="niche-table-wrap"><table class="niche-table"><thead><tr>' +
           '<th>ОКПД2</th><th>Регион</th><th>Корзина</th><th class="num">Совпадений</th>' +

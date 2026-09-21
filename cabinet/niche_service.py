@@ -602,3 +602,72 @@ async def dashboard() -> Dict[str, Any]:
         # верхушка рейтинга завышена, и об этом надо сказать прямо.
         "with_winners": sum(1 for r in ranked if r.get("known_winners")),
     }
+
+
+# ---------------------------------------------------------------------------
+# Данные для графиков
+# ---------------------------------------------------------------------------
+
+# Все графики считаются по одной выборке процедур с известным
+# результатом. Процедуры с неопределённым объёмом исключены из расчёта
+# снижения, но не из подсчёта заявок: конкуренция в них измеряется, а
+# цена — нет (участники торгуются суммами цен за единицу).
+CHARTS_SQL = """
+WITH base AS (
+    SELECT pr.purchase_number, pr.nmck, pr.published_at, pr.okpd2_primary,
+           eis.okpd2_prefix(pr.okpd2_primary, 4) AS okpd2,
+           pr.quantity_undefined, p.bids_submitted, p.winner_price,
+           CASE
+               WHEN pr.nmck > 0 AND p.winner_price IS NOT NULL
+                    AND NOT coalesce(pr.quantity_undefined, false)
+                    AND p.winner_price <= pr.nmck
+               THEN (pr.nmck - p.winner_price) / pr.nmck
+           END AS drop
+    FROM eis.procedure pr
+    JOIN eis.protocol p ON p.purchase_number = pr.purchase_number
+    WHERE pr.nmck IS NOT NULL AND p.bids_submitted IS NOT NULL
+)
+SELECT
+    (SELECT json_agg(x ORDER BY bids) FROM (
+        SELECT least(bids_submitted, 10) AS bids, count(*) AS procedures
+        FROM base GROUP BY 1) x) AS bids_distribution,
+    (SELECT json_agg(x ORDER BY bids) FROM (
+        SELECT bids_submitted AS bids,
+               round(avg(drop)::numeric * 100, 1) AS avg_drop,
+               count(*) AS procedures
+        FROM base WHERE drop IS NOT NULL AND bids_submitted <= 10
+        GROUP BY 1 HAVING count(*) >= 5) x) AS drop_by_bids,
+    (SELECT json_agg(x ORDER BY month) FROM (
+        SELECT to_char(date_trunc('month', published_at), 'YYYY-MM') AS month,
+               count(*) AS procedures,
+               round(avg(drop)::numeric * 100, 1) AS avg_drop
+        FROM base WHERE published_at IS NOT NULL
+        GROUP BY 1) x) AS monthly,
+    (SELECT json_agg(x ORDER BY procedures DESC) FROM (
+        SELECT okpd2, count(*) AS procedures,
+               round(avg(bids_submitted)::numeric, 1) AS avg_bids
+        FROM base WHERE okpd2 IS NOT NULL
+        GROUP BY 1 ORDER BY count(*) DESC LIMIT 12) x) AS top_categories
+"""
+
+
+async def charts() -> Dict[str, Any]:
+    """Данные для графиков сводки — одним запросом.
+
+    Одним, а не четырьмя: все четыре среза считаются по одной и той же
+    выборке, и разными запросами они разъезжались бы между собой при
+    параллельной загрузке данных.
+    """
+    async with DatabaseSession() as session:
+        rows = await _fetch(session, CHARTS_SQL, {})
+        data = dict(rows[0]) if rows else {}
+        cats = data.get("top_categories") or []
+        names = await _okpd2_names(session, [c.get("okpd2") for c in cats])
+    for cat in cats:
+        cat["okpd2_name"] = names.get(cat.get("okpd2"))
+    return {
+        "bids_distribution": data.get("bids_distribution") or [],
+        "drop_by_bids": data.get("drop_by_bids") or [],
+        "monthly": data.get("monthly") or [],
+        "top_categories": cats,
+    }
