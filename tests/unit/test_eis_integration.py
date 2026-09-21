@@ -240,6 +240,34 @@ class TestParseContract:
         c = parse_contract(CONTRACT)
         assert c["okpd2"] == ["95.29.19.221", "25.99.23.000"]
 
+    def test_supplier_is_not_the_customer(self):
+        """Регрессия: и у заказчика, и у поставщика есть regNum, INN и
+        fullName, а заказчик идёт в документе раньше. Поиск «первого по
+        документу» подставлял заказчика в победители, а короткий
+        regNum заказчика схлопывал контракты по ключу: замер
+        21.09.2026 — из 142 868 записей в таблице осталось 2 611."""
+        xml = (
+            f'<ns0:export xmlns:ns0="{EP}" xmlns:ns1="{CMN}"><ns0:contract>'
+            f'<ns0:customer><ns0:regNum>01612000027</ns0:regNum>'
+            f'<ns0:fullName>ПРЕДСТАВИТЕЛЬСТВО ОБЛАСТИ</ns0:fullName>'
+            f'<ns1:INN>7700000000</ns1:INN></ns0:customer>'
+            f'<ns0:regNum>2770413633926000003</ns0:regNum>'
+            f'<ns0:signDate>2026-07-22</ns0:signDate>'
+            f'<ns0:priceInfo><ns0:price>3158398.00</ns0:price></ns0:priceInfo>'
+            f'<ns0:products><ns0:product><ns0:price>4450469.92</ns0:price>'
+            f'</ns0:product></ns0:products>'
+            f'<ns0:suppliersInfo><ns0:supplierInfo><ns0:legalEntityRF>'
+            f'<ns0:EGRULInfo><ns1:fullName>ООО УПРАВЛЕНИЕ</ns1:fullName>'
+            f'<ns1:INN>9703027059</ns1:INN></ns0:EGRULInfo>'
+            f'</ns0:legalEntityRF></ns0:supplierInfo></ns0:suppliersInfo>'
+            f'</ns0:contract></ns0:export>').encode("utf-8")
+        c = parse_contract(xml)
+        assert c["reg_num"] == "2770413633926000003"
+        assert c["supplier_inn"] == "9703027059"
+        assert c["supplier_name"] == "ООО УПРАВЛЕНИЕ"
+        # Цена контракта, а не первой позиции.
+        assert c["price"] == "3158398.00"
+
     def test_contract_without_products(self):
         xml = (f'<ns0:export xmlns:ns0="{EP}"><ns0:contract>'
                f'<ns0:regNum>1</ns0:regNum></ns0:contract></ns0:export>').encode("utf-8")

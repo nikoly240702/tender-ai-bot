@@ -110,6 +110,43 @@ class TestBuildQuery:
         q = build_query(' '.join(f'слово{i}' for i in range(40)))
         assert len(q.split()) == MAX_QUERY_WORDS
 
+    def test_words_are_not_stemmed(self):
+        """Усечение нужно ключу кэша, но не поисковой строке: замер
+        21.09.2026 на закупке 0173300004226000004 дал «оперативн памят
+        ddr4» и ноль результатов — такой строки нет ни на одной
+        странице."""
+        q = build_query('Ноутбук, оперативная память DDR4, накопитель SSD')
+        assert 'оперативная' in q and 'память' in q
+        assert 'оперативн' not in q.split() and 'памят' not in q.split()
+
+    def test_numbers_survive_trimming(self):
+        """Числа сужают выдачу до конкретной модели сильнее любого
+        прилагательного, поэтому место под них резервируется до того,
+        как бюджет разберут описательные слова.
+
+        Резерв смотрит только на начало позиции: число, стоящее дальше,
+        чем сама длина запроса, в названии товара уже не участвует — и
+        «595» из хвоста сюда не попадает намеренно."""
+        q = build_query('Светильник светодиодный внутреннего освещения '
+                        'настенно-потолочный квадратный рассеиватель '
+                        'поликарбонат мощность 40 Вт длина 595 мм')
+        assert '40' in q.split() and 'вт' in q.split()
+
+    def test_units_stay_with_their_number(self):
+        """Голое число поисковику не говорит ничего: первый вариант
+        резерва дал «... квадратный 40 595» вместо «40 вт 595 мм»."""
+        q = build_query('Светильник светодиодный настенно-потолочный '
+                        'квадратный рассеиватель поликарбонат '
+                        'мощность 40 Вт длина 595 мм').split()
+        assert q[q.index('40') + 1] == 'вт'
+        assert q[q.index('595') + 1] == 'мм'
+
+    def test_numbers_alone_do_not_crowd_out_the_noun(self):
+        """Из одних чисел запрос тоже не ищется — поэтому резерв равен
+        половине бюджета, а не всему."""
+        q = build_query('Кабель 5 10 15 20 25 30 35 40 45 50 55 60')
+        assert 'кабель' in q.split()
+
 
 @pytest.mark.unit
 class TestExtractPositions:
@@ -201,3 +238,165 @@ class TestSpecVerification:
         d = PositionResult(position='тест').to_dict()
         assert 'considered' in d
         assert 'requirements' in d
+
+
+@pytest.mark.unit
+class TestSilenceIsNotContradiction:
+    """Каталог поставщика почти никогда не повторяет все строки ТЗ.
+
+    Замер 21.09.2026 по закупке 0373100128326000093: отказы звучали как
+    «материал не указан» и «не указаны характеристики товара» — ни один
+    не был расхождением, и подбор вернул ноль предложений при том, что
+    нужные светильники в выдаче были (1 179 ₽ и 3 117 ₽).
+    """
+
+    @staticmethod
+    def _check(ok):
+        from cabinet.offer_reader import SpecCheck
+        return SpecCheck(name='материал', required='поликарбонат',
+                         found='' if ok is None else 'поликарбонат', ok=ok)
+
+    def test_unstated_requirement_is_not_a_contradiction(self):
+        from cabinet.buyer_service import _is_contradicted
+        assert _is_contradicted([self._check(None), self._check(True)]) is False
+
+    def test_explicit_mismatch_is_a_contradiction(self):
+        from cabinet.buyer_service import _is_contradicted
+        assert _is_contradicted([self._check(True), self._check(False)]) is True
+
+    def test_empty_checks_are_not_a_contradiction(self):
+        from cabinet.buyer_service import _is_contradicted
+        assert _is_contradicted([]) is False
+
+    def test_reason_names_what_the_page_left_out(self):
+        from cabinet.buyer_service import _unstated_reason
+        assert 'материал' in _unstated_reason([self._check(None)])
+
+    def test_unconfirmed_offers_rank_below_confirmed(self):
+        """Неподтверждённые годятся как ориентир по рынку, но не как
+        основание для ставки — значит, не выше подтверждённых."""
+        from cabinet.buyer_service import Offer
+        cheap_unconfirmed = Offer(title='a', url='a', price=100,
+                                  unit_price=100, unconfirmed=True)
+        pricey_confirmed = Offer(title='b', url='b', price=900, unit_price=900)
+        ranked = sorted([cheap_unconfirmed, pricey_confirmed],
+                        key=lambda o: (o.unconfirmed, o.unit_price is None,
+                                       o.unit_price))
+        assert ranked[0] is pricey_confirmed
+
+
+@pytest.mark.unit
+class TestReplyBudget:
+    def test_budget_grows_with_requirements(self):
+        """Плоские 250 токенов обрывали ответ тем вернее, чем подробнее
+        позиция: на каждое требование модель пишет строку в checks.
+        Замер 21.09.2026, 9 требований: при 250 оборвались все три
+        страницы, при 900 разобрались все три."""
+        from cabinet.offer_reader import _reply_budget
+        assert _reply_budget(9) >= 900
+        assert _reply_budget(9) > _reply_budget(1)
+
+    def test_budget_is_capped(self):
+        from cabinet.offer_reader import _reply_budget, _REPLY_CEILING
+        assert _reply_budget(500) == _REPLY_CEILING
+
+
+@pytest.mark.unit
+class TestEmptyFoundIsNeverAMismatch:
+    """Модель ставит ok=false при пустом found даже когда промпт это
+    запрещает: замер 21.09.2026 по закупке 0373100128326000093 дал
+    отказ «материал не указан» после прямого указания так не делать.
+    Поэтому правило держит код, а не промпт."""
+
+    @staticmethod
+    def _parse(raw_checks, reqs):
+        """Повторяет разбор checks из read_offer без сетевого вызова."""
+        from cabinet.offer_reader import SpecCheck, _is_blank
+        found_by_name = {str(c.get('name') or '').strip().lower(): c
+                         for c in raw_checks}
+        out = []
+        for r in reqs:
+            c = found_by_name.get(r['name'].strip().lower(), {})
+            ok = c.get('ok')
+            found = str(c.get('found') or '')[:80]
+            if _is_blank(found):
+                found, ok = '', None
+            out.append(SpecCheck(name=r['name'], required=r['value'],
+                                 found=found,
+                                 ok=None if ok is None else bool(ok)))
+        return out
+
+    def test_empty_found_downgrades_false_to_unknown(self):
+        from cabinet.buyer_service import _is_contradicted
+        reqs = [{'name': 'материал', 'value': 'поликарбонат'}]
+        checks = self._parse([{'name': 'материал', 'found': '', 'ok': False}], reqs)
+        assert checks[0].ok is None
+        assert _is_contradicted(checks) is False
+
+    def test_stated_mismatch_still_rejects(self):
+        from cabinet.buyer_service import _is_contradicted
+        reqs = [{'name': 'материал', 'value': 'поликарбонат'}]
+        checks = self._parse(
+            [{'name': 'материал', 'found': 'сталь', 'ok': False}], reqs)
+        assert checks[0].ok is False
+        assert _is_contradicted(checks) is True
+
+    def test_words_meaning_not_stated_count_as_blank(self):
+        """Модель пишет отсутствие и словами: замер 21.09.2026 дал
+        «материал не соответствует (поликарбонат vs. не указано)»."""
+        from cabinet.buyer_service import _is_contradicted
+        reqs = [{'name': 'материал', 'value': 'поликарбонат'}]
+        checks = self._parse(
+            [{'name': 'материал', 'found': 'не указано', 'ok': False}], reqs)
+        assert checks[0].ok is None
+        assert _is_contradicted(checks) is False
+
+
+@pytest.mark.unit
+class TestPositionSourcePriority:
+    """Извещение точнее разбора ТЗ, а разбор — точнее названия тендера.
+
+    Название тендера — это товарная категория: замер 21.09.2026 по
+    закупке 0373100128326000093 дал по нему четыре разных товара от
+    449 до 7 483 ₽ и ни одного нужного.
+    """
+
+    def test_notice_beats_ai_analysis(self):
+        card = {
+            'notice_positions': ['Светильник светодиодный, мощность 40 Вт'],
+            'ai_analysis': {'fields': {'items_description': 'Светильник'}},
+        }
+        assert extract_positions(card, 'Поставка светильников') == [
+            'Светильник светодиодный, мощность 40 Вт']
+
+    def test_ai_analysis_used_when_notice_is_empty(self):
+        """Пустой список значит «извещение прочитано, позиций нет» — это
+        не повод молчать, если разбор ТЗ есть."""
+        card = {'notice_positions': [],
+                'ai_analysis': {'fields': {'items_description': 'Бумага А4'}}}
+        assert extract_positions(card, 'Тендер') == ['Бумага А4']
+
+    def test_tender_name_is_the_last_resort(self):
+        assert extract_positions({'notice_positions': []},
+                                 tender_name='Поставка бумаги') == ['Поставка бумаги']
+
+    def test_notice_positions_respect_the_limit(self):
+        card = {'notice_positions': [f'Позиция {i}' for i in range(40)]}
+        assert len(extract_positions(card, limit=15)) == 15
+
+    def test_range_words_do_not_reach_the_query(self):
+        """Магазин пишет «40 Вт», а не «до 40 Вт» — служебные слова
+        границ занимают место в запросе и ничего не находят."""
+        q = build_query('Светильник светодиодный, мощность до 40 Вт').split()
+        assert 'до' not in q
+        assert '40' in q and 'вт' in q
+
+    def test_numbers_are_taken_from_the_head_of_the_position(self):
+        """Позиция длиннее запроса, и первым в ней идёт то, чем товар
+        называют. Без окна резерв хватал числа из хвоста: «индекс
+        цветопередачи 80 и менее 90» вытеснял «поликарбонат»."""
+        q = build_query('Светильник светодиодный 40 Вт поликарбонат, '
+                        'индекс цветопередачи не менее 80 и менее 90, '
+                        'длина не менее 500 и менее 600 мм').split()
+        assert 'поликарбонат' in q
+        assert '500' not in q and '600' not in q

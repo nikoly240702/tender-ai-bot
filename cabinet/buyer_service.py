@@ -106,6 +106,10 @@ class Offer:
     # Построчная сверка с требованиями ТЗ: [{name, required, found, ok}].
     # Без неё «подходит» — утверждение без доказательства.
     checks: List[Dict[str, Any]] = field(default_factory=list)
+    # Ни одно требование не нарушено, но часть страница просто не
+    # называет. Такие идут после подтверждённых и помечаются в выдаче:
+    # выбросить их нельзя, иначе не остаётся ничего (см. _is_contradicted).
+    unconfirmed: bool = False
 
 
 @dataclass
@@ -120,6 +124,10 @@ class PositionResult:
     ask_price_from: List[Offer] = field(default_factory=list)
     # Требования, выделенные из строки ТЗ, — по ним идёт сверка.
     requirements: List[Dict[str, str]] = field(default_factory=list)
+    # С чем реально пошли в поиск. Формулировка тендера и формулировка
+    # каталога расходятся сильно, и без этого поля непонятно, почему
+    # ничего не нашлось — плох запрос или нет предложений.
+    query: str = ''
     # Журнал перебора: каждый рассмотренный кандидат и его судьба.
     # Нужен, чтобы можно было проверить, что именно система смотрела и
     # почему отвергла, а не верить итоговому списку на слово.
@@ -138,6 +146,7 @@ class PositionResult:
             'error': self.error,
             'needs_quote': self.needs_quote,
             'requirements': self.requirements,
+            'query': self.query,
             'considered': self.considered,
             'offers': [asdict(o) for o in self.offers],
             'ask_price_from': [asdict(o) for o in self.ask_price_from],
@@ -419,6 +428,78 @@ WHOLESALE_INTENT = "оптом прайс поставщик"
 MAX_QUERY_WORDS = 12
 
 
+def query_terms(position: str) -> List[str]:
+    """Слова позиции в том виде, в каком их понимает поисковая машина.
+
+    Отдельно от tokenize() ровно из-за усечения. Для ключа кэша и сверки
+    текстов основа — то, что надо, но в поисковую строку она не годится:
+    замер 21.09.2026 на закупке 0173300004226000004 дал запрос
+    «ноутбук 15 дюйм full hd ips оперативн памят ddr4» и ноль
+    результатов — такой строки нет ни на одной странице.
+    """
+    seen = set()
+    terms = []
+    for token in _TOKEN_RE.findall((position or '').lower()):
+        if len(token) < 2 or token in STOPWORDS or token in seen:
+            continue
+        if token in _RANGE_WORDS:
+            continue
+        seen.add(token)
+        terms.append(token)
+    return terms
+
+
+def _is_defining(token: str) -> bool:
+    """Отличает ли токен одну модель товара от другой.
+
+    Числа (мощность, габарит, объём, класс) сужают выдачу до конкретного
+    изделия сильнее любого прилагательного: «595х595 40» находит нужный
+    светильник, «настенно-потолочный квадратный» — любой.
+    """
+    return any(ch.isdigit() for ch in token)
+
+
+# Единицы измерения: их нельзя отрывать от числа. Первый вариант правки
+# резервировал только цифры, и запрос вышел «... квадратный 40 595» —
+# голые числа поисковику не говорят ничего, нужно «40 вт» и «595 мм».
+_UNITS = frozenset((
+    'вт', 'квт', 'в', 'а', 'гц', 'мгц', 'ггц', 'к',
+    'мм', 'см', 'дм', 'м', 'дюйм', 'дюйма', 'дюймов',
+    'г', 'кг', 'т', 'мл', 'л', 'мкм', 'нм',
+    'гб', 'тб', 'мб', 'лм', 'лк', 'ip',
+))
+
+
+# Слова, которыми записывают границы требования. В ТЗ они нужны, в
+# поисковой строке — балласт: магазин пишет «40 Вт», а не «до 40 Вт».
+_RANGE_WORDS = frozenset(('до', 'от', 'не', 'более', 'менее', 'свыше'))
+
+# Из какого куска позиции берутся числа. Позиция длиннее запроса, и
+# первым в ней идёт то, чем товар называют (см. notice_positions):
+# без окна резерв хватал числа из хвоста — «индекс цветопередачи
+# 80 и менее 90» вытеснял из запроса «поликарбонат» и «настенно-
+# потолочный».
+_DEFINING_WINDOW = MAX_QUERY_WORDS
+
+
+def _reserve_defining(terms: List[str], budget: int) -> set:
+    """Числа, которым гарантируется место в запросе, вместе с единицами.
+
+    Половина бюджета, не весь: из одних чисел запрос тоже не ищется.
+    """
+    reserved = set()
+    for i, term in enumerate(terms[:_DEFINING_WINDOW]):
+        if len(reserved) >= budget:
+            break
+        if not _is_defining(term):
+            continue
+        reserved.add(term)
+        nxt = terms[i + 1] if i + 1 < len(terms) else None
+        if nxt in _UNITS:
+            reserved.add(nxt)
+    return reserved
+
+
 def build_query(position: str) -> str:
     """Поисковый запрос из позиции ТЗ.
 
@@ -426,7 +507,25 @@ def build_query(position: str) -> str:
     тендер, а не где купить одну штуку.
     """
     intent = WHOLESALE_INTENT.split()
-    tokens = tokenize(position)[:MAX_QUERY_WORDS - len(intent)]
+    terms = query_terms(position)
+    budget = MAX_QUERY_WORDS - len(intent)
+
+    # Место под числа резервируется до того, как бюджет разберут
+    # описательные слова: обрезка по порядку выбрасывала именно их —
+    # позиция «...SSD PCIe, без ОС, HDMI» теряла всё после DDR4.
+    reserved = _reserve_defining(terms, budget // 2)
+    plain_room = budget - len(reserved)
+
+    tokens = []
+    for term in terms:
+        if term in reserved:
+            tokens.append(term)
+        elif plain_room > 0:
+            tokens.append(term)
+            plain_room -= 1
+        if len(tokens) >= budget:
+            break
+
     if not tokens:
         return position[:200]
     return ' '.join(tokens + intent)
@@ -439,12 +538,40 @@ MAX_CANDIDATES = 30
 # Сколько страниц реально открываем и читаем моделью. Каждая — запрос в
 # сеть плюс вызов модели (~0.04 ₽), это единственное, что стоит денег.
 MAX_PAGES_TO_READ = 20
+# Сколько страниц берём с одного сайта. Без потолка один крупный
+# каталог забирает весь бюджет: замер 21.09.2026 по светильникам дал
+# 20 ссылок из 30 на etm.ru, и когда его страницы не прочитались,
+# подбор остался ни с чем, хотя в выдаче были ещё шесть поставщиков.
+MAX_PAGES_PER_DOMAIN = 4
 # Сколько страниц читаем одновременно. Раньше цикл был последовательным,
 # и потолок в 6 страниц стоял именно поэтому: 20 подряд заняли бы около
 # минуты. Параллельно те же 20 укладываются в время трёх-четырёх, а
 # ограничение нужно, чтобы не упереться в лимиты OpenAI и не долбить
 # один домен десятком запросов разом.
 READ_CONCURRENCY = 6
+
+
+def _is_contradicted(checks) -> bool:
+    """Спорит ли страница с ТЗ — в отличие от того, что она молчит.
+
+    Разница принципиальная. Каталог поставщика почти никогда не
+    повторяет все строки ТЗ: замер 21.09.2026 по закупке
+    0373100128326000093 дал отказы «материал не указан», «не указаны
+    характеристики товара», «материал, размеры» — ни один из них не был
+    расхождением, и подбор в итоге вернул ноль предложений.
+
+    Противоречие — это ok=False хотя бы по одной строке. Отсутствие
+    строки (ok=None) противоречием не является.
+    """
+    return any(c.ok is False for c in (checks or []))
+
+
+def _unstated_reason(checks) -> str:
+    """Каких требований страница не назвала — чтобы это было видно."""
+    silent = [c.name for c in (checks or []) if c.ok is None]
+    if not silent:
+        return 'страница не подтвердила часть требований'
+    return 'на странице не указано: ' + ', '.join(silent[:5])
 
 
 async def _consider_one(idx: int, r, position: str,
@@ -471,10 +598,19 @@ async def _consider_one(idx: int, r, position: str,
 
     entry['checks'] = [asdict(c) for c in page.checks]
 
+    unconfirmed = False
     if not page.matches:
-        entry.update(verdict='не подошёл',
-                     reason=page.mismatch_reason or 'товар не соответствует требованиям')
-        return entry
+        if _is_contradicted(page.checks):
+            entry.update(verdict='не подошёл',
+                         reason=page.mismatch_reason
+                                or 'товар не соответствует требованиям')
+            return entry
+        # Модель сказала «не подходит», но ни одну строку не отметила
+        # нарушенной — значит она молчит, а не спорит. Отбрасывать здесь
+        # нельзя: замер 21.09.2026 по закупке 0373100128326000093 дал
+        # отказы «материал не указан» и «не указаны характеристики» на
+        # страницах, где товар был именно тот, и подбор вернул ноль.
+        unconfirmed = True
 
     # Приведение к цене за штуку — детерминированный расчёт в коде:
     # модель только прочитала со страницы цену и размер упаковки.
@@ -493,8 +629,12 @@ async def _consider_one(idx: int, r, position: str,
         pack_qty=page.pack_qty,
         unit_price=unit_price,
         checks=entry['checks'],
+        unconfirmed=unconfirmed,
     )
-    if page.price is not None and not page.is_from_price:
+    if unconfirmed:
+        entry.update(verdict='подходит, но не всё подтверждено',
+                     reason=_unstated_reason(page.checks))
+    elif page.price is not None and not page.is_from_price:
         entry.update(verdict='подходит', reason=f'цена {page.price:g}')
     else:
         entry.update(verdict='подходит, но без твёрдой цены',
@@ -516,8 +656,11 @@ async def _read_candidates(position: str, found, limit: int,
 
     from cabinet import offer_reader
 
+    import collections
+
     considered: List[Dict[str, Any]] = []
     to_read = []
+    per_domain = collections.Counter()
 
     for idx, r in enumerate(found[:MAX_CANDIDATES]):
         if not offer_reader.is_readable_domain(r.domain):
@@ -532,6 +675,13 @@ async def _read_candidates(position: str, found, limit: int,
                 'title': (r.title or '')[:120], 'verdict': 'не проверен',
                 'reason': f'достигнут потолок в {MAX_PAGES_TO_READ} страниц'})
             continue
+        if per_domain[r.domain] >= MAX_PAGES_PER_DOMAIN:
+            considered.append({
+                'idx': idx, 'url': r.url, 'domain': r.domain,
+                'title': (r.title or '')[:120], 'verdict': 'не проверен',
+                'reason': f'с домена уже взято {MAX_PAGES_PER_DOMAIN} страниц'})
+            continue
+        per_domain[r.domain] += 1
         to_read.append((idx, r))
 
     semaphore = asyncio.Semaphore(READ_CONCURRENCY)
@@ -566,7 +716,9 @@ async def _read_candidates(position: str, found, limit: int,
     # Сортируем по приведённой цене за штуку. Предложения, где размер
     # упаковки распознать не удалось, идут после сопоставимых: ставить их
     # выше значило бы выдавать несравнимое число за самое выгодное.
-    priced.sort(key=lambda o: (o.unit_price is None,
+    # Неподтверждённые — ещё ниже: они годятся как ориентир по рынку, но
+    # не как основание для ставки.
+    priced.sort(key=lambda o: (o.unconfirmed, o.unit_price is None,
                                o.unit_price if o.unit_price is not None else o.price))
     return priced[:limit], ask[:limit], considered
 
@@ -630,8 +782,20 @@ async def find_offers(company_id: int, position: str,
                         'и YANDEX_SEARCH_FOLDER_ID')
         return result
 
+    # Запрос на языке каталога, а не тендера. Строковыми правилами
+    # такого перевода не сделать: «настенно-потолочный квадратный,
+    # длина не менее 500 и менее 600 мм» продаётся как «595х595
+    # накладной», и стандартный типоразмер из диапазона не выводится.
+    # Замер 21.09.2026 по закупке 0373100128326000093: дословная
+    # формулировка из извещения не нашла ничего, торговая — нашла
+    # нужный светильник за 1 179 и 1 344 ₽.
+    query = await offer_reader.suggest_query(position) or build_query(position)
+    if not query.endswith(WHOLESALE_INTENT):
+        query = f'{query} {WHOLESALE_INTENT}'
+    result.query = query
+
     try:
-        found = await yandex_search.search(build_query(position), limit=MAX_CANDIDATES)
+        found = await yandex_search.search(query, limit=MAX_CANDIDATES)
     except Exception as e:
         logger.warning(f'Закупщик: поиск не удался для «{position[:50]}»: {e}')
         result.error = f'Поиск не удался: {e}'
@@ -650,6 +814,45 @@ async def find_offers(company_id: int, position: str,
     result.offers = offers
     result.source = 'web' if (offers or ask) else 'none'
     return result
+
+
+async def _ensure_notice_positions(card_id: int, card_data: Dict[str, Any],
+                                   tender_number: str) -> Dict[str, Any]:
+    """Дотягивает позиции из извещения ЕИС и кладёт их в карточку.
+
+    Кэш — сама карточка, а не отдельная таблица: извещение по
+    завершённой процедуре не меняется, а данные нужны ровно здесь.
+    Ключ `notice_positions_at` ставится и при неудаче тоже, иначе
+    каждый запуск подбора заново ходил бы в ЕИС по закупке, которой там
+    нет (старые карточки, ручной ввод номера).
+    """
+    if card_data.get('notice_positions') or card_data.get('notice_positions_at'):
+        return card_data
+    if not tender_number:
+        return card_data
+
+    import asyncio
+
+    from cabinet import notice_positions as np
+    positions = await asyncio.to_thread(np.fetch_positions, tender_number)
+
+    card_data = dict(card_data)
+    card_data['notice_positions'] = positions or []
+    card_data['notice_positions_at'] = datetime.utcnow().isoformat()
+
+    from database import PipelineCard
+    async with DatabaseSession() as session:
+        card = await session.get(PipelineCard, card_id)
+        if card:
+            data = dict(card.data or {})
+            data['notice_positions'] = card_data['notice_positions']
+            data['notice_positions_at'] = card_data['notice_positions_at']
+            card.data = data
+            await session.commit()
+
+    logger.info('Закупщик: карточка %s, позиций из извещения %s',
+                card_id, len(card_data['notice_positions']))
+    return card_data
 
 
 async def run_search(card_id: int, company_id: int, by_user_id: int) -> None:
@@ -678,11 +881,15 @@ async def run_search(card_id: int, company_id: int, by_user_id: int) -> None:
                 return
             card_data = dict(card.data or {})
             tender_name = card_data.get('name') or ''
+            tender_number = card.tender_number
 
+        card_data = await _ensure_notice_positions(card_id, card_data,
+                                                   tender_number)
         positions = extract_positions(card_data, tender_name)
         if not positions:
             await _save({'status': 'done', 'positions': [],
-                         'error': 'Не удалось выделить позиции — запустите AI-анализ',
+                         'error': 'Позиции не найдены: извещение по этой закупке '
+                                  'не прочиталось, разбора документации нет',
                          'updated_at': datetime.utcnow().isoformat()})
             return
 
@@ -722,13 +929,24 @@ async def run_search(card_id: int, company_id: int, by_user_id: int) -> None:
 
 def extract_positions(card_data: Dict[str, Any], tender_name: str = '',
                       limit: int = 15) -> List[str]:
-    """Позиции для поиска из разбора документации.
+    """Позиции для поиска, от точного источника к грубому.
 
-    Берём items_description из ai_analysis — это результат разбора ТЗ
-    (см. _do_ai_enrich). Он приходит списком через «;» или нумерованным
-    перечнем. Если разбора нет, ищем по названию тендера: хуже, но лучше,
-    чем ничего.
+    Первым идут позиции из самого извещения: там предмет закупки лежит
+    с характеристиками и числами, а это единственное, что отличает
+    нужный товар от товарной категории (см. cabinet/notice_positions).
+
+    Дальше items_description из ai_analysis — разбор ТЗ (см.
+    _do_ai_enrich), списком через «;» или нумерованным перечнем. На
+    практике его почти никогда нет: на 21.09.2026 при 362 карточках был
+    ноль анализов.
+
+    Последним — название тендера. Это товарная категория, а не товар, и
+    подбор по нему находит не то; оставлено только чтобы не молчать.
     """
+    from_notice = (card_data or {}).get('notice_positions') or []
+    if from_notice:
+        return [p for p in from_notice if p][:limit]
+
     analysis = (card_data or {}).get('ai_analysis') or {}
     items = ((analysis.get('fields') or {}).get('items_description') or '').strip()
 

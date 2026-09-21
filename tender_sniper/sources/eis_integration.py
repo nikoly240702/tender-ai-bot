@@ -472,16 +472,55 @@ def parse_contract(xml_bytes: bytes) -> Dict[str, object]:
                 code = child.text.strip()
                 if code not in okpd2:
                     okpd2.append(code)
+
+    supplier_inn, supplier_name = _supplier(root)
     return {
-        "reg_num": _first_text(root, "regNum"),
+        # Именно contract/regNum. Просто «первый regNum в документе» —
+        # это regNum заказчика, он идёт раньше и короче (11 цифр против
+        # 19). Замер 21.09.2026: из 142 868 записанных контрактов в
+        # таблице осталось 2 611, остальные схлопнулись по ключу.
+        "reg_num": _text_at(root, "contract", "regNum"),
         "purchase_number": (_first_text(root, "notificationNumber")
                             or _first_text(root, "purchaseNumber")),
-        "price": _first_text(root, "price"),
-        "sign_date": _first_text(root, "signDate"),
-        "supplier_inn": _first_text(root, "INN"),
-        "supplier_name": _first_text(root, "fullName"),
+        # Цена контракта, а не цена первой позиции: products/product и
+        # priceInfo лежат в одном документе, и «первый price» берёт то,
+        # что раньше в порядке обхода.
+        "price": _text_at(root, "priceInfo", "price") or _first_text(root, "price"),
+        "sign_date": _text_at(root, "contract", "signDate"),
+        "supplier_inn": supplier_inn,
+        "supplier_name": supplier_name,
         "okpd2": okpd2,
     }
+
+
+def _supplier(root) -> Tuple[Optional[str], Optional[str]]:
+    """ИНН и название поставщика из блока suppliersInfo.
+
+    Искать по всему документу нельзя: у заказчика есть и свой fullName,
+    и свой INN, и в порядке обхода они идут первыми. Из-за этого в
+    «Кто выигрывает» показывались заказчики — «АППАРАТ СОВЕТА
+    ДЕПУТАТОВ» в роли победителя.
+
+    Поставщик бывает юрлицом (EGRULInfo), ИП (EGRIPInfo) и иностранной
+    организацией, поэтому берём первое непустое имя внутри блока, а не
+    фиксированный путь.
+    """
+    for node in root.iter():
+        # В боевых документах блок называется suppliersInfo и содержит
+        # supplierInfo; встречается и просто supplier. Берём любой тег,
+        # начинающийся с supplier: у заказчика такого нет, перепутать
+        # не с чем.
+        if not _local(node.tag).startswith("supplier"):
+            continue
+        inn = _first_text(node, "INN")
+        name = (_first_text(node, "fullName") or _first_text(node, "shortName"))
+        if not name:
+            parts = [_first_text(node, tag)
+                     for tag in ("lastName", "firstName", "middleName")]
+            name = " ".join(p for p in parts if p) or None
+        if inn or name:
+            return inn, name
+    return None, None
 
 
 def _text_at(root, *path_tail: str) -> Optional[str]:
@@ -595,3 +634,176 @@ def _build_description(root) -> Optional[str]:
         seen.add(low)
         parts.append(text)
     return "; ".join(parts)[:_DESCRIPTION_LIMIT] or None
+
+
+
+
+@dataclass
+class Characteristic:
+    """Одно требование КТРУ к позиции закупки.
+
+    Границы держим числами, а не только текстом: по ним видно, насколько
+    требование узкое, а это единственный доступный признак того, какая
+    характеристика задаёт товар. «Мощность более 35 и не более 40 Вт» —
+    вилка в 12%, «Длина не менее 500 и менее 600 мм» — 20%, «Световой
+    поток более 3000 и не более 4000 лм» — 25%. Первая и есть та, по
+    которой светильник ищут в магазине.
+    """
+    name: str
+    text: str                        # значение с единицей, человекочитаемо
+    unit: Optional[str] = None
+    low: Optional[float] = None
+    high: Optional[float] = None
+    # Достижима ли верхняя граница. Разница не формальная: «не более
+    # 40 Вт» — это светильник ровно на 40 Вт, а «менее 600 мм» — это
+    # 595 мм, и числа 600 в его названии нет ни в одном каталоге.
+    # Замер 21.09.2026: запрос с «600 мм» не нашёл ничего.
+    high_inclusive: bool = True
+
+    @property
+    def is_numeric(self) -> bool:
+        return self.low is not None or self.high is not None
+
+    @property
+    def span(self) -> Optional[float]:
+        """Ширина вилки к верхней границе. 0 — точное значение.
+
+        None, когда вилка односторонняя: «не менее 16 Гбайт» выполняет и
+        любая модель лучше, так что сузить поиск это не помогает и
+        сравнивать такое требование с двусторонним нечем.
+        """
+        if self.low is None or self.high is None or not self.high:
+            return None
+        return abs(self.high - self.low) / abs(self.high)
+
+
+@dataclass
+class PurchaseObject:
+    """Позиция закупки с характеристиками из КТРУ.
+
+    Нужна цифровому закупщику. До неё он искал по названию тендера, то
+    есть по товарной категории: замер 21.09.2026 по закупке
+    0373100128326000093 дал по названию «светильник светодиодный
+    внутреннего освещения» четыре цены от 449 до 7 483 ₽ — четыре
+    разных товара, ни одного нужного. С характеристиками («40 Вт»,
+    «595 мм») тот же поиск нашёл именно тот светильник за 1 179 и
+    1 344 ₽ при цене победителя 4 190 ₽.
+    """
+    name: str
+    quantity: Optional[float] = None
+    unit: Optional[str] = None
+    characteristics: List[Characteristic] = field(default_factory=list)
+
+
+# Степень защиты IP приходит двумя отдельными характеристиками —
+# «Первая/Вторая характеристическая цифра обозначения». По отдельности
+# это «не менее 2» и «не менее 0»: как требование бессмысленно, а в
+# поисковый запрос такие числа лезут вперёд мощности и габарита. Собрать
+# из них «IP20» нельзя — обе заданы диапазоном, а не значением.
+#
+# «Отсутствует беспроводная связь: 5G, 3G, 4G» — требование об
+# ОТСУТСТВии, и по нему тоже нечего искать: каталог не пишет, чего в
+# товаре нет. В замере 21.09.2026 именно оно увело запрос по ноутбуку в
+# «ethernet rj45 5g 3g 4g».
+_CHAR_NAME_NOISE = ("характеристическая цифра", "отсутствует")
+
+_MIN_WORDS = {"greater": "более", "greaterOrEqual": "не менее"}
+_MAX_WORDS = {"less": "менее", "lessOrEqual": "не более"}
+
+
+def _parse_range(value_node):
+    """Диапазон: текст словами, числовые границы, достижимость верхней."""
+    parts, bounds = [], {}
+    inclusive = True
+    for tag, words in (("min", _MIN_WORDS), ("max", _MAX_WORDS)):
+        number = _first_text(value_node, tag)
+        if number is None:
+            continue
+        notation = _first_text(value_node, tag + "MathNotation") or ""
+        parts.append(f"{words.get(notation, tag)} {number}")
+        bounds[tag] = _to_float(number)
+        if tag == "max":
+            inclusive = notation != "less"
+    if not parts:
+        return None, None, None, True
+    return " и ".join(parts), bounds.get("min"), bounds.get("max"), inclusive
+
+
+def _parse_characteristic(node) -> Optional[Characteristic]:
+    name = None
+    for child in node:
+        if _local(child.tag) == "name" and (child.text or "").strip():
+            name = child.text.strip()
+            break
+    if not name or any(n in name.lower() for n in _CHAR_NAME_NOISE):
+        return None
+
+    rendered, unit, low, high = [], None, None, None
+    high_inclusive = True
+    for value_node in node.iter():
+        if _local(value_node.tag) != "value":
+            continue
+        value_unit = _first_text(value_node, "nationalCode")
+        concrete = (_first_text(value_node, "qualityDescription")
+                    or _first_text(value_node, "concreteValue"))
+        if concrete:
+            text = concrete
+            number = _to_float(concrete)
+            if number is not None and low is None and high is None:
+                low = high = number
+        else:
+            text, range_low, range_high, inclusive = _parse_range(value_node)
+            if not text:
+                continue
+            if low is None and high is None:
+                low, high, high_inclusive = range_low, range_high, inclusive
+        unit = unit or value_unit
+        rendered.append(f"{text} {value_unit}".strip() if value_unit else text)
+
+    if not rendered:
+        return None
+    return Characteristic(name=name, text=", ".join(dict.fromkeys(rendered))[:120],
+                          unit=unit, low=low, high=high,
+                          high_inclusive=high_inclusive)
+
+
+def parse_purchase_objects(xml_bytes: bytes) -> List[PurchaseObject]:
+    """Позиции извещения с характеристиками.
+
+    Характеристики лежат внутри самой позиции
+    (`purchaseObject/KTRU/characteristics`), поэтому привязка к позиции
+    однозначна и в многопозиционной закупке они не перемешиваются.
+    """
+    root = parse_xml(xml_bytes)
+    objects = []
+    for node in root.iter():
+        if _local(node.tag) != "purchaseObject":
+            continue
+        name = None
+        for child in node:
+            if _local(child.tag) == "name" and (child.text or "").strip():
+                name = child.text.strip()
+                break
+        if not name:
+            continue
+
+        quantity = unit = None
+        for child in node:
+            tag = _local(child.tag)
+            if tag == "quantity":
+                quantity = _to_float(_first_text(child, "value")
+                                     or (child.text or "").strip())
+            elif tag == "OKEI":
+                unit = _first_text(child, "nationalCode")
+
+        characteristics = []
+        for sub in node.iter():
+            if not _local(sub.tag).startswith("characteristicsUsing"):
+                continue
+            parsed = _parse_characteristic(sub)
+            if parsed:
+                characteristics.append(parsed)
+
+        objects.append(PurchaseObject(name=name, quantity=quantity,
+                                      unit=unit, characteristics=characteristics))
+    return objects
