@@ -94,14 +94,21 @@ class TestCatalogMatch:
 
 @pytest.mark.unit
 class TestBuildQuery:
-    def test_adds_buying_intent(self):
-        """Без «купить» в выдачу лезут сами тендеры и нормативка."""
-        q = build_query('Бумага офисная А4')
-        assert 'купить' in q
+    def test_intent_is_wholesale_not_retail(self):
+        """Розничное намерение поднимает маркетплейсы, а их мы читать не
+        можем — отвечают капчей. Замер 21.09.2026: «бахилы … купить
+        цена» дал 73% маркетплейсов, «бахилы … оптом прайс» — 0%."""
+        q = build_query('Бахилы водонепроницаемые')
+        assert 'оптом' in q
+        assert 'купить' not in q
 
     def test_long_position_is_trimmed(self):
+        """Потолок считается ВМЕСТЕ со словами намерения: иначе их
+        добавление незаметно удлиняет запрос сверх предела, а длинные
+        запросы Яндекс отрабатывает хуже."""
+        from cabinet.buyer_service import MAX_QUERY_WORDS
         q = build_query(' '.join(f'слово{i}' for i in range(40)))
-        assert len(q.split()) <= 12
+        assert len(q.split()) == MAX_QUERY_WORDS
 
 
 @pytest.mark.unit
