@@ -49,7 +49,7 @@
 
   function render() {
     if (!current.length) {
-      rowsEl.innerHTML = '<tr><td colspan="9" class="loading">' +
+      rowsEl.innerHTML = '<tr><td colspan="10" class="loading">' +
         'Под условия ничего не попало. Попробуйте снизить минимум процедур ' +
         'или выбрать другой уровень ОКПД2.</td></tr>';
       return;
@@ -68,6 +68,13 @@
       // было не с чем». Пользователь по такой таблице принимает решение.
       const drop = r.drop_known ? pct(r.median_drop)
         : '<span class="unknown" title="не с чем сравнивать">нет данных</span>';
+      // Больше половины закупок без единой заявки — это не свободная
+      // ниша, а систематически срывающиеся процедуры: невыполнимые
+      // требования, сроки или цена ниже рынка. Помечаем цветом.
+      const zero = r.share_zero_bid === null || r.share_zero_bid === undefined
+        ? '—'
+        : '<span class="' + (r.share_zero_bid >= 0.5 ? 'warn' : '') + '">' +
+          pct(r.share_zero_bid) + '</span>';
       const hhi = r.hhi_known ? num(r.winner_hhi, 2)
         : '<span class="unknown" title="победители ещё неизвестны">—</span>';
       return '<tr>' +
@@ -81,6 +88,7 @@
         '<td>' + esc(BUCKETS[r.price_bucket] || r.price_bucket || '—') + '</td>' +
         '<td class="num">' + (r.procedures_count || 0) + '</td>' +
         '<td class="num">' + num(r.median_bids) + '</td>' +
+        '<td class="num">' + zero + '</td>' +
         '<td class="num">' + pct(r.share_single_bid) + '</td>' +
         '<td class="num">' + drop + '</td>' +
         '<td class="num">' + hhi + '</td>' +
@@ -119,12 +127,12 @@
     if (region) params.set('region', region);
     if (bucket) params.set('bucket', bucket);
 
-    rowsEl.innerHTML = '<tr><td colspan="9" class="loading">загрузка…</td></tr>';
+    rowsEl.innerHTML = '<tr><td colspan="10" class="loading">загрузка…</td></tr>';
     fetch('/cabinet/api/niches?' + params.toString())
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.error) {
-          rowsEl.innerHTML = '<tr><td colspan="9" class="loading">' +
+          rowsEl.innerHTML = '<tr><td colspan="10" class="loading">' +
             esc(data.error) + '</td></tr>';
           return;
         }
@@ -134,7 +142,7 @@
         render();
       })
       .catch(function () {
-        rowsEl.innerHTML = '<tr><td colspan="9" class="loading">' +
+        rowsEl.innerHTML = '<tr><td colspan="10" class="loading">' +
           'Не удалось загрузить данные.</td></tr>';
       });
   }
@@ -164,12 +172,14 @@
   }
 
   function toCsv() {
-    const head = ['ОКПД2', 'категория', 'регион', 'корзина', 'процедур', 'медиана заявок',
-      'доля с 1 заявкой', 'снижение', 'концентрация', 'индекс', 'достоверность'];
+    const head = ['ОКПД2', 'категория', 'регион', 'корзина', 'процедур',
+      'медиана заявок', 'без заявок %', 'одна заявка %', 'снижение',
+      'концентрация', 'индекс', 'достоверность'];
     const lines = [head.join(';')];
     current.forEach(function (r) {
       lines.push([r.okpd2, r.okpd2_name || '', r.region_name || '', r.price_bucket || '',
         r.procedures_count || 0, num(r.median_bids),
+        r.share_zero_bid === null ? '' : (r.share_zero_bid * 100).toFixed(0),
         r.share_single_bid === null ? '' : (r.share_single_bid * 100).toFixed(0),
         r.drop_known ? (r.median_drop * 100).toFixed(1) : '',
         r.hhi_known ? num(r.winner_hhi, 2) : '',

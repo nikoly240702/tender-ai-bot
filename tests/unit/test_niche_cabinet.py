@@ -249,3 +249,26 @@ class TestOkpd2NameLookupRules:
         описывают группу лучше случайных."""
         from cabinet.niche_service import OKPD2_CHILDREN_SQL
         assert "ORDER BY count(*) DESC" in OKPD2_CHILDREN_SQL
+
+
+@pytest.mark.unit
+class TestZeroBidGuard:
+    """Ниша, где никто не подаёт заявок, не годится в рекомендацию.
+
+    Медиана в ноль заявок формально даёт максимум баллов за
+    конкуренцию. Но если больше половины процедур срывается, это не
+    свободное поле, а невыполнимые требования, сроки или цена ниже
+    рынка. В 21.20 (лекарства до 500 тыс) таких 52% из 13 078 закупок,
+    и без явной защиты категория попадала бы в совет «иди сюда».
+    """
+
+    def test_threshold_is_declared(self):
+        from cabinet.niche_service import DASHBOARD_MAX_ZERO_BID
+        assert 0 < DASHBOARD_MAX_ZERO_BID <= 0.5
+
+    def test_recommendation_thresholds_are_stricter_than_the_ranking(self):
+        """Совет «иди сюда» требует больше уверенности, чем строка в
+        таблице на четыреста позиций."""
+        from cabinet.niche_service import DASHBOARD_MIN_PROCEDURES
+        from tender_sniper.niche.metrics import DEFAULT_CONFIG
+        assert DASHBOARD_MIN_PROCEDURES > DEFAULT_CONFIG.min_procedures

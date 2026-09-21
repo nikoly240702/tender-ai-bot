@@ -557,6 +557,14 @@ DASHBOARD_MAX_BIDS = 2
 # Снижение, выше которого маржа съедается и совет теряет смысл.
 DASHBOARD_MAX_DROP = 0.15
 
+# Доля сорвавшихся закупок, выше которой нишу рекомендовать нельзя.
+# Медиана в ноль заявок формально выглядит как идеальная конкуренция —
+# по формуле это максимум баллов. Но если больше половины процедур
+# никто не подаёт, это не свободное поле, а систематический срыв:
+# невыполнимые требования, неподъёмные сроки или цена ниже рынка. В
+# категории 21.20 (лекарства, до 500 тыс) таких 52% из 13 078 закупок.
+DASHBOARD_MAX_ZERO_BID = 0.5
+
 
 async def dashboard() -> Dict[str, Any]:
     """Короткая сводка вместо таблицы на 400 строк.
@@ -590,6 +598,9 @@ async def dashboard() -> Dict[str, Any]:
         bids = row.get("median_bids")
         drop = row.get("median_drop")
         if bids is None or drop is None:
+            return False
+        zero = row.get("share_zero_bid")
+        if zero is not None and zero >= DASHBOARD_MAX_ZERO_BID:
             return False
         return bids <= DASHBOARD_MAX_BIDS and drop <= DASHBOARD_MAX_DROP
 

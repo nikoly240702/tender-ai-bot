@@ -48,15 +48,16 @@
         <th data-sort="region_name">Регион</th>
         <th data-sort="price_bucket">Корзина</th>
         <th data-sort="procedures_count" class="num">Процедур</th>
-        <th data-sort="median_bids" class="num">Заявок</th>
-        <th data-sort="share_single_bid" class="num">Одна заявка</th>
+        <th data-sort="median_bids" class="num" title="медиана: у половины закупок заявок меньше, у половины больше">Заявок<br><span class="th-sub">медиана</span></th>
+        <th data-sort="share_zero_bid" class="num" title="доля закупок, куда не подали ни одной заявки — процедура не состоялась">Никто<br><span class="th-sub">не пришёл</span></th>
+        <th data-sort="share_single_bid" class="num" title="доля закупок ровно с одной заявкой">Один<br><span class="th-sub">участник</span></th>
         <th data-sort="median_drop" class="num">Снижение</th>
         <th data-sort="winner_hhi" class="num">Концентрация</th>
         <th data-sort="index" class="num">Индекс</th>
       </tr>
     </thead>
     <tbody id="niche-rows">
-      <tr><td colspan="9" class="loading">загрузка…</td></tr>
+      <tr><td colspan="10" class="loading">загрузка…</td></tr>
     </tbody>
   </table>
 </div>
