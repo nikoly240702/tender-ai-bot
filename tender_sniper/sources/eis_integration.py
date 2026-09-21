@@ -145,6 +145,13 @@ def _local(tag: str) -> str:
     return tag.split("}")[-1]
 
 
+def parse_xml(xml_bytes: bytes):
+    """Дерево документа ЕИС. Единая точка разбора: XML приезжает из
+    внешнего источника, поэтому парсер должен быть защищённым, и
+    вызывающим модулям незачем это знать."""
+    return _xml_fromstring(xml_bytes.decode("utf-8", "ignore"))
+
+
 def build_request(subsystem: str, *, region: Optional[str] = None,
                   doc_type: Optional[str] = None, date: Optional[_dt.date] = None,
                   reestr_number: Optional[str] = None,
@@ -361,7 +368,7 @@ def parse_protocol_final(xml_bytes: bytes) -> ProtocolResult:
     заявке лежит только в `admittedInfo/appAdmittedInfo`. Поэтому берём
     его адресно, а не первым попавшимся `admitted` в поддереве.
     """
-    root = _xml_fromstring(xml_bytes.decode("utf-8", "ignore"))
+    root = parse_xml(xml_bytes)
     result = ProtocolResult(
         purchase_number=_first_text(root, "purchaseNumber") or "",
         protocol_date=_first_text(root, "publishDTInEIS"),
@@ -403,7 +410,7 @@ def parse_contract(xml_bytes: bytes) -> Dict[str, object]:
     ОКПД2 лежит по позициям (`products/product/OKPD2/code`), поэтому
     возвращается списком: у одного контракта их может быть несколько.
     """
-    root = _xml_fromstring(xml_bytes.decode("utf-8", "ignore"))
+    root = parse_xml(xml_bytes)
     okpd2 = []
     for node in root.iter():
         if _local(node.tag) != "OKPD2":
