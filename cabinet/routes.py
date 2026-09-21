@@ -304,9 +304,12 @@ async def niche_dashboard_page(request: web.Request) -> web.Response:
     )
 
 
-@require_auth
+@require_team_member
 async def niche_audit_page(request: web.Request) -> web.Response:
-    """Аудит собственных фильтров в разрезе ниш.
+    """Аудит фильтров команды в разрезе ниш.
+
+    require_team_member: фильтры общие для компании, и аудит должен
+    показывать всей команде одно и то же.
 
     Маршрут объявлен ДО /cabinet/niches/{okpd2}: иначе «niches-audit»
     попал бы в него как код ОКПД2.

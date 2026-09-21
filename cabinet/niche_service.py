@@ -414,7 +414,7 @@ WITH hits AS (
     FROM sniper_notifications n
     JOIN eis.procedure pr ON pr.purchase_number = n.tender_number
     WHERE n.sent_at > now() - make_interval(days => CAST(:days AS int))
-      AND (CAST(:user_id AS bigint) IS NULL OR n.user_id = CAST(:user_id AS bigint))
+      AND (CAST(:company_id AS int) IS NULL OR n.company_id = CAST(:company_id AS int))
       AND pr.okpd2_primary IS NOT NULL
       AND pr.nmck IS NOT NULL
 ),
@@ -441,7 +441,7 @@ SELECT count(*) AS notifications,
                          WHERE p.purchase_number = n.tender_number)) AS covered
 FROM sniper_notifications n
 WHERE n.sent_at > now() - make_interval(days => CAST(:days AS int))
-  AND (CAST(:user_id AS bigint) IS NULL OR n.user_id = CAST(:user_id AS bigint))
+  AND (CAST(:company_id AS int) IS NULL OR n.company_id = CAST(:company_id AS int))
 """
 
 # Медиана заявок, выше которой категорию считаем перегретой: при четырёх
@@ -471,10 +471,17 @@ def verdict_for(median_bids: Optional[float], median_drop: Optional[float],
     return "умеренно"
 
 
-async def audit_filters(user_id: Optional[int] = None,
+async def audit_filters(company_id: Optional[int] = None,
                         days: int = 60) -> Dict[str, Any]:
-    """Что на самом деле ловят фильтры и насколько эти ниши тесные."""
-    params = {"user_id": user_id, "days": days}
+    """Что на самом деле ловят фильтры и насколько эти ниши тесные.
+
+    Отбор по КОМПАНИИ, а не по пользователю. Фильтры общие для команды:
+    в компании 57 их 39 — 19 заведено одним человеком, 20 другим. При
+    отборе по user_id каждый видел бы свою половину и разные выводы по
+    одному и тому же набору фильтров, что для совместной работы хуже,
+    чем бесполезно.
+    """
+    params = {"company_id": company_id, "days": days}
     async with DatabaseSession() as session:
         rows = await _fetch(session, FILTER_AUDIT_SQL, params)
         totals = (await _fetch(session, TOTAL_HITS_SQL, params)) or [{}]
