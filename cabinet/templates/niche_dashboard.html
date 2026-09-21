@@ -1,0 +1,47 @@
+{% extends "_base.html" %}
+{% block title %}Куда идти — Tender Sniper{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/niches.css?v=2">{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Аналитика</div>
+  <h1>Куда идти</h1>
+  <div class="summary">Короткий ответ по историческим результатам закупок.</div>
+</div>
+
+<div class="stat-tiles" id="d-tiles"></div>
+<div id="d-warning" class="data-note"></div>
+
+<h2>Стоит попробовать</h2>
+<p class="hint">Мало участников, цену почти не роняют, и данных достаточно, чтобы это
+утверждать. Строже, чем полный рейтинг: здесь показано только измеренное.</p>
+<div class="niche-table-wrap">
+  <table class="niche-table">
+    <thead><tr>
+      <th>ОКПД2 / категория</th><th>Регион</th><th>Корзина</th>
+      <th class="num">Процедур</th><th class="num">Заявок</th>
+      <th class="num">Снижение</th><th class="num">Индекс</th>
+    </tr></thead>
+    <tbody id="d-good"><tr><td colspan="7" class="loading">загрузка…</td></tr></tbody>
+  </table>
+</div>
+
+<h2>Где тесно</h2>
+<p class="hint">Категории с наибольшим числом участников — сюда заходить дороже всего.</p>
+<div class="niche-table-wrap">
+  <table class="niche-table">
+    <thead><tr>
+      <th>ОКПД2 / категория</th><th>Регион</th><th>Корзина</th>
+      <th class="num">Процедур</th><th class="num">Заявок</th><th class="num">Снижение</th>
+    </tr></thead>
+    <tbody id="d-bad"><tr><td colspan="6" class="loading">загрузка…</td></tr></tbody>
+  </table>
+</div>
+
+<p class="hint" style="margin-top:20px">
+  <a href="/cabinet/niches">Полный рейтинг ниш</a> ·
+  <a href="/cabinet/niches-audit">Аудит моих фильтров</a>
+</p>
+{% endblock %}
+
+{% block page_js %}<script src="/cabinet/static/js/niche_dashboard.js?v=1"></script>{% endblock %}

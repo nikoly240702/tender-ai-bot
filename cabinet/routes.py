@@ -68,6 +68,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/stats', stats_page)
     app.router.add_get('/cabinet/niches', niches_page)
     app.router.add_get('/cabinet/niches-audit', niche_audit_page)
+    app.router.add_get('/cabinet/niches-dashboard', niche_dashboard_page)
     app.router.add_get('/cabinet/niches/{okpd2}', niche_detail_page)
     app.router.add_get('/cabinet/settings', settings_page)
     app.router.add_get('/cabinet/gpt', gpt_page)
@@ -91,6 +92,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/api/tenders', api.get_tenders)
     app.router.add_get('/cabinet/api/niches', api.api_niches)
     app.router.add_get('/cabinet/api/niches-audit', api.api_niches_audit)
+    app.router.add_get('/cabinet/api/niches-dashboard', api.api_niches_dashboard)
     app.router.add_get('/cabinet/api/niches/{okpd2}', api.api_niche_detail)
     app.router.add_get('/cabinet/api/tenders/{number}/competition',
                        api.api_tender_competition)
@@ -288,6 +290,17 @@ async def niches_page(request: web.Request) -> web.Response:
         user_name=user.get('username') or user.get('first_name') or 'Вы',
         user_tier=user.get('subscription_tier', ''),
         nav_counts={},
+    )
+
+
+@require_auth
+async def niche_dashboard_page(request: web.Request) -> web.Response:
+    """Сводка «куда идти» — упрощённый вход в аналитику ниш."""
+    user = request['user']
+    return _render_template(
+        'niche_dashboard.html', request, active_page='niches',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''), nav_counts={},
     )
 
 
