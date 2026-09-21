@@ -187,3 +187,12 @@ class TestParseNotice:
         assert 'Да' not in head
         assert 'SSD' in head
         assert 'наличие сканера отпечатка пальцев Да' in text
+
+    def test_unit_takes_one_spelling_from_okei(self):
+        """ОКЕИ отдаёт альтернативные написания через «;»: у литра это
+        «л; дм[3*]». В позицию по бойлеру уезжало «до 1100 л; дм[3*]»."""
+        obj = PurchaseObject(name='Бойлер косвенного нагрева', characteristics=[
+            ch('Объем бака', 'не более 1100 л', 'л; дм[3*]', 900, 1100)])
+        text = render_position(obj)
+        assert 'до 1100 л' in text
+        assert 'дм[3*]' not in text

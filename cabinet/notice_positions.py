@@ -101,8 +101,18 @@ def _value_text(char: eis.Characteristic) -> str:
     """
     if _has_nominal(char):
         high = int(char.high) if float(char.high).is_integer() else char.high
-        return f'до {high} {char.unit}'
+        return f'до {high} {_unit_text(char.unit)}'
     return char.text
+
+
+def _unit_text(unit: str) -> str:
+    """Одно обозначение единицы, а не весь список из ОКЕИ.
+
+    Классификатор отдаёт альтернативные написания через «;»: у литра
+    это «л; дм[3*]». В запрос и в требование должно уходить первое —
+    «бойлер до 1100 л», а не «до 1100 л; дм[3*]».
+    """
+    return (unit or '').split(';')[0].strip()
 
 
 def _has_nominal(char: eis.Characteristic) -> bool:
