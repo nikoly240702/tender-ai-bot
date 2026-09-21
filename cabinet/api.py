@@ -2025,9 +2025,13 @@ async def api_tender_competition(request: web.Request) -> web.Response:
     return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
 
 
-@require_auth
+@require_team_member
 async def api_niches_audit(request: web.Request) -> web.Response:
-    """GET /cabinet/api/niches-audit — что ловят фильтры пользователя."""
+    """GET /cabinet/api/niches-audit — что ловят фильтры компании.
+
+    require_team_member, а не require_auth: фильтры общие для команды, и
+    аудит должен показывать всем одно и то же.
+    """
     from cabinet.niche_service import audit_filters
 
     try:
@@ -2035,7 +2039,7 @@ async def api_niches_audit(request: web.Request) -> web.Response:
     except ValueError:
         days = 60
     try:
-        data = await audit_filters(user_id=request['user'].get('user_id'), days=days)
+        data = await audit_filters(company_id=request['company']['id'], days=days)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Аудит фильтров недоступен: %s", str(exc)[:200])
         return web.json_response({'error': 'Исторические данные ещё не загружены.'})
