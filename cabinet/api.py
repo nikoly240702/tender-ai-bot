@@ -1933,3 +1933,72 @@ async def holodilnik_toggle_select(request: web.Request) -> web.Response:
         card_id, company['id'], int(position_idx), str(sku), selected,
     )
     return web.json_response(result, status=200 if result.get('ok') else 400)
+
+
+# ---------------------------------------------------------------------------
+# Аналитика ниш
+# ---------------------------------------------------------------------------
+
+def _niche_query(request: web.Request) -> dict:
+    """Параметры отбора из query string.
+
+    Уровень ОКПД2 и минимум процедур приходят от пользователя и идут в
+    SQL, поэтому приводятся к числу и загоняются в допустимый диапазон:
+    витрина считается только для уровней 2/4/6, а отрицательный минимум
+    сделал бы фильтр бессмысленным.
+    """
+    try:
+        level = int(request.query.get('level', 4))
+    except ValueError:
+        level = 4
+    if level not in (2, 4, 6):
+        level = 4
+    try:
+        min_count = max(1, min(500, int(request.query.get('min_count', 5))))
+    except ValueError:
+        min_count = 5
+    return {
+        'level': level,
+        'min_count': min_count,
+        'region': (request.query.get('region') or '').strip() or None,
+        'bucket': (request.query.get('bucket') or '').strip() or None,
+    }
+
+
+@require_auth
+async def api_niches(request: web.Request) -> web.Response:
+    """GET /cabinet/api/niches — рейтинг ниш из eis.niche_metrics."""
+    from cabinet.niche_service import list_niches
+
+    params = _niche_query(request)
+    try:
+        data = await list_niches(**params)
+    except Exception as exc:  # noqa: BLE001
+        # Схемы eis может не быть вовсе: модуль аналитики ставится
+        # отдельно и данные загружаются вручную. Пятисотка тут ничего не
+        # объясняет, а сообщение — объясняет.
+        logger.warning("Аналитика ниш недоступна: %s", str(exc)[:200])
+        return web.json_response(
+            {'error': 'Данные аналитики ещё не загружены. '
+                      'Запустите tender_sniper.niche.ingest.'}, status=200)
+    return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
+
+
+@require_auth
+async def api_niche_detail(request: web.Request) -> web.Response:
+    """GET /cabinet/api/niches/{okpd2} — детализация одной ниши."""
+    from cabinet.niche_service import niche_detail
+
+    okpd2 = (request.match_info.get('okpd2') or '').strip()
+    if not okpd2:
+        return web.json_response({'error': 'не указан код ОКПД2'}, status=400)
+
+    params = _niche_query(request)
+    try:
+        data = await niche_detail(okpd2, level=params['level'],
+                                  region=params['region'],
+                                  bucket=params['bucket'])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Детализация ниши %s недоступна: %s", okpd2, str(exc)[:200])
+        return web.json_response({'error': 'Данные аналитики недоступны'}, status=200)
+    return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
