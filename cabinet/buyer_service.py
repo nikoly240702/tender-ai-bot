@@ -419,6 +419,64 @@ WHOLESALE_INTENT = "оптом прайс поставщик"
 MAX_QUERY_WORDS = 12
 
 
+def query_terms(position: str) -> List[str]:
+    """Слова позиции в том виде, в каком их понимает поисковая машина.
+
+    Отдельно от tokenize() ровно из-за усечения. Для ключа кэша и сверки
+    текстов основа — то, что надо, но в поисковую строку она не годится:
+    замер 21.09.2026 на закупке 0173300004226000004 дал запрос
+    «ноутбук 15 дюйм full hd ips оперативн памят ddr4» и ноль
+    результатов — такой строки нет ни на одной странице.
+    """
+    seen = set()
+    terms = []
+    for token in _TOKEN_RE.findall((position or '').lower()):
+        if len(token) < 2 or token in STOPWORDS or token in seen:
+            continue
+        seen.add(token)
+        terms.append(token)
+    return terms
+
+
+def _is_defining(token: str) -> bool:
+    """Отличает ли токен одну модель товара от другой.
+
+    Числа (мощность, габарит, объём, класс) сужают выдачу до конкретного
+    изделия сильнее любого прилагательного: «595х595 40» находит нужный
+    светильник, «настенно-потолочный квадратный» — любой.
+    """
+    return any(ch.isdigit() for ch in token)
+
+
+# Единицы измерения: их нельзя отрывать от числа. Первый вариант правки
+# резервировал только цифры, и запрос вышел «... квадратный 40 595» —
+# голые числа поисковику не говорят ничего, нужно «40 вт» и «595 мм».
+_UNITS = frozenset((
+    'вт', 'квт', 'в', 'а', 'гц', 'мгц', 'ггц', 'к',
+    'мм', 'см', 'дм', 'м', 'дюйм', 'дюйма', 'дюймов',
+    'г', 'кг', 'т', 'мл', 'л', 'мкм', 'нм',
+    'гб', 'тб', 'мб', 'лм', 'лк', 'ip',
+))
+
+
+def _reserve_defining(terms: List[str], budget: int) -> set:
+    """Числа, которым гарантируется место в запросе, вместе с единицами.
+
+    Половина бюджета, не весь: из одних чисел запрос тоже не ищется.
+    """
+    reserved = set()
+    for i, term in enumerate(terms):
+        if len(reserved) >= budget:
+            break
+        if not _is_defining(term):
+            continue
+        reserved.add(term)
+        nxt = terms[i + 1] if i + 1 < len(terms) else None
+        if nxt in _UNITS:
+            reserved.add(nxt)
+    return reserved
+
+
 def build_query(position: str) -> str:
     """Поисковый запрос из позиции ТЗ.
 
@@ -426,7 +484,25 @@ def build_query(position: str) -> str:
     тендер, а не где купить одну штуку.
     """
     intent = WHOLESALE_INTENT.split()
-    tokens = tokenize(position)[:MAX_QUERY_WORDS - len(intent)]
+    terms = query_terms(position)
+    budget = MAX_QUERY_WORDS - len(intent)
+
+    # Место под числа резервируется до того, как бюджет разберут
+    # описательные слова: обрезка по порядку выбрасывала именно их —
+    # позиция «...SSD PCIe, без ОС, HDMI» теряла всё после DDR4.
+    reserved = _reserve_defining(terms, budget // 2)
+    plain_room = budget - len(reserved)
+
+    tokens = []
+    for term in terms:
+        if term in reserved:
+            tokens.append(term)
+        elif plain_room > 0:
+            tokens.append(term)
+            plain_room -= 1
+        if len(tokens) >= budget:
+            break
+
     if not tokens:
         return position[:200]
     return ' '.join(tokens + intent)
