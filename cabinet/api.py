@@ -2047,8 +2047,13 @@ async def api_niches_dashboard(request: web.Request) -> web.Response:
     """GET /cabinet/api/niches-dashboard — короткая сводка «куда идти»."""
     from cabinet.niche_service import dashboard
 
+    from cabinet.niche_service import charts
+
     try:
         data = await dashboard()
+        # Графики отдаются вместе со сводкой: два запроса с фронта ради
+        # одного экрана — лишний круг ожидания на каждом открытии.
+        data["charts"] = await charts()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Сводка ниш недоступна: %s", str(exc)[:200])
         return web.json_response({'error': 'Исторические данные ещё не загружены.'})

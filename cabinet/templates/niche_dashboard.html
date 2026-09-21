@@ -1,47 +1,67 @@
 {% extends "_base.html" %}
 {% block title %}Куда идти — Tender Sniper{% endblock %}
-{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/niches.css?v=2">{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/niches.css?v=3">{% endblock %}
 
 {% block main %}
 <div class="page-header">
-  <div class="eyebrow">Аналитика</div>
+  <div class="eyebrow">Аналитика ниш</div>
   <h1>Куда идти</h1>
   <div class="summary">Короткий ответ по историческим результатам закупок.</div>
+</div>
+
+<div class="niche-tabs">
+  <a href="/cabinet/niches-dashboard" class="active">Куда идти</a>
+  <a href="/cabinet/niches">Полный рейтинг</a>
+  <a href="/cabinet/niches-audit">Мои фильтры</a>
 </div>
 
 <div class="stat-tiles" id="d-tiles"></div>
 <div id="d-warning" class="data-note"></div>
 
-<h2>Стоит попробовать</h2>
-<p class="hint">Мало участников, цену почти не роняют, и данных достаточно, чтобы это
-утверждать. Строже, чем полный рейтинг: здесь показано только измеренное.</p>
-<div class="niche-table-wrap">
-  <table class="niche-table">
-    <thead><tr>
-      <th>ОКПД2 / категория</th><th>Регион</th><th>Корзина</th>
-      <th class="num">Процедур</th><th class="num">Заявок</th>
-      <th class="num">Снижение</th><th class="num">Индекс</th>
-    </tr></thead>
-    <tbody id="d-good"><tr><td colspan="7" class="loading">загрузка…</td></tr></tbody>
-  </table>
+<div class="section-head">
+  <h2>Стоит попробовать</h2>
+  <p class="hint">Мало участников, цену почти не роняют, и данных достаточно, чтобы
+  это утверждать. Строже, чем полный рейтинг: здесь только измеренное.</p>
+</div>
+<div class="niche-cards" id="d-good"><div class="loading">загрузка…</div></div>
+
+<div class="section-head">
+  <h2>Где тесно</h2>
+  <p class="hint">Больше всего участников — заходить дороже всего.</p>
+</div>
+<div class="niche-cards" id="d-bad"><div class="loading">загрузка…</div></div>
+
+<div class="section-head">
+  <h2>Как устроен рынок</h2>
+  <p class="hint">По всем загруженным процедурам с известным результатом.</p>
 </div>
 
-<h2>Где тесно</h2>
-<p class="hint">Категории с наибольшим числом участников — сюда заходить дороже всего.</p>
-<div class="niche-table-wrap">
-  <table class="niche-table">
-    <thead><tr>
-      <th>ОКПД2 / категория</th><th>Регион</th><th>Корзина</th>
-      <th class="num">Процедур</th><th class="num">Заявок</th><th class="num">Снижение</th>
-    </tr></thead>
-    <tbody id="d-bad"><tr><td colspan="6" class="loading">загрузка…</td></tr></tbody>
-  </table>
+<div class="chart-grid">
+  <div class="chart-box">
+    <h3>Сколько приходит участников</h3>
+    <p class="hint">Высота столбца — число закупок. Левая часть графика и есть
+    то, ради чего стоит смотреть аналитику.</p>
+    <div class="chart-holder"><canvas id="c-bids"></canvas></div>
+  </div>
+  <div class="chart-box">
+    <h3>Насколько роняют цену</h3>
+    <p class="hint">Зависимость снижения от числа участников. Каждый
+    дополнительный конкурент стоит конкретных процентов маржи.</p>
+    <div class="chart-holder"><canvas id="c-drop"></canvas></div>
+  </div>
+  <div class="chart-box chart-wide">
+    <h3>Динамика по месяцам</h3>
+    <p class="hint">Число закупок и среднее снижение цены.</p>
+    <div class="chart-holder"><canvas id="c-monthly"></canvas></div>
+  </div>
+  <div class="chart-box chart-wide">
+    <h3>Крупнейшие категории</h3>
+    <p class="hint">Где больше всего закупок и сколько там обычно участников.</p>
+    <div class="chart-holder chart-tall"><canvas id="c-cats"></canvas></div>
+  </div>
 </div>
 
-<p class="hint" style="margin-top:20px">
-  <a href="/cabinet/niches">Полный рейтинг ниш</a> ·
-  <a href="/cabinet/niches-audit">Аудит моих фильтров</a>
-</p>
 {% endblock %}
 
-{% block page_js %}<script src="/cabinet/static/js/niche_dashboard.js?v=1"></script>{% endblock %}
+{% block page_js %}<script src="/cabinet/static/js/vendor/chart.umd.min.js"></script>
+<script src="/cabinet/static/js/niche_dashboard.js?v=3"></script>{% endblock %}
