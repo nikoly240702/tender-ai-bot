@@ -147,3 +147,8 @@
 }
 .filter-block .niche-table thead th { top: 44px; }
 .filter-block .niche-table-wrap { max-height: none; overflow: visible; }
+
+.th-sub { display: block; font-weight: 400; font-size: 10px; opacity: .6; }
+/* Больше половины закупок без заявок — повод насторожиться, а не
+   обрадоваться: процедура систематически срывается. */
+.warn { color: #c53030; font-weight: 600; }
