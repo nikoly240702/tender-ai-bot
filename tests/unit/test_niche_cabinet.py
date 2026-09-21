@@ -178,3 +178,45 @@ class TestFilterVerdict:
     def test_unknown_results(self):
         from cabinet.niche_service import verdict_for
         assert verdict_for(None, None, 50) == "результаты неизвестны"
+
+
+@pytest.mark.unit
+class TestApiSerialization:
+    """Обработчик должен пережить ВЫЗОВ, а не только импорт.
+
+    Регрессия 21.09.2026: в cabinet/api.py не был импортирован json, но
+    использовался он внутри lambda при сериализации ответа. Лямбда
+    выполняется только в момент запроса, поэтому модуль импортировался
+    без нареканий, проверка «обработчики на месте» проходила, а живой
+    запрос отдавал 500 с NameError. Пользователь видел «не удалось
+    загрузить данные».
+    """
+
+    def test_api_module_has_json_available(self):
+        import cabinet.api as api
+        assert hasattr(api, "json"), (
+            "json должен быть импортирован в модуль: он используется "
+            "в lambda сериализации и падает только при вызове")
+
+    def test_response_payload_serialises(self):
+        """Из витрины приезжают Decimal и date — обычный json.dumps на
+        них падает, поэтому сериализация идёт с default=str."""
+        import datetime
+        import decimal
+        import cabinet.api as api
+
+        payload = {
+            "niches": [{"okpd2": "21.20",
+                        "median_nmck": decimal.Decimal("123.45"),
+                        "first_seen": datetime.date(2026, 9, 1)}],
+            "availability": {"data_from": datetime.date(2026, 3, 1)},
+        }
+        assert api.json.dumps(payload, default=str)
+
+    def test_plain_dumps_would_fail_without_default(self):
+        """Фиксирует, зачем нужен default=str: без него ответ не
+        сериализуется вовсе."""
+        import decimal
+        import cabinet.api as api
+        with pytest.raises(TypeError):
+            api.json.dumps({"x": decimal.Decimal("1.5")})
