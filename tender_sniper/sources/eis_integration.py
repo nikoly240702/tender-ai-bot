@@ -523,4 +523,61 @@ def parse_notice_card(xml_bytes: bytes) -> Optional[Dict]:
         "url": _text_at(root, "commonInfo", "href"),
         "published_at": _text_at(root, "commonInfo", "publishDTInEIS"),
         "submission_deadline": _text_at(root, "collectingInfo", "endDT"),
+        "description": _build_description(root),
     }
+
+
+# Откуда собирается описание: наименования позиций, названия по КТРУ и
+# названия категорий ОКПД2. Всё это — сам предмет закупки.
+#
+# Наименования ХАРАКТЕРИСТИК сюда намеренно НЕ входят, хотя поначалу
+# входили. Это ярлыки полей, а не содержание: у батареек описание
+# получалось «Элемент первичный…; Форма элемента питания; Размер
+# элемента питания; Номинальное напряжение; Тип элемента питания».
+# Замер 21.09.2026 показал, к чему это приводит: совпадений стало 219
+# вместо 31, но 76% из них дали два сборных фильтра («Разное 16.02» и
+# «Сборная прочее»), а половина жалась к самому порогу отсечки. То есть
+# рост был не находками, а ложными срабатываниями на словах «тип»,
+# «размер», «форма».
+_DESCRIPTION_SOURCES = (
+    ("purchaseObject", "name"),
+    ("KTRU", "name"),
+    ("OKPD2", "OKPDName"),
+)
+
+# Инструкции по заполнению заявки лежат в теге с тем же именем name и к
+# предмету закупки отношения не имеют: «Участник закупки указывает в
+# заявке конкретное значение…». В описании это чистый шум, который
+# сбивает совпадение по ключевым словам.
+_DESCRIPTION_NOISE = ("участник закупки указыва", "значение характеристики не может",
+                      "участник закупки выбирает")
+
+_DESCRIPTION_LIMIT = 4000
+
+
+def _build_description(root) -> Optional[str]:
+    """Описание тендера из полей извещения.
+
+    Отдельного описания в извещении нет, но есть позиции закупки с их
+    наименованиями и характеристиками. Без них матчинг идёт по одному
+    названию и теряет тендеры: на замере 21.09.2026 так находилось 31
+    совпадение там, где рабочий путь давал вчетверо больше.
+    """
+    parents = {child: parent for parent in root.iter() for child in parent}
+    seen, parts = set(), []
+    for node in root.iter():
+        tag = _local(node.tag)
+        text = (node.text or "").strip()
+        if not text or len(text) < 3:
+            continue
+        parent = parents.get(node)
+        if parent is None or (_local(parent.tag), tag) not in _DESCRIPTION_SOURCES:
+            continue
+        low = text.lower()
+        if any(noise in low for noise in _DESCRIPTION_NOISE):
+            continue
+        if low in seen:
+            continue
+        seen.add(low)
+        parts.append(text)
+    return "; ".join(parts)[:_DESCRIPTION_LIMIT] or None

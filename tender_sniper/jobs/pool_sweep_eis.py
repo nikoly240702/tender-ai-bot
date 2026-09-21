@@ -72,6 +72,16 @@ HOURS_BACK = 2
 # вместе с числом прокси; переопределяется через окружение.
 CONCURRENCY = int(os.getenv("EIS_SWEEP_CONCURRENCY", "1"))
 
+# Минимальный интервал между запросами. Ограничение накладывает не
+# сервис ЕИС, а единственный рабочий прокси, через который мы к нему
+# ходим. Замер 21.09.2026 на одинаковых 712 запросах:
+#   0.94 запроса/с  ->   1 ошибка
+#   2.5  запроса/с  -> 340 ошибок «Max retries exceeded»
+# Отказы быстрые, поэтому без выдержки проход «ускоряется» ровно за
+# счёт того, что перестаёт работать. Поднимать темп можно только
+# вместе с числом прокси.
+MIN_REQUEST_INTERVAL = float(os.getenv("EIS_SWEEP_INTERVAL", "1.0"))
+
 
 @dataclass
 class SweepStats:
@@ -112,6 +122,7 @@ def notice_to_pool_row(card: Dict, region: str) -> Optional[Dict]:
     return {
         "tender_number": card["tender_number"][:40],
         "name": card.get("name"),
+        "description": card.get("description"),
         "customer": card.get("customer"),
         "price": card.get("price"),
         "region": region,
@@ -141,6 +152,7 @@ async def _save(rows: List[Dict]) -> int:
             index_elements=["tender_number"],
             set_={
                 "name": statement.excluded.name,
+                "description": statement.excluded.description,
                 "customer": statement.excluded.customer,
                 "price": statement.excluded.price,
                 "region": statement.excluded.region,
@@ -153,8 +165,32 @@ async def _save(rows: List[Dict]) -> int:
     return len(unique)
 
 
+class _Pacer:
+    """Выдерживает минимальный интервал между запросами.
+
+    Сон намеренно происходит ДО захвата семафора и без удержания
+    блокировки: держать лок через await — способ превратить
+    ограничение темпа в полную сериализацию с непредсказуемой
+    задержкой.
+    """
+
+    def __init__(self, interval: float):
+        self.interval = interval
+        self._next = 0.0
+        self._lock = asyncio.Lock()
+
+    async def wait(self) -> None:
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            delay = max(0.0, self._next - now)
+            self._next = max(now, self._next) + self.interval
+        if delay:
+            await asyncio.sleep(delay)
+
+
 async def sweep_region_hour(client, region_code: str, day: _dt.date, hour: int,
-                            semaphore: asyncio.Semaphore) -> SweepStats:
+                            semaphore: asyncio.Semaphore,
+                            pacer: "_Pacer") -> SweepStats:
     stats = SweepStats()
     name = region_name(region_code)
     if not name:
@@ -163,6 +199,7 @@ async def sweep_region_hour(client, region_code: str, day: _dt.date, hour: int,
 
     rows: List[Dict] = []
     for doc_type in eis.NOTICE_TYPES:
+        await pacer.wait()
         async with semaphore:
             try:
                 urls = await asyncio.to_thread(
@@ -210,12 +247,14 @@ async def sweep(region_codes: Sequence[str], hours_back: int = HOURS_BACK,
     moscow = _dt.timezone(_dt.timedelta(hours=int(TIME_ZONE_OFFSET)))
     now = now or _dt.datetime.now(moscow)
     semaphore = asyncio.Semaphore(CONCURRENCY)
+    pacer = _Pacer(MIN_REQUEST_INTERVAL)
 
     total = SweepStats(regions=len(region_codes))
     for offset in range(hours_back):
         moment = now - _dt.timedelta(hours=MIN_HOURS_LAG + offset)
         results = await asyncio.gather(*[
-            sweep_region_hour(client, code, moment.date(), moment.hour, semaphore)
+            sweep_region_hour(client, code, moment.date(), moment.hour,
+                              semaphore, pacer)
             for code in region_codes], return_exceptions=True)
         for result in results:
             if isinstance(result, SweepStats):

@@ -31,13 +31,15 @@ def pool_row_to_tender(row: TenderPool) -> Dict[str, Any]:
     """Строка пула -> словарь в том виде, который ждёт SmartMatcher.
 
     Форма повторяет mos_portal_mapper.ks_dto_to_tender, чтобы матчер везде
-    получал одинаковый вход. Описания в выдаче нет — матчинг идёт по
-    названию, как и у московского источника.
+    получал одинаковый вход.
     """
     return {
         'number': row.tender_number,
         'name': row.name or '',
-        'description': '',
+        # Источник с сайта описания не отдаёт, интеграционный —
+        # отдаёт (собирается из позиций закупки). Пустая строка
+        # для первого, реальное описание для второго.
+        'description': getattr(row, 'description', '') or '',
         'price': row.price,
         'region': row.region or '',
         'customer_name': row.customer or '',

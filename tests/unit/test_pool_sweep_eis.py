@@ -48,6 +48,22 @@ NOTICE = (
     f'<ns0:contractConditionsInfo><ns0:maxPriceInfo>'
     f'<ns0:maxPrice>37800.00</ns0:maxPrice>'
     f'</ns0:maxPriceInfo></ns0:contractConditionsInfo>'
+    f'<ns0:purchaseObjectsInfo><ns0:notDrugPurchaseObjectsInfo>'
+    f'<ns0:purchaseObject>'
+    f'<ns0:name>Кондиционер бытовой</ns0:name>'
+    f'<ns0:KTRU><ns0:name>Кондиционер бытовой</ns0:name>'
+    f'<ns0:OKPD2><ns1:OKPDName>Кондиционеры бытовые</ns1:OKPDName></ns0:OKPD2>'
+    f'</ns0:KTRU>'
+    f'<ns0:characteristics>'
+    f'<ns0:characteristicsUsingTextForm>'
+    f'<ns0:name>Обслуживаемая площадь</ns0:name>'
+    f'<ns0:characteristicsFillingInstruction>'
+    f'<ns0:name>Участник закупки указывает в заявке конкретное значение</ns0:name>'
+    f'</ns0:characteristicsFillingInstruction>'
+    f'</ns0:characteristicsUsingTextForm>'
+    f'</ns0:characteristics>'
+    f'</ns0:purchaseObject>'
+    f'</ns0:notDrugPurchaseObjectsInfo></ns0:purchaseObjectsInfo>'
     f'</ns0:notificationInfo>'
     f'</ns0:epNotificationEF2020></ns0:export>').encode("utf-8")
 
@@ -191,3 +207,51 @@ class TestPoolRow:
     def test_empty_card(self):
         assert notice_to_pool_row(None, "Москва") is None
         assert notice_to_pool_row({}, "Москва") is None
+
+
+@pytest.mark.unit
+class TestDescription:
+    """Описание собирается из позиций закупки.
+
+    Замер 21.09.2026: сбор через сервис даёт 96% покрытия (24 тендера из
+    25, о которых уведомил мониторинг), но матчинг по одному названию
+    нашёл лишь 31 из 1521. Терялось на сопоставлении, не на сборе.
+    """
+
+    def test_collects_position_and_category_names(self):
+        d = parse_notice_card(NOTICE)["description"]
+        assert "Кондиционер бытовой" in d
+        assert "Кондиционеры бытовые" in d
+
+    def test_characteristic_labels_are_excluded(self):
+        """Наименования характеристик — ярлыки полей, а не предмет: у
+        батареек выходило «…; Форма элемента питания; Размер элемента
+        питания; Тип элемента питания». Замер 21.09.2026: с ними
+        совпадений стало 219 вместо 31, но 76% дали два сборных фильтра,
+        а половина жалась к порогу отсечки. Это ложные срабатывания на
+        словах «тип», «размер», «форма», а не находки."""
+        d = parse_notice_card(NOTICE)["description"]
+        assert "Обслуживаемая площадь" not in d
+
+    def test_filling_instructions_are_excluded(self):
+        """Инструкция по заполнению заявки лежит в теге с тем же именем
+        name, но к предмету закупки отношения не имеет — в описании это
+        шум, сбивающий совпадение по ключевым словам."""
+        d = parse_notice_card(NOTICE)["description"]
+        assert "Участник закупки указывает" not in d
+
+    def test_duplicates_collapse(self):
+        """«Кондиционер бытовой» встречается и как позиция, и как КТРУ."""
+        d = parse_notice_card(NOTICE)["description"]
+        assert d.count("Кондиционер бытовой") == 1
+
+    def test_description_reaches_the_pool_row(self):
+        row = notice_to_pool_row(parse_notice_card(NOTICE), "Москва")
+        assert row["description"] and "Кондиционер" in row["description"]
+
+    def test_notice_without_positions(self):
+        xml = (f'<ns0:export xmlns:ns0="{EP}"><ns0:epNotificationEF2020>'
+               f'<ns0:commonInfo><ns0:purchaseNumber>0301300038126000680'
+               f'</ns0:purchaseNumber></ns0:commonInfo>'
+               f'</ns0:epNotificationEF2020></ns0:export>').encode()
+        assert parse_notice_card(xml)["description"] is None

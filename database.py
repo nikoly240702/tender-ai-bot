@@ -1283,6 +1283,10 @@ class TenderPool(Base):
     __tablename__ = 'tender_pool'
     tender_number = Column(String(40), primary_key=True)
     name = Column(Text, nullable=True)
+    # Собирается из позиций закупки: в извещении отдельного описания
+    # нет, но есть наименования позиций, КТРУ, ОКПД2 и характеристик.
+    # Без него матчинг идёт по одному названию и теряет тендеры.
+    description = Column(Text, nullable=True)
     customer = Column(Text, nullable=True)
     price = Column(Float, nullable=True)
     region = Column(String(255), nullable=True)
