@@ -66,6 +66,9 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/filters', filters_page)
     app.router.add_get('/cabinet/search', search_page)
     app.router.add_get('/cabinet/stats', stats_page)
+    app.router.add_get('/cabinet/niches', niches_page)
+    app.router.add_get('/cabinet/niches-audit', niche_audit_page)
+    app.router.add_get('/cabinet/niches/{okpd2}', niche_detail_page)
     app.router.add_get('/cabinet/settings', settings_page)
     app.router.add_get('/cabinet/gpt', gpt_page)
     app.router.add_get('/cabinet/subscription', subscription_page)
@@ -86,6 +89,11 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/profile', api.save_profile)
     # JSON API — Tenders
     app.router.add_get('/cabinet/api/tenders', api.get_tenders)
+    app.router.add_get('/cabinet/api/niches', api.api_niches)
+    app.router.add_get('/cabinet/api/niches-audit', api.api_niches_audit)
+    app.router.add_get('/cabinet/api/niches/{okpd2}', api.api_niche_detail)
+    app.router.add_get('/cabinet/api/tenders/{number}/competition',
+                       api.api_tender_competition)
     # JSON API — Documents
     app.router.add_get('/cabinet/api/documents', api.get_documents)
     app.router.add_get('/cabinet/api/documents/{id}/download', api.download_document)
@@ -258,6 +266,64 @@ async def filters_page(request: web.Request) -> web.Response:
         'filters.html',
         request,
         active_page='filters',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
+
+
+@require_auth
+async def niches_page(request: web.Request) -> web.Response:
+    """Аналитика ниш.
+
+    require_auth, а не require_team_member: раздел показывает публичные
+    сведения о рынке госзакупок, а не данные компании — привязывать его
+    к команде незачем.
+    """
+    user = request['user']
+    return _render_template(
+        'niches.html',
+        request,
+        active_page='niches',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
+
+
+@require_auth
+async def niche_audit_page(request: web.Request) -> web.Response:
+    """Аудит собственных фильтров в разрезе ниш.
+
+    Маршрут объявлен ДО /cabinet/niches/{okpd2}: иначе «niches-audit»
+    попал бы в него как код ОКПД2.
+    """
+    user = request['user']
+    return _render_template(
+        'niche_filters.html', request, active_page='niches',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''), nav_counts={},
+    )
+
+
+@require_auth
+async def niche_detail_page(request: web.Request) -> web.Response:
+    """Детализация одной ниши: кто закупает, кто выигрывает, что было."""
+    user = request['user']
+    okpd2 = (request.match_info.get('okpd2') or '').strip()
+    try:
+        level = int(request.query.get('level', 4))
+    except ValueError:
+        level = 4
+    if level not in (2, 4, 6):
+        level = 4
+    return _render_template(
+        'niche_detail.html',
+        request,
+        active_page='niches',
+        okpd2=okpd2,
+        level=level,
+        region=(request.query.get('region') or '').strip() or None,
         user_name=user.get('username') or user.get('first_name') or 'Вы',
         user_tier=user.get('subscription_tier', ''),
         nav_counts={},

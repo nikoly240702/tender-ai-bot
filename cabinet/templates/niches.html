@@ -1,0 +1,72 @@
+{% extends "_base.html" %}
+{% block title %}Аналитика ниш — Tender Sniper{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/niches.css?v=1">{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow">Аналитика</div>
+  <h1>Ниши</h1>
+  <div class="summary">
+    Где мало участников и слабо роняют цену — по историческим результатам закупок.
+  </div>
+</div>
+
+<div class="niche-filters">
+  <label>Уровень ОКПД2
+    <select id="f-level">
+      <option value="2">2 знака — крупные группы</option>
+      <option value="4" selected>4 знака</option>
+      <option value="6">6 знаков — подробно</option>
+    </select>
+  </label>
+  <label>Регион
+    <select id="f-region"><option value="">все загруженные</option></select>
+  </label>
+  <label>Ценовая корзина
+    <select id="f-bucket"><option value="">любая</option></select>
+  </label>
+  <label>Минимум процедур
+    <input type="number" id="f-min" value="5" min="1" max="500">
+  </label>
+  <button id="f-apply" class="btn-primary">Показать</button>
+  <button id="f-csv" class="btn-secondary">Выгрузить CSV</button>
+  <a href="/cabinet/niches-audit" class="btn-secondary">Аудит моих фильтров</a>
+</div>
+
+<div id="data-note" class="data-note"></div>
+
+<div class="niche-table-wrap">
+  <table class="niche-table">
+    <thead>
+      <tr>
+        <th data-sort="okpd2">ОКПД2</th>
+        <th data-sort="region_name">Регион</th>
+        <th data-sort="price_bucket">Корзина</th>
+        <th data-sort="procedures_count" class="num">Процедур</th>
+        <th data-sort="median_bids" class="num">Заявок</th>
+        <th data-sort="share_single_bid" class="num">Одна заявка</th>
+        <th data-sort="median_drop" class="num">Снижение</th>
+        <th data-sort="winner_hhi" class="num">Концентрация</th>
+        <th data-sort="index" class="num">Индекс</th>
+      </tr>
+    </thead>
+    <tbody id="niche-rows">
+      <tr><td colspan="9" class="loading">загрузка…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="niche-legend">
+  <p><b>Индекс</b> сводит четыре величины: насколько мало участников, насколько
+  слабо роняют цену, сколько в нише процедур и не занята ли она одним
+  поставщиком. Он подсказывает, куда смотреть, но не заменяет проверку —
+  ноль заявок может означать и свободное поле, и невыполнимые требования.</p>
+  <p><b>Достоверность</b> показывает, на чём основан расчёт. «Без концентрации»
+  значит, что победители ещё неизвестны: контракт заключается позже протокола,
+  и на коротком периоде их просто нет в данных. У таких ниш индекс завышен.</p>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="/cabinet/static/js/niches.js?v=1"></script>
+{% endblock %}

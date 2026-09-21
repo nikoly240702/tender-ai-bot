@@ -1,0 +1,65 @@
+{% extends "_base.html" %}
+{% block title %}Ниша {{ okpd2 }} — Tender Sniper{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/niches.css?v=1">{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow"><a href="/cabinet/niches">Аналитика ниш</a></div>
+  <h1>ОКПД2 {{ okpd2 }}</h1>
+  <div class="summary" id="d-summary">Загрузка…</div>
+</div>
+
+<h2>Срезы по ценовым корзинам</h2>
+<div class="niche-table-wrap">
+  <table class="niche-table">
+    <thead>
+      <tr>
+        <th>Корзина</th><th>Регион</th>
+        <th class="num">Процедур</th><th class="num">Заявок</th>
+        <th class="num">Одна заявка</th><th class="num">Никто не пришёл</th>
+        <th class="num">Снижение</th><th class="num">Жёсткий случай</th>
+        <th class="num">Индекс</th>
+      </tr>
+    </thead>
+    <tbody id="d-slices"><tr><td colspan="9" class="loading">загрузка…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="niche-columns">
+  <div>
+    <h2>Кто закупает</h2>
+    <div class="niche-table-wrap">
+      <table class="niche-table">
+        <thead><tr><th>Заказчик</th><th class="num">Закупок</th><th class="num">Сумма НМЦК</th></tr></thead>
+        <tbody id="d-customers"><tr><td colspan="3" class="loading">загрузка…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div>
+    <h2>Кто выигрывает</h2>
+    <div class="niche-table-wrap">
+      <table class="niche-table">
+        <thead><tr><th>Поставщик</th><th class="num">Побед</th><th class="num">Сумма</th></tr></thead>
+        <tbody id="d-winners"><tr><td colspan="3" class="loading">загрузка…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="hint" id="d-winners-hint"></p>
+  </div>
+</div>
+
+<h2>Последние процедуры</h2>
+<div class="niche-table-wrap">
+  <table class="niche-table">
+    <thead>
+      <tr><th>Номер</th><th>Заказчик</th><th class="num">НМЦК</th>
+          <th class="num">Заявок</th><th class="num">Победитель</th><th class="num">Снижение</th></tr>
+    </thead>
+    <tbody id="d-recent"><tr><td colspan="6" class="loading">загрузка…</td></tr></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script>window.NICHE = {okpd2: {{ okpd2|tojson }}, level: {{ level }}, region: {{ region|tojson }}};</script>
+<script src="/cabinet/static/js/niche_detail.js?v=1"></script>
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "_base.html" %}
+{% block title %}Аудит фильтров — Tender Sniper{% endblock %}
+{% block page_css %}<link rel="stylesheet" href="/cabinet/static/css/pages/niches.css?v=1">{% endblock %}
+
+{% block main %}
+<div class="page-header">
+  <div class="eyebrow"><a href="/cabinet/niches">Аналитика ниш</a></div>
+  <h1>Аудит фильтров</h1>
+  <div class="summary">
+    Какие категории ваши фильтры ловят на самом деле и насколько там тесно.
+    Считается по фактическим совпадениям, а не по ключевым словам.
+  </div>
+</div>
+
+<div id="a-note" class="data-note">Загрузка…</div>
+<div id="a-filters"></div>
+{% endblock %}
+
+{% block page_js %}<script src="/cabinet/static/js/niche_filters.js?v=1"></script>{% endblock %}

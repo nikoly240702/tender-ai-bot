@@ -1,0 +1,40 @@
+/* Аналитика ниш. Инструмент, а не витрина: плотная таблица, минимум
+   украшений, цветом помечено только то, что требует внимания. */
+.niche-filters {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end;
+  margin: 18px 0 12px;
+}
+.niche-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.niche-filters select, .niche-filters input { padding: 7px 10px; min-width: 150px; }
+.niche-filters input[type=number] { min-width: 90px; }
+
+.data-note { font-size: 13px; opacity: .75; margin-bottom: 12px; line-height: 1.5; }
+
+.niche-table-wrap { overflow-x: auto; }
+.niche-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.niche-table th, .niche-table td { padding: 8px 10px; border-bottom: 1px solid rgba(128,128,128,.18); }
+.niche-table th { text-align: left; cursor: pointer; user-select: none; white-space: nowrap; }
+.niche-table th:hover { opacity: .7; }
+.niche-table th.num, .niche-table td.num { text-align: right; }
+/* Цифры в столбцах должны выстраиваться одна под другой, иначе колонку
+   не сравнить взглядом. */
+.niche-table td.num { font-variant-numeric: tabular-nums; }
+.niche-table tbody tr:hover { background: rgba(128,128,128,.07); }
+.niche-table .loading { text-align: center; padding: 26px; opacity: .6; }
+
+/* Неизвестное и нулевое обязаны выглядеть по-разному: «снижение 0%» и
+   «снижения не измерено» — противоположные по смыслу вещи. */
+.unknown { opacity: .45; font-style: italic; }
+
+.idx-high { color: #1f9d55; font-weight: 600; }
+.idx-mid  { color: #b7791f; font-weight: 600; }
+.idx-low  { opacity: .65; }
+.confidence { display: block; font-size: 11px; font-weight: 400; opacity: .55; }
+
+.niche-legend { margin-top: 22px; font-size: 13px; line-height: 1.6; opacity: .8; max-width: 760px; }
+.niche-legend p { margin: 0 0 8px; }
+
+.niche-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-top: 8px; }
+@media (max-width: 900px) { .niche-columns { grid-template-columns: 1fr; } }
+.hint { font-size: 12px; opacity: .6; line-height: 1.5; margin-top: 6px; }
+.page-header .eyebrow a { text-decoration: none; opacity: .8; }
