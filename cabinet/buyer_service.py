@@ -124,6 +124,10 @@ class PositionResult:
     ask_price_from: List[Offer] = field(default_factory=list)
     # Требования, выделенные из строки ТЗ, — по ним идёт сверка.
     requirements: List[Dict[str, str]] = field(default_factory=list)
+    # С чем реально пошли в поиск. Формулировка тендера и формулировка
+    # каталога расходятся сильно, и без этого поля непонятно, почему
+    # ничего не нашлось — плох запрос или нет предложений.
+    query: str = ''
     # Журнал перебора: каждый рассмотренный кандидат и его судьба.
     # Нужен, чтобы можно было проверить, что именно система смотрела и
     # почему отвергла, а не верить итоговому списку на слово.
@@ -142,6 +146,7 @@ class PositionResult:
             'error': self.error,
             'needs_quote': self.needs_quote,
             'requirements': self.requirements,
+            'query': self.query,
             'considered': self.considered,
             'offers': [asdict(o) for o in self.offers],
             'ask_price_from': [asdict(o) for o in self.ask_price_from],
@@ -437,6 +442,8 @@ def query_terms(position: str) -> List[str]:
     for token in _TOKEN_RE.findall((position or '').lower()):
         if len(token) < 2 or token in STOPWORDS or token in seen:
             continue
+        if token in _RANGE_WORDS:
+            continue
         seen.add(token)
         terms.append(token)
     return terms
@@ -463,13 +470,25 @@ _UNITS = frozenset((
 ))
 
 
+# Слова, которыми записывают границы требования. В ТЗ они нужны, в
+# поисковой строке — балласт: магазин пишет «40 Вт», а не «до 40 Вт».
+_RANGE_WORDS = frozenset(('до', 'от', 'не', 'более', 'менее', 'свыше'))
+
+# Из какого куска позиции берутся числа. Позиция длиннее запроса, и
+# первым в ней идёт то, чем товар называют (см. notice_positions):
+# без окна резерв хватал числа из хвоста — «индекс цветопередачи
+# 80 и менее 90» вытеснял из запроса «поликарбонат» и «настенно-
+# потолочный».
+_DEFINING_WINDOW = MAX_QUERY_WORDS
+
+
 def _reserve_defining(terms: List[str], budget: int) -> set:
     """Числа, которым гарантируется место в запросе, вместе с единицами.
 
     Половина бюджета, не весь: из одних чисел запрос тоже не ищется.
     """
     reserved = set()
-    for i, term in enumerate(terms):
+    for i, term in enumerate(terms[:_DEFINING_WINDOW]):
         if len(reserved) >= budget:
             break
         if not _is_defining(term):
@@ -763,8 +782,20 @@ async def find_offers(company_id: int, position: str,
                         'и YANDEX_SEARCH_FOLDER_ID')
         return result
 
+    # Запрос на языке каталога, а не тендера. Строковыми правилами
+    # такого перевода не сделать: «настенно-потолочный квадратный,
+    # длина не менее 500 и менее 600 мм» продаётся как «595х595
+    # накладной», и стандартный типоразмер из диапазона не выводится.
+    # Замер 21.09.2026 по закупке 0373100128326000093: дословная
+    # формулировка из извещения не нашла ничего, торговая — нашла
+    # нужный светильник за 1 179 и 1 344 ₽.
+    query = await offer_reader.suggest_query(position) or build_query(position)
+    if not query.endswith(WHOLESALE_INTENT):
+        query = f'{query} {WHOLESALE_INTENT}'
+    result.query = query
+
     try:
-        found = await yandex_search.search(build_query(position), limit=MAX_CANDIDATES)
+        found = await yandex_search.search(query, limit=MAX_CANDIDATES)
     except Exception as e:
         logger.warning(f'Закупщик: поиск не удался для «{position[:50]}»: {e}')
         result.error = f'Поиск не удался: {e}'
@@ -783,6 +814,45 @@ async def find_offers(company_id: int, position: str,
     result.offers = offers
     result.source = 'web' if (offers or ask) else 'none'
     return result
+
+
+async def _ensure_notice_positions(card_id: int, card_data: Dict[str, Any],
+                                   tender_number: str) -> Dict[str, Any]:
+    """Дотягивает позиции из извещения ЕИС и кладёт их в карточку.
+
+    Кэш — сама карточка, а не отдельная таблица: извещение по
+    завершённой процедуре не меняется, а данные нужны ровно здесь.
+    Ключ `notice_positions_at` ставится и при неудаче тоже, иначе
+    каждый запуск подбора заново ходил бы в ЕИС по закупке, которой там
+    нет (старые карточки, ручной ввод номера).
+    """
+    if card_data.get('notice_positions') or card_data.get('notice_positions_at'):
+        return card_data
+    if not tender_number:
+        return card_data
+
+    import asyncio
+
+    from cabinet import notice_positions as np
+    positions = await asyncio.to_thread(np.fetch_positions, tender_number)
+
+    card_data = dict(card_data)
+    card_data['notice_positions'] = positions or []
+    card_data['notice_positions_at'] = datetime.utcnow().isoformat()
+
+    from database import PipelineCard
+    async with DatabaseSession() as session:
+        card = await session.get(PipelineCard, card_id)
+        if card:
+            data = dict(card.data or {})
+            data['notice_positions'] = card_data['notice_positions']
+            data['notice_positions_at'] = card_data['notice_positions_at']
+            card.data = data
+            await session.commit()
+
+    logger.info('Закупщик: карточка %s, позиций из извещения %s',
+                card_id, len(card_data['notice_positions']))
+    return card_data
 
 
 async def run_search(card_id: int, company_id: int, by_user_id: int) -> None:
@@ -811,11 +881,15 @@ async def run_search(card_id: int, company_id: int, by_user_id: int) -> None:
                 return
             card_data = dict(card.data or {})
             tender_name = card_data.get('name') or ''
+            tender_number = card.tender_number
 
+        card_data = await _ensure_notice_positions(card_id, card_data,
+                                                   tender_number)
         positions = extract_positions(card_data, tender_name)
         if not positions:
             await _save({'status': 'done', 'positions': [],
-                         'error': 'Не удалось выделить позиции — запустите AI-анализ',
+                         'error': 'Позиции не найдены: извещение по этой закупке '
+                                  'не прочиталось, разбора документации нет',
                          'updated_at': datetime.utcnow().isoformat()})
             return
 
@@ -855,13 +929,24 @@ async def run_search(card_id: int, company_id: int, by_user_id: int) -> None:
 
 def extract_positions(card_data: Dict[str, Any], tender_name: str = '',
                       limit: int = 15) -> List[str]:
-    """Позиции для поиска из разбора документации.
+    """Позиции для поиска, от точного источника к грубому.
 
-    Берём items_description из ai_analysis — это результат разбора ТЗ
-    (см. _do_ai_enrich). Он приходит списком через «;» или нумерованным
-    перечнем. Если разбора нет, ищем по названию тендера: хуже, но лучше,
-    чем ничего.
+    Первым идут позиции из самого извещения: там предмет закупки лежит
+    с характеристиками и числами, а это единственное, что отличает
+    нужный товар от товарной категории (см. cabinet/notice_positions).
+
+    Дальше items_description из ai_analysis — разбор ТЗ (см.
+    _do_ai_enrich), списком через «;» или нумерованным перечнем. На
+    практике его почти никогда нет: на 21.09.2026 при 362 карточках был
+    ноль анализов.
+
+    Последним — название тендера. Это товарная категория, а не товар, и
+    подбор по нему находит не то; оставлено только чтобы не молчать.
     """
+    from_notice = (card_data or {}).get('notice_positions') or []
+    if from_notice:
+        return [p for p in from_notice if p][:limit]
+
     analysis = (card_data or {}).get('ai_analysis') or {}
     items = ((analysis.get('fields') or {}).get('items_description') or '').strip()
 

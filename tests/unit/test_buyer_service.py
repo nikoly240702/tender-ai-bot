@@ -122,12 +122,15 @@ class TestBuildQuery:
     def test_numbers_survive_trimming(self):
         """Числа сужают выдачу до конкретной модели сильнее любого
         прилагательного, поэтому место под них резервируется до того,
-        как бюджет разберут описательные слова."""
+        как бюджет разберут описательные слова.
+
+        Резерв смотрит только на начало позиции: число, стоящее дальше,
+        чем сама длина запроса, в названии товара уже не участвует — и
+        «595» из хвоста сюда не попадает намеренно."""
         q = build_query('Светильник светодиодный внутреннего освещения '
                         'настенно-потолочный квадратный рассеиватель '
                         'поликарбонат мощность 40 Вт длина 595 мм')
-        assert '40' in q.split()
-        assert '595' in q.split()
+        assert '40' in q.split() and 'вт' in q.split()
 
     def test_units_stay_with_their_number(self):
         """Голое число поисковику не говорит ничего: первый вариант
@@ -347,3 +350,53 @@ class TestEmptyFoundIsNeverAMismatch:
             [{'name': 'материал', 'found': 'не указано', 'ok': False}], reqs)
         assert checks[0].ok is None
         assert _is_contradicted(checks) is False
+
+
+@pytest.mark.unit
+class TestPositionSourcePriority:
+    """Извещение точнее разбора ТЗ, а разбор — точнее названия тендера.
+
+    Название тендера — это товарная категория: замер 21.09.2026 по
+    закупке 0373100128326000093 дал по нему четыре разных товара от
+    449 до 7 483 ₽ и ни одного нужного.
+    """
+
+    def test_notice_beats_ai_analysis(self):
+        card = {
+            'notice_positions': ['Светильник светодиодный, мощность 40 Вт'],
+            'ai_analysis': {'fields': {'items_description': 'Светильник'}},
+        }
+        assert extract_positions(card, 'Поставка светильников') == [
+            'Светильник светодиодный, мощность 40 Вт']
+
+    def test_ai_analysis_used_when_notice_is_empty(self):
+        """Пустой список значит «извещение прочитано, позиций нет» — это
+        не повод молчать, если разбор ТЗ есть."""
+        card = {'notice_positions': [],
+                'ai_analysis': {'fields': {'items_description': 'Бумага А4'}}}
+        assert extract_positions(card, 'Тендер') == ['Бумага А4']
+
+    def test_tender_name_is_the_last_resort(self):
+        assert extract_positions({'notice_positions': []},
+                                 tender_name='Поставка бумаги') == ['Поставка бумаги']
+
+    def test_notice_positions_respect_the_limit(self):
+        card = {'notice_positions': [f'Позиция {i}' for i in range(40)]}
+        assert len(extract_positions(card, limit=15)) == 15
+
+    def test_range_words_do_not_reach_the_query(self):
+        """Магазин пишет «40 Вт», а не «до 40 Вт» — служебные слова
+        границ занимают место в запросе и ничего не находят."""
+        q = build_query('Светильник светодиодный, мощность до 40 Вт').split()
+        assert 'до' not in q
+        assert '40' in q and 'вт' in q
+
+    def test_numbers_are_taken_from_the_head_of_the_position(self):
+        """Позиция длиннее запроса, и первым в ней идёт то, чем товар
+        называют. Без окна резерв хватал числа из хвоста: «индекс
+        цветопередачи 80 и менее 90» вытеснял «поликарбонат»."""
+        q = build_query('Светильник светодиодный 40 Вт поликарбонат, '
+                        'индекс цветопередачи не менее 80 и менее 90, '
+                        'длина не менее 500 и менее 600 мм').split()
+        assert 'поликарбонат' in q
+        assert '500' not in q and '600' not in q
