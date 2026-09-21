@@ -38,3 +38,8 @@
 @media (max-width: 900px) { .niche-columns { grid-template-columns: 1fr; } }
 .hint { font-size: 12px; opacity: .6; line-height: 1.5; margin-top: 6px; }
 .page-header .eyebrow a { text-decoration: none; opacity: .8; }
+
+/* Название категории под кодом: код нужен для точности, название — чтобы
+   понять, о чём вообще речь. «21.20» сам по себе не говорит ничего. */
+.okpd-name { display: block; font-size: 11px; opacity: .6; line-height: 1.35;
+             max-width: 230px; margin-top: 2px; }

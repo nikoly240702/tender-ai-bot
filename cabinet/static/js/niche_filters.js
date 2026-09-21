@@ -44,7 +44,9 @@
           return '<tr>' +
             '<td><a href="/cabinet/niches/' + encodeURIComponent(c.okpd2) +
               (c.region ? '?region=' + encodeURIComponent(c.region) : '') + '">' +
-              esc(c.okpd2) + '</a></td>' +
+              esc(c.okpd2) + '</a>' +
+              (c.okpd2_name ? '<span class="okpd-name">' +
+                esc(c.okpd2_name) + '</span>' : '') + '</td>' +
             '<td>' + esc(c.region_name || '—') + '</td>' +
             '<td>' + esc(c.price_bucket_label || '—') + '</td>' +
             '<td class="num">' + c.hits + '</td>' +

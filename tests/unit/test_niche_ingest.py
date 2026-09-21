@@ -298,3 +298,33 @@ class TestDedupeByKey:
 
     def test_empty_input(self):
         assert storage.dedupe_by_key(storage.procedure, []) == []
+
+
+@pytest.mark.unit
+class TestOkpd2Names:
+    """Названия категорий: «21.20» человеку не говорит ничего."""
+
+    def test_name_is_collected_next_to_the_code(self):
+        row = parse(notice_xml())
+        assert row["_okpd2_names"] == {"21.20": "Препараты"}
+
+    def test_names_are_not_a_procedure_column(self):
+        """Названия едут отдельным справочником: они повторяются в каждом
+        документе и в строке процедуры были бы дублированием."""
+        row = parse(notice_xml())
+        assert row["_okpd2_names"] is not None
+        assert "okpd2_name" not in row
+
+    def test_dict_rows_build_the_tree(self):
+        """Родитель выводится отсечением последней группы — чтобы у кода
+        уровня 4 нашлось название, даже если в документах встречался
+        только более подробный код."""
+        rows = {r["code"]: r for r in storage.okpd2_dict_rows(
+            {"21.20.10": "Лекарства", "21": "Фармацевтика"})}
+        assert rows["21.20.10"]["parent_code"] == "21.20"
+        assert rows["21.20.10"]["level"] == 6
+        assert rows["21"]["parent_code"] is None
+
+    def test_rows_without_a_name_are_skipped(self):
+        assert storage.okpd2_dict_rows({"21.20": ""}) == []
+        assert storage.okpd2_dict_rows({}) == []

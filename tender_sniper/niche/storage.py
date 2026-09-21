@@ -214,13 +214,28 @@ def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
     if not purchase_number or len(purchase_number) < 15:
         return None
 
+    # Код и название лежат соседями внутри одного узла OKPD2. Берём оба:
+    # без названия «21.20» в интерфейсе ничего не говорит человеку, а
+    # отдельного справочника категорий у нас нет.
     codes = []
+    names: Dict[str, str] = {}
     for node in root.iter():
         if _local(node.tag) != "OKPD2":
             continue
+        code = name = None
         for child in node:
-            if _local(child.tag) in ("OKPDCode", "code") and (child.text or "").strip():
-                codes.append(child.text.strip())
+            tag = _local(child.tag)
+            text = (child.text or "").strip()
+            if not text:
+                continue
+            if tag in ("OKPDCode", "code"):
+                code = text
+            elif tag in ("OKPDName", "name"):
+                name = text
+        if code:
+            codes.append(code)
+            if name:
+                names.setdefault(code, name)
 
     return {
         "purchase_number": purchase_number,
@@ -234,6 +249,9 @@ def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
         "published_at": to_date(_first(root, "publishDTInEIS")),
         "okpd2_codes": sorted(set(codes)) or None,
         "okpd2_primary": Counter(codes).most_common(1)[0][0] if codes else None,
+        # Не колонка таблицы: загрузчик выбирает это в справочник и
+        # убирает из строки перед записью.
+        "_okpd2_names": names or None,
         "delivery_region_code": region_code,
         # Объём не определён — торгуются СУММЫ ЦЕН ЗА ЕДИНИЦУ, а не цена
         # контракта (ч. 24 ст. 42 44-ФЗ). Эти предложения несопоставимы с
@@ -286,3 +304,27 @@ def contract_to_row(parsed: Dict, *, source: str) -> Optional[Dict]:
         "okpd2_codes": parsed.get("okpd2") or None,
         "raw_source": source,
     }
+
+
+def okpd2_dict_rows(names: Dict[str, str]) -> List[Dict]:
+    """Пары код→название в строки справочника.
+
+    Родительский код выводится отсечением последней группы: 21.20.10 →
+    21.20 → 21. Дерево нужно, чтобы у кода уровня 4 можно было показать
+    название, даже если сам он в документах не встречался, а встречался
+    только более подробный.
+    """
+    rows = []
+    for code, name in (names or {}).items():
+        code = (code or "").strip()
+        if not code or not name:
+            continue
+        parts = [p for p in code.split(".") if p]
+        parent = ".".join(parts[:-1]) if len(parts) > 1 else None
+        rows.append({
+            "code": code[:20],
+            "name": name.strip()[:500],
+            "level": okpd2_level(code),
+            "parent_code": parent,
+        })
+    return rows

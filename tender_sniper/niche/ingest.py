@@ -202,6 +202,7 @@ async def ingest_archive(session, client, *, subsystem: str, doc_type: str,
         return stats
 
     rows: List[Dict] = []
+    okpd2_names: Dict[str, str] = {}
     for doc_kind, xml in eis.iter_documents(blob):
         try:
             if kind == "notice":
@@ -220,6 +221,12 @@ async def ingest_archive(session, client, *, subsystem: str, doc_type: str,
             logger.debug("   не разобран %s из %s: %s", doc_kind, key, str(exc)[:120])
             continue
         if row:
+            # Названия категорий едут отдельным справочником, а не
+            # колонкой процедуры: они повторяются в каждом документе
+            # и в строке были бы чистым дублированием.
+            names = row.pop("_okpd2_names", None)
+            if names:
+                okpd2_names.update(names)
             rows.append(row)
 
     table = {"notice": storage.procedure, "protocol": storage.protocol,
@@ -229,6 +236,9 @@ async def ingest_archive(session, client, *, subsystem: str, doc_type: str,
     if rows and not dry:
         try:
             await session.execute(storage.upsert(table, rows))
+            if okpd2_names:
+                await session.execute(storage.upsert(
+                    storage.okpd2_dict, storage.okpd2_dict_rows(okpd2_names)))
             await session.execute(storage.ingest_log.delete().where(
                 storage.ingest_log.c.archive_path == key))
             await session.execute(storage.ingest_log.insert().values(

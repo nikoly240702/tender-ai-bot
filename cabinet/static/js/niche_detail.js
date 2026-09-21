@@ -34,6 +34,10 @@
 
   function render(d) {
     const slices = d.slices || [];
+    if (d.okpd2_name) {
+      const h = document.querySelector('.page-header h1');
+      if (h) h.textContent = 'ОКПД2 ' + N.okpd2 + ' — ' + d.okpd2_name;
+    }
     document.getElementById('d-summary').textContent =
       slices.length
         ? 'Срезов ' + slices.length + ' · регион: ' +
