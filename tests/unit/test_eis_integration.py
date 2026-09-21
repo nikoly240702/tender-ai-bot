@@ -244,3 +244,47 @@ class TestParseContract:
         xml = (f'<ns0:export xmlns:ns0="{EP}"><ns0:contract>'
                f'<ns0:regNum>1</ns0:regNum></ns0:contract></ns0:export>').encode("utf-8")
         assert parse_contract(xml)["okpd2"] == []
+
+
+@pytest.mark.unit
+class TestOpenTenderPrice:
+    """Открытый конкурс: в заявках цены нет.
+
+    Победителя выбирают по критериям, а не по цене, и applicationInfo
+    содержит только commonInfo и admittedInfo. Единственное место с
+    ценой — rightConcludeContractPrice, цена права заключить контракт.
+    Без этого запасного источника все конкурсы давали бы заявки без
+    цены и выпадали из метрики снижения.
+    """
+
+    OPEN_TENDER = (
+        f'<ns0:export xmlns:ns0="{EP}"><ns0:epProtocolEOK2020Final>'
+        f'<ns0:commonInfo><ns0:purchaseNumber>0373200086726000923</ns0:purchaseNumber>'
+        f'</ns0:commonInfo>'
+        f'<ns0:protocolInfo><ns0:applicationsInfo>'
+        f'<ns0:applicationInfo>'
+        f'<ns0:commonInfo><ns0:appNumber>3557909</ns0:appNumber></ns0:commonInfo>'
+        f'<ns0:admittedInfo><ns0:appAdmittedInfo>'
+        f'<ns0:admitted>true</ns0:admitted><ns0:appRating>1</ns0:appRating>'
+        f'</ns0:appAdmittedInfo></ns0:admittedInfo>'
+        f'</ns0:applicationInfo>'
+        f'</ns0:applicationsInfo>'
+        f'<ns0:rightConcludeContractPrice>4149290.00</ns0:rightConcludeContractPrice>'
+        f'</ns0:protocolInfo>'
+        f'</ns0:epProtocolEOK2020Final></ns0:export>').encode("utf-8")
+
+    def test_falls_back_to_right_to_conclude_price(self):
+        r = parse_protocol_final(self.OPEN_TENDER)
+        assert r.winner_price == 4149290.00
+        assert r.bids_submitted == 1 and r.bids_admitted == 1
+
+    def test_application_price_still_wins_when_present(self):
+        """У аукциона цена есть в заявке — запасной источник не должен
+        её перебивать."""
+        r = parse_protocol_final(REAL)
+        assert r.winner_price == 610207.99
+
+    def test_no_price_anywhere(self):
+        xml = self.OPEN_TENDER.replace(
+            b"<ns0:rightConcludeContractPrice>4149290.00</ns0:rightConcludeContractPrice>", b"")
+        assert parse_protocol_final(xml).winner_price is None

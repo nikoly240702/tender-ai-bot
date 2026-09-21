@@ -176,6 +176,23 @@ def _first(root, tag: str) -> Optional[str]:
     return values[0] if values else None
 
 
+def _first_under(root, parent_tag: str, tag: str) -> Optional[str]:
+    """Текст тега внутри конкретного родителя.
+
+    Имя `name` в извещении носят и способ закупки, и организация, и
+    позиция, и единица измерения. Поиск по одному имени берёт первое
+    попавшееся — так способ закупки не находился вовсе, потому что тег
+    зовётся placingWay/name, а не placingWayName.
+    """
+    for node in root.iter():
+        if _local(node.tag) != parent_tag:
+            continue
+        for child in node:
+            if _local(child.tag) == tag and (child.text or "").strip():
+                return child.text.strip()
+    return None
+
+
 def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
     """Строка eis.procedure из извещения.
 
@@ -208,7 +225,7 @@ def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
     return {
         "purchase_number": purchase_number,
         "law": 44,
-        "procedure_type": _first(root, "placingWayName") or _first(root, "placingWay"),
+        "procedure_type": _first_under(root, "placingWay", "name"),
         "customer_inn": _first(root, "INN"),
         "customer_name": _first(root, "fullName"),
         "customer_region_code": region_code,

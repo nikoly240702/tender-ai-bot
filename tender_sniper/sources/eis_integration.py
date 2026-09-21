@@ -98,9 +98,14 @@ NOTICE_TYPES = (
     "epNotificationEOK2020",  # открытый конкурс
 )
 
+# Протоколы подведения итогов — по одному на каждый тип процедуры.
+# Имена подтверждены запросом: на Москве за 17.09 все четыре отдают
+# архивы. Вариантов без суффикса Final нет — они дают noData.
 PROTOCOL_TYPES = (
-    "epProtocolEF2020Final",
-    "epProtocolEZT2020Final",
+    "epProtocolEF2020Final",    # электронный аукцион
+    "epProtocolEZK2020Final",   # запрос котировок
+    "epProtocolEZT2020Final",   # электронный запрос
+    "epProtocolEOK2020Final",   # открытый конкурс
 )
 
 _CREDENTIALS_RE = re.compile(r"://[^/@\s]+@")
@@ -351,6 +356,10 @@ class ProtocolResult:
     customer_inn: Optional[str] = None
     customer_name: Optional[str] = None
     applications: List[Application] = field(default_factory=list)
+    # Цена, по которой победитель вправе заключить контракт. У открытого
+    # конкурса в заявках цены нет вовсе (победителя выбирают по
+    # критериям, а не по цене), и это единственное место, где она есть.
+    right_conclude_price: Optional[float] = None
 
     @property
     def bids_submitted(self) -> int:
@@ -369,7 +378,11 @@ class ProtocolResult:
         if rated:
             return rated[0].price
         prices = [a.price for a in self.applications if a.admitted and a.price is not None]
-        return min(prices) if prices else None
+        if prices:
+            return min(prices)
+        # Открытый конкурс: в заявках цен нет, победителя выбирают по
+        # критериям. Цена есть только как право заключить контракт.
+        return self.right_conclude_price
 
     @property
     def is_failed(self) -> bool:
@@ -412,6 +425,7 @@ def parse_protocol_final(xml_bytes: bytes) -> ProtocolResult:
         protocol_date=_first_text(root, "publishDTInEIS"),
         customer_inn=_first_text(root, "INN"),
         customer_name=_first_text(root, "fullName"),
+        right_conclude_price=_to_float(_first_text(root, "rightConcludeContractPrice")),
     )
 
     for app_node in (n for n in root.iter() if _local(n.tag) == "applicationInfo"):

@@ -31,7 +31,8 @@ def notice_xml(purchase_number="0338300003326000140", max_price="917606.00",
         f'<ns0:commonInfo>'
         f'<ns0:purchaseNumber>{purchase_number}</ns0:purchaseNumber>'
         f'<ns0:publishDTInEIS>{publish}</ns0:publishDTInEIS>'
-        f'<ns0:placingWayName>Электронный аукцион</ns0:placingWayName>'
+        f'<ns0:placingWay><ns1:code>EAP20</ns1:code>'
+        f'<ns1:name>Электронный аукцион</ns1:name></ns0:placingWay>'
         f'</ns0:commonInfo>'
         f'<ns0:purchaseObjectsInfo>'
         f'<ns0:quantityUndefined>{quantity_undefined}</ns0:quantityUndefined>'
@@ -127,6 +128,12 @@ class TestArchiveKey:
 
 @pytest.mark.unit
 class TestParseNotice:
+    def test_procedure_type_is_found(self):
+        """Тег зовётся placingWay/name, а не placingWayName: по второму
+        имени способ закупки не находился вовсе, и колонка стояла
+        пустой. Нашлось скриптом ручной сверки, не тестами."""
+        assert parse(notice_xml())["procedure_type"] == "Электронный аукцион"
+
     def test_extracts_core_fields(self):
         row = parse(notice_xml())
         assert row["purchase_number"] == "0338300003326000140"

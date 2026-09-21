@@ -63,10 +63,17 @@ CFO_REGIONS = ["31", "32", "33", "36", "37", "40", "44", "46", "48", "50",
 REGION_GROUPS = {"ЦФО": CFO_REGIONS, "CFO": CFO_REGIONS}
 
 # Что грузим: (подсистема, тип документа, как разбирать).
-SOURCES = (
-    (eis.SUBSYSTEM_NOTICES, eis.DOC_NOTICE_EF, "notice"),
-    (eis.SUBSYSTEM_NOTICES, eis.DOC_PROTOCOL_FINAL, "protocol"),
-    (eis.SUBSYSTEM_CONTRACTS, eis.DOC_CONTRACT, "contract"),
+#
+# ВСЕ типы извещений и протоколов, а не только электронный аукцион.
+# Первая версия брала один epNotificationEF2020, и это оставляло за
+# бортом запрос котировок, электронный запрос и открытый конкурс — 39%
+# потока по замеру 21.09.2026. Метрики ниш при этом считались на двух
+# третях рынка: «ниша с одним участником» могла оказаться нишей, где
+# остальные пришли через запрос котировок.
+SOURCES = tuple(
+    [(eis.SUBSYSTEM_NOTICES, t, "notice") for t in eis.NOTICE_TYPES]
+    + [(eis.SUBSYSTEM_NOTICES, t, "protocol") for t in eis.PROTOCOL_TYPES]
+    + [(eis.SUBSYSTEM_CONTRACTS, eis.DOC_CONTRACT, "contract")]
 )
 
 RETRIES = 4
