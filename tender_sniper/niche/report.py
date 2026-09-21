@@ -36,9 +36,11 @@ SELECT okpd2_level, okpd2, region, price_bucket, procedures_count,
        median_nmck, unique_winners, known_winners, winner_inns, customer_inns,
        monthly_trend, first_seen, last_seen
 FROM eis.niche_metrics
-WHERE (:level IS NULL OR okpd2_level = :level)
-  AND (:region IS NULL OR region = :region)
-  AND (:bucket IS NULL OR price_bucket = :bucket)
+-- Приведения обязательны: без них asyncpg не может вывести тип
+-- параметра в «$1 IS NULL» и отвечает AmbiguousParameterError.
+WHERE (CAST(:level AS int) IS NULL OR okpd2_level = CAST(:level AS int))
+  AND (CAST(:region AS text) IS NULL OR region = CAST(:region AS text))
+  AND (CAST(:bucket AS text) IS NULL OR price_bucket = CAST(:bucket AS text))
 """
 
 

@@ -36,6 +36,7 @@ procedure = Table(
     Column("okpd2_codes", ARRAY(Text)),
     Column("okpd2_primary", String(20)),
     Column("delivery_region_code", String(2)),
+    Column("quantity_undefined", Boolean),
     Column("raw_source", Text),
 )
 
@@ -217,6 +218,12 @@ def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
         "okpd2_codes": sorted(set(codes)) or None,
         "okpd2_primary": Counter(codes).most_common(1)[0][0] if codes else None,
         "delivery_region_code": region_code,
+        # Объём не определён — торгуются СУММЫ ЦЕН ЗА ЕДИНИЦУ, а не цена
+        # контракта (ч. 24 ст. 42 44-ФЗ). Эти предложения несопоставимы с
+        # НМЦК: на реальных данных встречались «победители» с 78 млрд
+        # против НМЦК в 1,45 млн, и среднее снижение по нише уходило в
+        # минус несколько тысяч процентов.
+        "quantity_undefined": _first(root, "quantityUndefined") == "true",
         "raw_source": source,
     }
 

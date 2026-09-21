@@ -153,8 +153,9 @@ async def _with_retries(func, *args, what: str = ""):
     raise last
 
 
-async def _already_loaded(session, key: str, digest: str) -> bool:
-    if session is None:   # --dry: базы может ещё не быть
+async def _already_loaded(session, key: str, digest: str,
+                          force: bool = False) -> bool:
+    if session is None or force:   # --dry: базы может ещё не быть
         return False
     row = (await session.execute(
         select(storage.ingest_log.c.sha256, storage.ingest_log.c.status)
@@ -183,13 +184,13 @@ async def _record_failure(session, key: str, region: str, day: _dt.date,
 
 async def ingest_archive(session, client, *, subsystem: str, doc_type: str,
                          kind: str, region: str, day: _dt.date, url: str,
-                         index: int, dry: bool) -> Stats:
+                         index: int, dry: bool, force: bool = False) -> Stats:
     stats = Stats()
     key = archive_key(subsystem, doc_type, region, day, index)
 
     blob = await _with_retries(client.download, url, what=f"скачивание {key}")
     digest = hashlib.sha256(blob).hexdigest()
-    if await _already_loaded(session, key, digest):
+    if await _already_loaded(session, key, digest, force):
         stats.skipped_archives = 1
         return stats
 
@@ -241,7 +242,7 @@ async def ingest_archive(session, client, *, subsystem: str, doc_type: str,
 
 
 async def ingest_day(session, client, region: str, day: _dt.date,
-                     dry: bool) -> Stats:
+                     dry: bool, force: bool = False) -> Stats:
     stats = Stats()
     for subsystem, doc_type, kind in SOURCES:
         try:
@@ -259,7 +260,7 @@ async def ingest_day(session, client, region: str, day: _dt.date,
                 stats.merge(await ingest_archive(
                     session, client, subsystem=subsystem, doc_type=doc_type,
                     kind=kind, region=region, day=day, url=url, index=index,
-                    dry=dry))
+                    dry=dry, force=force))
             except Exception as exc:  # noqa: BLE001 — день не должен ронять период
                 logger.error("   архив %s#%d за %s: %s", doc_type, index, day,
                              str(exc)[:120])
@@ -272,7 +273,7 @@ async def ingest_day(session, client, region: str, day: _dt.date,
 
 
 async def run(regions: List[str], start: _dt.date, end: _dt.date,
-              dry: bool) -> Stats:
+              dry: bool, force: bool = False) -> Stats:
     client = eis.EisIntegrationClient()
     if not client.token:
         raise SystemExit("не задан %s" % eis.TOKEN_ENV_VAR)
@@ -282,7 +283,8 @@ async def run(regions: List[str], start: _dt.date, end: _dt.date,
     async def sweep(session):
         for region in regions:
             for day in month_days(start, end):
-                day_stats = await ingest_day(session, client, region, day, dry)
+                day_stats = await ingest_day(session, client, region, day,
+                                             dry, force)
                 total.merge(day_stats)
                 logger.info("регион %s %s: архивов %d (пропущено %d), строк %d, "
                             "отфильтровано %d", region, day, day_stats.archives,
@@ -310,6 +312,8 @@ def main() -> None:
                         help="конец периода, YYYY-MM или YYYY-MM-DD")
     parser.add_argument("--dry", action="store_true",
                         help="разобрать и посчитать, но ничего не писать")
+    parser.add_argument("--force", action="store_true",
+                        help="перезагрузить, игнорируя журнал: нужно после\n                              изменения разбора, иначе старые строки\n                              останутся без новых полей")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -325,7 +329,7 @@ def main() -> None:
 
     logger.info("регионов %d, период %s — %s%s",
                 len(regions), start, end, ", РЕЖИМ DRY" if args.dry else "")
-    stats = asyncio.run(run(regions, start, end, args.dry))
+    stats = asyncio.run(run(regions, start, end, args.dry, args.force))
 
     logger.info("ИТОГО: архивов %d, пропущено уже загруженных %d, строк %d, "
                 "отфильтровано по цене %d, документов не разобрано %d",

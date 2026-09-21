@@ -20,7 +20,8 @@ CMN = "http://zakupki.gov.ru/oos/common/1"
 
 
 def notice_xml(purchase_number="0338300003326000140", max_price="917606.00",
-               okpd_codes=("21.20",), publish="2026-09-10T20:09:10+12:00"):
+               okpd_codes=("21.20",), publish="2026-09-10T20:09:10+12:00",
+               quantity_undefined="false"):
     okpd = "".join(
         f'<ns0:OKPD2><ns0:OKPDCode>{c}</ns0:OKPDCode>'
         f'<ns0:OKPDName>Препараты</ns0:OKPDName></ns0:OKPD2>' for c in okpd_codes)
@@ -32,6 +33,9 @@ def notice_xml(purchase_number="0338300003326000140", max_price="917606.00",
         f'<ns0:publishDTInEIS>{publish}</ns0:publishDTInEIS>'
         f'<ns0:placingWayName>Электронный аукцион</ns0:placingWayName>'
         f'</ns0:commonInfo>'
+        f'<ns0:purchaseObjectsInfo>'
+        f'<ns0:quantityUndefined>{quantity_undefined}</ns0:quantityUndefined>'
+        f'</ns0:purchaseObjectsInfo>'
         f'<ns0:customer><ns1:INN>4102003181</ns1:INN>'
         f'<ns1:fullName>ГБУЗ КК ВГБ</ns1:fullName></ns0:customer>'
         f'<ns0:contractConditionsInfo><ns0:maxPriceInfo>'
@@ -147,6 +151,22 @@ class TestParseNotice:
 
     def test_document_without_usable_number_is_dropped(self):
         assert parse(notice_xml(purchase_number="123")) is None
+
+    def test_indeterminate_volume_is_flagged(self):
+        """При неопределённом объёме торгуются СУММЫ ЦЕН ЗА ЕДИНИЦУ, а не
+        цена контракта, и сравнивать их с НМЦК нельзя. На реальных данных
+        без этого флага встречался «победитель» с 78 млрд против НМЦК в
+        1,45 млн, а среднее снижение по нишам уходило в минус тысячи
+        процентов. 22% процедур Москвы помечены этим флагом."""
+        assert parse(notice_xml(quantity_undefined="true"))["quantity_undefined"] is True
+
+    def test_normal_procedure_is_not_flagged(self):
+        assert parse(notice_xml())["quantity_undefined"] is False
+
+    def test_missing_flag_means_normal(self):
+        xml = notice_xml().replace(
+            b"<ns0:quantityUndefined>false</ns0:quantityUndefined>", b"")
+        assert parse(xml)["quantity_undefined"] is False
 
 
 @pytest.mark.unit
