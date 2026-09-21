@@ -106,6 +106,10 @@ class Offer:
     # Построчная сверка с требованиями ТЗ: [{name, required, found, ok}].
     # Без неё «подходит» — утверждение без доказательства.
     checks: List[Dict[str, Any]] = field(default_factory=list)
+    # Ни одно требование не нарушено, но часть страница просто не
+    # называет. Такие идут после подтверждённых и помечаются в выдаче:
+    # выбросить их нельзя, иначе не остаётся ничего (см. _is_contradicted).
+    unconfirmed: bool = False
 
 
 @dataclass
@@ -515,12 +519,40 @@ MAX_CANDIDATES = 30
 # Сколько страниц реально открываем и читаем моделью. Каждая — запрос в
 # сеть плюс вызов модели (~0.04 ₽), это единственное, что стоит денег.
 MAX_PAGES_TO_READ = 20
+# Сколько страниц берём с одного сайта. Без потолка один крупный
+# каталог забирает весь бюджет: замер 21.09.2026 по светильникам дал
+# 20 ссылок из 30 на etm.ru, и когда его страницы не прочитались,
+# подбор остался ни с чем, хотя в выдаче были ещё шесть поставщиков.
+MAX_PAGES_PER_DOMAIN = 4
 # Сколько страниц читаем одновременно. Раньше цикл был последовательным,
 # и потолок в 6 страниц стоял именно поэтому: 20 подряд заняли бы около
 # минуты. Параллельно те же 20 укладываются в время трёх-четырёх, а
 # ограничение нужно, чтобы не упереться в лимиты OpenAI и не долбить
 # один домен десятком запросов разом.
 READ_CONCURRENCY = 6
+
+
+def _is_contradicted(checks) -> bool:
+    """Спорит ли страница с ТЗ — в отличие от того, что она молчит.
+
+    Разница принципиальная. Каталог поставщика почти никогда не
+    повторяет все строки ТЗ: замер 21.09.2026 по закупке
+    0373100128326000093 дал отказы «материал не указан», «не указаны
+    характеристики товара», «материал, размеры» — ни один из них не был
+    расхождением, и подбор в итоге вернул ноль предложений.
+
+    Противоречие — это ok=False хотя бы по одной строке. Отсутствие
+    строки (ok=None) противоречием не является.
+    """
+    return any(c.ok is False for c in (checks or []))
+
+
+def _unstated_reason(checks) -> str:
+    """Каких требований страница не назвала — чтобы это было видно."""
+    silent = [c.name for c in (checks or []) if c.ok is None]
+    if not silent:
+        return 'страница не подтвердила часть требований'
+    return 'на странице не указано: ' + ', '.join(silent[:5])
 
 
 async def _consider_one(idx: int, r, position: str,
@@ -547,10 +579,19 @@ async def _consider_one(idx: int, r, position: str,
 
     entry['checks'] = [asdict(c) for c in page.checks]
 
+    unconfirmed = False
     if not page.matches:
-        entry.update(verdict='не подошёл',
-                     reason=page.mismatch_reason or 'товар не соответствует требованиям')
-        return entry
+        if _is_contradicted(page.checks):
+            entry.update(verdict='не подошёл',
+                         reason=page.mismatch_reason
+                                or 'товар не соответствует требованиям')
+            return entry
+        # Модель сказала «не подходит», но ни одну строку не отметила
+        # нарушенной — значит она молчит, а не спорит. Отбрасывать здесь
+        # нельзя: замер 21.09.2026 по закупке 0373100128326000093 дал
+        # отказы «материал не указан» и «не указаны характеристики» на
+        # страницах, где товар был именно тот, и подбор вернул ноль.
+        unconfirmed = True
 
     # Приведение к цене за штуку — детерминированный расчёт в коде:
     # модель только прочитала со страницы цену и размер упаковки.
@@ -569,8 +610,12 @@ async def _consider_one(idx: int, r, position: str,
         pack_qty=page.pack_qty,
         unit_price=unit_price,
         checks=entry['checks'],
+        unconfirmed=unconfirmed,
     )
-    if page.price is not None and not page.is_from_price:
+    if unconfirmed:
+        entry.update(verdict='подходит, но не всё подтверждено',
+                     reason=_unstated_reason(page.checks))
+    elif page.price is not None and not page.is_from_price:
         entry.update(verdict='подходит', reason=f'цена {page.price:g}')
     else:
         entry.update(verdict='подходит, но без твёрдой цены',
@@ -592,8 +637,11 @@ async def _read_candidates(position: str, found, limit: int,
 
     from cabinet import offer_reader
 
+    import collections
+
     considered: List[Dict[str, Any]] = []
     to_read = []
+    per_domain = collections.Counter()
 
     for idx, r in enumerate(found[:MAX_CANDIDATES]):
         if not offer_reader.is_readable_domain(r.domain):
@@ -608,6 +656,13 @@ async def _read_candidates(position: str, found, limit: int,
                 'title': (r.title or '')[:120], 'verdict': 'не проверен',
                 'reason': f'достигнут потолок в {MAX_PAGES_TO_READ} страниц'})
             continue
+        if per_domain[r.domain] >= MAX_PAGES_PER_DOMAIN:
+            considered.append({
+                'idx': idx, 'url': r.url, 'domain': r.domain,
+                'title': (r.title or '')[:120], 'verdict': 'не проверен',
+                'reason': f'с домена уже взято {MAX_PAGES_PER_DOMAIN} страниц'})
+            continue
+        per_domain[r.domain] += 1
         to_read.append((idx, r))
 
     semaphore = asyncio.Semaphore(READ_CONCURRENCY)
@@ -642,7 +697,9 @@ async def _read_candidates(position: str, found, limit: int,
     # Сортируем по приведённой цене за штуку. Предложения, где размер
     # упаковки распознать не удалось, идут после сопоставимых: ставить их
     # выше значило бы выдавать несравнимое число за самое выгодное.
-    priced.sort(key=lambda o: (o.unit_price is None,
+    # Неподтверждённые — ещё ниже: они годятся как ориентир по рынку, но
+    # не как основание для ставки.
+    priced.sort(key=lambda o: (o.unconfirmed, o.unit_price is None,
                                o.unit_price if o.unit_price is not None else o.price))
     return priced[:limit], ask[:limit], considered
 
