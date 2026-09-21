@@ -89,6 +89,8 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/api/tenders', api.get_tenders)
     app.router.add_get('/cabinet/api/niches', api.api_niches)
     app.router.add_get('/cabinet/api/niches/{okpd2}', api.api_niche_detail)
+    app.router.add_get('/cabinet/api/tenders/{number}/competition',
+                       api.api_tender_competition)
     # JSON API — Documents
     app.router.add_get('/cabinet/api/documents', api.get_documents)
     app.router.add_get('/cabinet/api/documents/{id}/download', api.download_document)

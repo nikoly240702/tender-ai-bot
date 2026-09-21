@@ -83,3 +83,61 @@ class TestHumanise:
         source = dict(self.BASE)
         _humanise(source)
         assert source == self.BASE
+
+
+@pytest.mark.unit
+class TestExpectedWinnerPrice:
+    """Главное число блока «Конкуренция в нише»: сразу видно, укладывается
+    ли закупочная цена, ещё до подготовки заявки."""
+
+    def test_typical_price_uses_median_drop(self):
+        from cabinet.niche_service import expected_winner_price
+        e = expected_winner_price(1_000_000, 0.20, 0.45)
+        assert e["typical"] == 800_000.0
+
+    def test_tough_case_uses_p90(self):
+        """Две границы, а не одна: с одной типичное снижение легко
+        принять за худший случай и отказаться от проходной закупки."""
+        from cabinet.niche_service import expected_winner_price
+        e = expected_winner_price(1_000_000, 0.20, 0.45)
+        assert e["tough"] == 550_000.0
+        assert e["tough"] < e["typical"]
+
+    def test_no_drop_means_price_stays_at_nmck(self):
+        from cabinet.niche_service import expected_winner_price
+        assert expected_winner_price(482496.20, 0.0, None)["typical"] == 482496.20
+
+    def test_without_p90_only_typical(self):
+        from cabinet.niche_service import expected_winner_price
+        assert expected_winner_price(100_000, 0.1, None)["tough"] is None
+
+    def test_missing_inputs_give_nothing(self):
+        """Выдумывать ориентир, когда данных нет, хуже чем не показывать."""
+        from cabinet.niche_service import expected_winner_price
+        assert expected_winner_price(None, 0.2, 0.4) is None
+        assert expected_winner_price(1000, None, 0.4) is None
+
+
+@pytest.mark.unit
+class TestCapturedNiche:
+    """Мало участников — ещё не свободное поле. Если все победы у одного
+    поставщика, это «приходить бесполезно», а не «никто не приходит»."""
+
+    def test_single_supplier_is_flagged(self):
+        from cabinet.niche_service import captured_by
+        c = captured_by(["a"] * 7 + ["b"] * 4)
+        assert c["inn"] == "a" and c["wins"] == 7 and c["total"] == 11
+
+    def test_fragmented_market_is_not_flagged(self):
+        from cabinet.niche_service import captured_by
+        assert captured_by(["a", "b", "c", "d"]) is None
+
+    def test_exactly_half_counts_as_captured(self):
+        from cabinet.niche_service import captured_by
+        assert captured_by(["a", "a", "b", "c"]) is not None
+
+    def test_no_winners_known(self):
+        from cabinet.niche_service import captured_by
+        assert captured_by([]) is None
+        assert captured_by(None) is None
+        assert captured_by([None, None]) is None

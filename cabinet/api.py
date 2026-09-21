@@ -2002,3 +2002,23 @@ async def api_niche_detail(request: web.Request) -> web.Response:
         logger.warning("Детализация ниши %s недоступна: %s", okpd2, str(exc)[:200])
         return web.json_response({'error': 'Данные аналитики недоступны'}, status=200)
     return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
+
+
+@require_auth
+async def api_tender_competition(request: web.Request) -> web.Response:
+    """GET /cabinet/api/tenders/{number}/competition — блок «Конкуренция
+    в нише» для карточки тендера."""
+    from cabinet.niche_service import competition_for_tender
+
+    number = (request.match_info.get('number') or '').strip()
+    if not number.isdigit():
+        return web.json_response({'known': False,
+                                  'reason': 'некорректный номер закупки'})
+    try:
+        data = await competition_for_tender(number)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Конкуренция в нише для %s недоступна: %s",
+                       number, str(exc)[:200])
+        return web.json_response({'known': False,
+                                  'reason': 'исторические данные недоступны'})
+    return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))

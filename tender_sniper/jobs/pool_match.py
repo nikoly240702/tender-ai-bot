@@ -49,8 +49,53 @@ def pool_row_to_tender(row: TenderPool) -> Dict[str, Any]:
     }
 
 
+# Выше этого score AI не спрашиваем — так же, как в боевом пути
+# (instant_search): совпадение по названию настолько явное, что
+# проверять его моделью значит платить за очевидное.
+AI_SKIP_SCORE = 85
+
+
+async def _ai_confirms(tender: Dict[str, Any], filter_data: Dict[str, Any],
+                       score: int) -> bool:
+    """Семантическая проверка совпадения — тот же заслон, что у
+    боевого пути.
+
+    Без неё сырой score пропускает мусор: замер 21.09.2026 показал,
+    что два сборных фильтра («Разное 16.02», «Сборная прочее») дают
+    81% совпадений пула против 18% в боевом потоке. Широкий фильтр
+    цепляется за общие слова, и поднятие порога не спасает — при
+    score >= 35 остаётся 22 совпадения из 1484, то есть недобор.
+    """
+    if score >= AI_SKIP_SCORE:
+        return True
+    intent = filter_data.get('ai_intent')
+    if not intent:
+        # Без описания намерения модель сравнивать не с чем;
+        # пропускаем как есть, чтобы не терять совпадения фильтров,
+        # у которых намерение не заполнено.
+        return True
+    try:
+        from tender_sniper.ai_relevance_checker import check_tender_relevance
+        result = await check_tender_relevance(
+            tender_name=tender.get('name', ''),
+            filter_intent=intent,
+            filter_keywords=filter_data.get('keywords') or [],
+            tender_description=tender.get('description', ''),
+            user_id=filter_data.get('user_id'),
+            subscription_tier=filter_data.get('subscription_tier', 'trial'),
+        )
+        return bool(result.get('is_relevant', True))
+    except Exception as exc:  # noqa: BLE001
+        # Сбой проверки не должен терять совпадение: лучше лишнее
+        # уведомление, чем пропущенный тендер.
+        logger.warning("Пул: AI-проверка не сработала (%s), пропускаем как есть",
+                       str(exc)[:120])
+        return True
+
+
 async def match_pool(limit: int = 500, dry_run: bool = False,
-                     filters: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                     filters: Optional[List[Dict[str, Any]]] = None,
+                     use_ai: bool = True) -> Dict[str, Any]:
     """Прогоняет необработанные строки пула через активные фильтры.
 
     dry_run=True не проставляет matched_at — строки останутся в очереди.
@@ -75,6 +120,7 @@ async def match_pool(limit: int = 500, dry_run: bool = False,
         matcher = SmartMatcher()
         matches: List[Dict[str, Any]] = []
         checked_numbers: List[str] = []
+        ai_checked = ai_rejected = 0
 
         for row in rows:
             tender = pool_row_to_tender(row)
@@ -87,8 +133,14 @@ async def match_pool(limit: int = 500, dry_run: bool = False,
                     logger.debug(f"Пул: фильтр {filter_data.get('id')} упал на "
                                  f"{row.tender_number}: {e}")
                     continue
-                if not match or match.get('score', 0) < POOL_MIN_SCORE:
+                score = match.get('score', 0) if match else 0
+                if not match or score < POOL_MIN_SCORE:
                     continue
+                if use_ai:
+                    ai_checked += 1
+                    if not await _ai_confirms(tender, filter_data, score):
+                        ai_rejected += 1
+                        continue
                 matches.append({
                     'tender_number': row.tender_number,
                     'name': row.name,
@@ -109,5 +161,7 @@ async def match_pool(limit: int = 500, dry_run: bool = False,
             await session.commit()
 
     logger.info(f"Пул: проверено {len(checked_numbers)} тендеров × {len(filters)} фильтров, "
-                f"совпадений {len(matches)}")
-    return {'checked': len(checked_numbers), 'matches': matches, 'filters': len(filters)}
+                f"совпадений {len(matches)}, AI-проверок {ai_checked}, отсеяно {ai_rejected}")
+    return {'checked': len(checked_numbers), 'matches': matches,
+            'filters': len(filters), 'ai_checked': ai_checked,
+            'ai_rejected': ai_rejected}

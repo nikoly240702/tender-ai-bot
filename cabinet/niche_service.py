@@ -162,3 +162,143 @@ async def niche_detail(okpd2: str, level: int = 4, region: Optional[str] = None,
         "customers": customers,
         "winners": winners,
     }
+
+
+# ---------------------------------------------------------------------------
+# Блок «Конкуренция в нише» для карточки тендера
+# ---------------------------------------------------------------------------
+
+# Срез ищем по той же тройке, что и в рейтинге: категория, регион,
+# ценовая корзина. Корзина считается здесь же из НМЦК самой закупки,
+# чтобы не зависеть от того, попала ли она в загрузку.
+COMPETITION_SQL = """
+WITH t AS (
+    SELECT okpd2_primary, customer_region_code, nmck,
+           CASE
+               WHEN nmck <  500000 THEN '0-500k'
+               WHEN nmck < 1000000 THEN '500k-1m'
+               WHEN nmck < 3000000 THEN '1m-3m'
+               ELSE                     '3m-5m'
+           END AS bucket
+    FROM eis.procedure WHERE purchase_number = :number
+)
+SELECT t.nmck, t.okpd2_primary, t.customer_region_code, t.bucket,
+       m.procedures_count, m.median_bids, m.share_single_bid, m.share_zero_bid,
+       m.median_drop, m.p90_drop, m.comparable_prices, m.known_winners,
+       m.winner_inns
+FROM t
+LEFT JOIN eis.niche_metrics m
+       ON m.okpd2_level = 4
+      AND m.okpd2 = eis.okpd2_prefix(t.okpd2_primary, 4)
+      AND m.region = t.customer_region_code
+      AND m.price_bucket = t.bucket
+"""
+
+WINNER_NAMES_SQL = """
+SELECT supplier_inn, max(supplier_name) AS name
+FROM eis.contract WHERE supplier_inn = ANY(:inns) GROUP BY supplier_inn
+"""
+
+# Ниже этого числа процедур блок не показывает цифр. Медиана по трём
+# закупкам — не статистика, а совпадение, и выдавать её за ориентир
+# хуже, чем честно написать «мало данных».
+MIN_PROCEDURES_FOR_ADVICE = 5
+
+# Доля побед одного поставщика, после которой ниша считается занятой.
+CAPTURED_SHARE = 0.5
+
+
+def expected_winner_price(nmck: Optional[float], median_drop: Optional[float],
+                          p90_drop: Optional[float]) -> Optional[Dict[str, float]]:
+    """Ожидаемая цена победителя: НМЦК за вычетом типичного снижения.
+
+    Самое полезное число блока — сразу видно, укладывается ли
+    закупочная цена, ещё до подготовки заявки.
+
+    Две границы, а не одна: медиана показывает обычный исход, 90-й
+    перцентиль — насколько жёстко бывает. С одной границей типичное
+    снижение легко принять за худший случай и отказаться от закупки,
+    которая на деле проходит.
+    """
+    if nmck is None or median_drop is None:
+        return None
+    result = {"typical": round(float(nmck) * (1 - float(median_drop)), 2)}
+    if p90_drop is not None:
+        result["tough"] = round(float(nmck) * (1 - float(p90_drop)), 2)
+    else:
+        result["tough"] = None
+    return result
+
+
+def captured_by(winner_inns: Optional[List[str]]) -> Optional[Dict[str, Any]]:
+    """Поставщик, забравший больше половины закупок ниши.
+
+    Мало участников — ещё не свободное поле. Если все победы у одного,
+    это не «никто не приходит», а «приходить бесполезно», и пользователь
+    должен увидеть предупреждение, а не высокий индекс.
+    """
+    values = [i for i in (winner_inns or []) if i]
+    if not values:
+        return None
+    from collections import Counter
+    inn, wins = Counter(values).most_common(1)[0]
+    if wins / len(values) < CAPTURED_SHARE:
+        return None
+    return {"inn": inn, "wins": wins, "total": len(values)}
+
+
+async def competition_for_tender(purchase_number: str) -> Dict[str, Any]:
+    """Что известно о нише этой закупки.
+
+    Самое полезное здесь — ожидаемая цена победителя: НМЦК за вычетом
+    типичного для ниши снижения. Она сразу показывает, укладывается ли
+    закупочная цена, ещё до того как считать заявку.
+
+    Всё берётся из витрины. Обращений к ЕИС в момент открытия карточки
+    нет: страница должна открываться мгновенно, а живой запрос к сервису
+    занимает секунды и может не ответить вовсе.
+    """
+    async with DatabaseSession() as session:
+        rows = await _fetch(session, COMPETITION_SQL, {"number": purchase_number})
+        if not rows:
+            return {"known": False,
+                    "reason": "закупки нет в исторических данных"}
+        row = rows[0]
+
+        if not row.get("procedures_count"):
+            return {"known": False,
+                    "reason": "по этой категории и региону истории пока нет",
+                    "okpd2": row.get("okpd2_primary")}
+
+        captured = captured_by(row.get("winner_inns"))
+        if captured:
+            names = await _fetch(session, WINNER_NAMES_SQL,
+                                 {"inns": [captured["inn"]]})
+            captured["name"] = (names[0]["name"] if names else None) or captured["inn"]
+
+    count = row["procedures_count"]
+    enough = count >= MIN_PROCEDURES_FOR_ADVICE
+    nmck = float(row["nmck"]) if row.get("nmck") is not None else None
+    drop = row.get("median_drop")
+    p90 = row.get("p90_drop")
+
+    expected = expected_winner_price(nmck, drop, p90) if enough else None
+
+    return {
+        "known": True,
+        "enough_data": enough,
+        "okpd2": row.get("okpd2_primary"),
+        "region": row.get("customer_region_code"),
+        "region_name": KLADR_TO_REGION.get(row.get("customer_region_code") or ""),
+        "price_bucket": row.get("bucket"),
+        "procedures_count": count,
+        "median_bids": row.get("median_bids"),
+        "share_single_bid": row.get("share_single_bid"),
+        "share_zero_bid": row.get("share_zero_bid"),
+        "median_drop": drop,
+        "p90_drop": p90,
+        "drop_known": bool(row.get("comparable_prices")),
+        "nmck": nmck,
+        "expected_winner_price": expected,
+        "captured_by": captured,
+    }
