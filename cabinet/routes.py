@@ -67,6 +67,7 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_get('/cabinet/search', search_page)
     app.router.add_get('/cabinet/stats', stats_page)
     app.router.add_get('/cabinet/niches', niches_page)
+    app.router.add_get('/cabinet/niches/{okpd2}', niche_detail_page)
     app.router.add_get('/cabinet/settings', settings_page)
     app.router.add_get('/cabinet/gpt', gpt_page)
     app.router.add_get('/cabinet/subscription', subscription_page)
@@ -282,6 +283,30 @@ async def niches_page(request: web.Request) -> web.Response:
         'niches.html',
         request,
         active_page='niches',
+        user_name=user.get('username') or user.get('first_name') or 'Вы',
+        user_tier=user.get('subscription_tier', ''),
+        nav_counts={},
+    )
+
+
+@require_auth
+async def niche_detail_page(request: web.Request) -> web.Response:
+    """Детализация одной ниши: кто закупает, кто выигрывает, что было."""
+    user = request['user']
+    okpd2 = (request.match_info.get('okpd2') or '').strip()
+    try:
+        level = int(request.query.get('level', 4))
+    except ValueError:
+        level = 4
+    if level not in (2, 4, 6):
+        level = 4
+    return _render_template(
+        'niche_detail.html',
+        request,
+        active_page='niches',
+        okpd2=okpd2,
+        level=level,
+        region=(request.query.get('region') or '').strip() or None,
         user_name=user.get('username') or user.get('first_name') or 'Вы',
         user_tier=user.get('subscription_tier', ''),
         nav_counts={},
