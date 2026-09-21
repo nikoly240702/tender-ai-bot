@@ -44,7 +44,7 @@ try:
 except ImportError:
     pass
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from database import DatabaseSession
 from tender_sniper.niche import storage
@@ -289,6 +289,28 @@ async def ingest_day(session, client, region: str, day: _dt.date,
     return stats
 
 
+async def refresh_metrics() -> None:
+    """Пересчёт витрины после загрузки.
+
+    Без него кабинет показывает слепок, сделанный до загрузки: витрина
+    материализованная и сама не обновляется. Проверено 21.09.2026 —
+    после догрузки марта-июля в срезе значилось 27 процедур вместо 82,
+    то есть пользователь принимал решения по трети данных, не зная об
+    этом. Пересчёт обязан идти в конце загрузки, а не по расписанию.
+    """
+    async with DatabaseSession() as session:
+        try:
+            await session.execute(
+                text("REFRESH MATERIALIZED VIEW CONCURRENTLY eis.niche_metrics"))
+            await session.commit()
+        except Exception:  # noqa: BLE001 — на непополненной витрине нельзя CONCURRENTLY
+            await session.rollback()
+            await session.execute(
+                text("REFRESH MATERIALIZED VIEW eis.niche_metrics"))
+            await session.commit()
+    logger.info("витрина метрик пересчитана")
+
+
 async def run(regions: List[str], start: _dt.date, end: _dt.date,
               dry: bool, force: bool = False) -> Stats:
     client = eis.EisIntegrationClient()
@@ -315,6 +337,15 @@ async def run(regions: List[str], start: _dt.date, end: _dt.date,
     else:
         async with DatabaseSession() as session:
             await sweep(session)
+        if total.rows_loaded:
+            try:
+                await refresh_metrics()
+            except Exception as exc:  # noqa: BLE001
+                # Данные загружены, и терять их из-за сбоя пересчёта
+                # нельзя: витрину можно обновить отдельно.
+                logger.error("витрину пересчитать не удалось (%s); "
+                             "выполните tender_sniper.niche.report --refresh",
+                             str(exc)[:140])
     return total
 
 

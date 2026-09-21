@@ -62,7 +62,7 @@
         return '<h2>' + esc(f.filter_name || ('фильтр ' + f.filter_id)) +
           ' <span class="hint">— совпадений ' + f.hits + '</span></h2>' +
           '<div class="niche-table-wrap"><table class="niche-table"><thead><tr>' +
-          '<th>ОКПД2</th><th>Регион</th><th>Корзина</th><th class="num">Ловит</th>' +
+          '<th>ОКПД2</th><th>Регион</th><th>Корзина</th><th class="num">Совпадений</th>' +
           '<th class="num">Средняя НМЦК</th><th class="num">Заявок</th>' +
           '<th class="num">Одна заявка</th><th class="num">Снижение</th>' +
           '<th>Вывод</th></tr></thead><tbody>' + rows + '</tbody></table></div>';

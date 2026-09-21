@@ -524,3 +524,81 @@ async def audit_filters(user_id: Optional[int] = None,
         "notifications": total.get("notifications") or 0,
         "covered": total.get("covered") or 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Сводка: куда идти
+# ---------------------------------------------------------------------------
+
+DASHBOARD_TOTALS_SQL = """
+SELECT
+    (SELECT count(*) FROM eis.procedure)                       AS procedures,
+    (SELECT count(*) FROM eis.protocol)                        AS protocols,
+    (SELECT count(*) FROM eis.contract)                        AS contracts,
+    (SELECT min(published_at) FROM eis.procedure)              AS data_from,
+    (SELECT max(published_at) FROM eis.procedure)              AS data_to,
+    (SELECT count(DISTINCT customer_region_code) FROM eis.procedure) AS regions
+"""
+
+# Сколько процедур в срезе, чтобы попасть в рекомендацию. Выше, чем
+# порог рейтинга: для «иди сюда» нужна уверенность, а не намёк.
+DASHBOARD_MIN_PROCEDURES = 20
+
+# Медиана заявок, при которой нишу вообще имеет смысл рекомендовать.
+DASHBOARD_MAX_BIDS = 2
+
+# Снижение, выше которого маржа съедается и совет теряет смысл.
+DASHBOARD_MAX_DROP = 0.15
+
+
+async def dashboard() -> Dict[str, Any]:
+    """Короткая сводка вместо таблицы на 400 строк.
+
+    Отвечает на один вопрос — куда идти, — и показывает, на каких данных
+    этот ответ построен. Полный рейтинг остаётся рядом для тех, кто
+    хочет копать сам.
+
+    Рекомендации намеренно строже рейтинга: в списке из четырёхсот строк
+    допустимо показывать спорное, а в коротком «иди сюда» — нет.
+    """
+    async with DatabaseSession() as session:
+        totals = (await _fetch(session, DASHBOARD_TOTALS_SQL, {})) or [{}]
+        rows = await _fetch(session, SLICES_SQL, {
+            "level": 4, "region": None, "bucket": None,
+            "min_count": DASHBOARD_MIN_PROCEDURES})
+        names = await _okpd2_names(session, [r.get("okpd2") for r in rows])
+
+    ranked, _ = rank(rows, IndexConfig(min_procedures=DASHBOARD_MIN_PROCEDURES))
+    for row in ranked:
+        row["okpd2_name"] = names.get(row.get("okpd2"))
+
+    def usable(row: Dict) -> bool:
+        """В рекомендацию идёт только то, что измерено.
+
+        Ниша без данных о снижении может оказаться какой угодно, а
+        совет «иди сюда» подразумевает, что мы знаем, о чём говорим.
+        """
+        if not row.get("comparable_prices"):
+            return False
+        bids = row.get("median_bids")
+        drop = row.get("median_drop")
+        if bids is None or drop is None:
+            return False
+        return bids <= DASHBOARD_MAX_BIDS and drop <= DASHBOARD_MAX_DROP
+
+    recommended = [_humanise(r) for r in ranked if usable(r)][:10]
+    crowded = [_humanise(r) for r in sorted(
+        (r for r in ranked if r.get("median_bids") is not None),
+        key=lambda r: r["median_bids"], reverse=True)][:5]
+
+    total = totals[0] or {}
+    return {
+        "totals": total,
+        "recommended": recommended,
+        "crowded": crowded,
+        "slices_ranked": len(ranked),
+        "min_procedures": DASHBOARD_MIN_PROCEDURES,
+        # Доля срезов, где концентрация вообще измерена. Если она низкая,
+        # верхушка рейтинга завышена, и об этом надо сказать прямо.
+        "with_winners": sum(1 for r in ranked if r.get("known_winners")),
+    }

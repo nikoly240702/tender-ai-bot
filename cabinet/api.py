@@ -2040,3 +2040,16 @@ async def api_niches_audit(request: web.Request) -> web.Response:
         logger.warning("Аудит фильтров недоступен: %s", str(exc)[:200])
         return web.json_response({'error': 'Исторические данные ещё не загружены.'})
     return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
+
+
+@require_auth
+async def api_niches_dashboard(request: web.Request) -> web.Response:
+    """GET /cabinet/api/niches-dashboard — короткая сводка «куда идти»."""
+    from cabinet.niche_service import dashboard
+
+    try:
+        data = await dashboard()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Сводка ниш недоступна: %s", str(exc)[:200])
+        return web.json_response({'error': 'Исторические данные ещё не загружены.'})
+    return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
