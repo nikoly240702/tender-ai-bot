@@ -302,3 +302,135 @@ async def competition_for_tender(purchase_number: str) -> Dict[str, Any]:
         "expected_winner_price": expected,
         "captured_by": captured,
     }
+
+
+# ---------------------------------------------------------------------------
+# Аудит собственных фильтров
+# ---------------------------------------------------------------------------
+
+# Какие категории фактически ловит фильтр — берём не из его ключевых
+# слов, а из того, что он уже находил: настоящие совпадения из
+# sniper_notifications, связанные с процедурами по реестровому номеру.
+# Ключевые слова говорят о намерении, история — о результате, и
+# расходятся они регулярно.
+FILTER_AUDIT_SQL = """
+WITH hits AS (
+    SELECT n.filter_id, n.filter_name,
+           eis.okpd2_prefix(pr.okpd2_primary, 4) AS okpd2,
+           pr.customer_region_code AS region, pr.nmck,
+           -- Корзина считается здесь же: витрина хранит строку на каждую
+           -- ценовую корзину, и соединение без неё размножает категорию
+           -- на три строки с разными медианами — читается как разные
+           -- ниши, хотя это одна.
+           CASE
+               WHEN pr.nmck <  500000 THEN '0-500k'
+               WHEN pr.nmck < 1000000 THEN '500k-1m'
+               WHEN pr.nmck < 3000000 THEN '1m-3m'
+               ELSE                       '3m-5m'
+           END AS bucket
+    FROM sniper_notifications n
+    JOIN eis.procedure pr ON pr.purchase_number = n.tender_number
+    WHERE n.sent_at > now() - make_interval(days => CAST(:days AS int))
+      AND (CAST(:user_id AS bigint) IS NULL OR n.user_id = CAST(:user_id AS bigint))
+      AND pr.okpd2_primary IS NOT NULL
+      AND pr.nmck IS NOT NULL
+),
+per_category AS (
+    SELECT filter_id, max(filter_name) AS filter_name, okpd2, region, bucket,
+           count(*) AS hits, avg(nmck) AS avg_nmck
+    FROM hits GROUP BY filter_id, okpd2, region, bucket
+)
+SELECT c.filter_id, c.filter_name, c.okpd2, c.region, c.bucket,
+       c.hits, c.avg_nmck,
+       m.procedures_count, m.median_bids, m.share_single_bid, m.median_drop,
+       m.comparable_prices, m.known_winners, m.winner_inns
+FROM per_category c
+LEFT JOIN eis.niche_metrics m
+       ON m.okpd2_level = 4 AND m.okpd2 = c.okpd2
+      AND m.region = c.region AND m.price_bucket = c.bucket
+ORDER BY c.hits DESC
+"""
+
+TOTAL_HITS_SQL = """
+SELECT count(*) AS notifications,
+       count(*) FILTER (
+           WHERE EXISTS (SELECT 1 FROM eis.procedure p
+                         WHERE p.purchase_number = n.tender_number)) AS covered
+FROM sniper_notifications n
+WHERE n.sent_at > now() - make_interval(days => CAST(:days AS int))
+  AND (CAST(:user_id AS bigint) IS NULL OR n.user_id = CAST(:user_id AS bigint))
+"""
+
+# Медиана заявок, выше которой категорию считаем перегретой: при четырёх
+# и более участниках снижение по замерам переваливает за 30%, и маржа
+# съедается.
+CROWDED_BIDS = 4
+
+
+def verdict_for(median_bids: Optional[float], median_drop: Optional[float],
+                procedures_count: Optional[int]) -> str:
+    """Короткий вывод по категории.
+
+    Формулировки осторожные: это подсказка, куда смотреть, а не
+    рекомендация отключать фильтр. Данных по одному региону мало, и
+    ошибиться здесь дороже, чем промолчать.
+    """
+    if not procedures_count:
+        return "нет истории"
+    if median_bids is None:
+        return "результаты неизвестны"
+    if median_bids >= CROWDED_BIDS:
+        return "людно"
+    if median_drop is not None and median_drop >= 0.20:
+        return "цену роняют"
+    if median_bids <= 1:
+        return "свободно"
+    return "умеренно"
+
+
+async def audit_filters(user_id: Optional[int] = None,
+                        days: int = 60) -> Dict[str, Any]:
+    """Что на самом деле ловят фильтры и насколько эти ниши тесные."""
+    params = {"user_id": user_id, "days": days}
+    async with DatabaseSession() as session:
+        rows = await _fetch(session, FILTER_AUDIT_SQL, params)
+        totals = (await _fetch(session, TOTAL_HITS_SQL, params)) or [{}]
+
+    by_filter: Dict[Any, Dict[str, Any]] = {}
+    for row in rows:
+        key = row["filter_id"]
+        entry = by_filter.setdefault(key, {
+            "filter_id": key,
+            "filter_name": row["filter_name"],
+            "hits": 0,
+            "categories": [],
+        })
+        entry["hits"] += row["hits"]
+        entry["categories"].append({
+            "okpd2": row["okpd2"],
+            "region": row["region"],
+            "price_bucket": row.get("bucket"),
+            "price_bucket_label": BUCKET_LABELS.get(row.get("bucket"), row.get("bucket")),
+            "region_name": KLADR_TO_REGION.get(row["region"] or "", row["region"]),
+            "hits": row["hits"],
+            "avg_nmck": float(row["avg_nmck"]) if row.get("avg_nmck") else None,
+            "procedures_count": row.get("procedures_count"),
+            "median_bids": row.get("median_bids"),
+            "share_single_bid": row.get("share_single_bid"),
+            "median_drop": row.get("median_drop"),
+            "drop_known": bool(row.get("comparable_prices")),
+            "verdict": verdict_for(row.get("median_bids"), row.get("median_drop"),
+                                   row.get("procedures_count")),
+        })
+
+    filters = sorted(by_filter.values(), key=lambda f: f["hits"], reverse=True)
+    total = totals[0] or {}
+    return {
+        "filters": filters,
+        "days": days,
+        # Доля уведомлений, по которым вообще есть история. Без неё
+        # пользователь решит, что фильтр ловит мало, хотя на деле просто
+        # не загружен его регион.
+        "notifications": total.get("notifications") or 0,
+        "covered": total.get("covered") or 0,
+    }

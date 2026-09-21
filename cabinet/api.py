@@ -2022,3 +2022,20 @@ async def api_tender_competition(request: web.Request) -> web.Response:
         return web.json_response({'known': False,
                                   'reason': 'исторические данные недоступны'})
     return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))
+
+
+@require_auth
+async def api_niches_audit(request: web.Request) -> web.Response:
+    """GET /cabinet/api/niches-audit — что ловят фильтры пользователя."""
+    from cabinet.niche_service import audit_filters
+
+    try:
+        days = max(7, min(365, int(request.query.get('days', 60))))
+    except ValueError:
+        days = 60
+    try:
+        data = await audit_filters(user_id=request['user'].get('user_id'), days=days)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Аудит фильтров недоступен: %s", str(exc)[:200])
+        return web.json_response({'error': 'Исторические данные ещё не загружены.'})
+    return web.json_response(data, dumps=lambda v: json.dumps(v, default=str))

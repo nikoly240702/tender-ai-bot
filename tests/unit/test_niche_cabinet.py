@@ -141,3 +141,40 @@ class TestCapturedNiche:
         assert captured_by([]) is None
         assert captured_by(None) is None
         assert captured_by([None, None]) is None
+
+
+@pytest.mark.unit
+class TestFilterVerdict:
+    """Короткий вывод по категории, которую ловит фильтр.
+
+    Формулировки осторожные намеренно: это подсказка, куда смотреть, а
+    не рекомендация отключать фильтр. Данных по одному региону мало, и
+    ошибиться здесь дороже, чем промолчать.
+    """
+
+    def test_crowded_niche(self):
+        from cabinet.niche_service import verdict_for
+        assert verdict_for(5.0, 0.30, 100) == "людно"
+
+    def test_free_niche(self):
+        from cabinet.niche_service import verdict_for
+        assert verdict_for(1.0, 0.0, 100) == "свободно"
+
+    def test_price_pressure_even_with_few_bids(self):
+        from cabinet.niche_service import verdict_for
+        assert verdict_for(2.0, 0.35, 100) == "цену роняют"
+
+    def test_moderate(self):
+        from cabinet.niche_service import verdict_for
+        assert verdict_for(2.0, 0.05, 100) == "умеренно"
+
+    def test_no_history_is_not_a_verdict(self):
+        """Отсутствие истории нельзя выдавать за «свободно»: это разные
+        вещи, и вторая подтолкнёт пойти туда, где мы ничего не знаем."""
+        from cabinet.niche_service import verdict_for
+        assert verdict_for(1.0, 0.0, 0) == "нет истории"
+        assert verdict_for(1.0, 0.0, None) == "нет истории"
+
+    def test_unknown_results(self):
+        from cabinet.niche_service import verdict_for
+        assert verdict_for(None, None, 50) == "результаты неизвестны"
