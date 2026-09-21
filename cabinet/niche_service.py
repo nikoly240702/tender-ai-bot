@@ -56,14 +56,40 @@ OKPD2_NAMES_SQL = """
 SELECT code, name FROM eis.okpd2_dict WHERE code = ANY(:codes)
 """
 
+# Названия подкатегорий для кода, у которого своего названия нет. Берём
+# самые частые: они и описывают группу лучше случайных.
+OKPD2_CHILDREN_SQL = """
+SELECT parent, name FROM (
+    SELECT c.parent, d.name,
+           row_number() OVER (PARTITION BY c.parent ORDER BY count(*) DESC, d.name) AS rn
+    FROM unnest(CAST(:codes AS text[])) AS c(parent)
+    JOIN eis.okpd2_dict d ON d.code LIKE c.parent || '.%'
+    GROUP BY c.parent, d.name
+) t WHERE rn <= 2
+"""
+
+# Сколько подкатегорий перечислять, когда названия самой группы нет.
+CHILD_NAME_LIMIT = 2
+
 
 async def _okpd2_names(session, codes: List[str]) -> Dict[str, str]:
     """Названия категорий для кодов.
 
-    Если точного кода в справочнике нет, поднимаемся к родителю: в
-    документах чаще встречается подробный код (21.20.10.134), а в
-    рейтинге показывается укрупнённый (21.20), и без подъёма половина
-    строк осталась бы без названия.
+    Названия приходят из документов ЕИС, а там код бывает любого уровня.
+    Поэтому ищем в три захода:
+
+    1. точное совпадение;
+    2. родитель — на случай, если в рейтинге код подробнее, чем в
+       справочнике;
+    3. подкатегории — обратный и самый частый случай: в документах код
+       детальный (10.86.10.320), а в рейтинге укрупнённый (10.86). На
+       замере 21.09.2026 в справочнике было 989 кодов шестого уровня и
+       лишь 92 четвёртого, то есть без этого шага большинство строк
+       осталось бы без названия.
+
+    Подкатегорию нельзя выдавать за название всей группы — «Детские
+    травяные напитки» это не вся группа 10.86. Поэтому такие названия
+    помечаются словами «в т.ч.» и перечисляются через запятую.
     """
     wanted = {c for c in codes if c}
     if not wanted:
@@ -78,6 +104,7 @@ async def _okpd2_names(session, codes: List[str]) -> Dict[str, str]:
     known = {r["code"]: r["name"] for r in rows}
 
     result = {}
+    missing = []
     for code in wanted:
         name = known.get(code)
         if not name:
@@ -88,6 +115,16 @@ async def _okpd2_names(session, codes: List[str]) -> Dict[str, str]:
                     break
         if name:
             result[code] = name
+        else:
+            missing.append(code)
+
+    if missing:
+        children: Dict[str, List[str]] = {}
+        for row in await _fetch(session, OKPD2_CHILDREN_SQL, {"codes": missing}):
+            children.setdefault(row["parent"], []).append(row["name"])
+        for code, names in children.items():
+            if names:
+                result[code] = "в т.ч. " + ", ".join(names[:CHILD_NAME_LIMIT])
     return result
 
 
