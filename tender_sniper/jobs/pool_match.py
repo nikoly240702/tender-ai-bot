@@ -155,6 +155,9 @@ async def match_pool(limit: int = 500, dry_run: bool = False,
                     # ради этого незачем — она уже разобрана выше.
                     'tender': tender,
                     'match_info': match,
+                    # Способ закупки нужен рассылке, чтобы отсеять закупки
+                    # у единственного поставщика, — см. pool_loop.is_direct.
+                    'procedure_type': row.procedure_type,
                 })
 
         if checked_numbers and not dry_run:

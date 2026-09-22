@@ -68,6 +68,37 @@ MATCH_LIMIT = int(os.getenv('EIS_POOL_MATCH_LIMIT', '600'))
 SOURCE = 'eis_pool'
 
 
+# Признак закупки у единственного поставщика в названии способа закупки.
+# Проверяем по подстроке, а не по точному значению: формулировок в
+# классификаторе несколько, и они длинные.
+_DIRECT_MARKERS = ('статьи 93', 'единственн')
+
+
+def is_direct(procedure_type: Optional[str]) -> bool:
+    """Закупка у единственного поставщика — участвовать в ней нечего.
+
+    Не «закрыта раньше времени», а не предполагала подачи вовсе. Замер
+    22.09.2026 по боевым данным:
+
+        ст. 93 ч. 12        394 протокола, медиана 0 суток,
+                            268 из 394 (68%) закрылись в день публикации
+        электронный аукцион 7 021 протокол, медиана 10 суток
+        запрос котировок    3 188 протоколов, медиана 8 суток
+
+    В разобранном примере (0376200000226000027) извещение опубликовано в
+    11:17:59, заявка подана в 11:17:04 — НА МИНУТУ РАНЬШЕ публикации, —
+    а протокол итогов подписан в 11:36. Девятнадцать минут, и победитель
+    был известен до старта.
+
+    Поэтому такие закупки не рассылаются: прислать их как тендер значит
+    позвать туда, где участвовать невозможно. В пуле они остаются — сам
+    факт, что заказчик покупает этот товар напрямую, стоит знать, но это
+    повод для прямого предложения, а не для заявки.
+    """
+    low = (procedure_type or '').lower()
+    return any(marker in low for marker in _DIRECT_MARKERS)
+
+
 async def deliver(matches: List[Dict[str, Any]],
                   filters_by_id: Dict[int, Dict[str, Any]],
                   db, notifier: Optional[TelegramNotifier]) -> int:
@@ -82,9 +113,13 @@ async def deliver(matches: List[Dict[str, Any]],
     notify_chat_id того же пользователя в этом же проходе.
     """
     sent = 0
+    skipped_direct = 0
     seen = set()
 
     for item in matches:
+        if is_direct(item.get('procedure_type')):
+            skipped_direct += 1
+            continue
         filter_data = filters_by_id.get(item['filter_id'])
         if not filter_data:
             continue
@@ -141,6 +176,9 @@ async def deliver(matches: List[Dict[str, Any]],
             )
             sent += 1
 
+    if skipped_direct:
+        logger.info("Пул ЕИС: не разослано как закупки у единственного "
+                    "поставщика — %d", skipped_direct)
     return sent
 
 

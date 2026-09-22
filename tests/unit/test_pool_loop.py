@@ -127,3 +127,25 @@ class TestDeliver:
         many = [match(tender_number=f"03731000000260000{i:02d}") for i in range(20)]
         sent = await deliver(many, filters_by_id(), db, nf)
         assert sent == 20 and len(db.saved) == 20
+
+    async def test_single_supplier_purchases_are_not_sent(self):
+        """Замер 22.09.2026: ст.93 ч.12 — 268 закупок из 394 закрылись в
+        день публикации, а в разобранном примере заявка подана на минуту
+        РАНЬШЕ публикации извещения, протокол — через 19 минут. Звать
+        туда участвовать не во что."""
+        db, nf = FakeDb(), FakeNotifier()
+        item = match()
+        item['procedure_type'] = 'Закупка, осуществляемая в соответствии с частью 12 статьи 93'
+        sent = await deliver([item], filters_by_id(), db, nf)
+        assert sent == 0 and nf.sent == []
+
+    async def test_normal_procedures_still_go_out(self):
+        db, nf = FakeDb(), FakeNotifier()
+        item = match()
+        item['procedure_type'] = 'Электронный аукцион'
+        assert await deliver([item], filters_by_id(), db, nf) == 1
+
+    async def test_unknown_method_is_not_treated_as_direct(self):
+        """Способ закупки может не прийти — это не повод молчать."""
+        db, nf = FakeDb(), FakeNotifier()
+        assert await deliver([match()], filters_by_id(), db, nf) == 1
