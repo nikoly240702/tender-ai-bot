@@ -255,3 +255,37 @@ class TestDescription:
                f'</ns0:purchaseNumber></ns0:commonInfo>'
                f'</ns0:epNotificationEF2020></ns0:export>').encode()
         assert parse_notice_card(xml)["description"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestRetries:
+    """Квота сервиса ЕИС: первый боевой проход пула 22.09.2026 получил
+    «Превышено количество допустимых запросов» на регионах 56-65, одиннадцать
+    раз. Без повтора это молчаливая потеря извещений — ровно то, ради чего
+    пул и делался."""
+
+    async def test_retries_until_success(self, monkeypatch):
+        from tender_sniper.jobs import pool_sweep_eis as m
+        monkeypatch.setattr(m, 'RETRY_BASE_DELAY', 0.0)
+        calls = {'n': 0}
+
+        def flaky():
+            calls['n'] += 1
+            if calls['n'] < 3:
+                raise RuntimeError('Превышено количество допустимых запросов')
+            return ['ok']
+
+        assert await m._with_retries(flaky, what='тест') == ['ok']
+        assert calls['n'] == 3
+
+    async def test_gives_up_and_reraises(self, monkeypatch):
+        from tender_sniper.jobs import pool_sweep_eis as m
+        monkeypatch.setattr(m, 'RETRY_BASE_DELAY', 0.0)
+        monkeypatch.setattr(m, 'RETRIES', 2)
+
+        def always_fails():
+            raise RuntimeError('сервис недоступен')
+
+        with pytest.raises(RuntimeError, match='сервис недоступен'):
+            await m._with_retries(always_fails, what='тест')
