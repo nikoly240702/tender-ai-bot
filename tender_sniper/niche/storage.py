@@ -26,7 +26,7 @@ procedure = Table(
     "procedure", metadata,
     Column("purchase_number", String(30), primary_key=True),
     Column("law", SmallInteger),
-    Column("procedure_type", String(60)),
+    Column("procedure_type", String(255)),
     Column("customer_inn", String(12)),
     Column("customer_name", Text),
     Column("customer_region_code", String(2)),
@@ -193,6 +193,21 @@ def _first_under(root, parent_tag: str, tag: str) -> Optional[str]:
     return None
 
 
+def _clip(value, limit: int):
+    """Обрезает значение под ширину колонки.
+
+    Не косметика: переполнение роняло ВЕСЬ архив, а не одну строку.
+    Замер 21.09.2026 — 31 выгрузка извещений за март не загрузилась
+    целиком из-за одного способа закупки длиннее 60 знаков
+    («Запрос предложений в электронной форме, участниками которого
+    могут быть только субъекты малого предпринимательства...»).
+    Потерять хвост названия дешевле, чем сотни процедур.
+    """
+    if value is None:
+        return None
+    return value[:limit]
+
+
 def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
     """Строка eis.procedure из извещения.
 
@@ -240,7 +255,7 @@ def parse_notice(root, *, region_code: str, source: str) -> Optional[Dict]:
     return {
         "purchase_number": purchase_number,
         "law": 44,
-        "procedure_type": _first_under(root, "placingWay", "name"),
+        "procedure_type": _clip(_first_under(root, "placingWay", "name"), 255),
         "customer_inn": _first(root, "INN"),
         "customer_name": _first(root, "fullName"),
         "customer_region_code": region_code,

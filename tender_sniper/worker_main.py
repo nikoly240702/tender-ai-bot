@@ -29,6 +29,7 @@ from tender_sniper.monitoring import (
 )
 from tender_sniper.service import TenderSniperService
 from tender_sniper.jobs.mos_portal_poll import mos_portal_poll_loop
+from tender_sniper.jobs.pool_loop import pool_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -111,6 +112,7 @@ async def main():
     sniper_service = None
     sniper_task = None
     mos_portal_task = None
+    pool_task = None
     # Ошибка инициализации мэтчинга. Не бросаем её прямо здесь: ниже есть
     # try/finally с обязательной очисткой (stop сервиса, health check runner,
     # flush Sentry) — поэтому пробрасываем уже ИЗ ТЕЛА того try.
@@ -142,6 +144,14 @@ async def main():
             # docs/superpowers/specs/2026-09-13-mos-portal-integration-design.md.
             # Независимый фоновый цикл, не влияет на shutdown/health основного сервиса.
             mos_portal_task = asyncio.create_task(mos_portal_poll_loop())
+
+            # Третий источник — общий пул через интеграционный сервис ЕИС.
+            # Идёт РЯДОМ с основным мэтчингом, а не вместо: сайт блокирует
+            # хостинговые адреса и молча теряет охват (замер 22.09.2026 —
+            # 85% запросов отбито), а сервис не блокируется. Что пробилось
+            # через сайт, приходит за две минуты; что не пробилось —
+            # в течение четырёх часов. См. tender_sniper/jobs/pool_loop.py.
+            pool_task = asyncio.create_task(pool_loop())
         except Exception as e:
             logger.error(f"❌ Не удалось запустить Tender Sniper: {e}", exc_info=True)
             update_health_status("worker_matching", f"error: {e}")
@@ -165,6 +175,13 @@ async def main():
             # в рестарт-луп.
             await asyncio.Event().wait()
     finally:
+        if pool_task:
+            logger.info("🛑 Остановка пула ЕИС...")
+            pool_task.cancel()
+            try:
+                await pool_task
+            except asyncio.CancelledError:
+                pass
         if mos_portal_task:
             logger.info("🛑 Остановка Портала поставщиков job'ы...")
             mos_portal_task.cancel()
