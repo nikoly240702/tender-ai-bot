@@ -29,6 +29,7 @@
 """
 import asyncio
 import logging
+import os
 from typing import Any, Dict, List, Optional
 
 from bot.config import BotConfig
@@ -46,10 +47,21 @@ START_DELAY_SECONDS = 240
 # Раз в час: сборщик и так берёт часовыми срезами, чаще ходить не за чем.
 POLL_INTERVAL_SECONDS = 3600
 
-# Сколько строк пула разбираем за проход. 85 регионов за два часа дают
-# порядка тысячи извещений в рабочем диапазоне; потолок с запасом, но не
-# бесконечный — чтобы один проход не висел полчаса на матчинге.
-MATCH_LIMIT = 3000
+# Сколько строк пула разбираем за проход — и это же предохранитель на
+# время обкатки.
+#
+# Ограничивать надо ИМЕННО разбор, а не отправку. match_pool помечает
+# matched_at у всех строк, которые прошли через него, поэтому совпадение,
+# отсечённое потолком рассылки, потерялось бы навсегда — ровно то, чего
+# нельзя допускать. Неразобранные строки, наоборот, остаются с
+# matched_at = NULL и дождутся следующего часа: платим задержкой, а не
+# потерей.
+#
+# Замер 22.09.2026: подтверждённых моделью совпадений 17 на 400 строк,
+# то есть около 4%. При 600 строках выходит ~25 уведомлений за проход
+# против нынешних ~240 в сутки по всем источникам. Снимается переменной
+# окружения, когда по логам станет видна настоящая частота.
+MATCH_LIMIT = int(os.getenv('EIS_POOL_MATCH_LIMIT', '600'))
 
 # Источник в уведомлении. Отличать обязательно: по нему потом видно, что
 # именно добрал пул сверх сайта, и стоит ли отключать первый путь.
@@ -132,6 +144,20 @@ async def deliver(matches: List[Dict[str, Any]],
     return sent
 
 
+async def _pending() -> int:
+    """Сколько строк пула ждёт разбора. Для итоговой строки лога."""
+    from sqlalchemy import func, select
+
+    from database import DatabaseSession, TenderPool
+    try:
+        async with DatabaseSession() as session:
+            return int(await session.scalar(
+                select(func.count()).select_from(TenderPool)
+                .where(TenderPool.matched_at.is_(None))) or 0)
+    except Exception:  # noqa: BLE001 — счётчик в логе не повод ронять цикл
+        return -1
+
+
 async def pool_loop(region_codes=None) -> None:
     """Сбор пула через ЕИС, локальный матчинг и рассылка — раз в час."""
     from tender_sniper.database import get_sniper_db
@@ -158,10 +184,16 @@ async def pool_loop(region_codes=None) -> None:
             # Итоговая строка печатается ВСЕГДА, даже при нулях: тишина в
             # логах иначе неотличима от «job не стартовал» — на этом уже
             # обожглись с Порталом поставщиков 13.09.
+            #
+            # Очередь в строке обязательна: разбор ограничен MATCH_LIMIT, и
+            # если сбор приносит больше, чем проход успевает разобрать,
+            # хвост растёт молча. Растущее число здесь — сигнал поднять
+            # лимит, а не признак поломки.
             logger.info("Пул ЕИС: цикл завершён — сохранено %d, проверено %d, "
-                        "совпадений %d, отправлено %d",
+                        "совпадений %d, отправлено %d, в очереди %d",
                         stats.saved, result.get('checked', 0),
-                        len(result.get('matches') or []), sent)
+                        len(result.get('matches') or []), sent,
+                        await _pending())
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001 — цикл не должен умирать насовсем

@@ -117,3 +117,13 @@ class TestDeliver:
         db = FakeDb()
         sent = await deliver([match()], filters_by_id(), db, None)
         assert sent == 0 and db.saved == []
+
+    async def test_every_match_is_delivered(self):
+        """Ограничение стоит на РАЗБОРЕ пула (MATCH_LIMIT), а не здесь.
+        Причина: match_pool помечает matched_at у всех строк, прошедших
+        через него, поэтому отсечённое на рассылке совпадение пропало бы
+        навсегда. Неразобранные строки, наоборот, ждут следующего часа."""
+        db, nf = FakeDb(), FakeNotifier()
+        many = [match(tender_number=f"03731000000260000{i:02d}") for i in range(20)]
+        sent = await deliver(many, filters_by_id(), db, nf)
+        assert sent == 20 and len(db.saved) == 20
