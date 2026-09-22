@@ -82,6 +82,40 @@ CONCURRENCY = int(os.getenv("EIS_SWEEP_CONCURRENCY", "1"))
 # вместе с числом прокси.
 MIN_REQUEST_INTERVAL = float(os.getenv("EIS_SWEEP_INTERVAL", "1.0"))
 
+# Повторы при отказе сервиса. Нужны из-за квоты: у интеграционного сервиса
+# есть предел частоты запросов, и на него натыкается кто угодно — замер
+# 22.09.2026, первый же боевой проход пула по 89 регионам получил
+# «Превышено количество допустимых запросов к сервису» на регионах 56-65,
+# одиннадцать раз.
+#
+# Без повтора это молчаливая потеря: извещения региона за этот час просто
+# не приезжают, а пул затевался ровно затем, чтобы не терять тендеры.
+# Квота восстанавливается за секунды — в той же ситуации загрузчик
+# аналитики пережидал 3 секунды и получал данные со второй попытки.
+#
+# Значения те же, что у загрузчика (tender_sniper/niche/ingest.py):
+# сервис общий, и вести себя с ним надо одинаково.
+RETRIES = int(os.getenv("EIS_SWEEP_RETRIES", "4"))
+RETRY_BASE_DELAY = float(os.getenv("EIS_SWEEP_RETRY_DELAY", "3.0"))
+
+
+async def _with_retries(func, *args, what: str = ""):
+    """Вызов с повторами и растущей паузой. Пробрасывает последнюю ошибку."""
+    delay = RETRY_BASE_DELAY
+    last: Optional[Exception] = None
+    for attempt in range(1, RETRIES + 1):
+        try:
+            return await asyncio.to_thread(func, *args)
+        except Exception as exc:  # noqa: BLE001 — любой сбой сервиса
+            last = exc
+            if attempt == RETRIES:
+                break
+            logger.warning("   %s: попытка %d/%d не удалась (%s), ждём %.0f с",
+                           what, attempt, RETRIES, str(exc)[:90], delay)
+            await asyncio.sleep(delay)
+            delay *= 2
+    raise last
+
 
 @dataclass
 class SweepStats:
@@ -202,9 +236,10 @@ async def sweep_region_hour(client, region_code: str, day: _dt.date, hour: int,
         await pacer.wait()
         async with semaphore:
             try:
-                urls = await asyncio.to_thread(
+                urls = await _with_retries(
                     client.request_archives_hourly, eis.SUBSYSTEM_NOTICES,
-                    doc_type, region_code, day, hour, TIME_ZONE_OFFSET)
+                    doc_type, region_code, day, hour, TIME_ZONE_OFFSET,
+                    what=f"запрос {doc_type} {region_code} {day} ч{hour}")
                 stats.requests += 1
             except Exception as exc:  # noqa: BLE001 — регион не должен ронять проход
                 stats.errors += 1
@@ -214,7 +249,9 @@ async def sweep_region_hour(client, region_code: str, day: _dt.date, hour: int,
 
             for url in urls:
                 try:
-                    blob = await asyncio.to_thread(client.download, url)
+                    blob = await _with_retries(
+                        client.download, url,
+                        what=f"архив {doc_type} {region_code} {day}")
                 except Exception as exc:  # noqa: BLE001
                     stats.errors += 1
                     logger.warning("   архив %s: %s", doc_type, str(exc)[:110])
