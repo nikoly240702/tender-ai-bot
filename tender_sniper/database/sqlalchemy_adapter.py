@@ -1025,21 +1025,33 @@ class TenderSniperDB:
             submission_deadline = None
             if tender_data.get('submission_deadline') or tender_data.get('deadline') or tender_data.get('end_date'):
                 deadline_str = tender_data.get('submission_deadline') or tender_data.get('deadline') or tender_data.get('end_date')
+                if isinstance(deadline_str, datetime):
+                    # Источник отдал уже разобранную дату — разбирать нечего.
+                    # Общий пул ЕИС читает срок из своей таблицы, где это
+                    # колонка timestamp, а не строка. Без этой ветки цепочка
+                    # парсеров ниже доходила до parsedate_to_datetime и падала
+                    # на datetime.split() с AttributeError, который здесь не
+                    # ловится, — рассылка всего прохода обрывалась целиком
+                    # (замер 22.09.2026: ни один цикл пула не дошёл до конца).
+                    submission_deadline = deadline_str
+                    deadline_str = None
                 try:
                     # Пробуем ISO формат
                     submission_deadline = datetime.fromisoformat(deadline_str)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError, AttributeError):
                     try:
                         # Пробуем RFC 2822
                         from email.utils import parsedate_to_datetime
                         submission_deadline = parsedate_to_datetime(deadline_str)
-                    except (ValueError, TypeError):
+                    # AttributeError ловим намеренно: parsedate_to_datetime
+                    # зовёт .split() у чего угодно, а не только у строки.
+                    except (ValueError, TypeError, AttributeError):
                         # Пробуем распространенные форматы даты
                         for fmt in ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%Y %H:%M', '%Y-%m-%d %H:%M']:
                             try:
                                 submission_deadline = datetime.strptime(deadline_str, fmt)
                                 break
-                            except ValueError:
+                            except (ValueError, TypeError):
                                 continue
 
                 # Убираем timezone если есть

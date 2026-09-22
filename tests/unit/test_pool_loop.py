@@ -149,3 +149,46 @@ class TestDeliver:
         """Способ закупки может не прийти — это не повод молчать."""
         db, nf = FakeDb(), FakeNotifier()
         assert await deliver([match()], filters_by_id(), db, nf) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+class TestMarkingHappensAfterDelivery:
+    """Порядок «разобрать → разослать → пометить» защищает от потери.
+
+    Если пометить раньше, перезапуск воркера между разбором и отправкой
+    превращает найденное совпадение в навсегда потерянное: строка уже
+    считается обработанной, а уведомление не ушло. Ровно этот сценарий и
+    возник 22.09.2026, когда понадобилось поднять лимит разбора и
+    перезапустить воркер посреди цикла.
+    """
+
+    async def test_loop_marks_only_after_deliver(self, monkeypatch):
+        from tender_sniper.jobs import pool_loop as pl
+
+        order = []
+
+        async def fake_match(**kwargs):
+            order.append(('match', kwargs.get('dry_run')))
+            return {'checked': 2, 'matches': [], 'checked_numbers': ['a', 'b']}
+
+        async def fake_deliver(*a, **kw):
+            order.append(('deliver', None))
+            return 0
+
+        async def fake_mark(numbers):
+            order.append(('mark', tuple(numbers)))
+            return len(numbers)
+
+        monkeypatch.setattr(pl, 'match_pool', fake_match)
+        monkeypatch.setattr(pl, 'deliver', fake_deliver)
+        monkeypatch.setattr(pl, 'mark_processed', fake_mark)
+
+        # Воспроизводим тело одного прохода без сети и sleep.
+        result = await pl.match_pool(limit=10, filters=[], dry_run=True)
+        await pl.deliver(result['matches'], {}, None, None)
+        await pl.mark_processed(result['checked_numbers'])
+
+        assert [step for step, _ in order] == ['match', 'deliver', 'mark']
+        assert order[0][1] is True, 'разбор обязан идти без пометки'
+        assert order[2][1] == ('a', 'b')
