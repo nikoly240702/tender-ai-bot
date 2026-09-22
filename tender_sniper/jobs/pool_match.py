@@ -150,6 +150,11 @@ async def match_pool(limit: int = 500, dry_run: bool = False,
                     'filter_name': filter_data['name'],
                     'user_id': filter_data['user_id'],
                     'score': match['score'],
+                    # Карточка уведомления собирается из полного тендера, а
+                    # не из этих пяти полей, и второй раз читать строку пула
+                    # ради этого незачем — она уже разобрана выше.
+                    'tender': tender,
+                    'match_info': match,
                 })
 
         if checked_numbers and not dry_run:
