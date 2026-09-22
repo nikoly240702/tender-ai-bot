@@ -27,6 +27,30 @@ logger = logging.getLogger(__name__)
 POOL_MIN_SCORE = 20
 
 
+async def mark_processed(tender_numbers: List[str]) -> int:
+    """Помечает строки пула разобранными.
+
+    Отдельно от match_pool намеренно. Пометить и разослать — две разные
+    операции, и порядок между ними важен: если пометить раньше, то
+    перезапуск воркера между ними превращает найденные совпадения в
+    навсегда потерянные (строка уже «обработана», а уведомление не
+    ушло). Поэтому pool_loop разбирает без пометки, рассылает, и только
+    потом зовёт это.
+
+    Цена обратного порядка — повторная рассылка при падении после
+    отправки, но от неё защищает is_tender_notified.
+    """
+    if not tender_numbers:
+        return 0
+    async with DatabaseSession() as session:
+        await session.execute(
+            update(TenderPool)
+            .where(TenderPool.tender_number.in_(tender_numbers))
+            .values(matched_at=datetime.utcnow()))
+        await session.commit()
+    return len(tender_numbers)
+
+
 def pool_row_to_tender(row: TenderPool) -> Dict[str, Any]:
     """Строка пула -> словарь в том виде, который ждёт SmartMatcher.
 
@@ -171,5 +195,10 @@ async def match_pool(limit: int = 500, dry_run: bool = False,
     logger.info(f"Пул: проверено {len(checked_numbers)} тендеров × {len(filters)} фильтров, "
                 f"совпадений {len(matches)}, AI-проверок {ai_checked}, отсеяно {ai_rejected}")
     return {'checked': len(checked_numbers), 'matches': matches,
+            # Номера разобранных строк — чтобы вызывающий мог пометить их
+            # САМ, уже после рассылки. Без этого совпадение, найденное
+            # перед перезапуском воркера, оставалось бы помеченным как
+            # обработанное и не приходило никогда.
+            'checked_numbers': checked_numbers,
             'filters': len(filters), 'ai_checked': ai_checked,
             'ai_rejected': ai_rejected}

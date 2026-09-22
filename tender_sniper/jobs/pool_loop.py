@@ -33,7 +33,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from bot.config import BotConfig
-from tender_sniper.jobs.pool_match import match_pool
+from tender_sniper.jobs.pool_match import mark_processed, match_pool
 from tender_sniper.jobs.pool_sweep_eis import sweep
 from tender_sniper.notifications.telegram_notifier import TelegramNotifier
 from tender_sniper.sources.eis_regions import ALL_CODES
@@ -214,10 +214,16 @@ async def pool_loop(region_codes=None) -> None:
                 notifier = TelegramNotifier(bot_token=BotConfig.BOT_TOKEN)
 
             filters = await db.get_all_active_filters()
-            result = await match_pool(limit=MATCH_LIMIT, filters=filters)
+            # dry_run=True — чтобы строки НЕ помечались разобранными до
+            # рассылки: перезапуск воркера между разбором и отправкой
+            # иначе превращает найденное в навсегда потерянное. Помечаем
+            # ниже, после deliver.
+            result = await match_pool(limit=MATCH_LIMIT, filters=filters,
+                                      dry_run=True)
             filters_by_id = {f['id']: f for f in filters}
             sent = await deliver(result.get('matches') or [], filters_by_id,
                                  db, notifier)
+            await mark_processed(result.get('checked_numbers') or [])
 
             # Итоговая строка печатается ВСЕГДА, даже при нулях: тишина в
             # логах иначе неотличима от «job не стартовал» — на этом уже
