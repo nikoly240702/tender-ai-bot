@@ -216,69 +216,6 @@
     });
   }
 
-  /* ================ BITRIX IMPORT ================ */
-
-  function initBitrixImport() {
-    const btn = document.getElementById('btn-bitrix-import');
-    if (!btn) return;
-    btn.addEventListener('click', async () => {
-      if (!confirm('Перенести все сделки из Bitrix24 в pipeline?\n\n' +
-                   'Уже импортированные карточки будут пропущены.')) return;
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Импорт…';
-      try {
-        const r = await fetch('/cabinet/api/pipeline/bitrix-import', {
-          method: 'POST', credentials: 'same-origin',
-        });
-        const d = await r.json().catch(() => ({}));
-        if (r.ok && d.ok) {
-          Toast.show(`✓ Импортировано: ${d.imported}, пропущено: ${d.skipped}` +
-                     (d.errors ? `, ошибок: ${d.errors}` : ''), 'positive');
-          if (d.imported > 0) setTimeout(() => window.location.reload(), 1200);
-        } else {
-          Toast.show(d.error || 'Ошибка импорта', 'alert');
-        }
-      } catch (e) {
-        Toast.show('Сетевая ошибка', 'alert');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    });
-  }
-
-  function initBitrixPull() {
-    const btn = document.getElementById('btn-bitrix-pull');
-    if (!btn) return;
-    btn.addEventListener('click', async () => {
-      const orig = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '⏳ Синхронизирую…';
-      try {
-        const r = await fetch('/cabinet/api/pipeline/bitrix-pull', {
-          method: 'POST', credentials: 'same-origin',
-        });
-        const d = await r.json().catch(() => ({}));
-        if (r.ok && d.ok) {
-          if (d.updated > 0) {
-            Toast.show(`✓ Обновлено карточек: ${d.updated} (проверено ${d.checked})`, 'positive');
-            setTimeout(() => window.location.reload(), 1000);
-          } else {
-            Toast.show(`Изменений нет (проверено ${d.checked})`, 'positive');
-          }
-        } else {
-          Toast.show(d.error || 'Ошибка синхронизации', 'alert');
-        }
-      } catch (e) {
-        Toast.show('Сетевая ошибка', 'alert');
-      } finally {
-        btn.disabled = false;
-        btn.textContent = orig;
-      }
-    });
-  }
-
   /* ================ MODAL ================ */
 
   function openModal(cardId) {
@@ -1331,7 +1268,5 @@
 
   initSortable();
   initManualCreate();
-  initBitrixImport();
-  initBitrixPull();
   initFilters();
 })();

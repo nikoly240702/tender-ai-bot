@@ -65,30 +65,7 @@
       ? 'https://zakupki.mos.ru/auction/' + tnum.slice(4)
       : 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=' + tnum);
     openBtn.textContent = 'Открыть тендер \u00B7 ' + (isMos ? 'Портал поставщиков' : 'zakupki.gov.ru');
-    const bxBtn = byId('tm-btn-bitrix');
-    if (bxBtn) bxBtn.dataset.tenderNumber = t.number || '';
     Modal.open('tender-modal');
-  }
-
-  const bxBtn = byId('tm-btn-bitrix');
-  if (bxBtn) {
-    bxBtn.addEventListener('click', async () => {
-      if (bxBtn.disabled) return;
-      const num = bxBtn.dataset.tenderNumber;
-      if (!num) return;
-      const orig = bxBtn.textContent;
-      bxBtn.disabled = true;
-      bxBtn.textContent = '⏳ Создаём…';
-      try {
-        const data = await window.Cabinet.apiPost('/cabinet/api/tenders/' + encodeURIComponent(num) + '/bitrix24', {});
-        if (data && data.ok) {
-          Toast.show('✓ Сделка #' + data.deal_id + ' создана в Битрикс24', 'positive');
-        }
-      } finally {
-        bxBtn.disabled = false;
-        bxBtn.textContent = orig;
-      }
-    });
   }
 
   function render(results) {

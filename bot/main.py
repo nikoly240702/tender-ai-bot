@@ -33,7 +33,6 @@ from bot.handlers import referral
 # Google Sheets экспорт (кнопка "В таблицу" + /export)
 from bot.handlers import webapp as sheets_export
 # Битрикс24 интеграция
-from bot.handlers import bitrix24 as bitrix24_handler
 from bot.handlers import pipeline_take
 # Tender-GPT AI assistant
 from bot.handlers import tender_gpt
@@ -430,7 +429,6 @@ async def main():
     dp.include_router(subscriptions.router)  # Подписки (Phase 2.1)
     dp.include_router(referral.router)  # Реферальная программа
     dp.include_router(sheets_export.router)  # Google Sheets экспорт (/export + кнопка "В таблицу")
-    dp.include_router(bitrix24_handler.router)  # Битрикс24 интеграция
     dp.include_router(pipeline_take.router)  # «Взять в работу» → карточка на канбане кабинета
     dp.include_router(engagement_router)  # Engagement (digest, deadlines)
     dp.include_router(tender_gpt.router)  # Tender-GPT AI assistant
@@ -585,7 +583,6 @@ async def main():
         commands = [
             BotCommand(command="start", description="🏠 Главное меню"),
             BotCommand(command="sniper", description="🎯 Tender Sniper - поиск и мониторинг"),
-            BotCommand(command="bitrix24", description="🔗 Настроить интеграцию с Битрикс24"),
             BotCommand(command="help", description="❓ Справка"),
         ]
         await bot.set_my_commands(commands)

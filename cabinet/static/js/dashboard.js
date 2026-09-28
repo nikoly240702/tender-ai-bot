@@ -72,7 +72,7 @@
       right.appendChild(el('div', { cls: scoreCls, text: score + '% совпадение' }));
     }
 
-    // Quick actions (Pipeline + Bitrix24) — без открытия модалки
+    // Быстрое действие: добавить в работу без открытия карточки
     const actions = el('div', { cls: 'quick-actions' });
     const plBtn = el('button', { cls: 'btn-quick btn-quick-pipeline', text: '→ В работу' });
     plBtn.title = 'Добавить в Pipeline';
@@ -81,14 +81,6 @@
       quickAddToPipeline(plBtn, t.number);
     });
     actions.appendChild(plBtn);
-
-    const bxQuick = el('button', { cls: 'btn-quick btn-quick-bitrix', text: 'Б24' });
-    bxQuick.title = 'Создать сделку в Битрикс24';
-    bxQuick.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      quickAddToBitrix(bxQuick, t.number);
-    });
-    actions.appendChild(bxQuick);
     right.appendChild(actions);
 
     row.appendChild(right);
@@ -122,28 +114,6 @@
       btn.textContent = orig;
       btn.disabled = false;
       window.Cabinet.Toast.show('Ошибка соединения', 'alert');
-    }
-  }
-
-  async function quickAddToBitrix(btn, tenderNumber) {
-    if (!tenderNumber || btn.disabled) return;
-    const orig = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '⏳';
-    try {
-      const data = await window.Cabinet.apiPost('/cabinet/api/tenders/' + encodeURIComponent(tenderNumber) + '/bitrix24', {});
-      if (data && data.ok) {
-        btn.textContent = '✓ Б24';
-        window.Cabinet.Toast.show('✓ Сделка #' + data.deal_id + ' создана в Битрикс24', 'positive');
-      } else {
-        btn.textContent = orig;
-        btn.disabled = false;
-        window.Cabinet.Toast.show((data && data.error) || 'Ошибка', 'alert');
-      }
-    } catch (e) {
-      btn.textContent = orig;
-      btn.disabled = false;
-      window.Cabinet.Toast.show('Ошибка', 'alert');
     }
   }
 
@@ -194,8 +164,6 @@
       ? 'https://zakupki.mos.ru/auction/' + tnum.slice(4)
       : 'https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber=' + tnum);
     openBtn.textContent = 'Открыть тендер \u00B7 ' + (isMos ? 'Портал поставщиков' : 'zakupki.gov.ru');
-    const bxBtn = byId('tm-btn-bitrix');
-    if (bxBtn) bxBtn.dataset.tenderNumber = t.number || '';
     const plBtn = byId('tm-btn-pipeline');
     if (plBtn) plBtn.dataset.tenderNumber = t.number || '';
     window.Cabinet.Modal.open('tender-modal');
@@ -227,27 +195,6 @@
       } finally {
         plBtn.disabled = false;
         plBtn.textContent = orig;
-      }
-    });
-  }
-
-  const bxBtn = byId('tm-btn-bitrix');
-  if (bxBtn) {
-    bxBtn.addEventListener('click', async () => {
-      if (bxBtn.disabled) return;
-      const num = bxBtn.dataset.tenderNumber;
-      if (!num) return;
-      const orig = bxBtn.textContent;
-      bxBtn.disabled = true;
-      bxBtn.textContent = '⏳ Создаём…';
-      try {
-        const data = await window.Cabinet.apiPost('/cabinet/api/tenders/' + encodeURIComponent(num) + '/bitrix24', {});
-        if (data && data.ok) {
-          window.Cabinet.Toast.show('✓ Сделка #' + data.deal_id + ' создана в Битрикс24', 'positive');
-        }
-      } finally {
-        bxBtn.disabled = false;
-        bxBtn.textContent = orig;
       }
     });
   }
