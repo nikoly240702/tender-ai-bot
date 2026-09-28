@@ -68,6 +68,111 @@ def _trim_tail_clause(s: str) -> str:
     return s.strip(' .;:،,')
 
 
+# Слова, на которые название закончиться не может: после предлога или
+# союза обязано идти продолжение.
+_DANGLING_WORDS = {
+    'по', 'для', 'на', 'в', 'из', 'с', 'со', 'при', 'от', 'до', 'к', 'о',
+    'об', 'у', 'за', 'под', 'над', 'без', 'через', 'между', 'и', 'или', 'а',
+}
+# Окончания прилагательных: «по капитальному», «работ по текущему».
+_ADJECTIVE_TAIL = re.compile(
+    r'(ому|ему|ого|его|ым|им|ой|ей|ая|яя|ое|ее|ые|ие|ый|ий|ых|их)$', re.I)
+
+
+def looks_truncated(name: str, original: str = '') -> bool:
+    """Оборвано ли название на полуслове.
+
+    Появляется, когда модель понимает «сократи до 3-5 слов» буквально и
+    отдаёт первые слова оригинала: «Выполнение работ по капитальному».
+    Отличить обрыв от нормального сокращения помогает оригинал — «Поставка
+    перчаток» вместо «Поставка перчаток для нужд больницы» обрывом не
+    является, потому что кончается существительным.
+    """
+    text = (name or '').strip()
+    if not text:
+        return True
+    if text[-1] in '(«,-—:;/+':
+        return True
+
+    words = re.findall(r'[^\s]+', text)
+    if not words:
+        return True
+    last = words[-1].strip('.,;:!?»)').lower()
+    if last in _DANGLING_WORDS:
+        return True
+
+    # Прилагательное в конце законно в обратном порядке слов («перчаток
+    # хирургических»), но не после предлога: «работ по капитальному» — это
+    # обрыв перед существительным. Второй признак обрыва — оригинал
+    # продолжается ровно с того места, где кончилось название.
+    if _ADJECTIVE_TAIL.search(last):
+        prev = words[-2].strip('.,;:!?»)(').lower() if len(words) > 1 else ''
+        if prev in _DANGLING_WORDS:
+            return True
+        src = _clean_text(original).lower()
+        cur = _clean_text(text).lower()
+        if src and src.startswith(cur) and len(src) > len(cur):
+            return True
+
+    return False
+
+
+# Вводные обороты сводки: «Тендер на поставку…», «Закупка на выполнение…».
+_SUMMARY_LEAD_IN = re.compile(
+    r'^\s*(?:тендер|закупка|аукцион|процедура|контракт)\s+(?:на|по)\s+', re.I)
+
+# После вводного оборота существительное стоит в винительном или дательном
+# падеже («на поставку», «по ремонту»). Морфологического разбора здесь нет
+# намеренно: список закрытый, из реальных формулировок сводок, а на
+# незнакомом слове вводный оборот просто остаётся на месте — «Закупка на
+# техническое обслуживание» читается нормально и грамматически верно.
+_HEAD_NOMINATIVE = {
+    'поставку': 'поставка', 'закупку': 'закупка', 'покупку': 'покупка',
+    'услугу': 'услуга', 'услуги': 'услуги', 'аренду': 'аренда',
+    'разработку': 'разработка', 'установку': 'установка', 'замену': 'замена',
+    'модернизацию': 'модернизация', 'реконструкцию': 'реконструкция',
+    'ремонт': 'ремонт', 'ремонту': 'ремонт', 'монтаж': 'монтаж',
+    'монтажу': 'монтаж', 'вывоз': 'вывоз', 'вывозу': 'вывоз',
+    # Средний род в этих падежах не меняется.
+    'выполнение': 'выполнение', 'оказание': 'оказание', 'оснащение': 'оснащение',
+    'обслуживание': 'обслуживание', 'приобретение': 'приобретение',
+    'строительство': 'строительство', 'изготовление': 'изготовление',
+}
+# Хвосты про деньги и сроки — это не предмет закупки.
+_SUMMARY_TAIL = re.compile(
+    r'\s+(?:с\s+начальной\s+ценой|на\s+сумму|стоимостью|с\s+НМЦК|со\s+сроком|'
+    r'с\s+датой|общей\s+стоимостью)\b.*$', re.I)
+
+
+def subject_from_summary(summary: str) -> Optional[str]:
+    """Достаёт предмет закупки из AI-сводки.
+
+    Сводка приходит в том же ответе модели, что и краткое имя, и в отличие
+    от него описывает суть целиком: «Тендер на выполнение капитального
+    ремонта помещений с начальной ценой до 3 миллионов рублей».
+    """
+    text = _clean_text(summary or '')
+    if not text:
+        return None
+
+    lead = _SUMMARY_LEAD_IN.match(text)
+    if lead:
+        rest = text[lead.end():]
+        head = re.match(r'([А-Яа-яЁёA-Za-z-]+)', rest)
+        nominative = _HEAD_NOMINATIVE.get(head.group(1).lower()) if head else None
+        if nominative:
+            text = nominative + rest[head.end():]
+
+    text = _SUMMARY_TAIL.sub('', text)
+    text = _trim_tail_clause(text).strip(' .;:,')
+    if len(text) < 10:
+        return None
+
+    # Первая фраза сводки — предмет; остальное обычно пояснения.
+    text = re.split(r'(?<=[а-яё])\.\s+[А-ЯЁ]', text)[0].strip(' .;:,')
+    return text[:1].upper() + text[1:] if text else None
+
+
 def extract_object_from_summary(summary: str) -> Optional[str]:
     """Детерминированно достаёт реальный предмет закупки из summary тендера."""
     if not summary:
@@ -97,28 +202,37 @@ def resolve_tender_name(
       1. сырое имя тендера, если оно осмысленное (для большинства тендеров —
          это и есть нормальное «Поставка ...»);
       2. реальный «Наименование объекта закупки» из summary;
-      3. короткое AI-название (ai_simple_name), если оно не пустышка;
-      4. AI-сводка / причина (основаны на документации тендера);
+      3. короткое AI-название (ai_simple_name), если оно не пустышка и не
+         оборвано на полуслове;
+      4. предмет закупки из AI-сводки, затем причина совпадения;
       5. описание тендера;
       6. честный фолбэк на номер — но НИКОГДА не сырой тип процедуры.
+
+    На любом шаге оборванное название пропускается: лучше показать номер
+    тендера, чем «Выполнение работ по капитальному».
     """
     match_info = match_info or {}
 
     name = (tender.get('name') or '').strip()
-    if name and not looks_like_junk_name(name):
+    if name and not looks_like_junk_name(name) and not looks_truncated(name):
         return name[:max_length]
 
     obj = extract_object_from_summary(tender.get('summary') or '')
-    if obj:
+    if obj and not looks_truncated(obj):
         return obj[:max_length]
 
     ai_simple = _clean_text(match_info.get('ai_simple_name') or '')
-    if ai_simple and not looks_like_junk_name(ai_simple):
+    if (ai_simple and not looks_like_junk_name(ai_simple)
+            and not looks_truncated(ai_simple, original=name)):
         return ai_simple[:max_length]
+
+    subject = subject_from_summary(match_info.get('ai_summary') or '')
+    if subject and not looks_like_junk_name(subject) and not looks_truncated(subject):
+        return subject[:max_length]
 
     for key in ('ai_summary', 'ai_reason'):
         val = _trim_tail_clause(_clean_text(match_info.get(key) or ''))
-        if len(val) >= 10 and not looks_like_junk_name(val):
+        if len(val) >= 10 and not looks_like_junk_name(val) and not looks_truncated(val):
             return val[:120]
 
     for alt_key in ('summary', 'description', 'tender_name'):
