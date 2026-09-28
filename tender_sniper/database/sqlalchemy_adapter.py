@@ -38,6 +38,8 @@ from database import (
     DatabaseSession
 )
 
+from tender_sniper.tender_name_resolver import resolve_tender_name
+
 logger = logging.getLogger(__name__)
 
 # Окно для «живого» счётчика совпадений у фильтра. Меньше срока хранения
@@ -1081,7 +1083,11 @@ class TenderSniperDB:
                 filter_id=filter_id,
                 filter_name=filter_name,
                 tender_number=tender_data.get('number', ''),
-                tender_name=tender_data.get('name', ''),
+                # Имя резолвится здесь, а не при показе: из этой строки оно
+                # едет в кабинет, на канбан и в выгрузки. Сырое `name` из
+                # пула приезжало видом «Поставка №2» и «Поставка
+                # водонепроницаемых» — см. tender_name_resolver.
+                tender_name=resolve_tender_name(tender_data, match_info),
                 tender_price=tender_data.get('price'),
                 tender_url=tender_data.get('url'),
                 tender_region=tender_data.get('region'),

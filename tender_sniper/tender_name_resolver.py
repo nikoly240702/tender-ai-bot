@@ -12,9 +12,12 @@
 
 import re
 import html
+import logging
 from typing import Dict, Any, Optional
 
 from tender_sniper.procedure_titles import is_procedure_type_only
+
+logger = logging.getLogger(__name__)
 
 
 _JUNK_NAME_PATTERNS = [
@@ -104,7 +107,9 @@ def looks_truncated(name: str, original: str = '') -> bool:
     # Прилагательное в конце законно в обратном порядке слов («перчаток
     # хирургических»), но не после предлога: «работ по капитальному» — это
     # обрыв перед существительным. Второй признак обрыва — оригинал
-    # продолжается ровно с того места, где кончилось название.
+    # продолжается ровно с того места, где кончилось название. Третий —
+    # прилагательному не с чем согласовываться: «Поставка
+    # водонепроницаемых» против «Поставка бахил водонепроницаемых».
     if _ADJECTIVE_TAIL.search(last):
         prev = words[-2].strip('.,;:!?»)(').lower() if len(words) > 1 else ''
         if prev in _DANGLING_WORDS:
@@ -113,8 +118,52 @@ def looks_truncated(name: str, original: str = '') -> bool:
         cur = _clean_text(text).lower()
         if src and src.startswith(cur) and len(src) > len(cur):
             return True
+        if _adjective_hangs_alone(last, prev):
+            return True
 
     return False
+
+
+_MORPH = None
+
+
+def _morph_analyzer():
+    """Морфология подключается лениво: словари грузятся около секунды, а
+    нужны только для разбора хвоста названия."""
+    global _MORPH
+    if _MORPH is None:
+        import pymorphy3
+        _MORPH = pymorphy3.MorphAnalyzer()
+    return _MORPH
+
+
+def _adjective_hangs_alone(adjective: str, previous: str) -> bool:
+    """Прилагательное в конце названия не согласовано с соседом слева.
+
+    «Поставка водонепроницаемых»: «поставка» — именительный падеж
+    единственного числа, «водонепроницаемых» — родительный множественного,
+    согласования нет, значит определяемое слово отрезано. В «Поставка
+    бахил водонепроницаемых» сосед слева — «бахил», и падеж с числом
+    совпадают.
+    """
+    if not previous:
+        return False
+    try:
+        morph = _morph_analyzer()
+        adj_parses = [p for p in morph.parse(adjective) if 'ADJF' in p.tag]
+        if not adj_parses:
+            return False
+        prev_parses = [p for p in morph.parse(previous) if 'NOUN' in p.tag]
+        if not prev_parses:
+            return False
+        for adj in adj_parses:
+            for noun in prev_parses:
+                if adj.tag.case == noun.tag.case and adj.tag.number == noun.tag.number:
+                    return False
+        return True
+    except Exception as e:  # pragma: no cover — словари недоступны
+        logger.warning("Морфология недоступна (%s), хвост не проверяю", e)
+        return False
 
 
 # Вводные обороты сводки: «Тендер на поставку…», «Закупка на выполнение…».

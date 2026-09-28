@@ -45,6 +45,19 @@ class TestLooksTruncated:
         assert looks_truncated("Ремонт мягкой кровли",
                                original="Ремонт мягкой кровли") is False
 
+    def test_dangling_adjective_without_its_noun(self):
+        """Из потока 28.09: рядом пришли «Поставка водонепроницаемых» и
+        «Поставка бахил водонепроницаемых» — первое обрезано, во втором
+        прилагательное согласовано с существительным."""
+        assert looks_truncated("Поставка водонепроницаемых") is True
+        assert looks_truncated("Поставка бахил водонепроницаемых") is False
+
+    def test_agreed_adjective_after_noun_is_fine(self):
+        for name in ("Поставка перчаток хирургических",
+                     "Морозильник низкотемпературный",
+                     "Поставка изделий медицинских"):
+            assert looks_truncated(name) is False, name
+
 
 @pytest.mark.unit
 class TestSubjectFromSummary:
@@ -89,6 +102,19 @@ class TestResolverPrefersClearName:
         tender = {"name": "Поставка перчаток хирургических", "number": "1"}
         assert resolve_tender_name(tender, {"ai_simple_name": "Перчатки"}) == \
             "Поставка перчаток хирургических"
+
+    def test_pool_raw_names_do_not_leak(self):
+        """Пул присылал сырые имена вида «Поставка №2» — теперь они
+        резолвятся при сохранении, а не только при показе карточки."""
+        tender = {"name": "Поставка №2", "number": "0348100009126000212"}
+        match_info = {"ai_summary": "Тендер на поставку бумаги для офисной техники."}
+        assert resolve_tender_name(tender, match_info) == \
+            "Поставка бумаги для офисной техники"
+
+    def test_works_without_match_info(self):
+        """save_notification зовёт резолвер и там, где разбора ИИ нет."""
+        assert resolve_tender_name({"name": "Поставка №2", "number": "77"}, None) == \
+            "Тендер №77"
 
     def test_never_returns_truncated_tail(self):
         """Если годного источника нет совсем — честный номер, а не огрызок."""
