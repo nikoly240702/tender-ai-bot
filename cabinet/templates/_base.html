@@ -27,6 +27,14 @@
     {% include "_sidebar.html" %}
 
     <main class="main">
+      {% if subscription_expired %}
+      {# Кнопки изменения при истёкшей подписке отвечают 402, и без этой
+         полосы отказ выглядел бы как поломка кабинета. #}
+      <div class="subscription-banner">
+        Подписка истекла — данные открыты для просмотра, изменения недоступны.
+        <a href="/cabinet/subscription">Продлить</a>
+      </div>
+      {% endif %}
       {% block main %}{% endblock %}
     </main>
 

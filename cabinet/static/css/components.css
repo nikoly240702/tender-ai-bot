@@ -600,3 +600,20 @@
   .main { padding: 14px 10px 36px; }
   .page-header h1 { font-size: 20px; }
 }
+
+/* Полоса «подписка истекла»: висит над содержимым на каждой странице,
+   потому что кнопки изменения в этом режиме отвечают отказом. */
+.subscription-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--alert);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft, var(--bg));
+  color: var(--text);
+  font-size: 13px;
+}
+.subscription-banner a { color: var(--accent); text-decoration: underline; }

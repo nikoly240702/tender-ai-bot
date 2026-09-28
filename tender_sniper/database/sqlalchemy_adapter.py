@@ -155,6 +155,7 @@ class TenderSniperDB:
                 'id': user.id,
                 'telegram_id': user.telegram_id,
                 'subscription_tier': user.subscription_tier,
+                'trial_expires_at': user.trial_expires_at,
                 'ai_analyses_used_month': user.ai_analyses_used_month,
                 'ai_analyses_month_reset': user.ai_analyses_month_reset,
                 'data': user.data if hasattr(user, 'data') and user.data else {},

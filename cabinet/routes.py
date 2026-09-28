@@ -11,7 +11,7 @@ import jinja2
 
 from .auth import (
     verify_telegram_login, generate_session_token, get_current_user,
-    require_auth, require_team_member,
+    require_auth, require_team_member, subscription_is_active,
 )
 from . import api
 
@@ -26,11 +26,18 @@ async def _global_ctx_processor(request):
     is_admin = False
     workspaces = []
     active_company_id = None
+    subscription_expired = False
     try:
         user = await get_current_user(request)
         if user:
             admin_id = int(os.getenv('ADMIN_USER_ID') or os.getenv('ADMIN_TELEGRAM_ID') or '0')
             is_admin = bool(admin_id and user.get('telegram_id') == admin_id)
+
+            # Кнопки при истёкшей подписке не сработают (см.
+            # subscription_readonly_middleware), и без баннера это
+            # выглядит как поломка кабинета, а не как отказ по оплате.
+            subscription_expired = not (
+                is_admin or subscription_is_active(user.get('trial_expires_at')))
 
             from cabinet.team_service import list_companies_for_user, get_active_company
             memberships = await list_companies_for_user(user['user_id'])
@@ -44,6 +51,7 @@ async def _global_ctx_processor(request):
         'is_admin_user': is_admin,
         'workspaces': workspaces,
         'active_company_id': active_company_id,
+        'subscription_expired': subscription_expired,
     }
 
 
@@ -120,10 +128,6 @@ def setup_cabinet_routes(app: web.Application):
     # JSON API — Settings
     app.router.add_get('/cabinet/api/settings', api.get_settings)
     app.router.add_post('/cabinet/api/settings', api.save_settings)
-    # JSON API — Bitrix24 integration
-    app.router.add_post('/cabinet/api/settings/bitrix24', api.save_bitrix24_settings)
-    app.router.add_post('/cabinet/api/settings/bitrix24/test', api.test_bitrix24_settings)
-    app.router.add_post('/cabinet/api/tenders/{tender_number}/bitrix24', api.export_tender_to_bitrix24)
     # JSON API — Tender-GPT
     app.router.add_post('/cabinet/api/gpt/chat', api.api_gpt_chat)
     # JSON API — Subscription
@@ -171,10 +175,6 @@ def setup_cabinet_routes(app: web.Application):
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/estimate-own', api.supplier_estimate)
     app.router.add_post('/cabinet/api/pipeline/cards/{id}/clean-request', api.supplier_clean_request)
 
-    # Импорт сделок Bitrix24 → pipeline
-    app.router.add_post('/cabinet/api/pipeline/bitrix-import', api.pipeline_bitrix_import)
-    # Pull-синхронизация: подтянуть изменения статусов из Bitrix
-    app.router.add_post('/cabinet/api/pipeline/bitrix-pull', api.pipeline_bitrix_pull)
 
     # JSON API — Team
     app.router.add_get('/cabinet/api/team/members', api.team_get_members)

@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from aiohttp import web
 from typing import Dict, Any
 
-from .auth import require_auth, require_team_member
+from .auth import require_auth, require_team_member, filter_toggle_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +378,14 @@ async def toggle_filter(request: web.Request) -> web.Response:
         return web.json_response({'error': 'Filter not found'}, status=404)
 
     new_state = not filter_data.get('is_active', True)
+    if not filter_toggle_allowed(will_enable=new_state,
+                                 subscription_active=request.get('subscription_active', True),
+                                 is_admin=request.get('is_admin', False)):
+        return web.json_response({
+            'error': 'subscription_expired',
+            'message': 'Подписка истекла: фильтр можно только выключить.',
+        }, status=402)
+
     await db.update_filter(filter_id, is_active=new_state)
     return web.json_response({'ok': True, 'is_active': new_state})
 
@@ -965,124 +973,6 @@ async def api_calendar(request: web.Request) -> web.Response:
 
     return web.json_response({'days': days, 'month': month_str})
 
-
-# ============================================
-# BITRIX24 INTEGRATION API
-# ============================================
-
-@require_auth
-async def save_bitrix24_settings(request: web.Request) -> web.Response:
-    """POST /cabinet/api/settings/bitrix24 — сохранить webhook + enabled-флаг."""
-    user = request['user']
-    try:
-        payload = await request.json()
-    except Exception:
-        return web.json_response({'error': 'Invalid JSON'}, status=400)
-
-    webhook_url = (payload.get('webhook_url') or '').strip()
-    enabled = bool(payload.get('enabled', True))
-
-    if webhook_url:
-        from bot.handlers.bitrix24 import validate_bitrix24_webhook
-        ok, msg = await validate_bitrix24_webhook(webhook_url)
-        if not ok:
-            return web.json_response({'error': f'Webhook невалиден: {msg}'}, status=400)
-
-    from tender_sniper.database import get_sniper_db
-    db = await get_sniper_db()
-    user_info = await db.get_user_by_telegram_id(user['telegram_id'])
-    if not user_info:
-        return web.json_response({'error': 'User not found'}, status=404)
-
-    current = user_info.get('data') or {}
-    # Пишем под тем же ключом что и бот (bitrix24_webhook_url) — единый источник правды.
-    current['bitrix24_webhook_url'] = webhook_url
-    current['bitrix24_enabled'] = enabled
-    # Чистим старый ключ, чтобы не было рассинхрона
-    current.pop('bitrix24_webhook', None)
-    await db.update_user_json_data(user['user_id'], current)
-
-    return web.json_response({'ok': True})
-
-
-@require_auth
-async def test_bitrix24_settings(request: web.Request) -> web.Response:
-    """POST /cabinet/api/settings/bitrix24/test — тест сохранённого webhook."""
-    user = request['user']
-    from tender_sniper.database import get_sniper_db
-    db = await get_sniper_db()
-    user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
-    _data = user_info.get('data') or {}
-    webhook = _data.get('bitrix24_webhook_url') or _data.get('bitrix24_webhook', '')
-    if not webhook:
-        return web.json_response({'error': 'Webhook не настроен'}, status=400)
-
-    from bot.handlers.bitrix24 import validate_bitrix24_webhook
-    ok, msg = await validate_bitrix24_webhook(webhook)
-    if ok:
-        return web.json_response({'ok': True, 'message': msg or 'Соединение успешно'})
-    return web.json_response({'error': msg or 'Не удалось подключиться'}, status=400)
-
-
-@require_auth
-async def export_tender_to_bitrix24(request: web.Request) -> web.Response:
-    """POST /cabinet/api/tenders/{tender_number}/bitrix24 — создать сделку из тендера."""
-    user = request['user']
-    tender_number = request.match_info['tender_number']
-
-    from tender_sniper.database import get_sniper_db
-    db = await get_sniper_db()
-    user_info = await db.get_user_by_telegram_id(user['telegram_id']) or {}
-    user_data = user_info.get('data') or {}
-
-    webhook = user_data.get('bitrix24_webhook_url') or user_data.get('bitrix24_webhook', '')
-    # enabled по умолчанию True если webhook есть (бот не выставляет этот флаг)
-    enabled = bool(user_data.get('bitrix24_enabled', True))
-    if not webhook or not enabled:
-        return web.json_response(
-            {'error': 'Битрикс24 не настроен. Зайдите в Настройки → Интеграции.'},
-            status=400,
-        )
-
-    tenders = await db.get_user_tenders(user['user_id'], limit=500)
-    tender = next((t for t in tenders if t.get('number') == tender_number), None)
-    if not tender:
-        return web.json_response({'error': 'Тендер не найден в вашей истории'}, status=404)
-
-    from bot.handlers.bitrix24 import (
-        BITRIX24_FULL_ACCESS_USERS,
-        create_bitrix24_deal,
-        create_simple_bitrix24_deal,
-    )
-
-    if user['user_id'] in BITRIX24_FULL_ACCESS_USERS:
-        deal_id = await create_bitrix24_deal(
-            webhook_url=webhook,
-            tender_number=tender.get('number', ''),
-            tender_name=tender.get('name', ''),
-            tender_price=tender.get('price'),
-            tender_url=tender.get('url', ''),
-            tender_region=tender.get('region', '') or '',
-            tender_customer=tender.get('customer_name', '') or '',
-            filter_name=tender.get('filter_name', '') or '',
-            submission_deadline=tender.get('submission_deadline', '') or '',
-            law_type=tender.get('law_type', '') or '',
-        )
-    else:
-        deal_id = await create_simple_bitrix24_deal(
-            webhook_url=webhook,
-            tender_number=tender.get('number', ''),
-            tender_name=tender.get('name', ''),
-            tender_price=tender.get('price'),
-            tender_url=tender.get('url', ''),
-            tender_customer=tender.get('customer_name', '') or '',
-            tender_region=tender.get('region', '') or '',
-            submission_deadline=tender.get('submission_deadline', '') or '',
-        )
-
-    if deal_id:
-        return web.json_response({'ok': True, 'deal_id': deal_id})
-    return web.json_response({'error': 'Не удалось создать сделку. Проверьте webhook.'}, status=500)
 
 
 # ============================================
@@ -1886,33 +1776,6 @@ async def supplier_clean_request(request: web.Request) -> web.Response:
     card_id = int(request.match_info['id'])
     result = await supplier_request_service.generate_clean_request(card_id, company['id'])
     return web.json_response(result, status=200 if result.get('ok') else 400)
-
-
-@require_team_member
-async def pipeline_bitrix_pull(request: web.Request) -> web.Response:
-    """POST /cabinet/api/pipeline/bitrix-pull — ручной запуск pull-синхронизации
-    статусов из Bitrix. Доступен любому члену команды.
-    """
-    company = request['company']
-    from cabinet.bitrix_sync import pull_changes_from_bitrix
-    result = await pull_changes_from_bitrix(company['id'])
-    if 'error' in result:
-        return web.json_response(result, status=400)
-    return web.json_response({'ok': True, **result})
-
-
-@require_owner
-async def pipeline_bitrix_import(request: web.Request) -> web.Response:
-    """POST /cabinet/api/pipeline/bitrix-import — импорт всех сделок Bitrix → карточки.
-
-    Только владелец команды. Идемпотентен. Возвращает счётчики.
-    """
-    company = request['company']
-    from cabinet.bitrix_sync import import_deals_to_pipeline
-    result = await import_deals_to_pipeline(company['id'])
-    if 'error' in result:
-        return web.json_response(result, status=400)
-    return web.json_response({'ok': True, **result})
 
 
 @require_team_member

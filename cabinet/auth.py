@@ -72,6 +72,114 @@ def generate_session_token() -> str:
     return secrets.token_hex(32)
 
 
+# ---------------------------------------------------------------------------
+# Подписка: режим «только чтение»
+# ---------------------------------------------------------------------------
+
+# Без активной подписки кабинет открыт на просмотр, но не на изменения.
+# Исключения: оплата (иначе из блокировки не выйти), свои данные и
+# настройки. Переключатель фильтров тоже пропускается сюда, но включать
+# им фильтры нельзя — это решает filter_toggle_allowed в обработчике.
+WRITE_ALLOWED_PREFIXES = (
+    '/cabinet/api/subscription',
+    '/cabinet/api/profile',
+    '/cabinet/api/settings',
+)
+CABINET_PREFIX = '/cabinet/'
+SAFE_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS'})
+
+
+def subscription_is_active(expires_at, now: Optional[datetime] = None) -> bool:
+    """Активна ли подписка на момент now.
+
+    Пустая дата означает «подписки не было», а не «бессрочная»: поле
+    заполняется при каждой выдаче тарифа, и его отсутствие — признак
+    того, что человеку ничего не выдавали.
+    """
+    if not expires_at:
+        return False
+
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.fromisoformat(expires_at)
+        except ValueError:
+            logger.warning("Непонятная дата окончания подписки: %r", expires_at)
+            return False
+
+    if not isinstance(expires_at, datetime):
+        return False
+
+    return expires_at > (now or datetime.now())
+
+
+def is_admin_telegram_id(telegram_id) -> bool:
+    """Владелец сервиса проходит любые проверки подписки.
+
+    Страховка от того, чтобы запереть самого себя из-за даты в базе.
+    """
+    raw = os.getenv('ADMIN_USER_ID') or os.getenv('ADMIN_TELEGRAM_ID') or ''
+    try:
+        return bool(raw.strip()) and int(raw) == int(telegram_id)
+    except (TypeError, ValueError):
+        return False
+
+
+def write_allowed(method: str, path: str, *, subscription_active: bool,
+                  is_admin: bool = False) -> bool:
+    """Пропускать ли изменяющий запрос при текущем состоянии подписки."""
+    if method.upper() in SAFE_METHODS:
+        return True
+    if not path.startswith(CABINET_PREFIX):
+        return True
+    if subscription_active or is_admin:
+        return True
+    if path.startswith(WRITE_ALLOWED_PREFIXES):
+        return True
+    # Выключение фильтров разрешено, поэтому запрос доходит до обработчика.
+    return path.endswith('/toggle')
+
+
+def filter_toggle_allowed(*, will_enable: bool, subscription_active: bool,
+                          is_admin: bool = False) -> bool:
+    """Без подписки фильтр можно только выключить.
+
+    Иначе блокировка обходится в два клика: выключил и включил обратно.
+    """
+    return subscription_active or is_admin or not will_enable
+
+
+@web.middleware
+async def subscription_readonly_middleware(request: web.Request, handler):
+    """Единственная точка, где держится правило «смотреть можно, менять нельзя».
+
+    Middleware висит на всём приложении, поэтому первым делом отсеивает
+    всё, что не относится к кабинету: вебхуки оплаты и Битрикс24
+    приходят без сессии и к подписке отношения не имеют.
+    """
+    if (request.method.upper() in SAFE_METHODS
+            or not request.path.startswith(CABINET_PREFIX)):
+        return await handler(request)
+
+    user = await get_current_user(request)
+    if user is None:
+        # Неавторизованного развернёт require_auth — не подменяем 401 на 402.
+        return await handler(request)
+
+    active = subscription_is_active(user.get('trial_expires_at'))
+    request['subscription_active'] = active
+    request['is_admin'] = is_admin_telegram_id(user.get('telegram_id'))
+
+    if write_allowed(request.method, request.path,
+                     subscription_active=active, is_admin=request['is_admin']):
+        return await handler(request)
+
+    return web.json_response({
+        'error': 'subscription_expired',
+        'message': 'Подписка истекла. Данные доступны для просмотра, '
+                   'изменения — после продления.',
+    }, status=402)
+
+
 async def get_current_user(request: web.Request) -> Optional[Dict[str, Any]]:
     """
     Получение текущего пользователя из cookie сессии.
@@ -99,6 +207,7 @@ async def get_current_user(request: web.Request) -> Optional[Dict[str, Any]]:
             'user_id': session['user_id'],
             'telegram_id': user['telegram_id'],
             'subscription_tier': user.get('subscription_tier', 'trial'),
+            'trial_expires_at': user.get('trial_expires_at'),
             'session_token': session_token,
         }
     except Exception as e:

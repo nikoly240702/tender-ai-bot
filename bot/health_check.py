@@ -530,7 +530,17 @@ async def start_health_check_server(port: int = 8080):
     Args:
         port: Порт для health check endpoint (default: 8080)
     """
-    app = web.Application(middlewares=[gzip_middleware])
+    # Проверка подписки стоит middleware, а не декоратором на каждой ручке:
+    # изменяющих запросов в кабинете под полсотни, и любая новая иначе
+    # приехала бы без проверки.
+    middlewares = [gzip_middleware]
+    try:
+        from cabinet.auth import subscription_readonly_middleware
+        middlewares.append(subscription_readonly_middleware)
+    except Exception as e:
+        logger.warning(f"Subscription middleware not loaded: {e}")
+
+    app = web.Application(middlewares=middlewares)
 
     # Регистрируем endpoints
     app.router.add_get('/health', health_check_handler)
