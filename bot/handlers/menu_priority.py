@@ -12,6 +12,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import StateFilter
 from typing import List, Optional
+
+from bot.config import cabinet_login_url
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,36 @@ MENU_BUTTONS = [
 # ============================================
 # УПРАВЛЕНИЕ СООБЩЕНИЯМИ
 # ============================================
+
+def main_menu_keyboard(monitoring_button: InlineKeyboardButton) -> InlineKeyboardMarkup:
+    """Главное меню бота.
+
+    Собрано в одном месте намеренно: меню показывается и командой, и
+    коллбэком, и раньше две копии расходились при каждой правке.
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        # Поиск тендеров
+        [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
+        [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
+        # Найденное
+        [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
+        [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
+        [InlineKeyboardButton(text="🔬 AI Анализ", callback_data="analyze_start")],
+        # Управление
+        [monitoring_button],
+        [InlineKeyboardButton(text="🌐 Веб-кабинет", url=cabinet_login_url())],
+        # Настройки
+        [
+            InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
+            InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
+        ],
+        [
+            InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
+            InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
+        ],
+        [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
+    ])
+
 
 async def safe_delete_message(message: Message):
     """Безопасное удаление сообщения."""
@@ -123,27 +155,7 @@ async def priority_main_menu(message: Message, state: FSMContext):
             monitoring_status = "🔴 Автомониторинг на паузе"
 
         # Показываем главное меню
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            # Поиск тендеров
-            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
-            # Найденное
-            [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
-            [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
-            [InlineKeyboardButton(text="🔬 AI Анализ", callback_data="analyze_start")],
-            # Управление
-            [monitoring_button],
-            # Настройки
-            [
-                InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
-                InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
-            ],
-            [
-                InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
-                InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
-            ],
-            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-        ])
+        keyboard = main_menu_keyboard(monitoring_button)
 
         sent = await message.answer(
             f"🎯 <b>TENDER SNIPER</b>\n\n"
@@ -427,27 +439,7 @@ async def priority_main_menu_callback(callback: CallbackQuery, state: FSMContext
             monitoring_status = "🔴 Автомониторинг на паузе"
 
         # Главное меню
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            # Поиск тендеров
-            [InlineKeyboardButton(text="📋 Мои фильтры", callback_data="sniper_my_filters")],
-            [InlineKeyboardButton(text="🔍 Разовый поиск", callback_data="sniper_new_search")],
-            # Найденное
-            [InlineKeyboardButton(text="📊 Все тендеры", callback_data="sniper_all_tenders")],
-            [InlineKeyboardButton(text="⭐ Избранное", callback_data="sniper_favorites")],
-            [InlineKeyboardButton(text="🔬 AI Анализ", callback_data="analyze_start")],
-            # Управление
-            [monitoring_button],
-            # Настройки
-            [
-                InlineKeyboardButton(text="⚙️ Настройки", callback_data="open_settings"),
-                InlineKeyboardButton(text="🎛 Фильтры 🧪", callback_data="sniper_extended_settings"),
-            ],
-            [
-                InlineKeyboardButton(text="📈 Статистика", callback_data="sniper_stats"),
-                InlineKeyboardButton(text="💎 Тарифы", callback_data="sniper_plans"),
-            ],
-            [InlineKeyboardButton(text="❓ Помощь", callback_data="sniper_help")],
-        ])
+        keyboard = main_menu_keyboard(monitoring_button)
 
         menu_text = (
             f"🎯 <b>TENDER SNIPER</b>\n\n"

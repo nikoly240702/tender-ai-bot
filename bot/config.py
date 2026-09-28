@@ -13,6 +13,18 @@ if env_path.exists():
     load_dotenv(env_path)
 
 
+# Публичный адрес веб-кабинета. Домен должен совпадать с тем, что
+# прописан боту в @BotFather: виджет входа Telegram авторизует только
+# на нём, на любом другом кнопка входа молча не срабатывает.
+CABINET_URL_DEFAULT = 'https://cabinet.tendersniper.ru'
+
+
+def cabinet_login_url() -> str:
+    """Ссылка на страницу входа в кабинет для кнопок бота."""
+    base = (os.getenv('CABINET_URL') or CABINET_URL_DEFAULT).rstrip('/')
+    return f"{base}/cabinet/login"
+
+
 class BotConfig:
     """Конфигурация бота."""
 
