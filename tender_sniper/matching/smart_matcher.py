@@ -30,6 +30,44 @@ def _normalize_yo(text: str) -> str:
     return text.translate(_YO_TRANSLATE)
 
 
+_WORDS_RE = re.compile(r'[а-яёa-z0-9]{3,}', re.IGNORECASE)
+_MORPH = None
+
+
+def _morph_analyzer():
+    """Морфологический разбор нужен матчингу словоформ; создаём лениво —
+    словари грузятся около секунды, а воркеру без матчинга они не нужны."""
+    global _MORPH
+    if _MORPH is None:
+        import pymorphy3
+        _MORPH = pymorphy3.MorphAnalyzer()
+    return _MORPH
+
+
+@functools.lru_cache(maxsize=512)
+def _text_lemmas(text: str) -> frozenset:
+    """Начальные формы всех слов текста.
+
+    Кэш по тексту обязателен: у крупного фильтра полторы тысячи
+    ключевиков, и без него разбор одного и того же извещения повторялся
+    бы столько же раз.
+    """
+    return frozenset(_lemma(w) for w in _WORDS_RE.findall(text.lower()))
+
+
+@functools.lru_cache(maxsize=100_000)
+def _lemma(word: str) -> str:
+    """Начальная форма слова. Латиница и цифры возвращаются как есть."""
+    word = word.lower()
+    if not any('а' <= c <= 'я' for c in word):
+        return word
+    try:
+        return _morph_analyzer().parse(word)[0].normal_form
+    except Exception as e:  # pragma: no cover — словари недоступны
+        logger.warning("Морфология недоступна (%s), слово как есть: %s", e, word)
+        return word
+
+
 def detect_red_flags(tender: Dict[str, Any]) -> List[str]:
     """
     Детектирует потенциальные проблемы (красные флаги) в тендере.
@@ -711,6 +749,32 @@ class SmartMatcher:
 
         return bool(_compile_pattern(pattern, re.IGNORECASE).search(text_normalized))
 
+    def _partial_match(self, keyword: str, text: str) -> bool:
+        """Совпадение по словоформе: начальная форма слова должна совпасть.
+
+        Раньше корень брался как «слово минус два символа» и искался по
+        началу слова. Из-за этого «проектор» ловил «проект „Светлый
+        путь"», «автомобиль» — «автомобильные дороги», а «электропила» —
+        «с электропитанием». За неделю боевого потока 13% уведомлений
+        держались ровно на таких совпадениях.
+
+        Эвристикой это не лечится: «проектор» и «проектов» отличаются
+        одной буквой. Поэтому сравниваются начальные формы — «проектора»
+        даёт «проектор» и проходит, «проектов» даёт «проект» и нет.
+        Обратная сторона: «перчаток» при ключе «перчатки» продолжает
+        совпадать, потому что начальная форма у обоих «перчатка».
+        """
+        keyword_lower = _normalize_yo((keyword or '').lower().strip())
+        if len(keyword_lower) < 5:
+            return False
+
+        key_lemmas = [_lemma(w) for w in _WORDS_RE.findall(keyword_lower)]
+        if not key_lemmas:
+            return False
+
+        text_lemmas = _text_lemmas(_normalize_yo(text))
+        return all(lemma in text_lemmas for lemma in key_lemmas)
+
     def _check_negative_patterns(self, text: str) -> Optional[str]:
         """
         Проверяет текст на наличие негативных паттернов.
@@ -1086,13 +1150,11 @@ class SmartMatcher:
                     continue
 
                 # Частичное совпадение (корень слова, минимум 5 символов для точности)
-                if len(keyword_lower) >= 5:
-                    root = keyword_lower[:max(5, len(keyword_lower) - 2)]
-                    if self._word_boundary_match(root, searchable_text):
-                        score += 18
-                        matched_keywords.append(f"{keyword} (частичное)")
-                        logger.debug(f"   ✅ Частичное совпадение: {root}* → {keyword}")
-                        continue
+                if self._partial_match(keyword_lower, searchable_text):
+                    score += 18
+                    matched_keywords.append(f"{keyword} (частичное)")
+                    logger.debug(f"   ✅ Частичное совпадение: {keyword}")
+                    continue
 
                 # Поиск синонимов
                 synonyms = self.SYNONYMS.get(keyword_lower, [])
