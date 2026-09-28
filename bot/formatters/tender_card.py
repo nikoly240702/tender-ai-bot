@@ -6,7 +6,10 @@
 """
 
 import re
+import html
 from datetime import datetime
+
+from tender_sniper.match_context import match_snippet
 from typing import Dict, Any, Optional, Tuple
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -176,6 +179,14 @@ def _build_text(
     if red_flags:
         parts.append("🚩 " + " · ".join(red_flags[:2]))
 
+    # Где именно совпало, если в названии этого не видно. Зонтичные имена
+    # («Поставка оборудования») — 8% потока: тендер подходящий, но человек
+    # не понимает, почему он пришёл, и считает уведомление мусором.
+    snippet = match_snippet(matched_keywords, name,
+                            tender.get('description') or tender.get('summary') or '')
+    if snippet:
+        parts.append(f"🔍 <i>совпало в описании:</i> {html.escape(snippet)}")
+
     # Фильтр и ключевые слова
     filter_line = f"🎯 {filter_name}"
     if kw_list:
@@ -234,14 +245,6 @@ def _build_keyboard(
             InlineKeyboardButton(
                 text="📊 В таблицу",
                 callback_data=safe_callback_data("sheets", tender_number)
-            ),
-            InlineKeyboardButton(
-                text="🔗 В Б24",
-                callback_data=safe_callback_data("bitrix", tender_number)
-            ),
-            InlineKeyboardButton(
-                text="🤖 В Б24 + AI",
-                callback_data=safe_callback_data("bitrix_ai", tender_number)
             ),
         ])
         buttons.append([

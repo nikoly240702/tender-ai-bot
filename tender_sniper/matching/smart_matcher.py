@@ -30,44 +30,11 @@ def _normalize_yo(text: str) -> str:
     return text.translate(_YO_TRANSLATE)
 
 
-_WORDS_RE = re.compile(r'[а-яёa-z0-9]{3,}', re.IGNORECASE)
-_MORPH = None
-
-
-def _morph_analyzer():
-    """Морфологический разбор нужен матчингу словоформ; создаём лениво —
-    словари грузятся около секунды, а воркеру без матчинга они не нужны."""
-    global _MORPH
-    if _MORPH is None:
-        import pymorphy3
-        _MORPH = pymorphy3.MorphAnalyzer()
-    return _MORPH
-
-
-@functools.lru_cache(maxsize=512)
-def _text_lemmas(text: str) -> frozenset:
-    """Начальные формы всех слов текста.
-
-    Кэш по тексту обязателен: у крупного фильтра полторы тысячи
-    ключевиков, и без него разбор одного и того же извещения повторялся
-    бы столько же раз.
-    """
-    return frozenset(_lemma(w) for w in _WORDS_RE.findall(text.lower()))
-
-
-@functools.lru_cache(maxsize=100_000)
-def _lemma(word: str) -> str:
-    """Начальная форма слова. Латиница и цифры возвращаются как есть."""
-    word = word.lower()
-    if not any('а' <= c <= 'я' for c in word):
-        return word
-    try:
-        return _morph_analyzer().parse(word)[0].normal_form
-    except Exception as e:  # pragma: no cover — словари недоступны
-        logger.warning("Морфология недоступна (%s), слово как есть: %s", e, word)
-        return word
-
-
+# Морфология вынесена в matching/lemmas.py — тем же разбором пользуется
+# показ контекста совпадения (tender_sniper/match_context.py).
+from tender_sniper.matching.lemmas import (
+    WORDS_RE as _WORDS_RE, lemma as _lemma, text_lemmas as _text_lemmas,
+)
 def detect_red_flags(tender: Dict[str, Any]) -> List[str]:
     """
     Детектирует потенциальные проблемы (красные флаги) в тендере.

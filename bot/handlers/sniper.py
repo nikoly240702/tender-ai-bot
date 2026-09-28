@@ -2729,8 +2729,8 @@ async def undo_skip_tender(callback: CallbackQuery):
             await db.unhide_tender(user['id'], tender_number)
             logger.info(f"Пользователь {callback.from_user.id} отменил пропуск тендера {tender_number}")
 
-        # Восстанавливаем ПОЛНЫЙ набор кнопок карточки (включая «В Б24» / «В Б24 + AI»),
-        # переиспользуя тот же билдер, что и при отправке уведомления.
+        # Восстанавливаем ПОЛНЫЙ набор кнопок карточки, переиспользуя тот же
+        # билдер, что и при отправке уведомления.
         from bot.formatters.tender_card import _build_keyboard
 
         notification = await db.get_notification_by_tender(user['id'], tender_number) if user else None
