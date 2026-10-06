@@ -51,3 +51,37 @@
   margin-top: 20px;
 }
 .login-card .back-link:hover { color: var(--accent-hover); }
+
+/* Ошибка входа: раньше была голым текстом без вёрстки, теперь — баннер
+   над тем же виджетом, со ссылкой на бота, если она применима. */
+.login-error {
+  text-align: left;
+  margin-bottom: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--alert);
+  border-radius: var(--radius-sm);
+  background: rgba(177, 61, 40, 0.06);
+}
+.login-error-title {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--alert);
+  margin-bottom: 6px;
+}
+.login-error-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.login-error .btn-tg {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 9px 16px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.login-error .btn-tg:hover { background: var(--accent-hover); }

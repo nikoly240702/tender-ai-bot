@@ -272,7 +272,8 @@ async def award_referral_payment_bonus(paid_user_telegram_id: int, bot: Bot = No
 
 async def get_bot_username() -> str:
     """Получает username бота."""
-    return os.getenv('BOT_USERNAME', 'TenderSniperBot')
+    from bot.config import bot_username
+    return bot_username()
 
 
 # ============================================

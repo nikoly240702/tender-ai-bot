@@ -11,7 +11,7 @@
 
   <link rel="stylesheet" href="/cabinet/static/css/tokens.css?v=6">
   <link rel="stylesheet" href="/cabinet/static/css/base.css?v=6">
-  <link rel="stylesheet" href="/cabinet/static/css/pages/login.css?v=6">
+  <link rel="stylesheet" href="/cabinet/static/css/pages/login.css?v=7">
 </head>
 <body>
   <div class="login-wrap">
@@ -24,6 +24,18 @@
         Войдите через Telegram, чтобы управлять фильтрами, просматривать
         историю тендеров и общаться с Tender-GPT.
       </p>
+
+      {% if error %}
+      <div class="login-error">
+        <div class="login-error-title">{{ error.title }}</div>
+        <div class="login-error-text">{{ error.message }}</div>
+        {% if error.bot_link %}
+        <a href="{{ error.bot_link }}" class="btn-tg" target="_blank" rel="noopener">
+          Открыть бота в Telegram
+        </a>
+        {% endif %}
+      </div>
+      {% endif %}
 
       <div class="tg-widget">
         <script async src="https://telegram.org/js/telegram-widget.js?22"

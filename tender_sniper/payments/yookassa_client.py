@@ -10,6 +10,8 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
 
+from bot.config import bot_username
+
 logger = logging.getLogger(__name__)
 
 # Настройки YooKassa
@@ -117,7 +119,11 @@ class YooKassaClient:
                 },
                 "confirmation": {
                     "type": "redirect",
-                    "return_url": return_url or "https://t.me/TenderSniperBot"
+                    # Дефолт применяется только когда вызывающий код не передал
+                    # return_url явно — у бота (bot/handlers/subscriptions.py)
+                    # такой путь есть, и до правки 06.10.2026 он уводил
+                    # оплатившего на несуществующего @TenderSniperBot.
+                    "return_url": return_url or f"https://t.me/{bot_username()}"
                 },
                 "capture": True,
                 "description": description,

@@ -18,11 +18,23 @@ if env_path.exists():
 # на нём, на любом другом кнопка входа молча не срабатывает.
 CABINET_URL_DEFAULT = 'https://cabinet.tendersniper.ru'
 
+# Реальное имя бота. BOT_USERNAME в окружении никогда не задавался (прод
+# проверен 06.10.2026), поэтому три места в коде — реферальные ссылки,
+# возврат после оплаты YooKassa, страница логина кабинета — тихо
+# откатывались на зашитый дефолт 'TenderSniperBot', бота с таким именем
+# не существует.
+BOT_USERNAME_DEFAULT = 'TenderAI111_bot'
+
 
 def cabinet_login_url() -> str:
     """Ссылка на страницу входа в кабинет для кнопок бота."""
     base = (os.getenv('CABINET_URL') or CABINET_URL_DEFAULT).rstrip('/')
     return f"{base}/cabinet/login"
+
+
+def bot_username() -> str:
+    """Имя бота для ссылок t.me/... — реферальных, возврата после оплаты."""
+    return os.getenv('BOT_USERNAME') or BOT_USERNAME_DEFAULT
 
 
 class BotConfig:

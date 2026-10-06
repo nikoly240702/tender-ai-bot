@@ -463,7 +463,7 @@
             <div class="tg-rows">
               <div class="tg-row">💰 <b>3 450 000 ₽</b></div>
               <div class="tg-row">📍 Москва · 44-ФЗ</div>
-              <div class="tg-row">⏰ Подача до: <b>5 марта 2025</b></div>
+              <div class="tg-row">⏰ Подача до: <b id="demoDeadline">—</b></div>
               <div class="tg-row">🏢 Департамент здравоохранения г. Москвы</div>
             </div>
             <div class="tg-ai">✅ Релевантность 94% — подходит под ваш профиль</div>
@@ -671,6 +671,17 @@ document.querySelectorAll('.sr').forEach(el=>io.observe(el));
 
 // faq
 function tFaq(b){const i=b.closest('.fq'),o=i.classList.contains('open');document.querySelectorAll('.fq.open').forEach(e=>e.classList.remove('open'));if(!o)i.classList.add('open')}
+
+// Дедлайн демо-карточки считаем от текущей даты, а не прописываем в
+// разметке: статичная дата («5 марта 2025») протухала и выглядела так,
+// будто лендинг заброшен — заметили при подготовке ссылки для отклика.
+(function(){
+  const el=document.getElementById('demoDeadline');
+  if(!el) return;
+  const d=new Date(); d.setDate(d.getDate()+9);
+  const months=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+  el.textContent=`${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+})();
 
 // track CTA clicks as Metrika goals
 document.querySelectorAll('a[href*="t.me/TenderAI111_bot"]').forEach(a=>{

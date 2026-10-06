@@ -13,6 +13,7 @@ from .auth import (
     verify_telegram_login, generate_session_token, get_current_user,
     require_auth, require_team_member, subscription_is_active,
 )
+from .login_errors import resolve_login_error
 from . import api
 
 logger = logging.getLogger(__name__)
@@ -203,12 +204,19 @@ def setup_cabinet_routes(app: web.Application):
 # ============================================
 
 async def login_page(request: web.Request) -> web.Response:
-    """Страница входа через Telegram Login Widget."""
+    """Страница входа через Telegram Login Widget.
+
+    ?error=<код> — telegram_auth_callback редиректит сюда при сбое, вместо
+    того чтобы отдавать голый текст: так ошибка остаётся на одной и той же
+    оформленной странице, с рабочей ссылкой на бота, а не отдельным
+    ответом без вёрстки.
+    """
     user = await get_current_user(request)
     if user:
         raise web.HTTPFound('/cabinet/')
 
-    return _render_template('login.html', request)
+    error = resolve_login_error(request.query.get('error'))
+    return _render_template('login.html', request, error=error)
 
 
 @require_team_member
@@ -441,16 +449,16 @@ async def telegram_auth_callback(request: web.Request) -> web.Response:
     """
     bot_token = os.getenv('BOT_TOKEN', '')
     if not bot_token:
-        return web.Response(text="Bot token not configured", status=500)
+        raise web.HTTPFound('/cabinet/login?error=bot_not_configured')
 
     # Извлекаем параметры
     params = dict(request.query)
     if not params.get('id') or not params.get('hash'):
-        return web.Response(text="Missing auth parameters", status=400)
+        raise web.HTTPFound('/cabinet/login?error=missing_params')
 
     # Проверяем подпись
     if not verify_telegram_login(params, bot_token):
-        return web.Response(text="Invalid auth data", status=403)
+        raise web.HTTPFound('/cabinet/login?error=invalid_auth')
 
     telegram_id = int(params['id'])
 
@@ -460,10 +468,11 @@ async def telegram_auth_callback(request: web.Request) -> web.Response:
     user = await db.get_user_by_telegram_id(telegram_id)
 
     if not user:
-        return web.Response(
-            text="User not found. Please start the bot first: @TenderSniperBot",
-            status=404
-        )
+        # Раньше здесь был голый текст со ссылкой на несуществующего бота
+        # @TenderSniperBot — для случайного посетителя кабинета это
+        # выглядело как сломанный сайт. Теперь редирект на ту же
+        # оформленную страницу логина с понятным текстом и рабочей ссылкой.
+        raise web.HTTPFound('/cabinet/login?error=user_not_found')
 
     # Создаём сессию
     session_token = generate_session_token()
