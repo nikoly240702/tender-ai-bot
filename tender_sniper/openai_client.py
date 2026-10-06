@@ -16,17 +16,20 @@ import httpx
 from openai import AsyncOpenAI, OpenAI
 
 
-def _proxy_url() -> Optional[str]:
+def proxy_url() -> Optional[str]:
+    """Адрес исходящего прокси для ЛЮБОГО клиента OpenAI-семейства в проекте
+    (в т.ч. tender_sniper/tender_gpt/graph.py, где LLM строится отдельно,
+    через langchain_openai.ChatOpenAI, а не через фабрики этого модуля)."""
     return os.getenv('OPENAI_PROXY_URL') or None
 
 
 def make_openai_client(api_key: str) -> OpenAI:
-    proxy = _proxy_url()
+    proxy = proxy_url()
     http_client = httpx.Client(proxy=proxy, timeout=60.0) if proxy else None
     return OpenAI(api_key=api_key, http_client=http_client)
 
 
 def make_async_openai_client(api_key: str) -> AsyncOpenAI:
-    proxy = _proxy_url()
+    proxy = proxy_url()
     http_client = httpx.AsyncClient(proxy=proxy, timeout=60.0) if proxy else None
     return AsyncOpenAI(api_key=api_key, http_client=http_client)

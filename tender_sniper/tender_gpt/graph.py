@@ -8,12 +8,14 @@ import os
 import logging
 from typing import Annotated, TypedDict, Sequence
 
+import httpx
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+from tender_sniper.openai_client import proxy_url
 from tender_sniper.tender_gpt.prompts import SYSTEM_PROMPT
 from tender_sniper.tender_gpt.tools import search_tenders, get_tender_details, analyze_risks, analyze_documentation
 
@@ -29,6 +31,28 @@ class AgentState(TypedDict):
 TOOLS = [search_tenders, get_tender_details, analyze_risks, analyze_documentation]
 
 
+def make_chat_llm() -> ChatOpenAI:
+    """LLM-клиент Tender-GPT, с выходом через не-российский прокси.
+
+    Правка 15.09.2026 (d94853c) развела по прокси (OPENAI_PROXY_URL) все
+    точки создания OpenAI-клиента в проекте — кроме этой: здесь LLM строился
+    через langchain_openai.ChatOpenAI, а не через openai_client.py, и grep
+    на старый паттерн конструктора (`OpenAI(`/`AsyncOpenAI(`) эту точку не
+    нашёл. Из-за этого Tender-GPT падал на 403
+    unsupported_country_region_territory на КАЖДОМ сообщении, без
+    исключений — подтверждено 06.10.2026 воспроизведением на боевом сервере.
+    """
+    proxy = proxy_url()
+    http_async_client = httpx.AsyncClient(proxy=proxy, timeout=60.0) if proxy else None
+    return ChatOpenAI(
+        model="gpt-4o-mini",
+        temperature=0.3,
+        api_key=os.getenv("OPENAI_API_KEY"),
+        max_tokens=2000,
+        http_async_client=http_async_client,
+    )
+
+
 def create_agent_graph():
     """
     Create and compile the LangGraph agent.
@@ -36,12 +60,7 @@ def create_agent_graph():
     Returns compiled StateGraph.
     """
     # LLM with tool binding
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.3,
-        api_key=os.getenv("OPENAI_API_KEY"),
-        max_tokens=2000,
-    )
+    llm = make_chat_llm()
     llm_with_tools = llm.bind_tools(TOOLS)
 
     # --- Nodes ---
