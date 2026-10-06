@@ -922,7 +922,7 @@ class EngagementScheduler:
                     try:
                         subscription_tier = user.get('subscription_tier', 'trial')
                         formatted, is_ai, extraction = await _run_ai_analysis(
-                            tender_number, subscription_tier
+                            tender_number, subscription_tier, telegram_id=user.get('telegram_id')
                         )
                         await update_bitrix24_deal_ai_results(
                             webhook_url.rstrip('/'), deal_id, extraction, formatted

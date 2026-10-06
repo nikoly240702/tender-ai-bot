@@ -40,9 +40,13 @@
       <a href="/cabinet/search" data-icon="🔍" {% if active_page == 'search' %}class="active"{% endif %}>
         <span>Поиск</span>
       </a>
+      {% if is_admin_user %}
+      {# Временно скрыт от обычных пользователей — см.
+         tender_sniper/tender_gpt/service.py (06.10.2026). #}
       <a href="/cabinet/gpt" data-icon="💬" {% if active_page == 'gpt' %}class="active"{% endif %}>
         <span>Tender-GPT</span>
       </a>
+      {% endif %}
     </div>
 
     <div class="group">

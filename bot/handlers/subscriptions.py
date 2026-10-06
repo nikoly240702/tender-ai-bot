@@ -143,7 +143,6 @@ SUBSCRIPTION_TIERS = {
             '✅ До 5 фильтров',
             '✅ До 50 уведомлений в день',
             '✅ Быстрые уведомления о новых тендерах',
-            'ℹ️ Без AI-анализа (см. Pro)',
         ],
     },
     'pro': {
@@ -156,8 +155,6 @@ SUBSCRIPTION_TIERS = {
         'features': [
             '✅ До 15 фильтров',
             '✅ Безлимит уведомлений',
-            '✅ AI-анализ: 500 в месяц',
-            '✅ Tender-GPT: 50 сообщений в месяц',
         ],
     },
     'premium': {  # DB value 'premium', UI displays as "Business"
@@ -170,12 +167,15 @@ SUBSCRIPTION_TIERS = {
         'features': [
             '✅ До 30 фильтров',
             '✅ Безлимит уведомлений',
-            '✅ Безлимитный AI-анализ',
-            '✅ Tender-GPT: 200 сообщений в месяц',
             '✅ Приоритетная поддержка',
         ],
     },
 }
+# AI-анализ и Tender-GPT временно убраны из описаний тарифов (06.10.2026) —
+# обе фичи скрыты от обычных пользователей, см. tender_sniper/tender_gpt/
+# service.py и cabinet/pipeline_service.py::enrich_card_with_ai. Лимиты
+# (ai_analyses_used_month и т.д.) в коде не трогал — при возврате фичей
+# достаточно вернуть строки сюда.
 
 
 # Скидка первого месяца для новых пользователей
@@ -699,8 +699,12 @@ async def callback_show_tiers(callback: CallbackQuery):
 • {tier_info['max_notifications_per_day']} уведомлений/день
 """
 
-    text += "\n🤖 <b>AI Unlimited</b> — аддон +1 490 ₽/мес\n• Безлимитный AI-анализ документов\n"
-
+    # Аддон «AI Unlimited» временно не продаётся (06.10.2026) — его
+    # единственная ценность, AI-анализ документов, скрыта от обычных
+    # пользователей; продавать в таком виде нельзя. Сейчас на него никто
+    # не подписан. Строка и кнопка ниже убраны, обработчики
+    # (subscription_select_ai_unlimited и оплата) оставлены как есть —
+    # их всё равно никто не найдёт без этой кнопки.
     text += "\n<i>Выберите тариф для подробностей:</i>"
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -711,7 +715,6 @@ async def callback_show_tiers(callback: CallbackQuery):
         for tier_id, info in SUBSCRIPTION_TIERS.items()
         if tier_id != 'trial'
     ] + [
-        [InlineKeyboardButton(text="🤖 AI Unlimited — 1 490 ₽/мес", callback_data="subscription_select_ai_unlimited")],
         [InlineKeyboardButton(text="◀️ Назад", callback_data="sniper_subscription")]
     ])
 

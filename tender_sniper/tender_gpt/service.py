@@ -25,6 +25,7 @@ def _md_to_html(text: str) -> str:
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
+from bot.config import is_admin_telegram_id
 from tender_sniper.tender_gpt.graph import get_agent_graph
 from tender_sniper.tender_gpt.session_manager import SessionManager
 from tender_sniper.tender_gpt.quota_manager import QuotaManager, QUOTA_EXCEEDED_MESSAGE
@@ -70,6 +71,22 @@ class TenderGPTService:
                 'tool_calls': int,          # Number of tools called
             }
         """
+        # 0. Временно скрыт от всех, кроме владельца (06.10.2026): на проде
+        # не работал вообще ни на одном сообщении (см. make_chat_llm в
+        # graph.py), и прежде чем снова открывать всем, нужно проверить
+        # качество на починенном прокси. Ни квота, ни сессия не трогаются —
+        # обычный пользователь не должен даже видеть, что фича существует.
+        if not is_admin_telegram_id(telegram_id):
+            return {
+                'response': (
+                    "Tender-GPT временно недоступен — дорабатываем качество "
+                    "ответов. Скоро вернём, следите за обновлениями бота."
+                ),
+                'session_id': None,
+                'quota': {'allowed': False, 'tier': None, 'limit': 0, 'used': 0, 'remaining': 0},
+                'tool_calls': 0,
+            }
+
         # 1. Check quota
         quota = await self.quota_manager.check_quota(telegram_id)
         if not quota['allowed']:

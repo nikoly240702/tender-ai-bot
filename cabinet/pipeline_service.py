@@ -14,6 +14,7 @@ from typing import Optional, List, Dict
 
 from sqlalchemy import select, update, func
 
+from bot.config import is_admin_telegram_id
 from database import (
     DatabaseSession, SniperUser, Company,
     PipelineCard, PipelineCardHistory, PipelineCardNote,
@@ -1039,10 +1040,19 @@ async def delete_relation(relation_id: int, company_id: int) -> Dict:
 # AI enrichment
 # ============================================
 
-async def enrich_card_with_ai(card_id: int, by_user_id: int) -> Dict:
+async def enrich_card_with_ai(card_id: int, by_user_id: int, telegram_id: int) -> Dict:
     """Запускает AI-анализ карточки. Проверяет квоту owner-а, инкрементит счётчик.
     Возвращает {ok, started: True} сразу — реальная работа в фоне.
+
+    Временно только для владельца (06.10.2026): за всё время кнопкой
+    воспользовались один раз, и в том единственном прогоне нашёлся баг
+    (сбитая нумерация позиций в сводке). Гейт — до открытия сессии БД,
+    обычный пользователь не должен списывать квоту или будить фоновую
+    задачу ради фичи, качество которой ещё не проверено.
     """
+    if not is_admin_telegram_id(telegram_id):
+        return {'ok': False, 'error': 'AI-анализ временно недоступен', 'status': 403}
+
     async with DatabaseSession() as session:
         card = await session.get(PipelineCard, card_id)
         if not card:

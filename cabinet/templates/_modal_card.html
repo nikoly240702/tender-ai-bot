@@ -99,7 +99,13 @@
         <div class="ai-block">
           <div class="ai-block-head">
             <strong>AI-анализ</strong>
+            {% if is_admin_user %}
+            {# Временно только для владельца (06.10.2026) — качество не
+               проверено на реальном потоке, см. cabinet/pipeline_service.py
+               ::enrich_card_with_ai. Уже готовый результат (если есть)
+               ниже виден всем — скрыт только запуск нового анализа. #}
             <button id="cm-ai-run" class="btn btn-secondary btn-sm">Запустить AI-анализ</button>
+            {% endif %}
           </div>
           <div id="cm-ai-summary" class="ai-summary"></div>
           <div id="cm-ai-recommendation" class="ai-recommendation"></div>

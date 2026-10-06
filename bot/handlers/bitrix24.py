@@ -176,6 +176,7 @@ async def _run_ai_analysis_background(
     deal_id: str,
     tender_number: str,
     subscription_tier: str,
+    telegram_id: int,
 ):
     """
     Фоновая задача: запускает AI анализ документации и обновляет сделку в Б24.
@@ -184,7 +185,8 @@ async def _run_ai_analysis_background(
     try:
         from bot.handlers.webapp import _run_ai_analysis
         logger.info(f"Bitrix24 background AI: starting for tender={tender_number}, deal={deal_id}")
-        formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
+        formatted, is_ai, extraction = await _run_ai_analysis(
+            tender_number, subscription_tier, telegram_id=telegram_id)
         await update_bitrix24_deal_ai_results(webhook_url, deal_id, extraction, formatted)
         logger.info(f"Bitrix24 background AI: done for deal={deal_id}")
     except Exception as e:
@@ -595,7 +597,7 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
                 if stage_id == STAGE_AI:
                     subscription_tier = user.get('subscription_tier', 'trial')
                     asyncio.create_task(
-                        _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
+                        _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier, callback.from_user.id)
                     )
             else:
                 await _safe_answer(callback, "❌ Не удалось переместить сделку")
@@ -633,7 +635,7 @@ async def handle_bitrix_ai_export(callback: CallbackQuery):
             if stage_id == STAGE_AI:
                 subscription_tier = user.get('subscription_tier', 'trial')
                 asyncio.create_task(
-                    _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier)
+                    _run_ai_analysis_background(webhook_url, str(deal_id), tender_number, subscription_tier, callback.from_user.id)
                 )
         else:
             await _safe_answer(

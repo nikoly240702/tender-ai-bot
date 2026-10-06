@@ -1515,7 +1515,8 @@ async def pipeline_ai_enrich(request: web.Request) -> web.Response:
     card_id = int(request.match_info['id'])
     if not await pipeline_service.get_card(card_id, company['id']):
         return web.json_response({'error': 'Not found'}, status=404)
-    result = await pipeline_service.enrich_card_with_ai(card_id, user['user_id'])
+    result = await pipeline_service.enrich_card_with_ai(
+        card_id, user['user_id'], user['telegram_id'])
     if not result['ok']:
         return web.json_response(result, status=result.get('status', 400))
     return web.json_response(result, status=202)

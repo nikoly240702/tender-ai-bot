@@ -475,7 +475,8 @@ async def _process_bitrix24_ai_analyze(deal_id: str):
 
         logger.info(f"Bitrix24 webhook: running AI analysis for tender={tender_number}, deal={deal_id}")
         from bot.handlers.webapp import _run_ai_analysis
-        formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
+        formatted, is_ai, extraction = await _run_ai_analysis(
+            tender_number, subscription_tier, telegram_id=user.get('telegram_id'))
 
         from bot.handlers.bitrix24 import update_bitrix24_deal_ai_results
         await update_bitrix24_deal_ai_results(webhook_url, deal_id, extraction, formatted)

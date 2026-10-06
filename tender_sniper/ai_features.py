@@ -48,8 +48,16 @@ def has_ai_access(subscription_tier: str) -> bool:
 
 
 def get_ai_upgrade_message() -> str:
-    """Возвращает сообщение о необходимости upgrade для AI функций."""
-    features_list = "\n".join([f"• {desc}" for desc in AI_FEATURES.values()])
+    """Возвращает сообщение о необходимости upgrade для AI функций.
+
+    'document_extraction' и аддон AI Unlimited убраны из текста 06.10.2026 —
+    обе фичи временно скрыты от обычных пользователей (см.
+    tender_sniper/tender_gpt/service.py, bot/handlers/webapp.py). Сам ключ
+    в AI_FEATURES не трогаю — на него смотрят can_use()/
+    format_ai_feature_locked_message() в других местах.
+    """
+    features_list = "\n".join(
+        f"• {desc}" for key, desc in AI_FEATURES.items() if key != 'document_extraction')
     return f"""
 🤖 <b>AI-функции доступны на тарифах Basic и Premium</b>
 
@@ -58,7 +66,6 @@ def get_ai_upgrade_message() -> str:
 
 • Basic: 10 AI-анализов/мес
 • Premium: 50 AI-анализов/мес
-• AI Unlimited: безлимит (+1 490 ₽/мес)
 
 Оформите подписку для доступа к умным функциям!
 """

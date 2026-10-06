@@ -61,10 +61,12 @@ def get_main_keyboard(is_monitoring_enabled: bool = True) -> ReplyKeyboardMarkup
     else:
         monitoring_btn = KeyboardButton(text="▶️ Вкл. мониторинг")
 
+    # «🤖 Tender-GPT» убрана 06.10.2026 — фича временно скрыта от обычных
+    # пользователей, см. tender_sniper/tender_gpt/service.py.
     keyboard = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🤖 Tender-GPT"), KeyboardButton(text="📋 Мои фильтры")],
-            [KeyboardButton(text="🎯 Tender Sniper"), KeyboardButton(text="❓ Помощь")],
+            [KeyboardButton(text="📋 Мои фильтры"), KeyboardButton(text="🎯 Tender Sniper")],
+            [KeyboardButton(text="❓ Помощь")],
         ],
         resize_keyboard=True,
         persistent=True

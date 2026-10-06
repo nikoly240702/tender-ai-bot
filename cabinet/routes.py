@@ -12,6 +12,7 @@ import jinja2
 from .auth import (
     verify_telegram_login, generate_session_token, get_current_user,
     require_auth, require_team_member, subscription_is_active,
+    is_admin_telegram_id,
 )
 from .login_errors import resolve_login_error
 from . import api
@@ -401,8 +402,15 @@ async def settings_page(request: web.Request) -> web.Response:
 
 @require_auth
 async def gpt_page(request: web.Request) -> web.Response:
-    """Страница Tender-GPT чата."""
+    """Страница Tender-GPT чата.
+
+    Временно только для владельца (06.10.2026) — ссылка уже убрана из
+    сайдбара, здесь гейт на случай прямого URL. См.
+    tender_sniper/tender_gpt/service.py.
+    """
     user = request['user']
+    if not is_admin_telegram_id(user.get('telegram_id')):
+        raise web.HTTPFound('/cabinet/')
     return _render_template(
         'gpt.html', request,
         active_page='gpt',

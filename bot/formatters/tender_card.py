@@ -254,20 +254,16 @@ def _build_keyboard(
             ),
         ])
 
-        # AI-кнопки
+        # AI-кнопки. «Спросить AI» (Tender-GPT) и «Анализ докум.» убраны
+        # 06.10.2026 — обе временно скрыты от обычных пользователей, см.
+        # tender_sniper/tender_gpt/service.py и bot/handlers/webapp.py.
+        # «AI-резюме» (другой движок, tender_sniper/ai_summarizer.py) не
+        # трогаю — его надёжность отдельно не проверялась.
         if subscription_tier in ('pro', 'premium'):
             buttons.append([
                 InlineKeyboardButton(
-                    text="🤖 Спросить AI",
-                    callback_data=safe_callback_data("ask_ai", tender_number)
-                ),
-                InlineKeyboardButton(
                     text="📝 AI-резюме",
                     callback_data=safe_callback_data("ai_summary", tender_number)
-                ),
-                InlineKeyboardButton(
-                    text="📄 Анализ докум.",
-                    callback_data=safe_callback_data("analyze_docs", tender_number)
                 ),
             ])
         else:

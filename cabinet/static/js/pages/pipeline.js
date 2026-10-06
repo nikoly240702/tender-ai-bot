@@ -544,7 +544,10 @@
                     fallback_summary: 'краткое описание' }[analysis.tz_source] || analysis.tz_source;
       recEl.appendChild(el('div', { cls: 'ai-source', text: 'Источник: ' + src }));
     }
-    document.getElementById('cm-ai-run').onclick = () => runAi(c.id);
+    // Кнопки нет в разметке для обычных пользователей (is_admin_user,
+    // см. _modal_card.html) — без проверки здесь падал весь рендер карточки.
+    const aiRunBtn = document.getElementById('cm-ai-run');
+    if (aiRunBtn) aiRunBtn.onclick = () => runAi(c.id);
 
     // Цифровой закупщик
     renderBuyer(c);

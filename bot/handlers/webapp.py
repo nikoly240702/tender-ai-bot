@@ -19,6 +19,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
 from tender_sniper.database import get_sniper_db
+from bot.config import is_admin_telegram_id
 from bot.utils import safe_callback_data
 from bot.utils.ai_access import can_use_ai
 
@@ -537,17 +538,30 @@ def _extract_tender_number(text: str) -> str | None:
     return None
 
 
-async def _run_ai_analysis(tender_number: str, subscription_tier: str) -> tuple[str, bool, dict]:
+async def _run_ai_analysis(tender_number: str, subscription_tier: str,
+                           telegram_id: int) -> tuple[str, bool, dict]:
     """
     Скачать документы → извлечь текст → AI анализ → форматировать.
+
+    Общая точка для ВСЕХ путей, которые запускают анализ документации:
+    кнопка в карточке тендера, аналог в MAX, автодайджест по сделкам
+    Битрикс24 и его собственный вебхук (см. bot/handlers/sniper.py,
+    bot_max/handlers.py, bot/engagement_scheduler.py, bot/health_check.py,
+    bot/handlers/bitrix24.py). Временно только для владельца (06.10.2026,
+    та же причина, что у cabinet/pipeline_service.py::enrich_card_with_ai) —
+    гейт стоит здесь одним местом, до любой сетевой операции.
 
     Returns:
         (formatted_text, is_ai)
 
     Raises:
+        PermissionError: функция временно скрыта от обычных пользователей
         ImportError: если модули не установлены
         RuntimeError: если документация недоступна или текст не извлечён
     """
+    if not is_admin_telegram_id(telegram_id):
+        raise PermissionError("AI-анализ документации временно недоступен")
+
     from src.parsers.zakupki_document_downloader import ZakupkiDocumentDownloader
     from src.document_processor.text_extractor import TextExtractor
     from tender_sniper.ai_document_extractor import (
@@ -736,7 +750,8 @@ async def _do_analyze(message: Message, tender_number: str, subscription_tier: s
     )
 
     try:
-        formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
+        formatted, is_ai, extraction = await _run_ai_analysis(
+            tender_number, subscription_tier, telegram_id=message.from_user.id)
 
         await status_msg.edit_text(
             formatted,

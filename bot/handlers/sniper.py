@@ -3785,7 +3785,8 @@ async def analyze_tender_documentation(callback: CallbackQuery):
         try:
             from bot.handlers.webapp import _run_ai_analysis
 
-            formatted, is_ai, extraction = await _run_ai_analysis(tender_number, subscription_tier)
+            formatted, is_ai, extraction = await _run_ai_analysis(
+                tender_number, subscription_tier, telegram_id=callback.from_user.id)
 
             await status_msg.edit_text(
                 formatted,

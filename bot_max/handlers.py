@@ -183,20 +183,16 @@ POPULAR_REGIONS = [
 
 MAIN_MENU_KEYBOARD = [
     [
-        {"type": "callback", "text": "🤖 Tender-GPT", "payload": "gpt"},
         {"type": "callback", "text": "➕ Создать фильтр", "payload": "new_filter"},
-    ],
-    [
         {"type": "callback", "text": "📋 Мои фильтры", "payload": "my_filters"},
+    ],
+    [
         {"type": "callback", "text": "📊 Все мои тендеры", "payload": "all_tenders"},
-    ],
-    [
         {"type": "callback", "text": "⭐ Избранное", "payload": "favorites"},
-        {"type": "callback", "text": "📈 Статистика", "payload": "stats"},
     ],
     [
+        {"type": "callback", "text": "📈 Статистика", "payload": "stats"},
         {"type": "callback", "text": "⏸ Пауза мониторинга", "payload": "pause_mon"},
-        {"type": "callback", "text": "🔬 AI Анализ", "payload": "ai_analyze"},
     ],
     [
         {"type": "callback", "text": "🔍 Поиск тендеров", "payload": "man_search"},
@@ -2487,13 +2483,9 @@ async def send_max_notification(
         # Action buttons on tender card
         action_row = []
         if tender_number:
-            action_row.append({"type": "callback", "text": "🔬 AI Анализ", "payload": f"aia_{tender_number[:20]}"})
             action_row.append({"type": "callback", "text": "⭐ В избранное", "payload": f"fa_{tender_number[:20]}"})
         if action_row:
             keyboard.append(action_row)
-
-        if tender_number:
-            keyboard.append([{"type": "callback", "text": "🤖 Спросить GPT", "payload": f"gpt_{tender_number[:20]}"}])
 
         keyboard.append([{"type": "callback", "text": "📋 Мои фильтры", "payload": "my_filters"}])
 
@@ -3186,7 +3178,8 @@ async def _do_ai_analyze(
 
         tier = user.get('subscription_tier', 'trial') if user else 'trial'
 
-        result_text, is_ai, raw_data = await _run_ai_analysis(tender_number, tier)
+        result_text, is_ai, raw_data = await _run_ai_analysis(
+            tender_number, tier, telegram_id=(user.get('telegram_id') if user else None))
 
         # Truncate if too long for Max
         if len(result_text) > 3500:

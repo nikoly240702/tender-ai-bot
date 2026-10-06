@@ -37,6 +37,23 @@ def bot_username() -> str:
     return os.getenv('BOT_USERNAME') or BOT_USERNAME_DEFAULT
 
 
+def is_admin_telegram_id(telegram_id) -> bool:
+    """Владелец сервиса — для фич, временно скрытых от обычных пользователей
+    (Tender-GPT, AI-анализ карточки — обе ненадёжны на 06.10.2026, см.
+    tender_sniper/tender_gpt/service.py и cabinet/pipeline_service.py).
+
+    Почти дублирует cabinet/auth.py::is_admin_telegram_id — своя копия
+    здесь, потому что bot/ и tender_sniper/ не зависят от cabinet/, а эта
+    проверка нужна именно оттуда (TenderGPTService обслуживает и бота, и
+    кабинет, и MAX).
+    """
+    raw = os.getenv('ADMIN_USER_ID') or os.getenv('ADMIN_TELEGRAM_ID') or ''
+    try:
+        return bool(raw.strip()) and int(raw) == int(telegram_id)
+    except (TypeError, ValueError):
+        return False
+
+
 class BotConfig:
     """Конфигурация бота."""
 
