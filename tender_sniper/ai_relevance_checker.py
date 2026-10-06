@@ -415,9 +415,12 @@ class AIRelevanceChecker:
 
         # Модель понимает «сократи до 3-5 слов» буквально и отдаёт первые
         # слова оригинала: «Выполнение работ по капитальному». Слова все
-        # из источника, поэтому проверка выше такое пропускает.
+        # из источника, поэтому проверка выше такое пропускает. is_ai_text
+        # включает грубую проверку «предлог + слово на -ому/-ему/...» —
+        # для AI-текста она оправдана (см. докстринг looks_truncated),
+        # в отличие от сырого имени тендера.
         from tender_sniper.tender_name_resolver import looks_truncated
-        return not looks_truncated(simple_name, original=tender_name)
+        return not looks_truncated(simple_name, original=tender_name, is_ai_text=True)
 
     async def _call_ai_check(
         self,

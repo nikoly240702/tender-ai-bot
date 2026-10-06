@@ -82,7 +82,7 @@ _ADJECTIVE_TAIL = re.compile(
     r'(ому|ему|ого|его|ым|им|ой|ей|ая|яя|ое|ее|ые|ие|ый|ий|ых|их)$', re.I)
 
 
-def looks_truncated(name: str, original: str = '') -> bool:
+def looks_truncated(name: str, original: str = '', is_ai_text: bool = False) -> bool:
     """Оборвано ли название на полуслове.
 
     Появляется, когда модель понимает «сократи до 3-5 слов» буквально и
@@ -90,6 +90,13 @@ def looks_truncated(name: str, original: str = '') -> bool:
     Отличить обрыв от нормального сокращения помогает оригинал — «Поставка
     перчаток» вместо «Поставка перчаток для нужд больницы» обрывом не
     является, потому что кончается существительным.
+
+    is_ai_text=True — текст написан моделью (ai_simple_name, ai_summary,
+    ai_reason), а не взят из госисточника как есть. Это включает более
+    агрессивную, грубую проверку (см. ниже), на которую можно пойти именно
+    потому, что цена ложного срабатывания здесь низкая: у AI-текста почти
+    всегда есть к чему откатиться (сводка, причина, описание), а у
+    единственного сырого имени тендера — нет.
     """
     text = (name or '').strip()
     if not text:
@@ -105,20 +112,35 @@ def looks_truncated(name: str, original: str = '') -> bool:
         return True
 
     # Прилагательное в конце законно в обратном порядке слов («перчаток
-    # хирургических»), но не после предлога: «работ по капитальному» — это
-    # обрыв перед существительным. Второй признак обрыва — оригинал
-    # продолжается ровно с того места, где кончилось название. Третий —
-    # прилагательному не с чем согласовываться: «Поставка
-    # водонепроницаемых» против «Поставка бахил водонепроницаемых».
+    # хирургических»), но не после предлога, если дальше по оригиналу идёт
+    # продолжение («работ по капитальному» при полном «...капитальному
+    # ремонту помещений школы») — обрыв перед существительным. Второй
+    # признак без оригинала — прилагательному не с чем согласовываться:
+    # «Поставка водонепроницаемых» против «Поставка бахил водонепроницаемых».
     if _ADJECTIVE_TAIL.search(last):
         prev = words[-2].strip('.,;:!?»)(').lower() if len(words) > 1 else ''
-        if prev in _DANGLING_WORDS:
-            return True
         src = _clean_text(original).lower()
         cur = _clean_text(text).lower()
         if src and src.startswith(cur) and len(src) > len(cur):
             return True
         if _adjective_hangs_alone(last, prev):
+            return True
+
+        # Третий, грубый признак — сам факт, что перед таким словом стоит
+        # предлог, без доказательств из морфологии или оригинала. Он ловит
+        # «по текущему» в тексте от ИИ (там это почти всегда обрыв), но
+        # неотличим от грамматически целых фраз того же вида в сыром
+        # госимени: предлог + субстантивированное прилагательное («для
+        # новорождённых») или предлог + местоимение той же буквенной формы
+        # («к ним» — «ним» кончается на «-им», как и «капитальному», но это
+        # не прилагательное вовсе; pymorphy3 тут не разводит «обычно
+        # употребляется отдельно» от «обычно требует существительное» —
+        # обе формы получают одинаковый вердикт). На боевых данных
+        # 06.10.2026 этот грубый признак без разбора источника ломал
+        # резолвер целиком: хорошее сырое имя тендера отбраковывалось, и в
+        # карточку уходил список категорий ОКПД2 из description. Поэтому
+        # только для AI-текста, где цена ошибки низкая.
+        if is_ai_text and prev in _DANGLING_WORDS:
             return True
 
     return False
@@ -164,6 +186,35 @@ def _adjective_hangs_alone(adjective: str, previous: str) -> bool:
     except Exception as e:  # pragma: no cover — словари недоступны
         logger.warning("Морфология недоступна (%s), хвост не проверяю", e)
         return False
+
+
+def safe_truncate(text: str, max_length: int) -> str:
+    """Режет текст по границе слова, а не посимвольно, и никогда не
+    оставляет висящий предлог/союз на конце.
+
+    Раньше везде стоял наивный срез `text[:max_length]`, применённый уже
+    ПОСЛЕ проверки на обрыв — проверялся целый оригинал, а резалась
+    готовая строка без оглядки на то, где кончается слово. Замер
+    06.10.2026: 176 из 4310 уведомлений за 14 дней получали имя, обрезанное
+    ровно по границе max_length, «...бесконвертных почтовых отправле».
+    """
+    text = (text or '').strip()
+    if len(text) <= max_length:
+        return text
+
+    cut = text[:max_length]
+    # Символ сразу за границей — не пробел и не конец строки, значит
+    # последнее слово в срезе разрублено: отбрасываем его целиком, а не
+    # угадываем, где именно оно ломается.
+    if text[max_length] not in ' \t\n':
+        cut = cut.rsplit(' ', 1)[0] if ' ' in cut else ''
+
+    words = cut.split(' ')
+    while words and words[-1].strip('.,;:!?»)(—-').lower() in _DANGLING_WORDS:
+        words.pop()
+
+    cut = ' '.join(words).rstrip(' .,;:!?»)(—-,')
+    return f'{cut}…' if cut else text[:max_length].rstrip() + '…'
 
 
 # Вводные обороты сводки: «Тендер на поставку…», «Закупка на выполнение…».
@@ -264,29 +315,31 @@ def resolve_tender_name(
 
     name = (tender.get('name') or '').strip()
     if name and not looks_like_junk_name(name) and not looks_truncated(name):
-        return name[:max_length]
+        return safe_truncate(name, max_length)
 
     obj = extract_object_from_summary(tender.get('summary') or '')
     if obj and not looks_truncated(obj):
-        return obj[:max_length]
+        return safe_truncate(obj, max_length)
 
     ai_simple = _clean_text(match_info.get('ai_simple_name') or '')
     if (ai_simple and not looks_like_junk_name(ai_simple)
-            and not looks_truncated(ai_simple, original=name)):
-        return ai_simple[:max_length]
+            and not looks_truncated(ai_simple, original=name, is_ai_text=True)):
+        return safe_truncate(ai_simple, max_length)
 
     subject = subject_from_summary(match_info.get('ai_summary') or '')
-    if subject and not looks_like_junk_name(subject) and not looks_truncated(subject):
-        return subject[:max_length]
+    if (subject and not looks_like_junk_name(subject)
+            and not looks_truncated(subject, is_ai_text=True)):
+        return safe_truncate(subject, max_length)
 
     for key in ('ai_summary', 'ai_reason'):
         val = _trim_tail_clause(_clean_text(match_info.get(key) or ''))
-        if len(val) >= 10 and not looks_like_junk_name(val) and not looks_truncated(val):
-            return val[:120]
+        if (len(val) >= 10 and not looks_like_junk_name(val)
+                and not looks_truncated(val, is_ai_text=True)):
+            return safe_truncate(val, 120)
 
     for alt_key in ('summary', 'description', 'tender_name'):
         alt = _clean_text(tender.get(alt_key) or '')
         if alt and not looks_like_junk_name(alt):
-            return alt[:max_length]
+            return safe_truncate(alt, max_length)
 
     return 'Тендер №' + (tender.get('number') or '—')
